@@ -177,4 +177,4 @@ O sistema atende aos requisitos técnicos e arquiteturais estabelecidos na Matri
 **Instituição:** Fatec São José dos Campos - 6º ADS  
 **Parceiro Acadêmico:** Dom Rock  
 **Ponto Focal (Dom Rock):** André F. de Almeida  
-**Professores Orientadores:** Claudio Lima (M2) e Walmir Duque (P2) 
+**Professores Orientadores:** Claudio Lima (M2) e Walmir Duque (P2)
