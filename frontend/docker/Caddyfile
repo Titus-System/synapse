@@ -1,0 +1,24 @@
+{$SITE_ADDRESS:localhost} {
+	root * /usr/share/caddy
+	encode gzip
+
+	@assets path /assets/*
+
+	# route{} keeps these in the written order — Caddy's automatic directive
+	# ordering would otherwise run the unconditional header after @assets'.
+	route {
+		# Only the hashed Vite assets are safe to cache forever.
+		header Cache-Control "no-cache"
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+
+		# SPA: unknown paths fall back to index.html for vue-router.
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# Internal-only health check, isolated from the SITE_ADDRESS block so it
+# doesn't go through the automatic HTTPS redirect.
+:8080 {
+	respond /healthz 200
+}
