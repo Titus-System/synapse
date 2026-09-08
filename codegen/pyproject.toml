@@ -1,0 +1,127 @@
+[tool.poetry]
+name = "agents"
+version = "0.1.0"
+description = ""
+authors = ["Pedro Garcia <pedrofsgarcia.pro@gmail.com>"]
+readme = "README.md"
+package-mode = false
+
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115.0"
+uvicorn = { extras = ["standard"], version = "^0.34.0" }
+pydantic = { extras = ["email"], version = "^2.9.0" }
+pydantic-settings = "^2.6.0"
+sqlalchemy = { extras = ["asyncio"], version = "^2.0.36" }
+asyncpg = ">=0.31.0"
+alembic = "^1.14.0"
+pyjwt = { extras = ["crypto"], version = "^2.10.0" }
+passlib = {version = "^1.7.4", extras = ["argon2", "bcrypt"]}
+python-multipart = "^0.0.12"
+resend = "^2.4.0"
+types-passlib = "^1.7.7.20260211"
+opentelemetry-distro = "^0.65b0"
+opentelemetry-exporter-otlp = {extras = ["http", "proto"], version = "^1.44.0"}
+prometheus-client = "^0.26.0"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.8.0"
+mypy = "^1.13.0"
+bandit = "^1.8.0"
+pytest = "^8.3.0"
+pytest-asyncio = "^0.24.0"
+httpx = "^0.28.0"
+python-dotenv = "^1.0"
+pre-commit = "^4.6.2"
+
+[build-system]
+requires = ["poetry-core>=1.8.0"]
+build-backend = "poetry.core.masonry.api"
+
+
+# --------------------------------------------------------------------------- #
+# Ruff (linter + formatter)
+# --------------------------------------------------------------------------- #
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["app", "tests"]
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "N",     # pep8-naming
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "SIM",   # flake8-simplify
+    "TID",   # flake8-tidy-imports
+    "ASYNC", # flake8-async
+    "RUF",   # ruff-specific rules
+]
+ignore = [
+    "B008", # FastAPI usa chamadas de função (Depends/Query) como defaults
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Migrations geradas pelo Alembic não seguem o mesmo padrão de imports/nomes.
+"alembic/**" = ["E501", "F401", "N999"]
+# Testes podem reutilizar nomes/imports de fixtures livremente.
+"tests/**" = ["S101"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+
+# --------------------------------------------------------------------------- #
+# Mypy (modo estrito)
+# --------------------------------------------------------------------------- #
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unreachable = true
+show_error_codes = true
+show_column_numbers = true
+exclude = ["alembic/versions/"]
+
+# Migrations e env do Alembic não precisam passar pelo modo estrito.
+[[tool.mypy.overrides]]
+module = ["alembic.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+ignore_errors = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+
+# --------------------------------------------------------------------------- #
+# Pytest
+# --------------------------------------------------------------------------- #
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "--import-mode=importlib"
+
+
+# --------------------------------------------------------------------------- #
+# Bandit (usado em `make lint`)
+# --------------------------------------------------------------------------- #
+[tool.bandit]
+exclude_dirs = ["tests", "alembic", "venv"]
