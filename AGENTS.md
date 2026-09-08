@@ -122,7 +122,7 @@ Não leia toda a documentação por padrão. Depois do `AGENTS.md` local, consul
 | Logs, traces ou métricas | `contracts/observability/` e a seção de observabilidade da [arquitetura](docs/ARCHITECTURE.md) |
 | Um contrato de evento, domínio ou HTTP | O schema específico em `contracts/` e seus exemplos |
 | Uma decisão já registrada ou uma mudança de fronteira | O ADR específico em [`docs/adrs/`](docs/adrs/) |
-| Convenções compartilhadas de agentes | A skill específica em [`.agents/`](.agents/), se existir |
+| Convenções compartilhadas de agentes | A skill específica em [`.agents/skills/`](.agents/skills/), se existir |
 
 Abra a [arquitetura](docs/ARCHITECTURE.md) inteira apenas quando a tarefa exigir visão ponta a ponta ou quando a seção relevante não for suficiente. Se uma mudança contrariar uma decisão registrada, consulte o ADR relacionado e proponha uma atualização explícita da decisão.
 
