@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN python -m venv /opt/venv
 
-COPY requirements.txt ./
+COPY worker/requirements.txt ./
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 
@@ -33,7 +33,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd --create-home --uid 1000 appuser
 
 COPY --from=builder /opt/venv /opt/venv
-COPY . .
+COPY worker/app ./app
+COPY worker/entrypoint.sh ./entrypoint.sh
+COPY worker/run.py ./run.py
+COPY contracts ./contracts
 
 RUN mkdir -p /app/logs \
     && chmod +x /app/entrypoint.sh \
