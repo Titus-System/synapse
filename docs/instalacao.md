@@ -68,7 +68,7 @@ Os nomes de host, portas e credenciais abaixo são padronizados para desenvolvim
 | **RabbitMQ (AMQP)** | `synapse-rabbitmq` | `rabbitmq` | `5672` | `5672` | `guest` | `guest` | `/` | `amqp://guest:guest@localhost:5672` |
 | **RabbitMQ (Painel)** | `synapse-rabbitmq` | `rabbitmq` | `15672` | `15672` | `guest` | `guest` | — | [http://localhost:15672](http://localhost:15672) |
 
-As variáveis de ambiente padrão estão declaradas e versionadas em `deploy/.env`.
+As variáveis de ambiente padrão estão declaradas e versionadas em `deploy/.env.example` (copie para `deploy/.env` se quiser sobrescrever os defaults do compose).
 
 ---
 
