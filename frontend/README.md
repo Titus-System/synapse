@@ -121,10 +121,12 @@ Rode `make help` para ver todos os alvos disponíveis (`dev`, `build`, `preview`
 
 ## Rodando com Docker
 
-A imagem faz build multi-stage (Node 24 compila, [Caddy](https://caddyserver.com/) serve os arquivos estáticos com HTTPS automático) — ver [Dockerfile](Dockerfile), [docker/Caddyfile](docker/Caddyfile) e [docker-compose.yml](docker-compose.yml).
+A imagem faz build multi-stage (Node 24 compila, [Caddy](https://caddyserver.com/) serve os arquivos estáticos com HTTPS automático) — ver [Dockerfile](Dockerfile), [docker/Caddyfile](docker/Caddyfile) e [deploy/docker-compose.yml](../deploy/docker-compose.yml).
+
+Execute a partir da raiz do monorepo:
 
 ```sh
-docker compose up -d --build
+docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
 Por padrão sobe em `https://localhost`. Como `localhost` não é um domínio público, o Caddy emite um certificado pela própria CA interna dele — o navegador vai marcar a conexão como "não segura", e isso é esperado em ambiente local, não é um bug.
@@ -138,7 +140,7 @@ Variáveis de ambiente úteis (via `.env` na raiz ou exportadas no shell antes d
 | `HTTP_PORT` / `HTTPS_PORT` | Portas do host mapeadas para 80/443 do container. Padrão: `80`/`443`. |
 
 ```sh
-SITE_ADDRESS=app.exemplo.com VITE_API_BASE_URL=https://api.exemplo.com docker compose up -d --build
+SITE_ADDRESS=app.exemplo.com VITE_API_BASE_URL=https://api.exemplo.com docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
 ## Estrutura do projeto
