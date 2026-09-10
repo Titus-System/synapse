@@ -1,0 +1,342 @@
+//julho - 2025
+
+{
+    "id": "01a087b0-fff7-71a9-bf06-f5d5d3e2c7b7",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-58",
+    "competencia_origem": "2025-07",
+    "data_inicio": "2025-07-10", 
+    "data_fim": "2025-07-25",
+    "detalhes": null
+}
+
+{
+    "id": "01a087c0-b810-75fe-8c9d-e326d88ccc71",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-124",
+    "competencia_origem": "2025-07",
+    "data_inicio": "2025-07-21", 
+    "data_fim": "2025-07-25",
+    "detalhes": null
+}
+
+{
+    "id": "01a087c2-f9d7-743f-8c04-a8e1b5b41891",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-400",
+    "competencia_origem": "2025-07",
+    "data_inicio": "2025-07-15", 
+    "data_fim": "2025-07-17",
+    "detalhes": null
+}
+
+{
+    "id": "01a087c3-f26b-7348-b01c-a3a7e9f8489b",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-485",
+    "competencia_origem": "2025-07",
+    "data_inicio": "2025-07-10", 
+    "data_fim": "2025-07-29",
+    "detalhes": null
+}
+
+{
+    "id": "01a087c6-ac7f-74ce-8ac1-4ec47ac19d26",
+    "tipo": "ferias",
+    "matricula": "MATRIC-549",
+    "competencia_origem": "2025-07",
+    "data_inicio": "2025-07-10", 
+    "data_fim": "2025-07-25",
+    "detalhes": null
+}
+
+{
+    "id": "01a087c9-6d20-776a-9717-297ec9541a4b",
+    "tipo": "ferias",
+    "matricula": "MATRIC-183",
+    "competencia_origem": "2025-07",
+    "data_inicio": "2025-07-10", 
+    "data_fim": "2025-07-25",
+    "detalhes": null
+}
+
+//agosto - 2025
+
+{
+    "id": "01a087cc-d772-76af-9cef-2e68fc1e28b0",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-113",
+    "competencia_origem": "2025-08",
+    "data_inicio": "2025-08-04", 
+    "data_fim": "2025-08-11",
+    "detalhes": null
+}
+
+{
+    "id": "01a087ce-7c7a-715d-8f2b-ca2b1498d814",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-126",
+    "competencia_origem": "2025-08",
+    "data_inicio": "2025-08-18", 
+    "data_fim": "2025-09-08",
+    "detalhes": null
+}
+
+{
+    "id": "01a087d0-57a3-701b-bff8-04bcad26ee8f",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-137",
+    "competencia_origem": "2025-08",
+    "data_inicio": "2025-08-26", 
+    "data_fim": "2025-09-05",
+    "detalhes": null
+}
+
+{
+    "id": "01a087d1-9219-722d-a04c-403d7286afef",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-115",
+    "competencia_origem": "2025-08",
+    "data_inicio": "2025-08-01", 
+    "data_fim": "2025-08-22",
+    "detalhes": null
+}
+
+{
+    "id": "01a087d2-461a-70af-9273-fc15a2868229",
+    "tipo": "ferias",
+    "matricula": "MATRIC-103",
+    "competencia_origem": "2025-08",
+    "data_inicio": "2025-08-04", 
+    "data_fim": "2025-08-17",
+    "detalhes": null
+}
+
+{
+    "id": "01a087d3-e238-7728-8915-976a79e7423e",
+    "tipo": "ferias",
+    "matricula": "MATRIC-127",
+    "competencia_origem": "2025-08",
+    "data_inicio": "2025-08-04", 
+    "data_fim": "2025-08-29",
+    "detalhes": null
+}
+
+//setembro - 2025
+
+{
+    "id": "01a088f6-db93-778b-9855-17b3af10a9bc",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-138",
+    "competencia_origem": "2025-09",
+    "data_inicio": "2025-09-08", 
+    "data_fim": "2025-09-12",
+    "detalhes": null
+}
+
+{
+    "id": "01a0894b-01be-7120-aae5-0e494e02e0bc",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-126",
+    "competencia_origem": "2025-09",
+    "data_inicio": "2025-08-18", 
+    "data_fim": "2025-09-08",
+    "detalhes": null
+}
+
+{
+    "id": "01a0894d-6f09-7597-9e18-675ccedd4cae",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-137",
+    "competencia_origem": "2025-09",
+    "data_inicio": "2025-08-26", 
+    "data_fim": "2025-09-05",
+    "detalhes": null
+}
+
+{
+    "id": "01a0894f-4a62-705e-9012-20e43e7b76f4",
+    "tipo": "ferias",
+    "matricula": "MATRIC-17",
+    "competencia_origem": "2025-09",
+    "data_inicio": "2025-09-01", 
+    "data_fim": "2025-09-30",
+    "detalhes": null
+}
+
+{
+    "id": "01a08950-f432-725a-afc5-3f80cd2c6ff9",
+    "tipo": "ferias",
+    "matricula": "MATRIC-127",
+    "competencia_origem": "2025-09",
+    "data_inicio": "2025-09-15", 
+    "data_fim": "2025-09-26",
+    "detalhes": null
+}
+
+/*MATRIC-62 possui vendas depois da data de demissão, conferir isso*/
+{
+    "id": "01a08955-307e-728b-a9ec-363e8d12f1a6", 
+    "tipo": "correcao_cadastral", 
+    "matricula": "MATRIC-62",
+    "competencia_origem": "2025-09", 
+    "data_inicio": null, 
+    "data_fim": null,
+    "detalhes": {
+        "campo": "Data_Demiss", 
+        "valor_anterior": null, 
+        "valor_novo": "2025-09-15"
+    }
+}
+
+//outubro - 2025
+
+{
+    "id": "01a08957-f40d-734c-ac8c-7671b5e887a5",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-179",
+    "competencia_origem": "2025-10",
+    "data_inicio": "2025-10-17", 
+    "data_fim": "2025-11-21",
+    "detalhes": null
+}
+
+{
+    "id": "01a08959-a6ba-737f-b155-d07063a9d0c7",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-464",
+    "competencia_origem": "2025-10",
+    "data_inicio": "2025-10-06", 
+    "data_fim": "2025-10-17",
+    "detalhes": null
+}
+
+{
+    "id": "01a0895b-f8b1-77eb-95ed-5b7c1f6fc516",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-246",
+    "competencia_origem": "2025-10",
+    "data_inicio": "2025-10-06", 
+    "data_fim": "2025-10-24",
+    "detalhes": null
+}
+
+{
+    "id": "01a0895e-43ef-70a7-b013-e3fda4b67a66", 
+    "tipo": "licenca_maternidade", 
+    "matricula": "MATRIC-71",
+    "competencia_origem": "2025-10", 
+    "data_inicio": "2025-10-01", 
+    "data_fim": null,
+    "detalhes": {
+        "duracao_legal_dias": 120, 
+        "data_fim_estimada": "2026-01-29"
+    }
+}
+
+{
+    "id": "01a0895f-d623-754e-9002-27cb2619b227",
+    "tipo": "ferias",
+    "matricula": "MATRIC-408",
+    "competencia_origem": "2025-10",
+    "data_inicio": "2025-10-01", 
+    "data_fim": "2025-10-30",
+    "detalhes": null
+}
+
+{
+    "id": "01a08967-71ae-7130-9af8-8b651a08a1ca",
+    "tipo": "ferias",
+    "matricula": "MATRIC-199",
+    "competencia_origem": "2025-10",
+    "data_inicio": "2025-10-13", 
+    "data_fim": "2025-10-28",
+    "detalhes": null
+}
+
+//novembro - 2025
+
+{
+    "id": "01a0896c-bd10-72c0-89aa-d13dd78e4d3e",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-179",
+    "competencia_origem": "2025-11",
+    "data_inicio": "2025-10-17", 
+    "data_fim": "2025-11-21",
+    "detalhes": null
+}
+
+{
+    "id": "01a08974-9ed3-7791-b082-e037848b242f",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-5",
+    "competencia_origem": "2025-11",
+    "data_inicio": "2025-11-10", 
+    "data_fim": "2025-12-12",
+    "detalhes": null
+}
+
+{
+    "id": "01a08ae3-cf0a-779f-b797-565379f6fc09",
+    "tipo": "ferias",
+    "matricula": "MATRIC-581",
+    "competencia_origem": "2025-11",
+    "data_inicio": "2025-11-10", 
+    "data_fim": "2025-11-24",
+    "detalhes": null
+}
+
+{
+    "id": "01a08ae8-a12a-737a-bec3-be90c0cedf06",
+    "tipo": "ferias",
+    "matricula": "MATRIC-52",
+    "competencia_origem": "2025-11",
+    "data_inicio": "2025-11-24", 
+    "data_fim": "2025-12-13",
+    "detalhes": null
+}
+
+//dezembro - 2025
+
+{
+    "id": "01a08aee-955d-7325-ac59-a886b345fddc",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-188",
+    "competencia_origem": "2025-12",
+    "data_inicio": "2025-12-03", 
+    "data_fim": "2025-12-10",
+    "detalhes": null
+}
+
+{
+    "id": "01a08af1-0111-7116-a41f-cb22cfbc1c80",
+    "tipo": "afastamento",
+    "matricula": "MATRIC-5",
+    "competencia_origem": "2025-12",
+    "data_inicio": "2025-11-10", 
+    "data_fim": "2025-12-12",
+    "detalhes": null
+}
+
+/*no pdf, este registro da matricula 318 estava com 15/12/2025 como data de início e 02/12/2025 
+como data de fim. Para registrar de forma lógica, as datas foram invertidas, mas não há certeza de
+que isso está correto.*/
+{
+    "id": "01a08afd-daeb-77ed-8d92-37bba67a112a",
+    "tipo": "ferias",
+    "matricula": "MATRIC-318",
+    "competencia_origem": "2025-12",
+    "data_inicio": "2025-12-02", 
+    "data_fim": "2025-12-15",
+    "detalhes": null
+}
+
+{
+    "id": "01a08b3c-ffba-768d-a7b3-2b968daf074e",
+    "tipo": "ferias",
+    "matricula": "MATRIC-52",
+    "competencia_origem": "2025-12",
+    "data_inicio": "2025-11-24", 
+    "data_fim": "2025-12-13",
+    "detalhes": null
+}
