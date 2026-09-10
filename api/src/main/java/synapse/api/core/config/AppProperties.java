@@ -29,6 +29,8 @@ public record AppProperties(@NotBlank String environment, @NotNull @Valid Servic
 		@NotNull @Valid Observability observability, @NotNull @Valid Postgres postgres) {
 
 	/**
+	 * Configura a identidade pública do serviço.
+	 *
 	 * @param name nome do serviço, no envelope de log e nas métricas
 	 * @param description descrição exibida na documentação da API
 	 * @param publicUrl URL pública, para links absolutos
@@ -39,16 +41,15 @@ public record AppProperties(@NotBlank String environment, @NotNull @Valid Servic
 	}
 
 	/**
+	 * Configura os dados técnicos de observabilidade.
+	 *
 	 * @param logLevel nível mínimo emitido
-	 * @param logPath diretório dos logs estruturados
 	 * @param traceSampleRate fração das requisições amostradas para trace
 	 * @param otlpEndpoint endpoint OTLP do Alloy
 	 * @param host instância onde o processo roda; cai no hostname da máquina se vazio
 	 */
 	public record Observability(@NotBlank @Pattern(regexp = "TRACE|DEBUG|INFO|WARN|ERROR|FATAL|OFF",
 			message = "deve ser um nível do Logback: TRACE, DEBUG, INFO, WARN, ERROR, FATAL ou OFF") String logLevel,
-
-			@NotBlank String logPath,
 
 			@NotNull @DecimalMin("0.0") @DecimalMax("1.0") Double traceSampleRate,
 

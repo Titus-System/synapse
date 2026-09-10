@@ -1,6 +1,6 @@
 # Manual de Instalação e Execução da Infraestrutura Local
 
-Este documento orienta a inicialização e operação dos serviços de infraestrutura local do projeto **Synapse** via Docker Compose.
+Este documento orienta a inicialização e operação do ambiente local do projeto **Synapse** via Docker Compose.
 
 O ambiente de infraestrutura fornece a base de persistência de dados e mensageria assíncrona para os quatro componentes de desenvolvimento (`frontend`, `api`, `codegen` e `worker`), conforme definido em [ADR-001](../docs/adrs/ADR-001.md) e [ARCHITECTURE.md](../docs/ARCHITECTURE.md).
 
@@ -8,12 +8,13 @@ O ambiente de infraestrutura fornece a base de persistência de dados e mensager
 
 ## 1. Serviços Contemplados
 
-A infraestrutura local é composta por 2 serviços essenciais:
+A infraestrutura local é composta pelos serviços de infraestrutura e pela API:
 
 1. **PostgreSQL 16**: Armazenamento único do sistema (armazena estado dos jobs, artefatos gerados, checkpoints e trilhas de auditoria). Configurado com volume persistente e criação automática do banco `api_db`.
 2. **RabbitMQ 3.13 (com Management UI)**: Broker de mensageria assíncrona para troca de eventos e comandos entre a API e os workers, com painel administrativo web exposto.
+3. **API**: aplicação Spring Boot que expõe health check e métricas de infraestrutura.
 
-*(Nota: Os quatro serviços de desenvolvimento — `api`, `codegen`, `worker` e `frontend` — e a stack de observabilidade serão integrados em tarefas dedicadas posteriores).*
+*(Nota: `codegen`, `worker` e a stack de observabilidade serão integrados em tarefas dedicadas posteriores).*
 
 ---
 
@@ -67,6 +68,7 @@ Os nomes de host, portas e credenciais abaixo são padronizados para desenvolvim
 | **PostgreSQL** | `synapse-postgres` | `postgres` | `5432` | `5432` | `postgres` | `postgres` | `api_db` | `postgresql://postgres:postgres@localhost:5432/api_db` |
 | **RabbitMQ (AMQP)** | `synapse-rabbitmq` | `rabbitmq` | `5672` | `5672` | `guest` | `guest` | `/` | `amqp://guest:guest@localhost:5672` |
 | **RabbitMQ (Painel)** | `synapse-rabbitmq` | `rabbitmq` | `15672` | `15672` | `guest` | `guest` | — | [http://localhost:15672](http://localhost:15672) |
+| **API** | `synapse-infra-api-1` | `api` | `8080` | `8080` | — | — | — | [http://localhost:8080/actuator/health](http://localhost:8080/actuator/health) |
 
 As variáveis de ambiente padrão estão declaradas e versionadas em `deploy/.env.example` (copie para `deploy/.env` se quiser sobrescrever os defaults do compose).
 
@@ -88,6 +90,7 @@ Saída esperada:
 NAME               IMAGE                             STATUS                   PORTS
 synapse-postgres   postgres:16-alpine                Up (healthy)             0.0.0.0:5432->5432/tcp
 synapse-rabbitmq   rabbitmq:3.13-management-alpine   Up (healthy)             0.0.0.0:5672->5672/tcp, 0.0.0.0:15672->15672/tcp
+synapse-infra-api-1 synapse-api:local                Up (healthy)             0.0.0.0:8080->8080/tcp
 ```
 
 ### Testando conectividade direta:
@@ -101,6 +104,13 @@ synapse-rabbitmq   rabbitmq:3.13-management-alpine   Up (healthy)             0.
 
 2. **RabbitMQ**:
    Abra no seu navegador o endereço [http://localhost:15672](http://localhost:15672) e faça login com usuário `guest` e senha `guest`. O painel de administração deverá carregar com visão geral das conexões e exchanges.
+
+3. **API**:
+
+   ```bash
+   curl --fail http://localhost:8080/actuator/health
+   # Retorno esperado: {"status":"UP"}
+   ```
 
 ---
 

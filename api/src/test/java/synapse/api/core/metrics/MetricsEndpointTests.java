@@ -36,9 +36,9 @@ class MetricsEndpointTests {
 	}
 
 	@Test
-	void servesHealthAtTheRootPathToo() {
+	void servesHealthAtTheActuatorPath() {
 		this.client.get()
-			.uri("/health")
+			.uri("/actuator/health")
 			.exchange()
 			.expectStatus()
 			.isOk()
@@ -47,8 +47,8 @@ class MetricsEndpointTests {
 	}
 
 	@Test
-	void noLongerServesTheActuatorBasePath() {
-		this.client.get().uri("/actuator/prometheus").exchange().expectStatus().isNotFound();
+	void doesNotExposeHealthAtTheRootPath() {
+		this.client.get().uri("/health").exchange().expectStatus().isNotFound();
 	}
 
 }

@@ -39,11 +39,10 @@ class JsonLogFormatterTests {
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	private final MockEnvironment environment = new MockEnvironment().withProperty("app.environment", "development")
-		.withProperty("app.service.name", "api")
+		.withProperty("app.service.name", "synapse-api")
 		.withProperty("app.service.public-url", "http://localhost:8080")
 		.withProperty("app.service.version", "0.0.1-SNAPSHOT")
 		.withProperty("app.observability.log-level", "INFO")
-		.withProperty("app.observability.log-path", "logs")
 		.withProperty("app.observability.trace-sample-rate", "1.0")
 		.withProperty("app.observability.otlp-endpoint", "http://localhost:4318")
 		.withProperty("app.observability.host", "hal")
@@ -54,18 +53,16 @@ class JsonLogFormatterTests {
 		.withProperty("app.postgres.database", "api_db");
 
 	@Test
-	void stampsOriginIdentityAndSourceLocationOnEveryLine() {
+	void incluiAIdentidadeEALocalizacaoDoCodigoEmTodaLinha() {
 		Map<String, Object> log = format(event());
 		assertThat(log).containsEntry("level", "INFO")
 			.containsEntry("message", "job accepted")
-			.containsEntry("service", "api")
+			.containsEntry("service.name", "synapse-api")
 			.containsEntry("environment", "development")
-			.containsEntry("version", "0.0.1-SNAPSHOT")
-			.containsEntry("host", "hal")
+			.containsEntry("service.version", "0.0.1-SNAPSHOT")
+			.containsEntry("host.name", "hal")
 			.containsEntry("logger", "synapse.api.job.JobService")
-			.containsEntry("module", "JobService")
-			.containsEntry("function", "accept")
-			.containsEntry("line", 42);
+			.containsEntry("code", Map.of("module", "JobService", "function", "accept", "line", 42));
 	}
 
 	@Test

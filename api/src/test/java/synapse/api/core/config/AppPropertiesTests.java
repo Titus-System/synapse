@@ -21,7 +21,7 @@ class AppPropertiesTests {
 
 	@Test
 	void carriesTheServiceIdentity() {
-		assertThat(this.properties.service().name()).isEqualTo("api");
+		assertThat(this.properties.service().name()).isEqualTo("synapse-api");
 		assertThat(this.properties.service().version()).isEqualTo("0.0.1-SNAPSHOT");
 		assertThat(this.properties.service().publicUrl()).isEqualTo("http://localhost:8080");
 	}
@@ -30,7 +30,6 @@ class AppPropertiesTests {
 	void carriesTheObservabilitySettings() {
 		AppProperties.Observability observability = this.properties.observability();
 		assertThat(observability.logLevel()).isEqualTo("INFO");
-		assertThat(observability.logPath()).isEqualTo("logs");
 		assertThat(observability.traceSampleRate()).isEqualTo(1.0);
 		assertThat(observability.otlpEndpoint()).isEqualTo("http://localhost:4318");
 		assertThat(observability.host()).isNotBlank();
@@ -47,8 +46,7 @@ class AppPropertiesTests {
 
 	@Test
 	void fallsBackToTheMachineHostnameWhenHostIsBlank() {
-		assertThat(new AppProperties.Observability("INFO", "logs", 1.0, "http://localhost:4318", "").host())
-			.isNotBlank();
+		assertThat(new AppProperties.Observability("INFO", 1.0, "http://localhost:4318", "").host()).isNotBlank();
 	}
 
 }
