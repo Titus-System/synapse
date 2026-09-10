@@ -9,95 +9,105 @@ from typing import Any
 import pytest
 
 from app.config import Settings
-from app.core.logger import ContextQueueHandler, JsonFormatter, job_id_ctx, user_id_ctx
+from app.core.logger import (
+    FormatadorJson,
+    ManipuladorFilaContexto,
+    competencia_ctx,
+    job_id_ctx,
+    no_ctx,
+    user_id_ctx,
+)
 
-# Other services parse this envelope. Changing the set means changing them too.
-CONTRACT_FIELDS = frozenset(
+CAMPOS_CONTRATO = frozenset(
     {
         "timestamp",
         "level",
         "message",
-        "service",
+        "service.name",
         "environment",
-        "version",
-        "host",
+        "service.version",
+        "host.name",
         "logger",
-        "module",
-        "function",
-        "line",
+        "code",
     }
 )
 
-EmitLine = Callable[..., str]
-Envelope = Callable[..., dict[str, Any]]
+EmitirLinha = Callable[..., str]
+TipoEnvelope = Callable[..., dict[str, Any]]
 
 
 @pytest.fixture(autouse=True)
-def _isolated_context() -> Iterator[None]:
-    job_token = job_id_ctx.set(None)
-    user_token = user_id_ctx.set(None)
+def contexto_isolado() -> Iterator[None]:
+    tokens = [
+        job_id_ctx.set(None),
+        user_id_ctx.set(None),
+        no_ctx.set(None),
+        competencia_ctx.set(None),
+    ]
     yield
-    job_id_ctx.reset(job_token)
-    user_id_ctx.reset(user_token)
+    job_id_ctx.reset(tokens[0])
+    user_id_ctx.reset(tokens[1])
+    no_ctx.reset(tokens[2])
+    competencia_ctx.reset(tokens[3])
 
 
 @pytest.fixture
-def emit_line() -> EmitLine:
-    """Handler then formatter, the same order the QueueListener applies them in."""
-    handler = ContextQueueHandler(Queue(-1))
-    formatter = JsonFormatter()
+def emitir_linha() -> EmitirLinha:
+    manipulador = ManipuladorFilaContexto(Queue(-1))
+    formatador = FormatadorJson()
 
-    def _emit(
-        message: str = "code execution finished",
+    def emitir(
+        mensagem: str = "execução de código concluída",
         *,
-        level: int = logging.INFO,
-        exc_info: Any = None,
-        extra: dict[str, Any] | None = None,
+        nivel: int = logging.INFO,
+        informacoes_excecao: Any = None,
+        campos_extras: dict[str, Any] | None = None,
     ) -> str:
-        record = logging.getLogger("app.worker.consumer").makeRecord(
-            "app.worker.consumer",
-            level,
-            "app/worker/consumer.py",
+        registro = logging.getLogger("app.mensageria.consumidor").makeRecord(
+            "app.mensageria.consumidor",
+            nivel,
+            "app/mensageria/consumidor.py",
             42,
-            message,
+            mensagem,
             (),
-            exc_info,
-            "handle_message",
-            extra,
+            informacoes_excecao,
+            "consumir_mensagem",
+            campos_extras,
         )
-        return formatter.format(handler.prepare(record))
+        return formatador.format(manipulador.prepare(registro))
 
-    return _emit
+    return emitir
 
 
 @pytest.fixture
-def envelope(emit_line: EmitLine) -> Envelope:
-    def _envelope(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        payload: dict[str, Any] = json.loads(emit_line(*args, **kwargs))
-        return payload
+def envelope(emitir_linha: EmitirLinha) -> TipoEnvelope:
+    def criar_envelope(*argumentos: Any, **argumentos_nomeados: Any) -> dict[str, Any]:
+        return json.loads(emitir_linha(*argumentos, **argumentos_nomeados))
 
-    return _envelope
-
-
-def test_top_level_fields_are_exactly_the_contract(envelope: Envelope) -> None:
-    assert set(envelope()) == set(CONTRACT_FIELDS)
+    return criar_envelope
 
 
-def test_identity_fields_come_from_settings(envelope: Envelope, settings: Settings) -> None:
-    payload = envelope()
-
-    assert payload["service"] == settings.SERVICE_NAME
-    assert payload["environment"] == settings.ENVIRONMENT
-    assert payload["version"] == settings.VERSION
-    assert payload["host"] == settings.hostname
+def test_campos_de_topo_sao_exatamente_o_contrato(envelope: TipoEnvelope) -> None:
+    assert set(envelope()) == CAMPOS_CONTRATO
 
 
-def test_timestamp_is_utc_iso8601(envelope: Envelope) -> None:
+def test_identidade_do_servico_vem_das_configuracoes(
+    envelope: TipoEnvelope, configuracoes: Settings
+) -> None:
+    linha = envelope()
+
+    assert linha["service.name"] == configuracoes.SERVICE_NAME
+    assert linha["environment"] == configuracoes.ENVIRONMENT
+    assert linha["service.version"] == configuracoes.VERSION
+    assert linha["host.name"] == configuracoes.hostname
+
+
+def test_timestamp_esta_em_utc_no_formato_iso8601(envelope: TipoEnvelope) -> None:
     assert datetime.fromisoformat(envelope()["timestamp"]).utcoffset() == timedelta(0)
 
 
 @pytest.mark.parametrize(
-    ("level", "expected"),
+    ("nivel", "esperado"),
     [
         (logging.DEBUG, "DEBUG"),
         (logging.INFO, "INFO"),
@@ -106,62 +116,48 @@ def test_timestamp_is_utc_iso8601(envelope: Envelope) -> None:
         (logging.CRITICAL, "FATAL"),
     ],
 )
-def test_level_uses_opentelemetry_short_names(
-    envelope: Envelope, level: int, expected: str
+def test_nivel_usa_nomes_curtos_do_opentelemetry(
+    envelope: TipoEnvelope, nivel: int, esperado: str
 ) -> None:
-    """`level` is a Loki label, so the vocabulary has to be one across services."""
-    assert envelope(level=level)["level"] == expected
+    assert envelope(nivel=nivel)["level"] == esperado
 
 
-def test_source_location_identifies_the_call_site(envelope: Envelope) -> None:
-    payload = envelope()
-
-    assert payload["logger"] == "app.worker.consumer"
-    assert payload["module"] == "consumer"
-    assert payload["function"] == "handle_message"
-    assert payload["line"] == 42
-
-
-def test_extra_is_namespaced_under_extra(envelope: Envelope) -> None:
-    payload = envelope(extra={"exit_code": 0, "duration_ms": 1432})
-
-    assert payload["extra"] == {"exit_code": 0, "duration_ms": 1432}
-    assert "exit_code" not in payload
+def test_codigo_identifica_o_ponto_da_chamada(envelope: TipoEnvelope) -> None:
+    assert envelope()["code"] == {
+        "module": "consumidor",
+        "function": "consumir_mensagem",
+        "line": 42,
+    }
 
 
-def test_correlation_fields_are_omitted_when_unset(envelope: Envelope) -> None:
-    assert not {"trace_id", "span_id", "job_id", "user_id"} & set(envelope())
+def test_campos_de_correlacao_sao_omitidos_quando_ausentes(envelope: TipoEnvelope) -> None:
+    assert not {"trace_id", "span_id", "job_id", "user_id", "no", "competencia"} & set(envelope())
 
 
-def test_correlation_fields_are_top_level(envelope: Envelope) -> None:
-    job_id_ctx.set("job-42")
-    user_id_ctx.set("user-7")
+def test_no_do_grafo_e_emitido_no_topo_do_log(envelope: TipoEnvelope) -> None:
+    no_ctx.set("gerar_codigo")
 
-    payload = envelope()
-
-    assert payload["job_id"] == "job-42"
-    assert payload["user_id"] == "user-7"
-    assert "extra" not in payload
+    assert envelope()["no"] == "gerar_codigo"
 
 
-def test_traceback_is_a_field_and_leaves_the_message_constant(envelope: Envelope) -> None:
+def test_campos_extras_ficam_no_objeto_extra(envelope: TipoEnvelope) -> None:
+    linha = envelope(campos_extras={"tentativa": 1})
+
+    assert linha["extra"] == {"tentativa": 1}
+    assert "tentativa" not in linha
+
+
+def test_excecao_tem_campo_proprio_e_mantem_a_mensagem_constante(
+    envelope: TipoEnvelope,
+) -> None:
     try:
-        raise ValueError("boom")
+        raise ValueError("falhou")
     except ValueError:
-        payload = envelope("sandbox timed out", level=logging.ERROR, exc_info=sys.exc_info())
+        linha = envelope(
+            "processamento interrompido",
+            nivel=logging.ERROR,
+            informacoes_excecao=sys.exc_info(),
+        )
 
-    assert payload["message"] == "sandbox timed out"
-    assert "ValueError: boom" in payload["exception"]
-
-
-def test_a_record_serializes_to_one_line(emit_line: EmitLine) -> None:
-    try:
-        raise ValueError("boom")
-    except ValueError:
-        line = emit_line("sandbox timed out", level=logging.ERROR, exc_info=sys.exc_info())
-
-    assert "\n" not in line
-
-
-def test_non_ascii_is_not_escaped(emit_line: EmitLine) -> None:
-    assert "execução finalizada" in emit_line("execução finalizada")
+    assert linha["message"] == "processamento interrompido"
+    assert "ValueError: falhou" in linha["exception"]

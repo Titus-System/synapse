@@ -5,80 +5,80 @@ from prometheus_client import Counter, Gauge, Histogram, generate_latest
 
 
 class Prometheus:
-    """
-    Abstraction over prometheus_client for both infrastructure and domain metrics.
-    """
+    """Abstração sobre prometheus_client para métricas de infraestrutura e domínio."""
 
     def __init__(self) -> None:
-        self._counters: dict[str, Counter] = {}
-        self._gauges: dict[str, Gauge] = {}
-        self._histograms: dict[str, Histogram] = {}
+        self._contadores: dict[str, Counter] = {}
+        self._medidores: dict[str, Gauge] = {}
+        self._histogramas: dict[str, Histogram] = {}
 
     def register_counter(
-        self, name: str, description: str, labels: list[str] | None = None
+        self, nome: str, descricao: str, rotulos: list[str] | None = None
     ) -> Counter:
-        if name not in self._counters:
-            self._counters[name] = Counter(name, description, labels or [])
-        return self._counters[name]
+        if nome not in self._contadores:
+            self._contadores[nome] = Counter(nome, descricao, rotulos or [])
+        return self._contadores[nome]
 
-    def register_gauge(self, name: str, description: str, labels: list[str] | None = None) -> Gauge:
-        if name not in self._gauges:
-            self._gauges[name] = Gauge(name, description, labels or [])
-        return self._gauges[name]
+    def register_gauge(self, nome: str, descricao: str, rotulos: list[str] | None = None) -> Gauge:
+        if nome not in self._medidores:
+            self._medidores[nome] = Gauge(nome, descricao, rotulos or [])
+        return self._medidores[nome]
 
     def register_histogram(
-        self, name: str, description: str, labels: list[str] | None = None
+        self, nome: str, descricao: str, rotulos: list[str] | None = None
     ) -> Histogram:
-        if name not in self._histograms:
-            self._histograms[name] = Histogram(name, description, labels or [])
-        return self._histograms[name]
+        if nome not in self._histogramas:
+            self._histogramas[nome] = Histogram(nome, descricao, rotulos or [])
+        return self._histogramas[nome]
 
     def get_all(self) -> bytes:
-        """Return all metrics in Prometheus text format"""
-        data: bytes = generate_latest()
-        return data
+        """Retorna todas as métricas no formato de texto do Prometheus."""
+        dados: bytes = generate_latest()
+        return dados
 
-    def get_all_by_prefix(self, prefix: str) -> bytes:
-        """Return all registered metrics objects whose name starts with `prefix`."""
-        gauges = self.get_gauges_by_prefix(prefix)
-        histograms = self.get_histograms_by_prefix(prefix)
-        counters = self.get_counters_by_prefix(prefix)
-        return counters + histograms + gauges
+    def get_all_by_prefix(self, prefixo: str) -> bytes:
+        """Retorna as métricas registradas cujo nome começa com ``prefixo``."""
+        medidores = self.get_gauges_by_prefix(prefixo)
+        histogramas = self.get_histograms_by_prefix(prefixo)
+        contadores = self.get_counters_by_prefix(prefixo)
+        return contadores + histogramas + medidores
 
-    def get_counters_by_prefix(self, prefix: str) -> bytes:
-        return self._get_metric_by_prefix("counter", prefix)
+    def get_counters_by_prefix(self, prefixo: str) -> bytes:
+        return self._get_metric_by_prefix("counter", prefixo)
 
-    def get_histograms_by_prefix(self, prefix: str) -> bytes:
-        return self._get_metric_by_prefix("histogram", prefix)
+    def get_histograms_by_prefix(self, prefixo: str) -> bytes:
+        return self._get_metric_by_prefix("histogram", prefixo)
 
-    def get_gauges_by_prefix(self, prefix: str) -> bytes:
-        return self._get_metric_by_prefix("gauge", prefix)
+    def get_gauges_by_prefix(self, prefixo: str) -> bytes:
+        return self._get_metric_by_prefix("gauge", prefixo)
 
     def _get_metric_by_prefix(
-        self, metric_type: Literal["counter", "histogram", "gauge"], prefix: str
+        self, tipo_metrica: Literal["counter", "histogram", "gauge"], prefixo: str
     ) -> bytes:
-        lines: list[str] = []
-        types_map: dict[str, Mapping[str, Counter | Gauge | Histogram]] = {
-            "counter": self._counters,
-            "histogram": self._histograms,
-            "gauge": self._gauges,
+        linhas: list[str] = []
+        tipos_metricas: dict[str, Mapping[str, Counter | Gauge | Histogram]] = {
+            "counter": self._contadores,
+            "histogram": self._histogramas,
+            "gauge": self._medidores,
         }
-        metrics = types_map[metric_type]
+        metricas = tipos_metricas[tipo_metrica]
 
-        for name, metric in metrics.items():
-            if not name.startswith(prefix):
+        for nome, metrica in metricas.items():
+            if not nome.startswith(prefixo):
                 continue
-            for collected in metric.collect():
-                lines.append(f"# HELP {collected.name} {collected.documentation}")
-                lines.append(f"# TYPE {collected.name} {metric_type}")
-                for sample in collected.samples:
-                    label_str = ",".join(f'{k}="{v}"' for k, v in sample.labels.items())
-                    if label_str:
-                        line = f"{sample.name}{{{label_str}}} {sample.value}"
+            for coletada in metrica.collect():
+                linhas.append(f"# HELP {coletada.name} {coletada.documentation}")
+                linhas.append(f"# TYPE {coletada.name} {tipo_metrica}")
+                for amostra in coletada.samples:
+                    rotulos = ",".join(
+                        f'{chave}="{valor}"' for chave, valor in amostra.labels.items()
+                    )
+                    if rotulos:
+                        linha = f"{amostra.name}{{{rotulos}}} {amostra.value}"
                     else:
-                        line = f"{sample.name} {sample.value}"
-                    lines.append(line)
-        return ("\n".join(lines) + "\n").encode("utf-8")
+                        linha = f"{amostra.name} {amostra.value}"
+                    linhas.append(linha)
+        return ("\n".join(linhas) + "\n").encode("utf-8")
 
 
 prometheus = Prometheus()

@@ -19,8 +19,6 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 
 FROM python:3.12-slim AS runtime
 
-# PYTHONUNBUFFERED: stdout is the log transport, and a block-buffered stream
-# delivers lines late and drops whatever is pending when the container stops.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH"
@@ -35,11 +33,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /opt/venv /opt/venv
 COPY codegen/app ./app
 COPY codegen/entrypoint.sh ./entrypoint.sh
+COPY codegen/logging.json ./logging.json
 COPY codegen/run.py ./run.py
 COPY contracts ./contracts
 
-RUN mkdir -p /app/logs \
-    && chmod +x /app/entrypoint.sh \
+RUN chmod +x /app/entrypoint.sh \
     && chown -R appuser:appuser /app
 
 USER appuser

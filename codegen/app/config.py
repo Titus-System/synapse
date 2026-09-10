@@ -6,8 +6,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    SERVICE_NAME: str = "agents"
-    SERVICE_DESCRIPTION: str = "Servidor rodando os agentes de IA"
+    SERVICE_NAME: str = "synapse-codegen"
+    SERVICE_DESCRIPTION: str = "Processo de geração assistida do Synapse"
     SERVICE_PUBLIC_URL: str = "http://localhost:8000"
     VERSION: str = "0.1.0"
 
@@ -22,14 +22,14 @@ class Settings(BaseSettings):
 
     @property
     def hostname(self) -> str:
-        """Instância onde o processo roda — vai no campo "host" do log.
+        """Instância onde o processo roda — vai no campo "host.name" do log.
 
         Em k8s/Docker o runtime injeta HOSTNAME (nome do pod/container);
         fora deles cai no hostname da máquina.
         """
         return os.getenv("HOSTNAME") or socket.gethostname()
 
-    # Postgres settings
+    # Configurações de Postgres
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgres"
     POSTGRES_DB: str = "agents_db"
