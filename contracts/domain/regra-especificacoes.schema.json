@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/regra-especificacoes.schema.json",
+  "title": "Especificações da regra",
+  "description": "Coluna regras.especificacoes. Os elementos que a regra tem além do núcleo. Array vazio quando a regra é só o núcleo. A ordem dos itens é a ordem de exibição na tela de confirmação.",
+  "type": "array",
+  "items": { "$ref": "#/$defs/elemento" },
+  "$defs": {
+    "elemento": {
+      "type": "object",
+      "description": "Um elemento da regra. Sempre tem ref e construto; os demais campos dependem do construto.",
+      "required": ["ref", "construto"],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "pattern": "^elem\\.[0-9]+$",
+          "description": "Identificador estável do elemento dentro da versão, sequencial. Não carrega o construto: reclassificar um elemento não pode trocar seu id.",
+          "examples": ["elem.1"]
+        },
+        "construto": {
+          "type": "string",
+          "enum": [
+            "faixa_valor",
+            "condicao_limiar",
+            "janela_datas",
+            "exclusao",
+            "bonus_fixo",
+            "generico"
+          ],
+          "description": "Forma reconhecida do elemento. É o construto que diz quais campos são obrigatórios e como validar. Elemento que não corresponde a nenhuma forma conhecida é generico, e vale exatamente como os demais. Vocabulário aberto a valores novos, sempre de forma aditiva."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "construto": { "const": "faixa_valor" } }, "required": ["construto"] },
+          "then": { "$ref": "#/$defs/faixa_valor" }
+        },
+        {
+          "if": { "properties": { "construto": { "const": "condicao_limiar" } }, "required": ["construto"] },
+          "then": { "$ref": "#/$defs/condicao_limiar" }
+        },
+        {
+          "if": { "properties": { "construto": { "const": "janela_datas" } }, "required": ["construto"] },
+          "then": { "$ref": "#/$defs/janela_datas" }
+        },
+        {
+          "if": { "properties": { "construto": { "const": "exclusao" } }, "required": ["construto"] },
+          "then": { "$ref": "#/$defs/exclusao" }
+        },
+        {
+          "if": { "properties": { "construto": { "const": "bonus_fixo" } }, "required": ["construto"] },
+          "then": { "$ref": "#/$defs/bonus_fixo" }
+        },
+        {
+          "if": { "properties": { "construto": { "const": "generico" } }, "required": ["construto"] },
+          "then": { "$ref": "#/$defs/generico" }
+        }
+      ]
+    },
+
+    "faixa_valor": {
+      "description": "Faixa de valor com efeito próprio. Faixas múltiplas são itens múltiplos, nunca intervalos dentro de um item.",
+      "required": ["limite_inferior", "limite_superior", "efeito"],
+      "properties": {
+        "limite_inferior": { "type": "number" },
+        "limite_superior": { "type": "number" },
+        "efeito": { "$ref": "comum.schema.json#/$defs/efeito" }
+      },
+      "examples": [
+        {
+          "ref": "elem.1",
+          "construto": "faixa_valor",
+          "limite_inferior": 40000,
+          "limite_superior": 50000,
+          "efeito": { "tipo": "bonus_fixo", "valor": 3500 }
+        }
+      ]
+    },
+
+    "condicao_limiar": {
+      "description": "Condição sobre uma métrica agregada. Todos os campos são obrigatórios; escopo_agregacao ausente bloqueia o avanço, porque venda total da loja, da marca e da rede produzem números diferentes e nenhum deles falha.",
+      "required": ["metrica", "escopo_agregacao", "operador", "limiar"],
+      "properties": {
+        "metrica": {
+          "type": "string",
+          "description": "O que é medido.",
+          "examples": ["venda_total"]
+        },
+        "escopo_agregacao": {
+          "type": "string",
+          "enum": ["matricula", "loja", "marca", "rede"],
+          "description": "Sobre que conjunto a métrica é somada antes da comparação."
+        },
+        "operador": {
+          "type": "string",
+          "enum": [">=", ">", "<=", "<", "=="],
+          "description": "Comparação aplicada entre a métrica e o limiar."
+        },
+        "limiar": { "type": "number" }
+      },
+      "examples": [
+        {
+          "ref": "elem.2",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+
+    "janela_datas": {
+      "description": "Recorte por data com efeito próprio. Único construto que usa dia, porque a base de vendas de novembro carrega data real por causa da Black Friday.",
+      "required": ["data_inicial", "data_final", "efeito"],
+      "properties": {
+        "data_inicial": { "type": "string", "format": "date", "examples": ["2025-11-24"] },
+        "data_final": { "type": "string", "format": "date", "examples": ["2025-11-30"] },
+        "efeito": { "$ref": "comum.schema.json#/$defs/efeito" }
+      }
+    },
+
+    "exclusao": {
+      "description": "Retira do alcance da regra os valores listados de uma dimensão.",
+      "required": ["dimensao", "valores"],
+      "properties": {
+        "dimensao": {
+          "type": "string",
+          "enum": ["loja", "marca", "cargo"],
+          "description": "Vocabulário da DEC-084."
+        },
+        "valores": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "comum.schema.json#/$defs/codigo" }
+        }
+      },
+      "examples": [
+        { "ref": "elem.3", "construto": "exclusao", "dimensao": "cargo", "valores": ["150"] }
+      ]
+    },
+
+    "bonus_fixo": {
+      "description": "Valor fixo concedido a um alvo. Lista de matrículas entra como dado do elemento, nunca como código gerado.",
+      "required": ["alvo", "valor"],
+      "properties": {
+        "alvo": {
+          "type": "object",
+          "required": ["tipo", "valor"],
+          "properties": {
+            "tipo": { "type": "string", "enum": ["lista", "filtro"] },
+            "valor": {
+              "description": "Array de matrículas quando o tipo é lista; objeto de critérios cadastrais quando é filtro.",
+              "oneOf": [
+                { "type": "array", "items": { "$ref": "comum.schema.json#/$defs/matricula" } },
+                { "type": "object" }
+              ]
+            }
+          }
+        },
+        "valor": { "$ref": "comum.schema.json#/$defs/brl" }
+      },
+      "examples": [
+        {
+          "ref": "elem.4",
+          "construto": "bonus_fixo",
+          "alvo": { "tipo": "lista", "valor": ["MATRIC-1", "MATRIC-2"] },
+          "valor": 500
+        },
+        {
+          "ref": "elem.5",
+          "construto": "bonus_fixo",
+          "alvo": { "tipo": "filtro", "valor": { "cargo": "100", "admitido_ate": "2025-10-10" } },
+          "valor": 1000
+        }
+      ]
+    },
+
+    "generico": {
+      "description": "Elemento que não corresponde a nenhuma forma reconhecida. Aparece na confirmação, entra no código gerado e é verificado no resultado como qualquer outro.",
+      "required": ["descricao"],
+      "properties": {
+        "descricao": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Paráfrase do elemento como o usuário o especificou."
+        },
+        "campos": {
+          "type": "object",
+          "description": "Pares livres extraídos do enunciado."
+        }
+      },
+      "examples": [
+        {
+          "ref": "elem.6",
+          "construto": "generico",
+          "descricao": "dobrar a comissão no aniversário da loja",
+          "campos": { "evento": "aniversario_loja" }
+        }
+      ]
+    }
+  }
+}

@@ -45,7 +45,7 @@ services:
       - synapse-net
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: synapse-postgres
     restart: unless-stopped
     environment:
@@ -63,6 +63,34 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    networks:
+      - synapse-net
+
+  api:
+    build:
+      context: ..
+      dockerfile: api/Dockerfile
+    image: synapse-api:${TAG:-local}
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: synapse-api
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-api_db}
+    ports:
+      - '${API_PORT:-8080}:8080'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://localhost:8080/actuator/health']
+      interval: 30s
+      timeout: 3s
+      retries: 3
     networks:
       - synapse-net
 
