@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/events/regra-submetida.schema.json",
+  "title": "regra-submetida",
+  "description": "Evento publicado pela API quando uma regra entra no fluxo de processamento. Sai pelo outbox transacional, na mesma transação que cria o job, para que nenhum job fique sem evento. Carrega referência, nunca conteúdo: formulário, áudio, transcrição e regra ficam no Postgres.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "origem",
+    "competencias"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job criado pela API para acompanhar o processamento da regra. É a chave de correlação entre os serviços, não um ponteiro que o consumidor consiga dereferenciar: codegen e worker não têm permissão em jobs."
+    },
+    "origem": {
+      "type": "string",
+      "enum": [
+        "formulario",
+        "voz",
+        "reprocessamento"
+      ],
+      "description": "Como o job nasceu, e é o que determina o ponto de entrada do grafo. A API resolve de submissoes.tipo, ou reprocessamento quando o job não veio de uma submissão e sim de outro job (US07, cenário 3)."
+    },
+    "competencias": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "../domain/comum.schema.json#/$defs/competencia"
+      },
+      "description": "Competências históricas a simular, vindas de jobs.competencias. O job cobre o período inteiro numa única simulação, com os meses agregados, e não existe uma simulação por competência. Nunca vazio, porque um job que não simula nada não é job. Não precisa ser contíguo.",
+      "examples": [
+        [
+          "2025-08",
+          "2025-11"
+        ]
+      ]
+    },
+    "submissao_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Linha de submissoes que originou o job. É por ela que o codegen alcança o formulário recebido ou o áudio e sua transcrição. Ausente quando a origem é reprocessamento, em que a procedência é outro job."
+    },
+    "regra_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Versão da regra em regras. Presente quando a regra já está formada na submissão, que é o caso do formulário, e quando o reprocessamento parte de uma versão existente. Ausente na origem voz, em que a regra só nasce depois da extração."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "origem": {
+            "enum": [
+              "formulario",
+              "voz"
+            ]
+          }
+        },
+        "required": [
+          "origem"
+        ]
+      },
+      "then": {
+        "required": [
+          "submissao_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "origem": {
+            "enum": [
+              "formulario",
+              "reprocessamento"
+            ]
+          }
+        },
+        "required": [
+          "origem"
+        ]
+      },
+      "then": {
+        "required": [
+          "regra_id"
+        ]
+      }
+    }
+  ],
+  "examples": [
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "origem": "formulario",
+      "competencias": [
+        "2025-08",
+        "2025-11"
+      ],
+      "submissao_id": "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93",
+      "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+    }
+  ]
+}

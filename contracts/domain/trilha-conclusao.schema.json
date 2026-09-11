@@ -12,6 +12,17 @@
       "description": "Texto curto legível por pessoas. Presente em todos os nós."
     },
 
+    "fontes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Identificação de uma fonte de dados usada pelo nó."
+      },
+      "description": "As fontes que o nó consultou para concluir o que concluiu. A US04 (cenário 3) exige a fonte de cada dado na trilha técnica, e é aqui que ela fica.",
+      "examples": [["base_vendas", "base_rh"]]
+    },
+
     "elementos_extraidos": {
       "type": "array",
       "items": { "$ref": "comum.schema.json#/$defs/elemento_ref" },
