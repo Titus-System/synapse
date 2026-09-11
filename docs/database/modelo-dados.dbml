@@ -1,0 +1,348 @@
+// Synapse - Modelo de dados da Sprint 1 (T-086)
+// Documento oficial de modelagem: este arquivo é a fonte canônica do modelo -
+// entidades, atributos e relacionamentos. Contexto de arquitetura em
+// docs/ARCHITECTURE.md; contratos entre serviços em contracts/.
+// Schema único no PostgreSQL; o isolamento entre serviços é por usuário de banco
+// (ARCHITECTURE.md §6.2) e não aparece no DER.
+//
+// Nomes: tabela no plural, referência no singular - a tabela usuarios é alcançada
+// pela coluna usuario_id.
+//
+// Enums: os valores anotados como 'a | b | c' são vocabulário documentado, não
+// restrição de banco. A coluna é text - sem CHECK, sem tabela de domínio e sem o
+// tipo ENUM nativo do Postgres. A validação é responsabilidade do código de cada
+// stack; contracts/ é a autoridade compartilhada do vocabulário entre serviços.
+//
+// Nulidade: toda coluna é NOT NULL, salvo onde o note diz por que aceita null.
+// Coluna nula sem justificativa escrita é erro de modelagem, não omissão.
+//
+// Campos jsonb: o formato de cada um é definido por um schema em contracts/domain/,
+// que é a autoridade - jsonb sem schema não é aceito neste modelo. O note da coluna
+// aponta o schema e registra só o que é decisão de modelagem: quando a coluna é nula,
+// por que o dado está em jsonb e o que ele não deve repetir. Evolução é aditiva:
+// campo novo entra opcional, nada é removido nem renomeado (ADR-002).
+//
+// Índices: o DBML não expressa índice parcial nem direção de ordenação. Onde a
+// migration precisa de um dos dois, está anotado no note do índice.
+//
+// Vocabulário do núcleo: DEC-084 (vigência, loja, marca, cargo, percentual).
+
+// ─────────────── Grupo 0 - Identidade e acesso (escrita exclusiva da API) ───────────────
+
+Table usuarios {
+  id uuid [pk]
+  login text [not null, unique, note: 'credencial de acesso']
+  senha_hash text [not null, note: 'hash derivado da senha (bcrypt/argon2); nunca a senha em claro']
+  nome text [not null, note: 'nome de exibicao']
+  papel text [not null, note: 'profissional_rh | auditor (DEC-087)']
+  ativo bool [not null, default: true, note: 'desativacao logica; false impede o login']
+  criado_em timestamptz [not null]
+  atualizado_em timestamptz [note: 'null ate a primeira alteracao']
+  ultimo_login_em timestamptz [note: 'null ate o primeiro acesso']
+}
+
+// ─────────────── Grupo 1 - Estado e decisões (escrita exclusiva da API) ───────────────
+
+Table submissoes {
+  id uuid [pk]
+  usuario_id uuid [not null, ref: > usuarios.id]
+  tipo text [not null, note: 'formulario | voz. Determina qual das duas cargas vem preenchida: formulario tem conteudo, voz tem binario e formato']
+  conteudo jsonb [note: '''
+Formato: contracts/domain/submissao-conteudo.schema.json
+NULL quando tipo = voz - ali o que o usuario enviou e o audio.
+E a ENTRADA do fluxo. Tudo a jusante e derivado: regras.nucleo ja passou pela
+confirmacao, e trilhas_auditoria.conclusao registra so o que cada no concluiu. Sem esta
+linha nao ha como conferir o que o sistema recebeu contra o que ele produziu.
+Append-only: nunca sofre UPDATE.
+''']
+  binario bytea [null, note: 'null quando tipo = formulario. O audio enviado pelo usuario']
+  formato text [null, note: 'null quando tipo = formulario. ex. webm | ogg | wav']
+  transcricao text [null, note: 'null quando tipo = formulario, e enquanto a submissao de voz nao foi transcrita. Texto transcrito, verbatim; e o insumo do no de extracao (Sprint 2), que o codegen le e nao escreve']
+  transcrito_em timestamptz [null, note: 'null ate a transcricao concluir']
+  criado_em timestamptz [not null]
+}
+
+Table jobs {
+  id uuid [pk]
+  status text [not null, note: 'enum da maquina de estados']
+  usuario_id uuid [not null, ref: > usuarios.id]
+  submissao_id uuid [ref: > submissoes.id, note: '''
+NULL quando o job nasceu de reprocessamento - ali a procedencia e job_origem_id.
+De qual submissao este job nasceu. N-1: uma submissao pode gerar varios jobs, e um job
+nunca vem de mais de uma.
+Determina o ponto de entrada do grafo, sem precisar de coluna propria:
+null -> reprocessamento, entra direto no no de confirmacao;
+senao submissoes.tipo diz formulario (aguardando_confirmacao_parametros) ou voz
+(aguardando_transcricao).
+''']
+  competencias text[] [not null, note: '''
+Competencias a simular, formato AAAA-MM. O job cobre o periodo inteiro em UMA simulacao,
+com os meses agregados - nao existe uma simulacao por competencia. A quebra mensal sai
+em resultados_simulacao.decomposicao, na quebra competencia.
+["2025-07" ... "2025-12"] = periodo todo. Subconjunto qualquer = fatia, e nao precisa
+ser contiguo (ex. ["2025-08", "2025-11"]).
+DEFAULT = periodo inteiro: nao informado na requisicao, a API preenche com todas as
+competencias do dataset. Nunca vazio - array vazio seria um job que nao simula nada.
+Forma canonica: ordem crescente, sem repeticao.
+AAAA-MM e nao data: o dataset so tem Date_Ref com granularidade mensal (DEC-084).
+Excecao: o construto janela_datas usa dia, porque a base de vendas de novembro carrega
+data real (Black Friday) - ver regras.especificacoes.
+''']
+  orcamento numeric [not null, note: 'parametro da simulacao (US01), informado pelo usuario junto com as competencias (ARCHITECTURE.md §1.3)']
+  job_origem_id uuid [ref: > jobs.id, note: 'NULL no job original. Self; reprocessamento (US07 c3). Exatamente uma das duas procedencias e preenchida: submissao_id (nasceu de gente) ou job_origem_id (nasceu de outro job)']
+  criado_em timestamptz [not null]
+  iniciado_em timestamptz [note: 'null ate o processamento comecar']
+  finalizado_em timestamptz [note: 'null ate atingir estado terminal']
+  tentativas int [not null, default: 0, note: 'tentativas de execucao']
+
+  indexes {
+    (submissao_id) [note: 'jobs originados da mesma submissao']
+    (usuario_id, criado_em) [note: 'historico paginado da US07; criado_em DESC na migration']
+    (status) [note: 'varreduras operacionais']
+    (job_origem_id)
+  }
+}
+
+Table job_transicoes {
+  id uuid [pk]
+  job_id uuid [not null, ref: > jobs.id]
+  status_anterior text [note: 'null na transicao inicial']
+  status_novo text [not null]
+  ocorrido_em timestamptz [not null]
+  ator text [not null, note: 'usuario | sistema | evento']
+  motivo text [note: 'null fora de paradas; razao localizada de parada (§3.3)']
+
+  indexes {
+    (job_id, ocorrido_em)
+  }
+}
+
+Table job_acoes {
+  id uuid [pk]
+  job_id uuid [not null, ref: > jobs.id]
+  acao text [not null, note: 'confirmar_liberar | cancelar | salvar | arquivar']
+  executado_em timestamptz [not null]
+
+  indexes {
+    (job_id, executado_em)
+  }
+}
+
+Table simulacoes {
+  id uuid [pk, note: 'id da simulacao (US04)']
+  criado_em timestamptz [not null, note: 'timestamp (US04)']
+  regra_id uuid [not null, ref: > regras.id, note: 'versao exata (US04) - ON DELETE RESTRICT']
+  job_id uuid [not null, ref: > jobs.id, note: 'competencias e orcamento vivem em jobs. Uma simulacao cobre TODAS as competencias de jobs.competencias de uma vez']
+  codigo_gerado_id uuid [not null, ref: - codigos_gerados.id, note: 'codigo executado. Escrito no INSERT; e por ele que a API acha a simulacao ao consumir simulacao-concluida']
+  resultado_id uuid [ref: - resultados_simulacao.id, note: 'null ate concluir; o veredito vive em resultados_simulacao.veredito']
+  flag_baixa_rastreabilidade bool [not null, default: false, note: 'US05 c2']
+
+  indexes {
+    (codigo_gerado_id) [unique, note: 'uma simulacao por codigo gerado']
+    (resultado_id) [unique, note: 'impoe o 1-1 declarado na FK; nulos multiplos sao permitidos']
+    (job_id, criado_em)
+    (regra_id)
+  }
+}
+
+Table trilhas_auditoria {
+  id uuid [pk]
+  evento_id uuid [not null, note: 'uuid aleatorio gerado pelo publicador e carregado na mensagem; a API grava o que recebeu. Chave de idempotencia contra reentrega do broker.']
+  job_id uuid [not null, ref: > jobs.id]
+  simulacao_id uuid [ref: > simulacoes.id, note: 'null p/ nos 1-2 (voz, Sprint 2)']
+  no text [not null, note: 'enum dos nos 1..8']
+  concluido_em timestamptz [not null, note: 'conclusao do no, vinda do evento no-concluido']
+  regra_id uuid [ref: > regras.id, note: 'null enquanto a regra nao esta formada']
+  conclusao jsonb [not null, note: '''
+Formato: contracts/domain/trilha-conclusao.schema.json
+O que o no concluiu - uma linha por no do grafo. jsonb porque a forma varia por no;
+achatar em colunas produziria dezenas quase sempre nulas.
+Nao repetir aqui o que a linha ja alcanca: o nome do no (coluna no), o veredito
+(resultados_simulacao.veredito) e a razao de parada (job_transicoes.motivo).
+''']
+  prompt_id uuid [ref: > prompts.id, note: 'null nos nos que nao chamam modelo; a resposta chega por respostas_modelo.prompt_id (1-1)']
+  codigo_gerado_id uuid [ref: > codigos_gerados.id, note: 'null fora do no de geracao']
+  explicacao_id uuid [ref: > explicacoes.id, note: 'null fora do no de explicacao, e tambem quando nao houve narrativa utilizavel (US05 c2)']
+
+  indexes {
+    (evento_id) [unique, note: 'uma linha por mensagem; reentrega e rejeitada no insert']
+    (job_id, concluido_em)
+    (simulacao_id)
+  }
+}
+
+// ─────────────── Grupo 2 - Representacao da regra (versionada, imutavel apos uso) ───────────────
+
+Table regras {
+  id uuid [pk]
+  job_id uuid [not null, ref: > jobs.id]
+  versao int [not null, note: 'sequencial dentro do job']
+  origem text [not null, note: 'confirmacao_usuario | sugestao_adaptacao | reprocessamento']
+  regra_origem_id uuid [ref: > regras.id, note: 'NULL na versao raiz. Self; de qual versao foi derivada. N-1: varias versoes podem sair da mesma origem (alternativas do laco de adaptacao), cada versao tem no maximo um pai']
+  nucleo jsonb [not null, note: '''
+Formato: contracts/domain/regra-nucleo.schema.json
+Os cinco campos do vocabulario canonico da DEC-084: vigencia, loja, marca, cargo,
+percentual. Campo ausente cai no comportamento do BASELINE - a regra proposta nao dispara
+ali, e a competencia entra no total sem o efeito dela.
+matricula NAO e campo do nucleo: identifica pessoa, e o conjunto muda a cada competencia
+por admissao e demissao, entao congelaria uma lista desatualizada numa regra imutavel.
+Entra como DADO no alvo do construto bonus_fixo, em especificacoes.
+''']
+  especificacoes jsonb [not null, note: '''
+Formato: contracts/domain/regra-especificacoes.schema.json
+Elementos da regra alem do nucleo. A ordem do array e a ordem de exibicao na tela de
+confirmacao. [] quando a regra e so o nucleo (Sprint 1, formulario de campos fixos).
+jsonb porque os campos de cada elemento dependem do construto dele, e o vocabulario de
+construtos cresce com o uso - colunas exigiriam ALTER TABLE a cada formato novo.
+Identificacao: o ref de cada item (elem.1, elem.2, sequencial) e os campos do nucleo
+(nucleo.<campo>) formam um espaco unico, porque as mesmas listas citam os dois lado a
+lado - a cobertura declarada pelo codigo gerado e a quebra por elemento em
+resultados_simulacao.decomposicao.
+''']
+  hash char64 [not null, note: 'sha-256 da serializacao canonica']
+  criada_em timestamptz [not null]
+
+  indexes {
+    (job_id, versao) [unique]
+    (job_id, hash) [unique]
+    (regra_origem_id)
+  }
+}
+
+// ─────────────── Grupo 3 - Artefatos (produtor unico com INSERT; API le todos) ───────────────
+
+Table prompts {
+  id uuid [pk]
+  job_id uuid [not null, ref: > jobs.id]
+  no text [not null, note: 'no do grafo que emitiu; mesmo enum de trilhas_auditoria.no (1..8)']
+  conteudo text [not null]
+  modelo jsonb [not null, note: '''
+Formato: contracts/domain/modelo-llm.schema.json
+Unico registro dos metadados do modelo por chamada - nao repetir em outra tabela.
+jsonb porque os parametros de geracao variam por provedor (ADR-001).
+Uma explicacao emitida hoje precisa continuar fazendo sentido quando o provedor tiver
+trocado o modelo por baixo (ARCHITECTURE.md §3.3).
+''']
+  criado_em timestamptz [not null]
+
+  indexes {
+    (job_id) [note: 'artefatos de um job, caminho da consulta de auditoria']
+  }
+}
+
+Table respostas_modelo {
+  id uuid [pk]
+  job_id uuid [not null, ref: > jobs.id]
+  prompt_id uuid [not null, ref: - prompts.id, note: 'pergunta que originou esta resposta; par 1-1 da chamada. o no vem de prompts.no']
+  conteudo text [not null, note: 'resposta verbatim do modelo, sem extracao nem limpeza']
+  consumo_tokens jsonb [note: 'null quando o provedor nao informa. Formato: contracts/domain/consumo-tokens.schema.json']
+  criado_em timestamptz [not null]
+
+  indexes {
+    (prompt_id) [unique, note: 'impoe o 1-1 declarado na FK: uma resposta por prompt']
+    (job_id) [note: 'artefatos de um job, caminho da consulta de auditoria']
+  }
+}
+
+Table codigos_gerados {
+  id uuid [pk]
+  job_id uuid [not null, ref: > jobs.id]
+  regra_id uuid [not null, ref: > regras.id]
+  linguagem text [not null, note: 'python']
+  fonte text [not null, note: 'codigo executavel, ja extraido da resposta do modelo']
+  prompt_id uuid [not null, ref: > prompts.id, note: 'chamada que gerou este codigo; os metadados do modelo vivem em prompts.modelo']
+  criado_em timestamptz [not null]
+
+  indexes {
+    (regra_id)
+    (prompt_id)
+    (job_id) [note: 'artefatos de um job, caminho da consulta de auditoria']
+  }
+}
+
+Table explicacoes {
+  id uuid [pk]
+  resultado_id uuid [not null, ref: - resultados_simulacao.id]
+  texto text [not null, note: 'narrativa para o usuario de negocio - nivel 1 da explicabilidade; nivel 2 e resultados_simulacao.decomposicao, nivel 3 e trilhas_auditoria']
+  aderencia_conferida bool [not null, note: 'false quando algum numero citado no texto nao corresponde ao apurado; a API entao marca simulacoes.flag_baixa_rastreabilidade (US05 c2)']
+  criado_em timestamptz [not null]
+
+  indexes {
+    (resultado_id) [unique, note: 'impoe o 1-1 declarado na FK: uma explicacao por resultado']
+  }
+}
+
+Table resultados_simulacao {
+  id uuid [pk]
+  job_id uuid [not null, ref: > jobs.id]
+  codigo_gerado_id uuid [not null, ref: > codigos_gerados.id]
+  status text [not null, note: 'sucesso | assercao_violada | erro_codigo | erro_infra. assercao_violada: o codigo rodou e produziu numeros, mas uma invariante foi violada e o numero nao vale']
+  totais jsonb [note: '''
+Formato: contracts/domain/resultado-totais.schema.json
+NULL quando status <> sucesso.
+Sao totais do PERIODO: somam todas as competencias de jobs.competencias, com um unico
+veredito para o conjunto. A contribuicao de cada mes esta na quebra competencia de
+decomposicao.
+orcamento e duplicado de jobs.orcamento de proposito: o worker nao tem permissao em jobs
+e esta tabela e INSERT-only, entao o insumo do veredito acompanha o veredito e nao pode
+ser alterado depois.
+''']
+  veredito text [note: 'null quando status <> sucesso. viavel | inviavel | indeterminado - derivado de totais.simulado vs totais.orcamento']
+  assercoes jsonb [not null, note: '''
+Formato: contracts/domain/resultado-assercoes.schema.json
+Desfecho das assercoes invariantes (ARCHITECTURE.md §1.4); [] em erro_infra.
+Uma assercao violada INVALIDA o numero: o resultado entra com status=assercao_violada e
+sem veredito - distinto de veredito=inviavel, que e regra coerente fora do orcamento.
+jsonb porque a lista de invariantes cresce sem ALTER TABLE e e lida inteira.
+''']
+  decomposicao jsonb [note: '''
+Formato: contracts/domain/resultado-decomposicao.schema.json
+NULL quando status <> sucesso. Nivel 2 da explicabilidade: a quebra da DIFERENCA em
+relacao ao baseline, nunca o total. Vem do container e o worker repassa sem recompor.
+jsonb e nao tabela: e escrita de uma vez, lida inteira e nunca filtrada por valor. Como
+tabela exigia um discriminador de tipo, uma coluna de chave polimorfica e uma dimensao
+nula em metade das linhas, tudo para caber duas quebras numa estrutura so.
+A forma de objeto torna chave repetida dentro de uma quebra impossivel de representar.
+''']
+  criado_em timestamptz [not null]
+
+  indexes {
+    (codigo_gerado_id)
+    (job_id)
+  }
+}
+
+// ─────────────── Grupo 4 - Outbox (fila transacional da API; nenhum outro servico acessa) ───────────────
+// Nao e artefato de produtor unico: a API tem INSERT, SELECT, UPDATE e DELETE aqui.
+// A criacao do job e a linha do evento acontecem na mesma transacao; um poller publica
+// no RabbitMQ e marca como enviado (ARCHITECTURE.md §3.2).
+
+Table outbox_events {
+  id uuid [pk]
+  job_id uuid [not null, ref: > jobs.id]
+  tipo text [not null, note: 'nome do evento do catalogo']
+  payload jsonb [not null, note: '''
+PROVISORIO: o formato das mensagens no RabbitMQ sera definido depois da modelagem.
+O que vale aqui e a regra, nao o shape exato.
+Claim-check: nunca o CONTEUDO de artefato (prompt, transcricao, codigo, dataset), so
+referencia (ARCHITECTURE.md §6.1 regra 2). Parametro escalar viaja, porque codegen e
+worker nao tem permissao alguma em jobs - o job_id e chave de correlacao, nao ponteiro
+que o consumidor consiga dereferenciar.
+regra-submetida:        { "job_id": "<uuid>", "submissao_id": "<uuid>", "origem": "formulario",
+                          "competencias": ["2025-08", "2025-11"], "regra_id": "<uuid>" }
+parametros-confirmados: { "job_id": "<uuid>", "regra_id": "<uuid>" }
+- origem: NAO existe como coluna de jobs. A API a resolve de submissoes.tipo, ou de
+  "reprocessamento" quando jobs.submissao_id e null.
+- competencias: vem de jobs.competencias, pelo mesmo motivo.
+Espelha contracts/events/regra-submetida.schema.json e
+parametros-confirmados.schema.json (a criar). Sem additionalProperties: false;
+campos novos sempre opcionais (evolucao aditiva - ADR-002).
+''']
+  criado_em timestamptz [not null]
+  publicado_em timestamptz [note: 'null = pendente']
+  tentativas int [not null, default: 0]
+
+  indexes {
+    (criado_em) [note: 'na migration deve ser PARCIAL - WHERE publicado_em IS NULL - para o poller ler so os pendentes; o DBML nao expressa indice parcial']
+  }
+}

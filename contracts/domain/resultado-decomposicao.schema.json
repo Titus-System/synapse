@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/resultado-decomposicao.schema.json",
+  "title": "Decomposição da diferença",
+  "description": "Coluna resultados_simulacao.decomposicao. Quebra da DIFERENÇA em relação ao baseline, nunca do total: somar qualquer quebra dá resultado-totais.diferenca_abs. Vem do container e o worker a repassa sem recompor. Nula quando resultados_simulacao.status não é sucesso. A forma de objeto, e não de array de registros, é o que torna chave repetida dentro de uma quebra impossível de representar.",
+  "type": "object",
+  "properties": {
+    "elemento": {
+      "type": "object",
+      "description": "Contribuição de cada parte da regra. Chave ausente aqui significa efeito não mensurável ou implementação faltante, o que é distinto de chave com zero.",
+      "propertyNames": { "$ref": "comum.schema.json#/$defs/elemento_ref" },
+      "additionalProperties": { "$ref": "comum.schema.json#/$defs/brl" },
+      "examples": [{ "nucleo.percentual": 8200.0, "elem.1": 3588.0 }]
+    },
+    "loja": {
+      "type": "object",
+      "description": "Contribuição por Cod_Loja.",
+      "additionalProperties": { "$ref": "comum.schema.json#/$defs/brl" },
+      "examples": [{ "13": 7100.0, "58": 4688.0 }]
+    },
+    "marca": {
+      "type": "object",
+      "description": "Contribuição por Cod_Marca.",
+      "additionalProperties": { "$ref": "comum.schema.json#/$defs/brl" },
+      "examples": [{ "10": 11788.0 }]
+    },
+    "cargo": {
+      "type": "object",
+      "description": "Contribuição por Cod_Cargo.",
+      "additionalProperties": { "$ref": "comum.schema.json#/$defs/brl" },
+      "examples": [{ "100": 9200.0, "150": 2588.0 }]
+    },
+    "competencia": {
+      "type": "object",
+      "description": "Quebra mensal do período simulado. Competência com zero foi simulada e a regra não a afetou; competência ausente do objeto diz outra coisa.",
+      "propertyNames": { "$ref": "comum.schema.json#/$defs/competencia" },
+      "additionalProperties": { "$ref": "comum.schema.json#/$defs/brl" },
+      "examples": [{ "2025-08": 0, "2025-11": 11788.0 }]
+    }
+  },
+  "examples": [
+    {
+      "elemento": { "nucleo.percentual": 8200.0, "elem.1": 3588.0 },
+      "loja": { "13": 7100.0, "58": 4688.0 },
+      "marca": { "10": 11788.0 },
+      "cargo": { "100": 9200.0, "150": 2588.0 },
+      "competencia": { "2025-08": 0, "2025-11": 11788.0 }
+    }
+  ]
+}

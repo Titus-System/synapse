@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/resultado-assercoes.schema.json",
+  "title": "Desfecho das asserções invariantes",
+  "description": "Coluna resultados_simulacao.assercoes. Uma entrada por invariante verificada dentro do sandbox, sempre sobre o período agregado. Array vazio quando o erro foi de infraestrutura e nada chegou a rodar. Uma asserção violada invalida o número apurado: o resultado entra com status assercao_violada, sem veredito e sem totais, o que é caso distinto de veredito inviavel, onde a regra é coerente e o custo é que não cabe no orçamento.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["nome", "resultado", "detalhe"],
+    "properties": {
+      "nome": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Invariante verificada. Vocabulário aberto a novas invariantes, sempre de forma aditiva.",
+        "examples": [
+          "sem_comissao_negativa",
+          "sem_comissao_sem_venda",
+          "soma_loja_igual_soma_matricula",
+          "sem_regras_competencia_igual_baseline"
+        ]
+      },
+      "resultado": {
+        "type": "string",
+        "enum": ["ok", "violada"]
+      },
+      "detalhe": {
+        "type": ["string", "null"],
+        "description": "Nulo quando o resultado é ok. Quando a violação se concentra numa competência ou numa dimensão, o recorte vai aqui em vez de virar entrada separada.",
+        "examples": ["2025-11, loja 5: delta R$ 12,30"]
+      }
+    }
+  },
+  "examples": [
+    [
+      { "nome": "sem_comissao_negativa", "resultado": "ok", "detalhe": null },
+      { "nome": "sem_comissao_sem_venda", "resultado": "ok", "detalhe": null },
+      { "nome": "soma_loja_igual_soma_matricula", "resultado": "ok", "detalhe": null },
+      {
+        "nome": "sem_regras_competencia_igual_baseline",
+        "resultado": "violada",
+        "detalhe": "2025-11, loja 5: delta R$ 12,30"
+      }
+    ]
+  ]
+}

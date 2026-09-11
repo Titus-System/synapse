@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/comum.schema.json",
+  "title": "Tipos comuns do domínio do Synapse",
+  "description": "Definições reutilizadas pelos demais schemas de domínio. Este arquivo não descreve nenhuma coluna sozinho.",
+  "$defs": {
+    "competencia": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
+      "description": "Competência histórica no formato AAAA-MM. As bases só trazem granularidade mensal (Date_Ref), por isso não existe dia.",
+      "examples": ["2025-11"]
+    },
+    "codigo": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Código de loja, marca ou cargo, exatamente como aparece no dataset. É identificador e nunca operando de cálculo, por isso é string: chave de objeto JSON é string, e assim o mesmo código tem uma única forma em todas as estruturas.",
+      "examples": ["13", "10", "100"]
+    },
+    "matricula": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identificador individual do colaborador. Não é campo do núcleo da regra; entra como dado no alvo de um elemento.",
+      "examples": ["MATRIC-422"]
+    },
+    "brl": {
+      "type": "number",
+      "description": "Valor monetário em reais.",
+      "examples": [480312.0]
+    },
+    "fracao": {
+      "type": "number",
+      "description": "Proporção expressa como fração, nunca como porcentagem. 0.025 são 2,5%.",
+      "examples": [0.025]
+    },
+    "vigencia": {
+      "type": "object",
+      "description": "Janela de aplicação da regra, em competências. Campo derivado: o dataset não tem data de vigência, o período é deduzido para cruzar com as competências processadas.",
+      "required": ["inicio", "fim"],
+      "properties": {
+        "inicio": { "$ref": "#/$defs/competencia" },
+        "fim": { "$ref": "#/$defs/competencia" }
+      },
+      "examples": [{ "inicio": "2025-11", "fim": "2025-11" }]
+    },
+    "elemento_ref": {
+      "type": "string",
+      "pattern": "^(nucleo\\.[a-z_]+|elem\\.[0-9]+)$",
+      "description": "Identificador estável de uma parte da regra dentro de uma versão. Campo do núcleo usa nucleo.<campo>; item de especificacoes usa o ref dele, sequencial. Núcleo e elementos compartilham um espaço único porque as mesmas listas citam os dois lado a lado.",
+      "examples": ["nucleo.percentual", "elem.1"]
+    },
+    "efeito": {
+      "type": "object",
+      "description": "O que um elemento provoca no comissionamento quando sua condição é satisfeita.",
+      "required": ["tipo", "valor"],
+      "properties": {
+        "tipo": {
+          "type": "string",
+          "enum": ["acrescimo_pct", "substituicao_pct", "bonus_fixo", "acrescimo_base"],
+          "description": "Vocabulário aberto a valores novos, sempre de forma aditiva."
+        },
+        "valor": {
+          "type": "number",
+          "description": "Fração quando o tipo é percentual, reais quando é bônus ou acréscimo de base."
+        }
+      },
+      "examples": [{ "tipo": "bonus_fixo", "valor": 3500 }]
+    },
+    "no_grafo": {
+      "type": "string",
+      "enum": [
+        "extracao_parametros",
+        "validacao_dominio",
+        "confirmacao",
+        "geracao_codigo",
+        "delegacao_worker",
+        "interpretacao_resultado",
+        "decisao",
+        "explicacao"
+      ],
+      "description": "Nó do grafo do codegen, na ordem de 1 a 8."
+    }
+  }
+}
