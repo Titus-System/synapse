@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "agents"
+name = "codegen"
 version = "0.1.0"
 description = ""
 authors = ["Pedro Garcia <pedrofsgarcia.pro@gmail.com>"]

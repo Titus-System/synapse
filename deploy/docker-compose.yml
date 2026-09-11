@@ -23,6 +23,27 @@ services:
       timeout: 3s
       retries: 3
 
+  codegen:
+    build:
+      context: ..
+      dockerfile: codegen/Dockerfile
+    image: synapse-codegen:${TAG:-local}
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: synapse-codegen
+    ports:
+      - '${CODEGEN_PORT:-8001}:8000'
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://localhost:8000/health']
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    networks:
+      - synapse-net
+
   postgres:
     image: postgres:18-alpine
     container_name: synapse-postgres
