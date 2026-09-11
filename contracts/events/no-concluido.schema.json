@@ -1,60 +1,87 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/events/no-concluido.schema.json",
   "title": "no-concluido",
-  "description": "Evento publicado pelo codegen ao concluir um nó do grafo, com os dados mínimos necessários para compor a trilha de auditoria.",
+  "description": "Evento publicado pelo codegen ao concluir um nó do grafo. É o que sustenta a trilha de auditoria da US04: o nó grava seus artefatos no Postgres e publica aqui as referências. A fila é durável e o ack só vem depois da gravação, então banco indisponível significa redelivery e não registro perdido.",
   "type": "object",
   "required": [
+    "evento_id",
     "job_id",
     "no",
-    "timestamp",
-    "versao_regra",
-    "decisao",
-    "fontes"
+    "concluido_em",
+    "conclusao"
   ],
   "properties": {
+    "evento_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador da mensagem, gerado pelo codegen ao publicar. É a chave de idempotência da trilha: a API grava o que recebeu, e o índice único em trilhas_auditoria.evento_id rejeita no insert a reentrega do broker. Sem ele, redelivery vira linha duplicada."
+    },
     "job_id": {
       "type": "string",
       "format": "uuid",
       "description": "Identificador do job ao qual o nó concluído pertence."
     },
     "no": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Nome do nó do grafo que terminou seu processamento."
+      "$ref": "../domain/comum.schema.json#/$defs/no_grafo",
+      "description": "Nó do grafo que terminou seu processamento, no mesmo vocabulário fechado usado na coluna trilhas_auditoria.no e no campo no dos logs estruturados."
     },
-    "timestamp": {
+    "concluido_em": {
       "type": "string",
       "format": "date-time",
-      "description": "Data e hora em que o nó foi concluído."
+      "description": "Instante em que o nó concluiu, como o codegen o observou. É o timestamp que a US04 exige em cada registro da trilha."
     },
-    "versao_regra": {
-      "type": "integer",
-      "minimum": 1,
-      "description": "Versão exata da representação da regra usada durante o processamento deste nó."
+    "conclusao": {
+      "$ref": "../domain/trilha-conclusao.schema.json",
+      "description": "O que o nó concluiu, no formato da coluna trilhas_auditoria.conclusao. A forma varia por nó: resumo é comum a todos, e os demais campos dependem de qual nó concluiu. É por aqui que elementos_implementados chega à trilha, a lista contra a qual a cobertura do código gerado é conferida."
     },
-    "decisao": {
+    "regra_id": {
       "type": "string",
-      "minLength": 1,
-      "description": "Resumo da decisão ou do resultado produzido pelo nó, sem incluir o conteúdo completo dos artefatos."
+      "format": "uuid",
+      "description": "Versão da regra usada por este nó. Ausente nos nós anteriores à formação da regra. Identifica a versão exata que a US04 exige, porque regras tem job e versão únicos por linha."
     },
-    "fontes": {
-      "type": "array",
-      "description": "Fontes de dados consideradas pelo nó para produzir sua decisão ou resultado.",
-      "items": {
-        "type": "string",
-        "minLength": 1,
-        "description": "Identificação de uma fonte usada pelo nó."
-      }
+    "simulacao_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Simulação à qual o nó pertence. Ausente nos nós que rodam antes de existir simulação."
     },
     "prompt_id": {
       "type": "string",
       "format": "uuid",
-      "description": "Referência da linha que armazena o prompt usado pelo nó, quando houver chamada ao modelo."
+      "description": "Linha de prompts usada pelo nó. Ausente nos nós que não chamam modelo. A resposta do modelo é alcançada por ela, que é um para um com o prompt."
     },
-    "resposta_id": {
+    "codigo_gerado_id": {
       "type": "string",
       "format": "uuid",
-      "description": "Referência da linha que armazena a resposta do modelo, quando houver chamada ao modelo."
+      "description": "Linha de codigos_gerados produzida pelo nó de geração de código. Ausente nos demais nós."
+    },
+    "explicacao_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Linha de explicacoes produzida pelo nó de explicação. Ausente nos demais nós, e também quando não houve narrativa utilizável (US05, cenário 2)."
     }
-  }
+  },
+  "examples": [
+    {
+      "evento_id": "7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d",
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "no": "geracao_codigo",
+      "concluido_em": "2025-11-28T14:32:10Z",
+      "conclusao": {
+        "resumo": "código gerado implementando 2 elementos",
+        "elementos_implementados": [
+          "nucleo.percentual",
+          "elem.1"
+        ],
+        "fontes": [
+          "base_vendas",
+          "base_rh"
+        ]
+      },
+      "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
+      "simulacao_id": "2b3c4d5e-6f70-4812-9a3b-4c5d6e7f8091",
+      "prompt_id": "1a2b3c4d-5e6f-4071-8293-a4b5c6d7e8f9",
+      "codigo_gerado_id": "5d4c3b2a-1f0e-4d9c-8b7a-6e5d4c3b2a19"
+    }
+  ]
 }

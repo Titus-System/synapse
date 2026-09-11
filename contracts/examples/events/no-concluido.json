@@ -1,0 +1,15 @@
+{
+  "evento_id": "7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d",
+  "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+  "no": "geracao_codigo",
+  "concluido_em": "2025-11-28T14:32:10Z",
+  "conclusao": {
+    "resumo": "código gerado implementando 2 elementos",
+    "elementos_implementados": ["nucleo.percentual", "elem.1"],
+    "fontes": ["base_vendas", "base_rh"]
+  },
+  "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
+  "simulacao_id": "2b3c4d5e-6f70-4812-9a3b-4c5d6e7f8091",
+  "prompt_id": "1a2b3c4d-5e6f-4071-8293-a4b5c6d7e8f9",
+  "codigo_gerado_id": "5d4c3b2a-1f0e-4d9c-8b7a-6e5d4c3b2a19"
+}

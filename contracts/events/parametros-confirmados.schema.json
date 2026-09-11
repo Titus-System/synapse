@@ -1,11 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/events/parametros-confirmados.schema.json",
   "title": "parametros-confirmados",
-  "description": "Evento publicado pela API quando o usuário confirma ou corrige a representação da regra.",
+  "description": "Evento publicado pela API quando o usuário confirma ou corrige a representação da regra. É o que retoma o grafo do codegen, que estava pausado no nó de confirmação.",
   "type": "object",
   "required": [
     "job_id",
-    "representacao_regra_id"
+    "regra_id"
   ],
   "properties": {
     "job_id": {
@@ -13,10 +14,16 @@
       "format": "uuid",
       "description": "Identificador do job que estava aguardando a confirmação dos parâmetros."
     },
-    "representacao_regra_id": {
+    "regra_id": {
       "type": "string",
       "format": "uuid",
-      "description": "Referência da versão confirmada da representação da regra armazenada no banco."
+      "description": "Versão confirmada da regra em regras. Correção do usuário gera uma versão nova, nunca altera a anterior, então este id identifica exatamente o que foi confirmado. O conteúdo fica no banco, no formato de representacao-regra."
     }
-  }
+  },
+  "examples": [
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+    }
+  ]
 }

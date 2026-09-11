@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/events/simulacao-concluida.schema.json",
   "title": "simulacao-concluida",
-  "description": "Evento publicado pelo Worker quando a execução da simulação termina, com sucesso ou erro.",
+  "description": "Evento publicado pelo Worker quando a execução termina, com sucesso ou erro, numa exchange fanout consumida por API e codegen de forma independente. Carrega a referência da linha de resultado e os escalares apurados; a decomposição e o desfecho das asserções ficam no Postgres. Se o evento se perder, o resultado não se perde junto: a linha é consultável e reconciliável depois.",
   "type": "object",
   "required": [
     "job_id",
     "resultado_id",
-    "status",
-    "veredito"
+    "status"
   ],
   "properties": {
     "job_id": {
@@ -18,16 +18,17 @@
     "resultado_id": {
       "type": "string",
       "format": "uuid",
-      "description": "Referência da linha de resultado armazenada no banco; o evento não carrega o resultado completo."
+      "description": "Linha de resultados_simulacao gravada pelo Worker. O evento não carrega o resultado completo."
     },
     "status": {
       "type": "string",
       "enum": [
         "sucesso",
+        "assercao_violada",
         "erro_codigo",
         "erro_infra"
       ],
-      "description": "Informa se a execução terminou com sucesso, falhou por erro no código gerado ou falhou por problema de infraestrutura."
+      "description": "Desfecho da execução, no mesmo vocabulário de resultados_simulacao.status. assercao_violada é o caso em que o código rodou e produziu números, mas uma invariante foi violada e o número não vale: é erro do código gerado, não inviabilidade da regra, e os dois precisam chegar distinguidos ao codegen."
     },
     "veredito": {
       "type": "string",
@@ -36,27 +37,35 @@
         "inviavel",
         "indeterminado"
       ],
-      "description": "Resultado da verificação de viabilidade aplicada pelo Worker após a execução da simulação."
-    },
-    "total_simulado": {
-      "type": "number",
-      "description": "Total de comissionamento apurado para a regra simulada, quando a execução produz um resultado válido."
+      "description": "Viabilidade orçamentária, derivada do total simulado contra o orçamento aplicado. Ausente quando o status não é sucesso, porque aí não há número que sustente veredito."
     },
     "total_baseline": {
-      "type": "number",
-      "description": "Total de comissionamento do baseline usado como referência na comparação."
+      "$ref": "../domain/comum.schema.json#/$defs/brl",
+      "description": "Comissionamento apurado pelas regras vigentes, somado no período. Ausente quando o status não é sucesso."
     },
-    "diferenca_absoluta": {
-      "type": "number",
-      "description": "Diferença em valor entre o total simulado e o baseline."
+    "total_simulado": {
+      "$ref": "../domain/comum.schema.json#/$defs/brl",
+      "description": "Comissionamento apurado pela regra proposta, somado no período. Ausente quando o status não é sucesso."
     },
-    "diferenca_percentual": {
-      "type": "number",
-      "description": "Variação percentual do total simulado em relação ao baseline."
+    "diferenca_abs": {
+      "$ref": "../domain/comum.schema.json#/$defs/brl",
+      "description": "Total simulado menos total baseline, no mesmo nome usado em resultado-totais. É este número que a decomposição gravada no banco quebra por dimensão."
     },
-    "assercoes_ok": {
-      "type": "boolean",
-      "description": "Indica se as asserções invariantes da simulação foram atendidas."
+    "diferenca_pct": {
+      "$ref": "../domain/comum.schema.json#/$defs/fracao",
+      "description": "Diferença absoluta sobre o baseline, expressa como fração e nunca como porcentagem: 0.025 são 2,5%."
     }
-  }
+  },
+  "examples": [
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "resultado_id": "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93",
+      "status": "sucesso",
+      "veredito": "inviavel",
+      "total_baseline": 480312.0,
+      "total_simulado": 492100.0,
+      "diferenca_abs": 11788.0,
+      "diferenca_pct": 0.0245
+    }
+  ]
 }
