@@ -8,28 +8,28 @@ class Prometheus:
     """Abstração sobre prometheus_client para métricas de infraestrutura e domínio."""
 
     def __init__(self) -> None:
-        self._contadores: dict[str, Counter] = {}
-        self._medidores: dict[str, Gauge] = {}
-        self._histogramas: dict[str, Histogram] = {}
+        self._counters: dict[str, Counter] = {}
+        self._gauges: dict[str, Gauge] = {}
+        self._histograms: dict[str, Histogram] = {}
 
     def register_counter(
         self, nome: str, descricao: str, rotulos: list[str] | None = None
     ) -> Counter:
-        if nome not in self._contadores:
-            self._contadores[nome] = Counter(nome, descricao, rotulos or [])
-        return self._contadores[nome]
+        if nome not in self._counters:
+            self._counters[nome] = Counter(nome, descricao, rotulos or [])
+        return self._counters[nome]
 
     def register_gauge(self, nome: str, descricao: str, rotulos: list[str] | None = None) -> Gauge:
-        if nome not in self._medidores:
-            self._medidores[nome] = Gauge(nome, descricao, rotulos or [])
-        return self._medidores[nome]
+        if nome not in self._gauges:
+            self._gauges[nome] = Gauge(nome, descricao, rotulos or [])
+        return self._gauges[nome]
 
     def register_histogram(
         self, nome: str, descricao: str, rotulos: list[str] | None = None
     ) -> Histogram:
-        if nome not in self._histogramas:
-            self._histogramas[nome] = Histogram(nome, descricao, rotulos or [])
-        return self._histogramas[nome]
+        if nome not in self._histograms:
+            self._histograms[nome] = Histogram(nome, descricao, rotulos or [])
+        return self._histograms[nome]
 
     def get_all(self) -> bytes:
         """Retorna todas as métricas no formato de texto do Prometheus."""
@@ -38,10 +38,10 @@ class Prometheus:
 
     def get_all_by_prefix(self, prefixo: str) -> bytes:
         """Retorna as métricas registradas cujo nome começa com ``prefixo``."""
-        medidores = self.get_gauges_by_prefix(prefixo)
-        histogramas = self.get_histograms_by_prefix(prefixo)
-        contadores = self.get_counters_by_prefix(prefixo)
-        return contadores + histogramas + medidores
+        gauges = self.get_gauges_by_prefix(prefixo)
+        histograms = self.get_histograms_by_prefix(prefixo)
+        counters = self.get_counters_by_prefix(prefixo)
+        return counters + histograms + gauges
 
     def get_counters_by_prefix(self, prefixo: str) -> bytes:
         return self._get_metric_by_prefix("counter", prefixo)
@@ -57,9 +57,9 @@ class Prometheus:
     ) -> bytes:
         linhas: list[str] = []
         tipos_metricas: dict[str, Mapping[str, Counter | Gauge | Histogram]] = {
-            "counter": self._contadores,
-            "histogram": self._histogramas,
-            "gauge": self._medidores,
+            "counter": self._counters,
+            "histogram": self._histograms,
+            "gauge": self._gauges,
         }
         metricas = tipos_metricas[tipo_metrica]
 
