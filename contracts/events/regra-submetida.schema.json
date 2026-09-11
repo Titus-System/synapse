@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "regra-submetida",
+  "description": "Evento publicado pela API quando uma regra entra no fluxo de processamento.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "origem",
+    "competencia"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job criado pela API para acompanhar o processamento da regra."
+    },
+    "origem": {
+      "type": "string",
+      "enum": [
+        "formulario",
+        "voz"
+      ],
+      "description": "Indica como a regra foi submetida. 'formulario' representa entrada estruturada e 'voz' representa entrada originada de uma transcrição."
+    },
+    "competencia": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Competência histórica escolhida como referência para a simulação."
+    },
+    "transcricao_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Referência da transcrição armazenada no banco. É usada quando a origem do job é 'voz'."
+    },
+    "representacao_regra_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Referência da representação estruturada da regra armazenada no banco. É usada quando a origem do job é 'formulario'."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "origem": {
+            "const": "voz"
+          }
+        },
+        "required": [
+          "origem"
+        ]
+      },
+      "then": {
+        "required": [
+          "transcricao_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "origem": {
+            "const": "formulario"
+          }
+        },
+        "required": [
+          "origem"
+        ]
+      },
+      "then": {
+        "required": [
+          "representacao_regra_id"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "executar-codigo",
+  "description": "Comando enviado pelo codegen ao Worker para executar o código gerado em ambiente isolado.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "codigo_gerado_id",
+    "competencia",
+    "orcamento"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job ao qual a execução pertence."
+    },
+    "codigo_gerado_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Referência da linha que contém o código Python gerado e armazenado no banco."
+    },
+    "competencia": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Competência histórica que o sandbox deve usar na simulação."
+    },
+    "orcamento": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Valor de orçamento informado para a simulação e usado pelo Worker no veredito de viabilidade."
+    }
+  }
+}

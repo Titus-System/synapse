@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "no-concluido",
+  "description": "Evento publicado pelo codegen ao concluir um nó do grafo, com os dados mínimos necessários para compor a trilha de auditoria.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "no",
+    "timestamp",
+    "versao_regra",
+    "decisao",
+    "fontes"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job ao qual o nó concluído pertence."
+    },
+    "no": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Nome do nó do grafo que terminou seu processamento."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Data e hora em que o nó foi concluído."
+    },
+    "versao_regra": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Versão exata da representação da regra usada durante o processamento deste nó."
+    },
+    "decisao": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Resumo da decisão ou do resultado produzido pelo nó, sem incluir o conteúdo completo dos artefatos."
+    },
+    "fontes": {
+      "type": "array",
+      "description": "Fontes de dados consideradas pelo nó para produzir sua decisão ou resultado.",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Identificação de uma fonte usada pelo nó."
+      }
+    },
+    "prompt_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Referência da linha que armazena o prompt usado pelo nó, quando houver chamada ao modelo."
+    },
+    "resposta_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Referência da linha que armazena a resposta do modelo, quando houver chamada ao modelo."
+    }
+  }
+}

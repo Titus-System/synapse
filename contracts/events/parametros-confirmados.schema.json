@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "parametros-confirmados",
+  "description": "Evento publicado pela API quando o usuário confirma ou corrige a representação da regra.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "representacao_regra_id"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job que estava aguardando a confirmação dos parâmetros."
+    },
+    "representacao_regra_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Referência da versão confirmada da representação da regra armazenada no banco."
+    }
+  }
+}

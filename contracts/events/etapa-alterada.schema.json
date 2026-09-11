@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "etapa-alterada",
+  "description": "Evento publicado pelo codegen quando uma nova etapa do processamento é iniciada.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "etapa",
+    "status"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job cujo andamento foi atualizado."
+    },
+    "etapa": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Nome da etapa que acabou de ser iniciada no fluxo do codegen."
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Status associado à etapa iniciada e usado pela API para atualizar o progresso exibido ao usuário."
+    }
+  }
+}

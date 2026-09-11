@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "simulacao-concluida",
+  "description": "Evento publicado pelo Worker quando a execução da simulação termina, com sucesso ou erro.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "resultado_id",
+    "status",
+    "veredito"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job ao qual o resultado pertence."
+    },
+    "resultado_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Referência da linha de resultado armazenada no banco; o evento não carrega o resultado completo."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "sucesso",
+        "erro_codigo",
+        "erro_infra"
+      ],
+      "description": "Informa se a execução terminou com sucesso, falhou por erro no código gerado ou falhou por problema de infraestrutura."
+    },
+    "veredito": {
+      "type": "string",
+      "enum": [
+        "viavel",
+        "inviavel",
+        "indeterminado"
+      ],
+      "description": "Resultado da verificação de viabilidade aplicada pelo Worker após a execução da simulação."
+    },
+    "total_simulado": {
+      "type": "number",
+      "description": "Total de comissionamento apurado para a regra simulada, quando a execução produz um resultado válido."
+    },
+    "total_baseline": {
+      "type": "number",
+      "description": "Total de comissionamento do baseline usado como referência na comparação."
+    },
+    "diferenca_absoluta": {
+      "type": "number",
+      "description": "Diferença em valor entre o total simulado e o baseline."
+    },
+    "diferenca_percentual": {
+      "type": "number",
+      "description": "Variação percentual do total simulado em relação ao baseline."
+    },
+    "assercoes_ok": {
+      "type": "boolean",
+      "description": "Indica se as asserções invariantes da simulação foram atendidas."
+    }
+  }
+}
