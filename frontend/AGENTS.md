@@ -80,3 +80,12 @@ Two flags were evaluated and dropped due to real friction against this project's
 ## Commits and comments
 
 The commit message convention (Conventional Commits, in Brazilian Portuguese) and the code comment convention (only the "why", never a temporal comment) live in `.agents/skills/commit-and-comments/SKILL.md`.
+
+## Security
+
+- **No calculated display value.** A component, view, composable or store never derives a number the user relies on financially — no arithmetic on monetary/percentage fields (`valor * ...`, `total - desconto`, rounding a rate), no client-side viability/approval verdict, no diff against baseline computed in TS. Every such value arrives already computed from the `api` response and is only formatted (currency/date/locale) or styled, never derived. A PR that adds a formula over raw numeric fields to a component/view/store — even a "simple" one — is rejected; the calculation belongs to a backend service.
+- **No business rule branches on domain data.** A `v-if` or `computed` may branch on UI state (loading, selected tab, form validity) but never on a business threshold (e.g. whether a rule is within budget) — that verdict is a field the api already computed, not something re-derived from raw numbers in the frontend.
+- **Auth token never touches persistent storage.** The Keycloak access/refresh token is never written to `localStorage`, `sessionStorage`, or a JavaScript-readable cookie — an XSS that finds it there can exfiltrate it. The OIDC adapter keeps it in memory only; a reload restores the session through a silent SSO check against Keycloak's own session, never by reading something the app persisted itself.
+- **No unsanitized HTML injection.** `v-html` is never used to render text that originated from a user proposal, a transcription, or an AI-generated explanation. Vue's default template escaping is what protects against XSS; bypassing it needs an explicit, reviewed sanitizer, not a default choice.
+- **No raw error rendered to the user.** An api error response's internal detail (stack trace, exception message, internal field name) is never interpolated directly into a view or toast; the frontend maps a known error code to a user-facing message.
+- **Observability**: the log envelope is the contract in [`../contracts/observability/`](../contracts/observability/README.md); don't redeclare fields here.
