@@ -37,8 +37,14 @@
       "description": "Janela de aplicação da regra, em competências. Campo derivado: o dataset não tem data de vigência, o período é deduzido para cruzar com as competências processadas.",
       "required": ["inicio", "fim"],
       "properties": {
-        "inicio": { "$ref": "#/$defs/competencia" },
-        "fim": { "$ref": "#/$defs/competencia" }
+        "inicio": {
+          "$ref": "#/$defs/competencia",
+          "description": "Primeira competência em que a regra proposta vale, incluída nela."
+        },
+        "fim": {
+          "$ref": "#/$defs/competencia",
+          "description": "Última competência em que a regra proposta vale, incluída nela. Igual ao início quando a vigência é de um mês só."
+        }
       },
       "examples": [{ "inicio": "2025-11", "fim": "2025-11" }]
     },

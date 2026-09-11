@@ -1,0 +1,21 @@
+{
+  "totais": {
+    "baseline": 480312.0,
+    "simulado": 492100.0,
+    "diferenca_abs": 11788.0,
+    "diferenca_pct": 0.0245,
+    "orcamento": 485000.0
+  },
+  "assercoes": [
+    { "nome": "sem_comissao_negativa", "resultado": "ok", "detalhe": null },
+    { "nome": "sem_comissao_sem_venda", "resultado": "ok", "detalhe": null },
+    { "nome": "soma_loja_igual_soma_matricula", "resultado": "ok", "detalhe": null }
+  ],
+  "decomposicao": {
+    "elemento": { "nucleo.percentual": 8200.0, "elem.1": 3588.0 },
+    "loja": { "13": 7100.0, "58": 4688.0 },
+    "marca": { "10": 11788.0 },
+    "cargo": { "100": 9200.0, "150": 2588.0 },
+    "competencia": { "2025-08": 0, "2025-11": 11788.0 }
+  }
+}

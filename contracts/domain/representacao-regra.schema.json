@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/representacao-regra.schema.json",
+  "title": "Representação da regra",
+  "description": "A regra de comissionamento em forma estruturada (ARCHITECTURE.md §1.5): o que o usuário confirma antes da simulação e o que o código gerado implementa. Não se confirma código, confirma-se esta estrutura. Reúne as duas colunas da tabela regras, que só dizem a regra inteira quando lidas juntas: o núcleo, que toda regra tem, e as especificações, que enumeram o resto do que o usuário disse. Cada parte carrega identificador próprio, no espaço único de comum.schema.json#/$defs/elemento_ref, e é por ele que o código gerado declara o que implementa e que a decomposição do resultado se amarra.",
+  "type": "object",
+  "required": ["nucleo", "especificacoes"],
+  "properties": {
+    "nucleo": {
+      "$ref": "regra-nucleo.schema.json",
+      "description": "Os campos que toda regra tem, no vocabulário canônico da DEC-084: vigência, loja, marca, cargo e percentual. A seção é obrigatória; quais campos dela precisam estar preenchidos é completude, verificada sobre a representação antes da geração de código, e não forma. Campo ausente tem significado definido em regra-nucleo.schema.json."
+    },
+    "especificacoes": {
+      "$ref": "regra-especificacoes.schema.json",
+      "description": "Os elementos que a regra tem além do núcleo: faixas, condições por limiar, janelas de datas, exclusões, bônus fixos e o que não couber em nenhum construto reconhecido, que entra como generico. Array vazio quando a regra é só o núcleo. Quando existem, valem exatamente como o núcleo: aparecem na confirmação, entram no código gerado e são verificados no resultado. Elemento sem ref é recusado, porque um elemento sem identificador não pode ser amarrado à implementação nem à decomposição."
+    }
+  },
+  "examples": [
+    {
+      "nucleo": {
+        "vigencia": { "inicio": "2025-11", "fim": "2025-11" },
+        "loja": ["13"],
+        "marca": ["10", "20"],
+        "cargo": ["100", "300"],
+        "percentual": 0.025
+      },
+      "especificacoes": []
+    }
+  ]
+}
