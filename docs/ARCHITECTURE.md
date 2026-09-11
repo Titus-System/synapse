@@ -74,11 +74,15 @@ O princípio: **preferir dado a código sempre que a variação estiver em "quem
 - "Venda individual superior a R$ 40 mil" (dezembro) significa o **total mensal consolidado por matrícula**, não uma transação: a maior venda individual da base é R$ 5.057.
 - `BASE_COMMISS_FINAL.xlsx`, apesar do nome, é a **tabela de percentuais** (30 linhas de marca × cargo), não um resultado apurado.
 
-### 1.3. O que "simular" significa: backtesting sobre competência histórica
+### 1.3. O que "simular" significa: backtesting sobre período histórico
 
-**Decisão: a simulação é um backtesting** - a regra proposta é recalculada sobre uma competência que já aconteceu e comparada com o comissionamento apurado pela regra vigente.
+**Decisão: a simulação é um backtesting** - a regra proposta é recalculada sobre um período histórico que já aconteceu e comparada com o comissionamento apurado pela regra vigente.
 
-> **Backtest:** testar uma regra nova contra o passado. Em vez de adivinhar o futuro, recalcula-se um mês que já ocorreu como se a regra nova estivesse valendo - mesmas vendas, mesmos funcionários, mesmas férias e afastamentos - mudando **só a regra**. Se em outubro a empresa pagou R$ 480 mil e a regra nova teria pago R$ 511 mil, a diferença de R$ 31 mil é causada pela regra, e por mais nada.
+**O período é escolhido pelo usuário**: todas as competências do dataset ou um subconjunto qualquer delas, não necessariamente contíguo. O padrão é o período inteiro. Um job cobre o período escolhido em **uma única simulação**, com os meses agregados num total só e num veredito só - não há uma simulação por mês. A contribuição de cada competência para a diferença aparece na decomposição do resultado (seção 3.3), o que permite ver qual mês puxou o número sem fragmentar o julgamento de viabilidade.
+
+Simular o período inteiro em vez de um mês responde a pergunta que o negócio de fato faz: não "essa regra caberia no orçamento de novembro", e sim "essa regra se sustenta ao longo do tempo". Uma regra pode ser barata num mês fraco e estourar num mês de pico.
+
+> **Backtest:** testar uma regra nova contra o passado. Em vez de adivinhar o futuro, recalculam-se meses que já ocorreram como se a regra nova estivesse valendo - mesmas vendas, mesmos funcionários, mesmas férias e afastamentos - mudando **só a regra**. Se em outubro a empresa pagou R$ 480 mil e a regra nova teria pago R$ 511 mil, a diferença de R$ 31 mil é causada pela regra, e por mais nada.
 
 Motivos da decisão:
 
@@ -90,7 +94,7 @@ Motivos da decisão:
 
 **Limitação a declarar ao usuário:** o backtest assume que o comportamento das pessoas seria o mesmo sob a regra nova. Uma comissão maior pode motivar mais vendas, e isso ele não captura. Para avaliar viabilidade orçamentária, que é o que a US01 pede, é a leitura conservadora e suficiente.
 
-**Consequência arquitetural:** como o container do Worker não tem acesso à rede (seção 3.4), as bases da competência precisam estar dentro dele. Sendo estáticas e pequenas, ficam **embutidas na imagem do sandbox** - o container sobe com os dados já presentes, sem busca nem materialização por job. Só o código a executar chega de fora, no evento.
+**Consequência arquitetural:** como o container do Worker não tem acesso à rede (seção 3.4), as bases de todas as competências precisam estar dentro dele - qualquer subconjunto pode ser pedido numa simulação. Sendo estáticas e pequenas, ficam **embutidas na imagem do sandbox** - o container sobe com os dados já presentes, sem busca nem materialização por job. Só o código a executar chega de fora, no evento.
 
 #### O baseline
 
@@ -117,9 +121,13 @@ A consequência prática é limitada: sem gabarito não se pode afirmar *"a empr
 
 A diferença percentual sozinha não responde "cabe no orçamento?", que é justamente o alerta que a US01 exige. Isso exige o total absoluto do cenário simulado e o **valor do orçamento** - que não está em nenhuma das bases nem na especificação.
 
-**Decisão da Dom Rock: o orçamento é informado pelo usuário.** É parâmetro da simulação, preenchido junto com a competência de referência (seção 3.1); confrontá-lo com o total apurado é o que dispara o alerta visual de inviabilidade e o bloqueio da liberação para produção (US01, cenário 2).
+**Decisão da Dom Rock: o orçamento é informado pelo usuário.** É parâmetro da simulação, preenchido junto com o período (seção 3.1); confrontá-lo com o total apurado é o que dispara o alerta visual de inviabilidade e o bloqueio da liberação para produção (US01, cenário 2).
 
-Uma simulação completa fica assim: o usuário propõe *"marca 40 +0,3% para vendedores"*, escolhe a competência **novembro** e informa orçamento de **R$ 485.000**. O sandbox apura o cenário com a regra nova → **R$ 492.100**. O Worker compara com o baseline guardado (R$ 480.312) → diferença de **+R$ 11.788 (+2,5%)**. Como R$ 492.100 excede o orçamento, a interface alerta e bloqueia a liberação.
+**O orçamento é do período, não mensal.** Como o job agrega as competências num total só, é esse total que se confronta com o valor informado - um veredito para o conjunto. Um orçamento por mês exigiria N vereditos e não responderia "essa regra se sustenta ao longo do período".
+
+Uma simulação completa, no caso mais simples de período de um mês: o usuário propõe *"marca 40 +0,3% para vendedores"*, escolhe **novembro** e informa orçamento de **R$ 485.000**. O sandbox apura o cenário com a regra nova → **R$ 492.100**. O Worker compara com o baseline guardado (R$ 480.312) → diferença de **+R$ 11.788 (+2,5%)**. Como R$ 492.100 excede o orçamento, a interface alerta e bloqueia a liberação.
+
+Com um período mais largo, a mecânica é a mesma sobre valores somados: o apurado é a soma das competências escolhidas, o baseline é a soma dos baselines correspondentes, e a diferença é confrontada com um orçamento do período. Competência que fique fora da vigência da regra entra na soma pelas regras do baseline - ela conta no total, apenas sem o efeito da regra proposta, e aparece com contribuição zero na decomposição.
 
 ### 1.4. O que é IA e o que é determinístico
 
@@ -186,7 +194,7 @@ Entre a linguagem natural e o código gerado existe uma **representação estrut
 
 **A representação enumera todos os elementos da regra**, cada um com identificador próprio:
 
-- **Núcleo** - os campos que toda regra precisa ter: validade, canal/loja, produto/marca, equipe/cargo, % (a lista da PO no backlog, sujeita à reconciliação de vocabulário do ponto em aberto, seção 15.2). São obrigatórios: sem eles a regra está incompleta e o fluxo não avança (US06, cenário 2).
+- **Núcleo** - os campos que toda regra precisa ter: **vigência, loja, marca, cargo, matrícula e percentual** (vocabulário canônico declarado na DEC-084, que reconciliou os termos do backlog com as colunas do dataset). São obrigatórios: sem eles a regra está incompleta e o fluxo não avança (US06, cenário 2).
 - **Demais elementos** - tudo o mais que o usuário especificou: faixas, condições, janelas de datas, exclusões, e o que mais aparecer. Nem toda regra os tem; **quando tem, valem exatamente como o núcleo**.
 
 Obrigatório e importante são coisas diferentes. O núcleo é o mínimo que se exige de qualquer regra - não a parte que recebe tratamento privilegiado. Um elemento que o usuário especificou é vinculante pelo simples fato de ter sido especificado.
@@ -232,7 +240,7 @@ Arquitetura em microsserviços com processamento assíncrono de longa duração.
 | Worker de execução | Python (consumidor RabbitMQ) | Executa o código gerado dentro de containers Docker isolados |
 | Banco de dados | PostgreSQL | Armazenamento único do sistema: estado do job, regras, resultados, auditoria e artefatos (áudio, transcrição, código gerado, prompts), além do checkpoint do LangGraph. Cada serviço acessa com usuário próprio, com permissões restritas ao que lhe cabe |
 | Fila de mensagens | RabbitMQ | Único canal de comunicação entre API, codegen e Worker; o evento de resultado usa exchange fanout, por ter dois consumidores independentes (ver catálogo na seção 6.3) |
-| Autenticação | OAuth2 / OIDC (Keycloak) | Autenticação e autorização dos usuários (gestor, RH, auditor, gerente comercial) |
+| Autenticação | Login e senha, verificados pela própria API | Autenticação e autorização nos dois papéis do sistema: profissional de RH e auditor |
 
 **Nomenclatura.** Os quatro componentes de desenvolvimento têm nome canônico em minúsculas, que é ao mesmo tempo o nome do diretório no monorepo (ADR 002) e o `service.name` da telemetria (seção 9). Em prosa, `api` aparece como "API" e os demais capitalizados quando iniciam frase - o nome canônico é o da primeira coluna.
 
@@ -265,7 +273,7 @@ Arquitetura em microsserviços com processamento assíncrono de longa duração.
 8. A cada etapa (1 a 7), **codegen** publica eventos de progresso no **RabbitMQ**; a **API** os consome e repassa ao **Frontend** via **SSE**.
 9. Ao final, o usuário decide no **Frontend**: confirmar/liberar, cancelar, salvar ou arquivar - ação processada pelo **API**, que persiste o estado final.
 
-Os componentes 3–6 (Frontend, API, codegen, Worker) concentram a complexidade de desenvolvimento do projeto e são detalhados a seguir. Os componentes de infraestrutura (PostgreSQL, RabbitMQ, Keycloak, observabilidade) são tratados na seção 4, com menor profundidade por serem, em grande parte, configuração de serviços prontos.
+Os componentes 3–6 (Frontend, API, codegen, Worker) concentram a complexidade de desenvolvimento do projeto e são detalhados a seguir. Os componentes de infraestrutura (PostgreSQL, RabbitMQ, observabilidade) são tratados na seção 4, com menor profundidade por serem, em grande parte, configuração de serviços prontos.
 
 ### 2.3. Faseamento por sprint: formulário antes da voz
 
@@ -289,7 +297,7 @@ A sequência que isso implica: US01 (simulação, Sprint 1) não depende de US02
 | **Expressividade da regra** | Apenas o núcleo (seção 1.5) | Qualquer especificação - faixas, condicionais, janelas de datas, exclusões | - |
 | **Trilha e explicação** | Gravadas pelo fluxo | Gravadas pelo fluxo | Consultáveis e garantidas (US04, US05) |
 
-- **Sprint 1** - entrada da regra por **formulário fixo** no Frontend, restrita aos campos do núcleo (validade, canal, produto, equipe/funções, %). O job é criado já com parâmetros estruturados; cobre US01 (simulação) e US07 (relatório, ações de finalização, histórico e reprocessamento).
+- **Sprint 1** - entrada da regra por **formulário fixo** no Frontend, restrita aos campos do núcleo (vigência, loja, marca, cargo, matrícula, percentual). O job é criado já com parâmetros estruturados; cobre US01 (simulação) e US07 (relatório, ações de finalização, histórico e reprocessamento).
 - **Sprint 2** - adiciona a captura de voz (US02), a transcrição na API (seção 3.2), a extração de parâmetros e a validação de domínio no grafo do codegen (seção 3.3), **e abre a extensão da representação** para regras com particularidades. Inclui a validação/confirmação dos parâmetros extraídos (US06) e a sugestão de adaptação (US03), que reaproveita o ciclo de simulação já validado na Sprint 1.
 - **Sprint 3** - auditoria (US04) e explicabilidade (US05).
 
@@ -311,7 +319,7 @@ Como o pipeline trata "parâmetros confirmados" (US06) como a fronteira entre a 
 
 | Tela / módulo | User Story | Responsabilidade |
 | --- | --- | --- |
-| Formulário de regra | US01 (Sprint 1) | Campos fixos da regra (validade, canal, produto, equipe/funções, %), mais **competência de referência** (uma das seis disponíveis) e **orçamento** de comissionamento - ambos parâmetros da simulação (seção 1.3). É a porta de entrada até a Sprint 2, sem depender de voz - ver seção 2.3 |
+| Formulário de regra | US01 (Sprint 1) | Campos fixos da regra (vigência, loja, marca, cargo, matrícula, % - vocabulário canônico da DEC-084), mais **período** (as competências a simular, padrão o período inteiro) e **orçamento** de comissionamento - ambos parâmetros da simulação (seção 1.3). É a porta de entrada até a Sprint 2, sem depender de voz - ver seção 2.3 |
 | Captura de voz | US02 (Sprint 2) | Gravação de áudio (MediaRecorder API), upload à API, tratamento de erro de áudio inaudível/fora de contexto (mensagens vindas da API, que fez a transcrição) |
 | Validação de parâmetros | US06 | Exibe a representação da regra (seção 1.5) para confirmação: na Sprint 1, apenas os campos do núcleo; na Sprint 2, todos os elementos especificados (faixas, condições, janelas de datas e o que mais o usuário tiver dito), cada um exibido individualmente e de forma legível - provavelmente uma paráfrase da regra somada aos campos estruturados editáveis. Destaca campos obrigatórios ausentes, bloqueia o avanço enquanto houver pendência, permite edição manual e registra a correção para auditoria |
 | Acompanhamento de progresso | US01–US03 | Consome o stream SSE do job e exibe o estágio atual (transcrevendo, extraindo, gerando código, simulando, analisando) - evita tela "travada" durante processamento assíncrono longo |
@@ -325,7 +333,7 @@ Como o pipeline trata "parâmetros confirmados" (US06) como a fronteira entre a 
 **Aspectos técnicos a definir pela equipe de frontend:**
 
 - Gerenciamento de estado (ex.: Pinia) para o estado do job corrente (parâmetros, progresso, resultado) e para sessão/autenticação.
-- Roteamento (Vue Router) entre as telas acima, com guarda de rota autenticada (integração OIDC via Keycloak - biblioteca cliente, ex. `keycloak-js` ou `oidc-client-ts`).
+- Roteamento (Vue Router) entre as telas acima, com guarda de rota autenticada: o login envia credencial à API, que devolve a sessão; o guarda barra as rotas sem sessão válida e as que o papel do usuário não autoriza.
 - Cliente SSE com reconexão automática (o job pode durar minutos; a conexão pode cair) e deduplicação de eventos.
 - Cliente REST para as ações síncronas (submissão, consulta de histórico, ações de finalização).
 - Validação client-side complementar (não substitui a validação da API) para reduzir round-trips óbvios.
@@ -354,7 +362,7 @@ Como o pipeline trata "parâmetros confirmados" (US06) como a fronteira entre a 
 - **Gestão de SSE** - mapeamento `job_id → emissores conectados`, para repassar cada evento de progresso consumido do RabbitMQ ao(s) cliente(s) Frontend inscritos naquele job. Também é o que sustenta a retenção do trabalho na saída abrupta (US07, cenário 2): o job vive na API, não na aba do navegador, então fechar a página não descarta o processamento - o Frontend apenas alerta antes de sair e reencontra o job no histórico.
 - **Persistência (Spring Data JPA)** - repositórios da tabela `job` e das tabelas relacionadas (ver seção 5), reaproveitados pelas fatias que precisam. Inclui os artefatos que a própria API produz: áudio (`bytea`) e transcrição, em tabela separada das de consulta frequente para não pesar o dia a dia.
 - **Dono das migrations** - o schema é único e a API é quem o versiona, via Liquibase (seção 5), inclusive as tabelas que Worker e codegen escrevem. Eles inserem; não criam nem alteram estrutura.
-- **Segurança** - Spring Security como *resource server* OAuth2/OIDC (Keycloak), com autorização por papel (gestor de negócios, gerente comercial, RH, auditor) conforme os atores identificados no backlog.
+- **Segurança** - Spring Security com autenticação local: a API é dona das credenciais e da sessão. A senha é guardada apenas como hash de KDF, nunca em claro. A autorização é por papel único, sem RBAC fino — a matriz de papel × ação está na DEC-087, que também fixa os dois papéis existentes: profissional de RH e auditor. Não há provedor de identidade externo nem SSO: o MVP não precisa de federação, e a granularidade de permissão que o produto exige cabe em dois papéis.
 
 **Pontos de atenção para o desenvolvimento:**
 
@@ -480,7 +488,6 @@ Serviços majoritariamente prontos, configurados para o contexto do projeto - me
 
 - **PostgreSQL** - armazenamento único do sistema: estado do job, regras, resultados, trilha de auditoria, artefatos (áudio, transcrição, código gerado, prompts) e o checkpoint do LangGraph. Schema único; o isolamento entre serviços é feito por **usuário de banco com permissões restritas** (seção 6.2), não por separação de schemas.
 - **RabbitMQ** - barramento de eventos entre API, codegen e Worker, e único canal entre eles. Filas segregadas por tipo de evento; apenas `simulacao-concluida` usa **exchange fanout**, por ter dois consumidores independentes (API e codegen). Catálogo completo na seção 6.3.
-- **Keycloak** - provedor de identidade OAuth2/OIDC; centraliza autenticação e os papéis de autorização (gestor de negócios, gerente comercial, RH, auditor) usados pela API.
 - **Observabilidade (Grafana, Prometheus, Alertmanager, Loki, Grafana Alloy/Grafana Cloud)** - ver seção 8.
 
 ### 4.1. Por que um único armazenamento, sem object storage
@@ -501,36 +508,19 @@ O que continua valendo do desenho anterior é a regra de que **as mensagens carr
 
 **Custo aceito:** o banco cresce com os artefatos e não tem expiração automática por linha, que uma política de lifecycle de bucket daria de graça. Com dataset estático, dados fictícios e volume de demonstração, nenhum dos dois pesa.
 
-## 5. Modelo de dados (PostgreSQL)
+## 5. Persistência (PostgreSQL)
 
-**Schema único.** Não há separação por schema: todas as tabelas convivem no mesmo, e o que delimita cada serviço são as permissões do seu usuário de banco (seção 6.2). Os grupos de tabelas são:
+**O modelo de dados não vive neste documento.** Entidades, atributos, relacionamentos, índices e as estruturas dos campos `jsonb` são definidos em [`database/modelo-dados.dbml`](database/modelo-dados.dbml), que é a fonte canônica. Esta seção trata das decisões de arquitetura sobre persistência: quem escreve o quê, como o schema evolui e onde ficam as fronteiras.
 
-- **Estado e decisões** - `job`, transições, trilha de auditoria, histórico. Escrita exclusiva do **API**; é a fonte de verdade do que o usuário e o auditor veem.
-- **Artefatos** - áudio e transcrição (gravados pela API), código gerado, prompt e resposta do modelo (pelo codegen), resultado da execução (pelo Worker). Cada produtor tem `INSERT` apenas na sua; a API lê todas.
-- **Checkpoint do LangGraph** - estrutura criada e mantida pela própria biblioteca, usada só pelo codegen.
-- **`outbox_event`** - fila de saída transacional da API (seção 3.2).
+**Schema único.** Não há separação por schema: todas as tabelas convivem no mesmo, e o que delimita cada serviço são as permissões do seu usuário de banco (seção 6.2). O princípio é que cada serviço escreve apenas os artefatos que produz: a API é dona do estado do job, das transições e da auditoria; codegen e Worker inserem nas tabelas dos artefatos que geram e leem o que precisam.
+
+**Fronteira com o checkpoint do LangGraph.** As tabelas de checkpoint são criadas e migradas pela própria biblioteca, não pelos changesets da API, e só o codegen as acessa. Nenhuma chave estrangeira atravessa essa fronteira em qualquer direção; a correlação é apenas por `job_id`, que o codegen usa como `thread_id`. O conteúdo do checkpoint é infraestrutura de retomada, descartável quando o job termina — não é fonte de auditoria.
 
 **Migrations:** a evolução do schema é versionada e aplicada via migrations, nunca manualmente. A **API é a dona das migrations**, inclusive das tabelas que Worker e codegen escrevem - eles inserem, não criam nem alteram estrutura. Ferramenta: **Liquibase** no formato **Formatted SQL** - arquivos `.sql` puros com diretivas em comentário (`--changeset`, `--rollback`), sem XML/YAML. Decisão pela combinação de SQL direto (sem abstração) com suporte a rollback já no core open source, algo que o Flyway só oferece na versão paga (Teams). Os scripts ficam no repositório da API e rodam automaticamente no start da aplicação ou como etapa do CI/CD (seção 12). A exceção são as tabelas de checkpoint do LangGraph, criadas pelo mecanismo de setup da própria biblioteca.
 
-Tabela `job`:
+**Imutabilidade da representação da regra.** A representação confirmada (seção 1.5) é **versionada e imutável depois de usada** - uma edição posterior gera nova versão, nunca altera a que já produziu um resultado. Isso não é convenção de código: nenhum serviço tem `UPDATE` ou `DELETE` nas tabelas da representação, e a versão é congelada no primeiro uso. É o que mantém a trilha legível quando o usuário reprocessa uma regra arquivada com parâmetros diferentes (US07, cenário 3); sem isso, dois resultados apontariam para a mesma regra sem que se pudesse dizer qual apuração usou quais parâmetros.
 
-| Campo | Descrição |
-| --- | --- |
-| `id` | Identificador da tarefa |
-| `status` | Estado atual do processamento |
-| `user_id` | Referência ao usuário |
-| `created_at` | Data de criação |
-| `started_at` | Início do processamento |
-| `finished_at` | Fim do processamento |
-| `retry_count` | Número de tentativas |
-
-> Nota: esta é a tabela base de rastreamento de execução. O modelo de dados completo (ainda não definido) precisa cobrir, no mínimo: regra de negócio e seus parâmetros **com versão**, código gerado, resultado de simulação e baseline usado na comparação, a trilha de auditoria por etapa (decisões e fontes de dados de cada nó do grafo, US04), a explicação atrelada ao registro da simulação e a flag de baixa rastreabilidade de explicabilidade (US05) - ver [Pontos em aberto](#152-pontos-ainda-em-aberto).
-
-**Exigências do backlog sobre o registro de auditoria** (US04, cenários 1 e 3), que o modelo precisa satisfazer: cada registro é **estruturado** (JSON), consultável por banco **ou API**, e amarra de forma inseparável o **id da simulação**, o **timestamp**, a **versão exata da regra aplicada** e a **fonte de cada dado processado**.
-
-"Versão da regra" tem consequência direta no modelo: a representação confirmada (seção 1.5) é **versionada e imutável depois de usada** - uma edição posterior gera nova versão, nunca altera a que já produziu um resultado. É o que mantém a trilha legível quando o usuário reprocessa uma regra arquivada com parâmetros diferentes (US07, cenário 3); sem isso, dois resultados apontariam para a mesma regra sem que se pudesse dizer qual apuração usou quais parâmetros.
-
-O modelo de dados também é item de **DoR** do time ("Modelo de dados acessível"), o que torna o ponto em aberto 1 (seção 15.2) uma pendência de entrada de sprint, não apenas de arquitetura.
+**Registro de auditoria.** A US04 (cenários 1 e 3) exige um registro estruturado, consultável por banco **ou** por API, que amarre de forma inseparável o id da simulação, o timestamp, a versão exata da regra aplicada e a origem de cada dado processado. Como o modelo satisfaz essa exigência é assunto do `.dbml`; o que a arquitetura fixa é que a exigência existe e que a leitura pelo auditor não depende de acesso ao banco - o endpoint de auditoria da API (seção 3.2) serve a trilha.
 
 ## 6. Comunicação entre serviços
 
@@ -568,7 +558,7 @@ A distinção não é cosmética: um imperativo no catálogo é sinalizador de d
 | `executar-codigo` | **Comando** | codegen | Worker | Fila | `job_id`, id da linha do código gerado, competência a processar, critério de orçamento |
 | `simulacao-concluida` | Evento | Worker | **API e codegen** | **Fanout** | `job_id`, id da linha do resultado, totais apurados, veredito de viabilidade, desfecho das asserções |
 | `etapa-alterada` | Evento | codegen | API | Fila | `job_id`, etapa **iniciada**, status - repassado ao Frontend via SSE |
-| `no-concluido` | Evento | codegen | API | Fila | `job_id`, nó **concluído**, timestamp, versão da regra aplicada, decisão tomada, fontes usadas, ids das linhas do prompt e da resposta |
+| `no-concluido` | Evento | codegen | API | Fila | `evento_id` (uuid da mensagem, gerado pelo codegen; chave de idempotência da trilha), `job_id`, nó **concluído**, timestamp, versão da regra aplicada, decisão tomada, fontes usadas, ids das linhas do prompt e da resposta |
 
 **Por que `executar-codigo` é comando.** O codegen dirige a execução a um destinatário específico e **pausa o grafo aguardando o resultado** - não é anúncio ao mundo, é delegação com expectativa de que alguém aja. Chamá-lo de `codigo-gerado` sugeriria que o produtor não depende de ninguém agir, quando é exatamente o contrário.
 
@@ -690,7 +680,7 @@ Outras regras:
 
 - **Linguagem do código gerado:** o código gerado pelo agente e executado pelo worker será obrigatoriamente Python. O sandbox Docker do worker (seções 3.4 e 7) precisa apenas suportar um runtime Python isolado (sem acesso à rede, com limites de CPU/memória, timeout).
 - **Origem do baseline:** dataset entregue pela Dom Rock em `dataset_domrock/` - seis competências (Jul–Dez/2025) das bases de RH, Vendas e Comissionamento, mais a especificação de processamento (seção 1.2).
-- **Simulação = backtesting sobre competência histórica:** a regra proposta é recalculada sobre um mês que já aconteceu e comparada com o apurado pela regra vigente, isolando a regra como única variável. Não há projeção estatística de vendas futuras - os seis meses disponíveis não sustentariam um forecast, e ele introduziria incerteza maior que o efeito a medir (seção 1.3).
+- **Simulação = backtesting sobre período histórico:** a regra proposta é recalculada sobre um período que já aconteceu - o dataset inteiro ou um subconjunto escolhido pelo usuário - e comparada com o apurado pela regra vigente, isolando a regra como única variável. As competências são agregadas numa simulação só, com um total e um veredito para o conjunto. Não há projeção estatística de vendas futuras - os seis meses disponíveis não sustentariam um forecast, e ele introduziria incerteza maior que o efeito a medir (seção 1.3).
 - **Três camadas, e a regra de fronteira entre elas:** o regras base (aplicação do %, regra do gerente, proporcionalidade de admissão/demissão/afastamento/férias) é código determinístico escrito uma vez; os eventos de RH (afastamentos, férias, correções cadastrais) viram linhas de tabela; apenas as regras da competência - mudanças de política descritas em texto livre - são traduzidas em código pela IA. O critério: prefere-se dado a código sempre que a variação estiver em "quem/quando/quanto" e não em "qual lógica" (seção 1.2).
 - **Nenhum número sai do modelo:** a LLM interpreta linguagem e escreve código; toda a aritmética roda em código determinístico sobre as bases reais, no sandbox. É o que torna cada valor do relatório rastreável até as linhas que o produziram (US04) - ver seção 1.4.
 - **A regra é simulada por inteiro:** todo elemento especificado pelo usuário entra no código gerado e se reflete no resultado. Não há simulação parcial nem elemento aproximado; o agente não escolhe o que dentro da regra vai ser simulado. Elemento sem implementação correspondente é falha de geração, e o job para em vez de devolver um número que parece completo. O vocabulário de construtos reconhecidos existe como auxílio de reconhecimento - dá campos nomeados e validação individual aos formatos frequentes -, jamais como filtro do que o sistema aceita: nenhuma regra é recusada ou podada por ter forma inédita (seção 1.5).
@@ -714,7 +704,6 @@ Outras regras:
 ### 15.2. Pontos ainda em aberto
 
 1. **Retenção de áudio** - se vale expurgar as gravações após a transcrição. Sem object storage não há política de lifecycle pronta; seria uma rotina de limpeza na API. Com dados fictícios e volume de demonstração, é baixa prioridade.
-2. **Reconciliação de vocabulário** - o backlog descreve os parâmetros da regra como validade, canal, produto, equipe/funções e %; o dataset materializa Marca, Cargo, Loja, Matrícula e %. As duas visões são complementares (a do backlog vem das conversas da PO com o cliente; a do dataset, das bases que a Dom Rock processa), mas o mapeamento exato entre elas precisa ser confirmado com o parceiro - em especial o que corresponde a "canal".
 
 **A confirmar com o parceiro (levantado na análise do dataset, seção 1.2):**
 

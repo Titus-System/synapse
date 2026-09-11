@@ -102,8 +102,11 @@ suporte de dado:
 
 ### 3.3. Sobre quais competências
 
-Cinco competências são base sólida: **Ago, Set, Out, Nov e Dez de 2025**.
-**Julho fica fora** até revisão dos dados (ver §5).
+**As seis competências estão no escopo: Jul, Ago, Set, Out, Nov e Dez de 2025.**
+
+A simulação roda sobre um **período**, não sobre um mês. O usuário escolhe quais
+competências entram — por padrão todas — e o job as agrega num total único, com um
+veredito único. Não existe uma simulação por competência.
 
 ---
 
@@ -113,9 +116,9 @@ Cinco competências são base sólida: **Ago, Set, Out, Nov e Dez de 2025**.
 
 Qualquer regra que dependa de um destes recortes é inviável com os dados atuais:
 
-- **Canal de venda** — nenhuma coluna corresponde. Isso afeta o próprio núcleo da regra
-  descrito no backlog (validade, **canal**, produto, equipe, %); a reconciliação de
-  vocabulário está em aberto (§15.2 item 3; T-084).
+- **Canal de venda** — nenhuma coluna corresponde. O núcleo da regra não usa "canal": a
+  DEC-084 fixou **loja** como o recorte de agrupamento, por ser a menor divisão de vendas
+  e de lotação que as bases materializam.
 - **Meta ou cota** — individual, por loja ou por equipe; e atingimento de meta.
 - **Produto, SKU, categoria, linha ou margem** — a venda tem valor e marca, nada abaixo disso.
 - **Cliente, forma de pagamento, ticket médio, desconto.**
@@ -149,7 +152,7 @@ Não são impossíveis; dependem de trabalho de dados que ainda não foi feito:
 | --- | --- | --- |
 | Regras que interagem com **afastamento, férias ou licença maternidade** (regras base 5e–5g) | Extrair os eventos da prosa do `Especificacao.md` e congelar com conferência humana | T-028, T-029 |
 | **Gerente rateado entre lojas** (caso MATRIC-293, jul) | Lógica nova nas regras base, além do fato em si | T-030 |
-| **Julho/2025** | RH com 322 funcionários (vs ~465), vendas cobrindo 54 de 78 lojas, `Vlr _Venda` até R$ 78,5 mil (demais meses: máx ~R$ 5,1 mil), venda/matrícula mediana R$ 66,7 mil (vs R$ 23–32 mil). Escala e estrutura diferentes — decidir se normaliza ou exclui | T-025, T-026 |
+| **Julho/2025** | RH com 322 funcionários (vs ~465), vendas cobrindo 54 de 78 lojas, `Vlr _Venda` até R$ 78,5 mil (demais meses: máx ~R$ 5,1 mil), venda/matrícula mediana R$ 66,7 mil (vs R$ 23–32 mil). Escala e estrutura diferentes — normalizar | T-025, T-026 |
 | **Matrículas órfãs** — em Vendas sem correspondência no RH (Ago 3, Set 1, Out 1, Nov 2, Dez 5) | Regra de tratamento (ignorar, imputar, reportar) | T-025 (§15.2 item 6) |
 | **`Date_Ref` com semântica dupla** na base de vendas de novembro | Separar competência de data real antes de agrupar, senão a Black Friday vira competência à parte | T-027 |
 
@@ -172,7 +175,6 @@ Não são impossíveis; dependem de trabalho de dados que ainda não foi feito:
 
 ## 7. Relação com pontos em aberto e tarefas
 
-- **§15.2 item 3** (vocabulário: "canal") — bloqueia regras de núcleo que usem canal; T-084.
 - **§15.2 item 4** (sem gabarito) — fixa o escopo em comparação relativa; T-025, T-032.
 - **§15.2 item 5** (cargo 150 duplo) — condiciona o join e a regra do gerente; T-025, T-030.
 - **§15.2 item 6** (matrículas órfãs, alinhamento de colunas do RH) — T-025, T-026.

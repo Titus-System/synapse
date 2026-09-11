@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/consumo-tokens.schema.json",
+  "title": "Consumo de tokens de uma chamada",
+  "description": "Coluna respostas_modelo.consumo_tokens. Nula quando o provedor não devolve essa informação; quando existe, traz a contagem de entrada e saída.",
+  "type": "object",
+  "required": ["tokens_in", "tokens_out"],
+  "properties": {
+    "tokens_in": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Tokens consumidos pelo prompt."
+    },
+    "tokens_out": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Tokens gerados na resposta."
+    },
+    "custo_usd": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Custo da chamada em dólares, quando o provedor informa."
+    }
+  },
+  "examples": [{ "tokens_in": 3120, "tokens_out": 480, "custo_usd": 0.0212 }]
+}

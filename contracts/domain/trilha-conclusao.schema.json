@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/trilha-conclusao.schema.json",
+  "title": "Conclusão de um nó do grafo",
+  "description": "Coluna trilhas_auditoria.conclusao. O que o nó concluiu, numa forma que varia por nó. Só resumo é comum a todos; os demais campos dependem do nó, que é lido na coluna no da mesma linha e por isso não se repete aqui. Também não se repetem o veredito, que vive em resultados_simulacao, nem a razão de uma parada, que vive em job_transicoes.motivo.",
+  "type": "object",
+  "required": ["resumo"],
+  "properties": {
+    "resumo": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Texto curto legível por pessoas. Presente em todos os nós."
+    },
+
+    "elementos_extraidos": {
+      "type": "array",
+      "items": { "$ref": "comum.schema.json#/$defs/elemento_ref" },
+      "description": "Nó extracao_parametros: o que foi identificado no enunciado.",
+      "examples": [["nucleo.percentual", "elem.1"]]
+    },
+
+    "no_dominio": {
+      "type": "boolean",
+      "description": "Nó validacao_dominio: se o enunciado trata de regra de comissionamento."
+    },
+
+    "editado_pelo_usuario": {
+      "type": "boolean",
+      "description": "Nó confirmacao: se o usuário alterou algo antes de confirmar."
+    },
+    "campos_corrigidos": {
+      "type": "array",
+      "items": { "$ref": "comum.schema.json#/$defs/elemento_ref" },
+      "description": "Nó confirmacao: o que ele alterou.",
+      "examples": [["nucleo.percentual"]]
+    },
+
+    "elementos_implementados": {
+      "type": "array",
+      "items": { "$ref": "comum.schema.json#/$defs/elemento_ref" },
+      "description": "Nó geracao_codigo: o que o código gerado declara implementar. É contra esta lista que a cobertura é conferida; elemento sem implementação correspondente é erro de geração."
+    },
+
+    "diagnostico": {
+      "type": "string",
+      "description": "Nó interpretacao_resultado: o que puxou a diferença em relação ao baseline."
+    },
+    "concentracao": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Nó interpretacao_resultado: onde o efeito se concentra, por código de dimensão ou por identificador de elemento.",
+      "examples": [["13", "elem.1"]]
+    },
+
+    "encaminhamento": {
+      "type": "string",
+      "description": "Nó decisao: para onde o fluxo seguiu.",
+      "examples": ["sugestao_adaptacao"]
+    }
+  },
+  "examples": [
+    {
+      "resumo": "5 elementos extraídos da transcrição",
+      "elementos_extraidos": ["nucleo.percentual", "elem.1"]
+    },
+    {
+      "resumo": "usuário corrigiu o percentual antes de confirmar",
+      "editado_pelo_usuario": true,
+      "campos_corrigidos": ["nucleo.percentual"]
+    },
+    {
+      "resumo": "diferença concentrada em duas lojas",
+      "diagnostico": "a faixa de bônus respondeu por 30% do acréscimo",
+      "concentracao": ["13", "elem.1"]
+    }
+  ]
+}
