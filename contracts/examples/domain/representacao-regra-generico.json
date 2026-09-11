@@ -1,0 +1,17 @@
+{
+  "nucleo": {
+    "vigencia": { "inicio": "2025-11", "fim": "2025-11" },
+    "loja": ["13"],
+    "marca": [],
+    "cargo": ["100"],
+    "percentual": 0.02
+  },
+  "especificacoes": [
+    {
+      "ref": "elem.1",
+      "construto": "generico",
+      "descricao": "dobrar a comissão no dia do aniversário da loja",
+      "campos": { "evento": "aniversario_loja", "multiplicador": 2 }
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/resultado-simulacao.schema.json",
+  "title": "Resultado da simulação",
+  "description": "A saída que o código gerado produz dentro do sandbox e que o worker repassa como veio, sem recompor. É o insumo da tela, da explicação e da auditoria. Descreve a execução que chegou ao fim com números válidos, e é o formato exigido do código gerado: um total sozinho não é resultado aceitável, porque sem a decomposição não há como dizer de onde veio a diferença nem conferir que todo elemento da regra teve efeito. Quando a execução falha, nada disto existe: o resultado entra com status de erro e as colunas correspondentes ficam nulas, o que é decidido em resultados_simulacao e não aqui. Todos os valores são do PERÍODO, somando as competências do job; a contribuição de cada mês está na quebra competencia da decomposição.",
+  "type": "object",
+  "required": ["totais", "assercoes", "decomposicao"],
+  "properties": {
+    "totais": {
+      "$ref": "resultado-totais.schema.json",
+      "description": "Os agregados do período: o comissionamento do baseline, o da regra proposta, a diferença absoluta entre os dois, a diferença em fração e o orçamento aplicado. É a diferença absoluta daqui que a decomposição quebra por dimensão."
+    },
+    "assercoes": {
+      "$ref": "resultado-assercoes.schema.json",
+      "description": "O desfecho de cada invariante verificada dentro do sandbox junto com a apuração. Uma entrada por invariante. Asserção violada indica erro no código gerado e invalida o número, o que é caso distinto de a regra ser coerente e não caber no orçamento."
+    },
+    "decomposicao": {
+      "$ref": "resultado-decomposicao.schema.json",
+      "description": "A quebra da diferença em relação ao baseline, nunca do total: somar qualquer quebra dá totais.diferenca_abs. As cinco quebras são exigidas, pelos motivos que o schema referenciado registra. Elemento que não aparece na quebra por elemento não teve efeito mensurável, o que num resultado de sucesso é distinto de implementação faltante, já barrada antes pela conferência de cobertura. Competência com zero foi simulada e a regra não a afetou, o que diz outra coisa que competência ausente."
+    }
+  },
+  "examples": [
+    {
+      "totais": {
+        "baseline": 480312.0,
+        "simulado": 492100.0,
+        "diferenca_abs": 11788.0,
+        "diferenca_pct": 0.0245,
+        "orcamento": 485000.0
+      },
+      "assercoes": [
+        { "nome": "sem_comissao_negativa", "resultado": "ok", "detalhe": null }
+      ],
+      "decomposicao": {
+        "elemento": { "nucleo.percentual": 8200.0, "elem.1": 3588.0 },
+        "loja": { "13": 7100.0, "58": 4688.0 },
+        "marca": { "10": 11788.0 },
+        "cargo": { "100": 9200.0, "150": 2588.0 },
+        "competencia": { "2025-08": 0, "2025-11": 11788.0 }
+      }
+    }
+  ]
+}

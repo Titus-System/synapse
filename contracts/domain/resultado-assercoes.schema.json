@@ -21,7 +21,8 @@
       },
       "resultado": {
         "type": "string",
-        "enum": ["ok", "violada"]
+        "enum": ["ok", "violada"],
+        "description": "Desfecho da verificação. Uma única entrada violada invalida o número apurado e derruba o job; ok significa que a invariante se manteve em todo o período."
       },
       "detalhe": {
         "type": ["string", "null"],

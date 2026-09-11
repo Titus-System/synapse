@@ -2,8 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://synapse.local/contracts/domain/resultado-decomposicao.schema.json",
   "title": "Decomposição da diferença",
-  "description": "Coluna resultados_simulacao.decomposicao. Quebra da DIFERENÇA em relação ao baseline, nunca do total: somar qualquer quebra dá resultado-totais.diferenca_abs. Vem do container e o worker a repassa sem recompor. Nula quando resultados_simulacao.status não é sucesso. A forma de objeto, e não de array de registros, é o que torna chave repetida dentro de uma quebra impossível de representar.",
+  "description": "Coluna resultados_simulacao.decomposicao. Quebra da DIFERENÇA em relação ao baseline, nunca do total: somar qualquer quebra dá resultado-totais.diferenca_abs. Vem do container e o worker a repassa sem recompor. Nula quando resultados_simulacao.status não é sucesso. A forma de objeto, e não de array de registros, é o que torna chave repetida dentro de uma quebra impossível de representar. As cinco quebras são exigidas: por elemento, porque é ela que amarra cada parte da regra ao efeito que produziu; por loja, marca e cargo, que são as dimensões de agregação do domínio e sem as quais a explicação não tem onde se apoiar; e por competência, que é onde está a contribuição de cada mês do período.",
   "type": "object",
+  "required": ["elemento", "loja", "marca", "cargo", "competencia"],
   "properties": {
     "elemento": {
       "type": "object",

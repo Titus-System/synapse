@@ -4,6 +4,19 @@ Formato das estruturas JSON que o Synapse persiste em colunas `jsonb`. Estes sch
 
 Como todo `contracts/`, isto é insumo de build e nunca dependência de runtime. Cada consumidor implementa seus próprios DTOs na sua stack.
 
+## Os dois artefatos que atravessam o sistema
+
+Dois schemas não descrevem uma coluna: descrevem um artefato inteiro, compondo por `$ref` as colunas que só dizem a mesma coisa quando lidas juntas.
+
+| Schema | Artefato |
+| --- | --- |
+| [representacao-regra.schema.json](representacao-regra.schema.json) | A regra que o usuário confirma e que o código gerado implementa: `regras.nucleo` mais `regras.especificacoes` |
+| [resultado-simulacao.schema.json](resultado-simulacao.schema.json) | A saída que o código gerado produz no sandbox: `totais`, `assercoes` e `decomposicao` de `resultados_simulacao` |
+
+A composição existe porque a exigência mora no par, não na parte. A representação só é regra com núcleo e especificações juntos; o resultado só é resultado com totais e decomposição juntos, porque um total sem a quebra não diz de onde veio a diferença nem permite conferir que todo elemento teve efeito. Cada schema de coluna continua valendo isoladamente, para quem lê ou escreve aquela coluna.
+
+Os exemplos válidos estão em [`contracts/examples/domain/`](../examples/domain/), e é o que os testes de cada componente consomem.
+
 ## Schemas e colunas
 
 | Schema | Coluna |
