@@ -553,12 +553,12 @@ A distinção não é cosmética: um imperativo no catálogo é sinalizador de d
 
 | Mensagem | Tipo | Publica | Consome | Canal | Conteúdo |
 | --- | --- | --- | --- | --- | --- |
-| `regra-submetida` | Evento | API | codegen | Fila | `job_id`, origem (`formulario` \| `voz`), competência de referência, transcrição ou núcleo preenchido |
-| `parametros-confirmados` | Evento | API | codegen | Fila | `job_id`, representação da regra confirmada pelo usuário - é o que retoma o grafo no nó 3 |
-| `executar-codigo` | **Comando** | codegen | Worker | Fila | `job_id`, id da linha do código gerado, competência a processar, critério de orçamento |
-| `simulacao-concluida` | Evento | Worker | **API e codegen** | **Fanout** | `job_id`, id da linha do resultado, totais apurados, veredito de viabilidade, desfecho das asserções |
+| `regra-submetida` | Evento | API | codegen | Fila | `job_id`, origem (`formulario` \| `voz` \| `reprocessamento`), **competências do job** (todas, nunca uma), id da submissão e id da versão da regra conforme a origem |
+| `parametros-confirmados` | Evento | API | codegen | Fila | `job_id`, id da versão da regra confirmada pelo usuário - é o que retoma o grafo no nó 3 |
+| `executar-codigo` | **Comando** | codegen | Worker | Fila | `job_id`, id da linha do código gerado, **competências a processar** (todas numa execução só), critério de orçamento |
+| `simulacao-concluida` | Evento | Worker | **API e codegen** | **Fanout** | `job_id`, id da linha do resultado, status (`sucesso` \| `assercao_violada` \| `erro_codigo` \| `erro_infra`), totais apurados e veredito de viabilidade quando há sucesso |
 | `etapa-alterada` | Evento | codegen | API | Fila | `job_id`, etapa **iniciada**, status - repassado ao Frontend via SSE |
-| `no-concluido` | Evento | codegen | API | Fila | `evento_id` (uuid da mensagem, gerado pelo codegen; chave de idempotência da trilha), `job_id`, nó **concluído**, timestamp, versão da regra aplicada, decisão tomada, fontes usadas, ids das linhas do prompt e da resposta |
+| `no-concluido` | Evento | codegen | API | Fila | `evento_id` (uuid da mensagem, gerado pelo codegen; chave de idempotência da trilha), `job_id`, nó **concluído**, timestamp, conclusão do nó (resumo, fontes usadas e o que mais aquele nó registra), ids da versão da regra, da simulação, do prompt, do código gerado e da explicação, conforme o nó |
 
 **Por que `executar-codigo` é comando.** O codegen dirige a execução a um destinatário específico e **pausa o grafo aguardando o resultado** - não é anúncio ao mundo, é delegação com expectativa de que alguém aja. Chamá-lo de `codigo-gerado` sugeriria que o produtor não depende de ninguém agir, quando é exatamente o contrário.
 
