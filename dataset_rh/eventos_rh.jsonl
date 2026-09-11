@@ -177,16 +177,12 @@
 /*MATRIC-62 possui vendas depois da data de demissão, conferir isso*/
 {
     "id": "01a08955-307e-728b-a9ec-363e8d12f1a6", 
-    "tipo": "correcao_cadastral", 
+    "tipo": "demissao", 
     "matricula": "MATRIC-62",
     "competencia_origem": "2025-09", 
-    "data_inicio": null, 
+    "data_inicio": "2025-09-15", 
     "data_fim": null,
-    "detalhes": {
-        "campo": "Data_Demiss", 
-        "valor_anterior": null, 
-        "valor_novo": "2025-09-15"
-    }
+    "detalhes": null
 }
 
 //outubro - 2025
