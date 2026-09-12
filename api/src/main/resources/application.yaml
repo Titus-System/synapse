@@ -66,3 +66,14 @@ management:
     export:
       otlp:
         enabled: false
+
+# Swagger UI lendo o contrato estático (copiado em build time pelo maven-resources-
+# plugin, ver pom.xml). api-docs.enabled continua true - é o que sustenta os beans da
+# própria UI - mas packages-to-exclude no pacote raiz garante que o documento gerado
+# por anotação nunca tenha rota nenhuma, mesmo quando existirem controllers no
+# futuro: o contrato é o arquivo em contracts/http/, nunca anotação.
+springdoc:
+  packages-to-exclude: synapse.api
+  swagger-ui:
+    path: /docs
+    url: /openapi/http/openapi.yaml

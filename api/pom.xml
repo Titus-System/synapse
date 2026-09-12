@@ -67,6 +67,15 @@
 			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
 
+		<!-- Serve o Swagger UI em /docs, apontado para o contrato estático copiado de
+		     contracts/http/openapi.yaml (ver o plugin de recursos abaixo) em vez de
+		     gerar um spec a partir de anotações. -->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+			<version>3.1.1</version>
+		</dependency>
+
 		<dependency>
 			<groupId>org.jspecify</groupId>
 			<artifactId>jspecify</artifactId>
@@ -89,6 +98,63 @@
 				<groupId>io.spring.javaformat</groupId>
 				<artifactId>spring-javaformat-maven-plugin</artifactId>
 				<version>${spring-javaformat.version}</version>
+			</plugin>
+			<!-- copia o contrato HTTP para dentro do jar. 
+				 Mesma estrutura relativa de contracts/, porque
+			     openapi.yaml referencia domain/*.schema.json por caminho relativo. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-resources-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>copy-openapi-contract</id>
+						<phase>process-resources</phase>
+						<goals>
+							<goal>copy-resources</goal>
+						</goals>
+						<configuration>
+							<outputDirectory>${project.build.outputDirectory}/static/openapi</outputDirectory>
+							<resources>
+								<resource>
+									<directory>${project.basedir}/../contracts</directory>
+									<includes>
+										<include>http/openapi.yaml</include>
+										<include>http/synapse-openapi.html</include>
+										<include>domain/*.schema.json</include>
+									</includes>
+								</resource>
+							</resources>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- $id em contracts/domain/*.schema.json é só identificador, nunca endereço
+			     de verdade - contracts/ é insumo de build, nunca dependência de runtime
+			     (ADR-002). Um resolvedor de $ref que trata $id como URI de fetch (caso do
+			     Swagger UI) tentaria buscar https://synapse.local/... de verdade e falharia.
+			     Remove o campo só desta cópia servida; os originais não mudam. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-antrun-plugin</artifactId>
+				<version>3.2.0</version>
+				<executions>
+					<execution>
+						<id>strip-schema-ids-from-served-copy</id>
+						<phase>process-classes</phase>
+						<goals>
+							<goal>run</goal>
+						</goals>
+						<configuration>
+							<target>
+								<replaceregexp byline="false" encoding="UTF-8">
+									<regexp pattern="&quot;\$id&quot;\s*:\s*&quot;[^&quot;]*&quot;,\s*" />
+									<substitution expression="" />
+									<fileset dir="${project.build.outputDirectory}/static/openapi/domain" includes="*.schema.json" />
+								</replaceregexp>
+							</target>
+						</configuration>
+					</execution>
+				</executions>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
