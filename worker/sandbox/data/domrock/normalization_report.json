@@ -1,0 +1,576 @@
+{
+  "source_validations": {
+    "rh": {
+      "2025-07": {
+        "source_file": "dataset_domrock/BASE RH/BASE RH_JUL25.xlsx",
+        "source_sheet": "BASE HC",
+        "source_row_count": 322,
+        "canonical_row_count": 322,
+        "headers_after_trim": [
+          "Data_Ref",
+          "Cod_Marca",
+          "Descri_Marca",
+          "Cod_Loja",
+          "Descr_Loja",
+          "Matricula",
+          "Data_Admiss",
+          "Data_Demiss",
+          "Cod_Cargo",
+          "Descri_Cargo"
+        ],
+        "data_demiss_cod_cargo_alignment": {
+          "checked": true,
+          "result": "ok",
+          "known_cargo_codes_checked": [
+            100,
+            150,
+            200,
+            300
+          ],
+          "known_cargo_code_values_in_data_demiss": [],
+          "invalid_data_demiss_rows": [],
+          "invalid_cod_cargo_rows": [],
+          "message": "Data_Demiss validated as date/null and Cod_Cargo validated as integer."
+        }
+      },
+      "2025-08": {
+        "source_file": "dataset_domrock/BASE RH/BASE RH_AGO25.xlsx",
+        "source_sheet": "BASE HC",
+        "source_row_count": 465,
+        "canonical_row_count": 465,
+        "headers_after_trim": [
+          "Data_Ref",
+          "Cod_Marca",
+          "Descri_Marca",
+          "Cod_Loja",
+          "Descr_Loja",
+          "Matricula",
+          "Data_Admiss",
+          "Data_Demiss",
+          "Cod_Cargo",
+          "Descri_Cargo"
+        ],
+        "data_demiss_cod_cargo_alignment": {
+          "checked": true,
+          "result": "ok",
+          "known_cargo_codes_checked": [
+            100,
+            150,
+            200,
+            300
+          ],
+          "known_cargo_code_values_in_data_demiss": [],
+          "invalid_data_demiss_rows": [],
+          "invalid_cod_cargo_rows": [],
+          "message": "Data_Demiss validated as date/null and Cod_Cargo validated as integer."
+        }
+      },
+      "2025-09": {
+        "source_file": "dataset_domrock/BASE RH/BASE RH_SET25.xlsx",
+        "source_sheet": "BASE HC",
+        "source_row_count": 468,
+        "canonical_row_count": 467,
+        "headers_after_trim": [
+          "Data_Ref",
+          "Cod_Marca",
+          "Descri_Marca",
+          "Cod_Loja",
+          "Descr_Loja",
+          "Matricula",
+          "Data_Admiss",
+          "Data_Demiss",
+          "Cod_Cargo",
+          "Descri_Cargo",
+          "VENDAS R$"
+        ],
+        "data_demiss_cod_cargo_alignment": {
+          "checked": true,
+          "result": "ok",
+          "known_cargo_codes_checked": [
+            100,
+            150,
+            200,
+            300
+          ],
+          "known_cargo_code_values_in_data_demiss": [],
+          "invalid_data_demiss_rows": [],
+          "invalid_cod_cargo_rows": [],
+          "message": "Data_Demiss validated as date/null and Cod_Cargo validated as integer."
+        }
+      },
+      "2025-10": {
+        "source_file": "dataset_domrock/BASE RH/BASE RH_OUT25.xlsx",
+        "source_sheet": "BASE HC",
+        "source_row_count": 460,
+        "canonical_row_count": 460,
+        "headers_after_trim": [
+          "Data_Ref",
+          "Cod_Marca",
+          "Descri_Marca",
+          "Cod_Loja",
+          "Descr_Loja",
+          "Matricula",
+          "Data_Admiss",
+          "Data_Demiss",
+          "Cod_Cargo",
+          "Descri_Cargo"
+        ],
+        "data_demiss_cod_cargo_alignment": {
+          "checked": true,
+          "result": "ok",
+          "known_cargo_codes_checked": [
+            100,
+            150,
+            200,
+            300
+          ],
+          "known_cargo_code_values_in_data_demiss": [],
+          "invalid_data_demiss_rows": [],
+          "invalid_cod_cargo_rows": [],
+          "message": "Data_Demiss validated as date/null and Cod_Cargo validated as integer."
+        }
+      },
+      "2025-11": {
+        "source_file": "dataset_domrock/BASE RH/BASE RH_NOV25.xlsx",
+        "source_sheet": "BASE HC",
+        "source_row_count": 469,
+        "canonical_row_count": 469,
+        "headers_after_trim": [
+          "Data_Ref",
+          "Cod_Marca",
+          "Descri_Marca",
+          "Cod_Loja",
+          "Descr_Loja",
+          "Matricula",
+          "Data_Admiss",
+          "Data_Demiss",
+          "Cod_Cargo",
+          "Descri_Cargo"
+        ],
+        "data_demiss_cod_cargo_alignment": {
+          "checked": true,
+          "result": "ok",
+          "known_cargo_codes_checked": [
+            100,
+            150,
+            200,
+            300
+          ],
+          "known_cargo_code_values_in_data_demiss": [],
+          "invalid_data_demiss_rows": [],
+          "invalid_cod_cargo_rows": [],
+          "message": "Data_Demiss validated as date/null and Cod_Cargo validated as integer."
+        }
+      },
+      "2025-12": {
+        "source_file": "dataset_domrock/BASE RH/BASE RH_DEZ25.xlsx",
+        "source_sheet": "BASE HC",
+        "source_row_count": 467,
+        "canonical_row_count": 467,
+        "headers_after_trim": [
+          "Data_Ref",
+          "Cod_Marca",
+          "Descri_Marca",
+          "Cod_Loja",
+          "Descr_Loja",
+          "Matricula",
+          "Data_Admiss",
+          "Data_Demiss",
+          "Cod_Cargo",
+          "Descri_Cargo"
+        ],
+        "data_demiss_cod_cargo_alignment": {
+          "checked": true,
+          "result": "ok",
+          "known_cargo_codes_checked": [
+            100,
+            150,
+            200,
+            300
+          ],
+          "known_cargo_code_values_in_data_demiss": [],
+          "invalid_data_demiss_rows": [],
+          "invalid_cod_cargo_rows": [],
+          "message": "Data_Demiss validated as date/null and Cod_Cargo validated as integer."
+        }
+      }
+    },
+    "vendas": {
+      "2025-07": {
+        "source_file": "dataset_domrock/BASE_VENDAS/BASE_VENDAS_JUL25.xlsx",
+        "source_sheet": "VENDAS",
+        "source_row_count": 5018,
+        "canonical_row_count": 5018,
+        "date_ref_check": {
+          "checked": true,
+          "non_day_one_count": 0,
+          "non_day_one_dates": {},
+          "all_date_ref_counts": {
+            "2025-07-01": 5018
+          }
+        },
+        "source_total_vlr_venda": "18683547.52109999994",
+        "canonical_total_vlr_venda": "18683547.52109999994"
+      },
+      "2025-08": {
+        "source_file": "dataset_domrock/BASE_VENDAS/BASE_VENDAS_AGO25.xlsx",
+        "source_sheet": "VENDAS",
+        "source_row_count": 5000,
+        "canonical_row_count": 5000,
+        "date_ref_check": {
+          "checked": true,
+          "non_day_one_count": 0,
+          "non_day_one_dates": {},
+          "all_date_ref_counts": {
+            "2025-08-01": 5000
+          }
+        },
+        "source_total_vlr_venda": "10350230.941",
+        "canonical_total_vlr_venda": "10350230.941"
+      },
+      "2025-09": {
+        "source_file": "dataset_domrock/BASE_VENDAS/BASE_VENDAS_SET25.xlsx",
+        "source_sheet": "VENDAS",
+        "source_row_count": 5000,
+        "canonical_row_count": 5000,
+        "date_ref_check": {
+          "checked": true,
+          "non_day_one_count": 0,
+          "non_day_one_dates": {},
+          "all_date_ref_counts": {
+            "2025-09-01": 5000
+          }
+        },
+        "source_total_vlr_venda": "9726374.2081991",
+        "canonical_total_vlr_venda": "9726374.2081991"
+      },
+      "2025-10": {
+        "source_file": "dataset_domrock/BASE_VENDAS/BASE_VENDAS_OUT25.xlsx",
+        "source_sheet": "VENDAS",
+        "source_row_count": 5000,
+        "canonical_row_count": 5000,
+        "date_ref_check": {
+          "checked": true,
+          "non_day_one_count": 0,
+          "non_day_one_dates": {},
+          "all_date_ref_counts": {
+            "2025-10-01": 5000
+          }
+        },
+        "source_total_vlr_venda": "9779187.0311",
+        "canonical_total_vlr_venda": "9779187.0311"
+      },
+      "2025-11": {
+        "source_file": "dataset_domrock/BASE_VENDAS/BASE_VENDAS_NOV25.xlsx",
+        "source_sheet": "VENDAS",
+        "source_row_count": 5000,
+        "canonical_row_count": 5000,
+        "date_ref_check": {
+          "checked": true,
+          "non_day_one_count": 721,
+          "non_day_one_dates": {
+            "2025-11-24": 280,
+            "2025-11-25": 68,
+            "2025-11-26": 67,
+            "2025-11-27": 246,
+            "2025-11-28": 60
+          },
+          "all_date_ref_counts": {
+            "2025-11-01": 4279,
+            "2025-11-24": 280,
+            "2025-11-25": 68,
+            "2025-11-26": 67,
+            "2025-11-27": 246,
+            "2025-11-28": 60
+          }
+        },
+        "source_total_vlr_venda": "13853200.9636964",
+        "canonical_total_vlr_venda": "13853200.9636964"
+      },
+      "2025-12": {
+        "source_file": "dataset_domrock/BASE_VENDAS/BASE_VENDAS_DEZ25.xlsx",
+        "source_sheet": "VENDAS",
+        "source_row_count": 5000,
+        "canonical_row_count": 5000,
+        "date_ref_check": {
+          "checked": true,
+          "non_day_one_count": 0,
+          "non_day_one_dates": {},
+          "all_date_ref_counts": {
+            "2025-12-01": 5000
+          }
+        },
+        "source_total_vlr_venda": "13239343.1548823000001",
+        "canonical_total_vlr_venda": "13239343.1548823000001"
+      }
+    },
+    "comissoes": {
+      "source_file": "dataset_domrock/BASE_COMMISS_FINAL.xlsx",
+      "source_sheet": "Commission",
+      "source_row_count": 30,
+      "canonical_row_count": 180,
+      "expanded_competencias": [
+        "2025-07",
+        "2025-08",
+        "2025-09",
+        "2025-10",
+        "2025-11",
+        "2025-12"
+      ]
+    }
+  },
+  "normalizations_applied": [
+    {
+      "dataset": "rh",
+      "competencia": "2025-07",
+      "fields": [
+        "Data_Ref",
+        "Data_Admiss",
+        "Data_Demiss"
+      ],
+      "normalization": "date_cells_to_iso_yyyy_mm_dd"
+    },
+    {
+      "dataset": "vendas",
+      "competencia": "2025-07",
+      "fields": [
+        "Date_Ref"
+      ],
+      "normalization": "date_cells_to_iso_yyyy_mm_dd"
+    },
+    {
+      "dataset": "rh",
+      "competencia": "2025-08",
+      "fields": [
+        "Data_Ref",
+        "Data_Admiss",
+        "Data_Demiss"
+      ],
+      "normalization": "date_cells_to_iso_yyyy_mm_dd"
+    },
+    {
+      "dataset": "vendas",
+      "competencia": "2025-08",
+      "fields": [
+        "Date_Ref"
+      ],
+      "normalization": "date_cells_to_iso_yyyy_mm_dd"
+    },
+    {
+      "dataset": "rh",
+      "competencia": "2025-09",
+      "fields": [
+        "Data_Ref",
+        "Data_Admiss",
+        "Data_Demiss"
+      ],
+      "normalization": "date_cells_to_iso_yyyy_mm_dd"
+    },
+    {
+      "dataset": "vendas",
+      "competencia": "2025-09",
+      "fields": [
+        "Date_Ref"
+      ],
+      "normalization": "date_cells_to_iso_yyyy_mm_dd"
+    },
+    {
+      "dataset": "rh",
+      "competencia": "2025-10",
+      "fields": [
+        "Data_Ref",
+        "Data_Admiss",
+        "Data_Demiss"
+      ],
+      "normalization": "date_cells_to_iso_yyyy_mm_dd"
+    },
+    {
+      "dataset": "vendas",
+      "competencia": "2025-10",
+      "fields": [
+        "Date_Ref"
+      ],
+      "normalization": "date_cells_to_iso_yyyy_mm_dd"
+    },
+    {
+      "dataset": "rh",
+      "competencia": "2025-11",
+      "fields": [
+        "Data_Ref",
+        "Data_Admiss",
+        "Data_Demiss"
+      ],
+      "normalization": "date_cells_to_iso_yyyy_mm_dd"
+    },
+    {
+      "dataset": "vendas",
+      "competencia": "2025-11",
+      "fields": [
+        "Date_Ref"
+      ],
+      "normalization": "date_cells_to_iso_yyyy_mm_dd"
+    },
+    {
+      "dataset": "rh",
+      "competencia": "2025-12",
+      "fields": [
+        "Data_Ref",
+        "Data_Admiss",
+        "Data_Demiss"
+      ],
+      "normalization": "date_cells_to_iso_yyyy_mm_dd"
+    },
+    {
+      "dataset": "vendas",
+      "competencia": "2025-12",
+      "fields": [
+        "Date_Ref"
+      ],
+      "normalization": "date_cells_to_iso_yyyy_mm_dd"
+    }
+  ],
+  "discarded_rows": [
+    {
+      "dataset": "rh",
+      "competencia": "2025-09",
+      "source_file": "dataset_domrock/BASE RH/BASE RH_SET25.xlsx",
+      "source_sheet": "BASE HC",
+      "source_row": 39,
+      "matricula": "MATRIC-246",
+      "reason": "duplicate_integral_rh_row_for_matric_246",
+      "kept_source_row": 38
+    }
+  ],
+  "discarded_columns": [
+    {
+      "dataset": "rh",
+      "competencia": "2025-09",
+      "source_file": "dataset_domrock/BASE RH/BASE RH_SET25.xlsx",
+      "source_sheet": "BASE HC",
+      "source_column": "VENDAS R$",
+      "reason": "not_in_canonical_rh_schema"
+    }
+  ],
+  "warnings": [
+    {
+      "dataset": "vendas",
+      "competencia": "2025-08",
+      "warning": "matriculas_presentes_em_vendas_ausentes_no_rh",
+      "count": 3,
+      "matriculas": [
+        "MATRIC-100",
+        "MATRIC-151",
+        "MATRIC-365"
+      ],
+      "action": "preserved"
+    },
+    {
+      "dataset": "vendas",
+      "competencia": "2025-09",
+      "warning": "matriculas_presentes_em_vendas_ausentes_no_rh",
+      "count": 1,
+      "matriculas": [
+        "MATRIC-599"
+      ],
+      "action": "preserved"
+    },
+    {
+      "dataset": "vendas",
+      "competencia": "2025-10",
+      "warning": "matriculas_presentes_em_vendas_ausentes_no_rh",
+      "count": 1,
+      "matriculas": [
+        "MATRIC-603"
+      ],
+      "action": "preserved"
+    },
+    {
+      "dataset": "vendas",
+      "competencia": "2025-11",
+      "warning": "matriculas_presentes_em_vendas_ausentes_no_rh",
+      "count": 2,
+      "matriculas": [
+        "MATRIC-191",
+        "MATRIC-207"
+      ],
+      "action": "preserved"
+    },
+    {
+      "dataset": "vendas",
+      "competencia": "2025-12",
+      "warning": "matriculas_presentes_em_vendas_ausentes_no_rh",
+      "count": 5,
+      "matriculas": [
+        "MATRIC-139",
+        "MATRIC-366",
+        "MATRIC-478",
+        "MATRIC-509",
+        "MATRIC-603"
+      ],
+      "action": "preserved"
+    }
+  ],
+  "checks": {
+    "determinism": {
+      "encoding": "utf-8",
+      "line_endings": "LF",
+      "field_order": "fixed",
+      "record_order": "manifest_order_then_source_row_order",
+      "timestamps": "not_included",
+      "uuids": "not_included"
+    },
+    "rh": {
+      "total_rows": 2650,
+      "setembro_matric_246_duplicate": {
+        "handled": true,
+        "discarded_rows": [
+          {
+            "dataset": "rh",
+            "competencia": "2025-09",
+            "source_file": "dataset_domrock/BASE RH/BASE RH_SET25.xlsx",
+            "source_sheet": "BASE HC",
+            "source_row": 39,
+            "matricula": "MATRIC-246",
+            "reason": "duplicate_integral_rh_row_for_matric_246",
+            "kept_source_row": 38
+          }
+        ]
+      },
+      "discarded_columns": [
+        {
+          "dataset": "rh",
+          "competencia": "2025-09",
+          "source_file": "dataset_domrock/BASE RH/BASE RH_SET25.xlsx",
+          "source_sheet": "BASE HC",
+          "source_column": "VENDAS R$",
+          "reason": "not_in_canonical_rh_schema"
+        }
+      ]
+    },
+    "vendas": {
+      "rows_by_competencia": {
+        "2025-07": 5018,
+        "2025-08": 5000,
+        "2025-09": 5000,
+        "2025-10": 5000,
+        "2025-11": 5000,
+        "2025-12": 5000
+      },
+      "data_venda_rows_by_competencia": {
+        "2025-07": 0,
+        "2025-08": 0,
+        "2025-09": 0,
+        "2025-10": 0,
+        "2025-11": 721,
+        "2025-12": 0
+      },
+      "duplicates_policy": "preserved"
+    },
+    "comissoes": {
+      "source_rows": 30,
+      "competencias": 6,
+      "expected_rows": 180,
+      "actual_rows": 180
+    }
+  }
+}
