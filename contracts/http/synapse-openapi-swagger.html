@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Synapse - API HTTP (Swagger UI)</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui.min.css" />
+  <style>body { margin: 0; background: #fafafa; }</style>
+</head>
+<body>
+  <!--
+    Pré-visualização local do contrato, para abrir sem precisar do `api` rodando.
+    Busca `openapi.yaml` ao vivo (caminho relativo, mesma pasta) - nunca embute uma
+    cópia congelada do contrato, para não virar uma segunda definição divergindo da
+    primeira. Para isso, o swagger precisa acessar o arquivo via HTTP:
+
+      npx @redocly/cli preview-docs openapi.yaml
+      # ou, sem dependências:
+      python3 -m http.server --directory . 8080
+
+    A versão que reflete o contrato de verdade em produção é o Swagger UI servido
+    pelo `api` em /docs, construído a partir deste mesmo arquivo.
+  -->
+  <div id="swagger-ui"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui-bundle.min.js"></script>
+  <script>
+    window.onload = function () {
+      window.ui = SwaggerUIBundle({
+        url: "openapi.yaml",
+        dom_id: "#swagger-ui",
+        presets: [SwaggerUIBundle.presets.apis],
+        layout: "BaseLayout",
+        deepLinking: true
+      });
+    };
+  </script>
+</body>
+</html>
