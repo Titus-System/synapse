@@ -12,3 +12,16 @@ Como todo `contracts/`, isto é insumo de build e nunca dependência de runtime.
 | [domain/resultado-simulacao.json](domain/resultado-simulacao.json) | `domain/resultado-simulacao.schema.json` | Totais, asserções e as cinco quebras da decomposição |
 
 Schema alterado mantém pelo menos um exemplo válido atualizado na mesma mudança.
+
+## Validação
+
+O `manifesto.json` associa cada exemplo ao schema correspondente. Para validar
+todos os exemplos localmente:
+
+```bash
+python -m pip install --requirement contracts/requirements.txt
+python contracts/validar-exemplos.py
+```
+
+O script retorna código diferente de zero e identifica o arquivo e o campo
+quando um exemplo não atende ao schema correspondente.
