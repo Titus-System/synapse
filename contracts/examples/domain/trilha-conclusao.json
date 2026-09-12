@@ -1,0 +1,5 @@
+{
+  "resumo": "regra confirmada com três elementos adicionais",
+  "fontes": ["submissao-formulario", "base_vendas", "base_rh"],
+  "elementos_implementados": ["nucleo.percentual", "elem.1", "elem.2", "elem.3"]
+}
