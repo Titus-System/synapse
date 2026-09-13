@@ -11,4 +11,7 @@ CREATE TABLE explicacoes (
 );
 
 CREATE UNIQUE INDEX uq_explicacoes_resultado_id ON explicacoes (resultado_id);
+
+GRANT SELECT ON explicacoes TO ${usuario_api};
+GRANT SELECT, INSERT ON explicacoes TO ${usuario_codegen};
 -- rollback DROP TABLE explicacoes;

@@ -37,6 +37,10 @@ class MigrationTests {
 			"regras", "prompts", "respostas_modelo", "codigos_gerados", "resultados_simulacao", "explicacoes",
 			"simulacoes", "trilhas_auditoria", "outbox_events");
 
+	// Uma tabela por changeset, mais o 000 que cria os usuários de banco e não cria
+	// tabela nenhuma.
+	private static final int CHANGESETS = TABELAS.size() + 1;
+
 	private static PostgreSQLContainer postgres;
 
 	static boolean dockerIsAvailable() {
@@ -90,7 +94,7 @@ class MigrationTests {
 
 		atualizar();
 
-		assertThat(aplicadosNaPrimeira).isEqualTo(TABELAS.size());
+		assertThat(aplicadosNaPrimeira).isEqualTo(CHANGESETS);
 		assertThat(changesetsAplicados()).isEqualTo(aplicadosNaPrimeira);
 	}
 
@@ -98,7 +102,7 @@ class MigrationTests {
 	void oRollbackDeclaradoDesfazACriacao() throws Exception {
 		atualizar();
 
-		reverter(TABELAS.size());
+		reverter(CHANGESETS);
 
 		assertThat(tabelasExistentes()).isEmpty();
 	}
@@ -151,7 +155,9 @@ class MigrationTests {
 	private static Liquibase liquibase(Connection connection) throws Exception {
 		Database database = DatabaseFactory.getInstance()
 			.findCorrectDatabaseImplementation(new JdbcConnection(connection));
-		return new Liquibase(CHANGELOG, new ClassLoaderResourceAccessor(), database);
+		Liquibase liquibase = new Liquibase(CHANGELOG, new ClassLoaderResourceAccessor(), database);
+		UsuariosDeBanco.parametrosEm(liquibase);
+		return liquibase;
 	}
 
 	private static Connection abrir() throws Exception {

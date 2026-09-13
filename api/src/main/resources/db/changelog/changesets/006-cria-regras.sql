@@ -18,4 +18,7 @@ CREATE TABLE regras (
 CREATE UNIQUE INDEX uq_regras_job_id_versao ON regras (job_id, versao);
 CREATE UNIQUE INDEX uq_regras_job_id_hash ON regras (job_id, hash);
 CREATE INDEX idx_regras_regra_origem_id ON regras (regra_origem_id);
+
+GRANT SELECT, INSERT ON regras TO ${usuario_api};
+GRANT SELECT, INSERT ON regras TO ${usuario_codegen};
 -- rollback DROP TABLE regras;

@@ -14,4 +14,7 @@ CREATE TABLE respostas_modelo (
 
 CREATE UNIQUE INDEX uq_respostas_modelo_prompt_id ON respostas_modelo (prompt_id);
 CREATE INDEX idx_respostas_modelo_job_id ON respostas_modelo (job_id);
+
+GRANT SELECT ON respostas_modelo TO ${usuario_api};
+GRANT SELECT, INSERT ON respostas_modelo TO ${usuario_codegen};
 -- rollback DROP TABLE respostas_modelo;

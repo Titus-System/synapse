@@ -11,7 +11,8 @@ A `api` é a dona do schema, inclusive das tabelas que `codegen` e `worker` escr
 src/main/resources/db/changelog/
 ├── changelog.yaml          ← manifesto: só encadeia, nada de schema
 └── changesets/
-    ├── 001-cria-usuarios.sql
+    ├── 000-cria-usuarios-de-banco.sql   ← os usuários dos serviços, antes de tudo
+    ├── 001-cria-usuarios.sql            ← a tabela de usuários da aplicação
     ├── 002-cria-submissoes.sql
     └── ...
 ```
@@ -67,7 +68,21 @@ Corrigir algo que já foi para `develop` é um changeset novo, com o próximo n�
 
 Sem isso a tabela existe, o `INSERT` falha por permissão em runtime, e o erro aparece num serviço que não tem nada a ver com a migration que o causou.
 
+```sql
+GRANT SELECT ON codigos_gerados TO ${usuario_api};
+GRANT SELECT, INSERT ON codigos_gerados TO ${usuario_codegen};
+GRANT SELECT ON codigos_gerados TO ${usuario_worker};
+```
+
+**O nome do usuário vem por parâmetro, nunca literal.** Os três `${usuario_*}` são preenchidos por `spring.liquibase.parameters` no `application.yaml`, a partir do mesmo `.env` com que cada serviço conecta — um nome escrito à mão aqui divergiria em silêncio do usuário que o serviço usa. O usuário é criado em `000-cria-usuarios-de-banco.sql`, que roda antes de tudo; a senha não passa por aqui, porque o Liquibase expande o parâmetro **antes** de calcular o checksum e uma senha versionada quebraria a subida na primeira rotação. Pelo mesmo motivo, renomear um usuário depois de aplicado exige changeset novo.
+
+`SELECT` acompanha `INSERT` para quem escreve: o id nasce de `DEFAULT uuidv7()` no servidor, e `INSERT ... RETURNING id` exige `SELECT` na coluna.
+
 Quem escreve o quê está na [seção 6.2 da arquitetura](../../../../docs/ARCHITECTURE.md); a integridade referencial continua funcionando mesmo sem permissão na tabela referenciada, porque no Postgres a checagem de FK roda com os privilégios do dono da tabela.
+
+Nada disso vale para o dono do schema: superusuário no Postgres ignora a checagem de privilégio inteira, e é por configuração, não pelo banco, que nenhum serviço opera com ele.
+
+`PermissoesDeBancoTests` prova a negativa de ponta a ponta, afirmando o SQLState `42501`. Um `GRANT` a mais escapa do teste; um a menos, não.
 
 ## Armadilhas
 
@@ -85,7 +100,9 @@ Quem escreve o quê está na [seção 6.2 da arquitetura](../../../../docs/ARCHI
 
 ```bash
 make test    # MigrationTests sobe um Postgres 18 real e confere aplicação,
-             # idempotência da segunda subida, rollback e a versão do uuid
+             # idempotência da segunda subida, rollback e a versão do uuid;
+             # PermissoesDeBancoTests conecta com cada usuário e confere o que
+             # ele alcança e o que o banco recusa
 ```
 
 O teste é ignorado quando não há Docker na máquina. Ele não substitui subir a aplicação contra o Postgres do compose antes de abrir o PR.

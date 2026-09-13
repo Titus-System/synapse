@@ -537,7 +537,7 @@ O Postgres tem schema único; cada serviço conecta com **usuário próprio**, e
 | | PostgreSQL | RabbitMQ |
 | --- | --- | --- |
 | **API** | Total - dono do estado do job, das decisões, do histórico e das migrations; grava áudio e transcrição; lê todos os artefatos | Produz e consome |
-| **codegen** | Checkpoint do LangGraph (leitura/escrita); `INSERT` em código gerado, prompt e resposta; `SELECT` em transcrição e resultado. Nenhuma permissão sobre `job`, auditoria ou histórico | Produz e consome |
+| **codegen** | Checkpoint do LangGraph (leitura/escrita); `INSERT` e `SELECT` nos artefatos que produz - versão da regra extraída, código gerado, prompt, resposta e explicação; `SELECT` em transcrição e resultado. Nenhum `UPDATE` ou `DELETE`, e nenhuma permissão sobre `job`, auditoria ou histórico | Produz e consome |
 | **Worker** | `INSERT` apenas na tabela de resultado de execução; `SELECT` no código a executar | Produz e consome |
 
 O dataset e os baselines não aparecem aqui: são estáticos e vivem embutidos na imagem do sandbox (seção 1.3), não no banco.

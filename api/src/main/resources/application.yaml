@@ -16,6 +16,11 @@ spring:
     # O Liquibase 4.30+ manda telemetria anônima por default, buscando configuração em
     # config.liquibase.com na subida. A aplicação não fala com a internet para migrar.
     analytics-enabled: false
+    # Os nomes dos usuários de banco chegam aos changesets por aqui
+    parameters:
+      '[usuario_api]': ${app.postgres.user}
+      '[usuario_codegen]': ${app.postgres.roles.codegen}
+      '[usuario_worker]': ${app.postgres.roles.worker}
 
 # Único lugar que lê variável de ambiente. Todo o resto consome app.*.
 app:
@@ -33,9 +38,19 @@ app:
   postgres:
     host: ${POSTGRES_HOST:localhost}
     port: ${POSTGRES_PORT:5432}
-    user: ${POSTGRES_USER:postgres}
-    password: ${POSTGRES_PASSWORD:postgres}
-    database: ${POSTGRES_DB:api_db}
+    database: ${POSTGRES_DB:synapse_db}
+    user: ${SYNAPSE_API_DB_USER:synapse_api} # usuário com o qual a aplicação opera
+    password: ${SYNAPSE_API_DB_PASSWORD:synapse_api}
+
+    # Dono do schema usado só pelo Liquibase
+    owner:
+      user: ${POSTGRES_OWNER_USER:postgres}
+      password: ${POSTGRES_OWNER_PASSWORD:postgres}
+
+    # Nome dos usuários dos outros serviços
+    roles:
+      codegen: ${SYNAPSE_CODEGEN_DB_USER:synapse_codegen}
+      worker: ${SYNAPSE_WORKER_DB_USER:synapse_worker}
 
 logging:
   level:

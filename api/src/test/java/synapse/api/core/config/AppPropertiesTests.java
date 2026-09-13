@@ -42,8 +42,27 @@ class AppPropertiesTests {
 		AppProperties.Postgres postgres = this.properties.postgres();
 		assertThat(postgres.host()).isEqualTo("localhost");
 		assertThat(postgres.port()).isEqualTo(5432);
-		assertThat(postgres.user()).isEqualTo("postgres");
-		assertThat(postgres.jdbcUrl()).isEqualTo("jdbc:postgresql://localhost:5432/api_db");
+		assertThat(postgres.user()).isEqualTo("synapse_api");
+		assertThat(postgres.jdbcUrl()).isEqualTo("jdbc:postgresql://localhost:5432/synapse_db");
+	}
+
+	/**
+	 * O usuário de runtime e o dono do schema são credenciais distintas. Se um dia
+	 * coincidirem por default, a aplicação passa a operar com permissão de estrutura e os
+	 * GRANT das migrations deixam de delimitar qualquer coisa.
+	 */
+	@Test
+	void separatesTheRuntimeUserFromTheSchemaOwner() {
+		AppProperties.Postgres postgres = this.properties.postgres();
+		assertThat(postgres.owner().user()).isEqualTo("postgres");
+		assertThat(postgres.user()).isNotEqualTo(postgres.owner().user());
+	}
+
+	@Test
+	void carriesTheOtherServicesDatabaseUsers() {
+		AppProperties.Postgres.Roles roles = this.properties.postgres().roles();
+		assertThat(roles.codegen()).isEqualTo("synapse_codegen");
+		assertThat(roles.worker()).isEqualTo("synapse_worker");
 	}
 
 	@Test

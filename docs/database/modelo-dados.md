@@ -239,9 +239,11 @@ A coluna `payload` é o corpo do evento, carregando referências e nunca o conte
 
 ## 2. Quem escreve o quê
 
-A API escreve `usuarios`, `submissoes`, `jobs`, `job_transicoes`, `job_acoes`, `simulacoes`, `trilhas_auditoria`, `regras` e `outbox_events`. O codegen insere `prompts`, `respostas_modelo`, `codigos_gerados` e `explicacoes`. O worker insere só `resultados_simulacao`.
+A API escreve `usuarios`, `submissoes`, `jobs`, `job_transicoes`, `job_acoes`, `simulacoes`, `trilhas_auditoria` e `outbox_events`. O codegen insere `prompts`, `respostas_modelo`, `codigos_gerados` e `explicacoes`. O worker insere só `resultados_simulacao`.
 
-O que impõe isso é a permissão do usuário de banco com que cada serviço conecta, definida nas migrations e portanto ausente do DBML.
+`regras` é a única escrita pelos dois: o codegen insere a versão que extrai, a API insere a versão que o usuário confirma. Nenhum dos dois tem `UPDATE` ou `DELETE` — é aí que a imutabilidade da regra deixa de ser convenção e vira permissão, e editar uma regra significa inserir uma versão nova encadeada por `regra_origem_id`.
+
+O que impõe isso é a permissão do usuário de banco com que cada serviço conecta, definida nas migrations e portanto ausente do DBML. Quem insere também recebe `SELECT` na mesma tabela, porque o id nasce de `DEFAULT uuidv7()` no servidor e o `INSERT` o lê de volta no próprio comando.
 
 Daí uma aparente contradição no esquema: `resultados_simulacao.job_id` é chave estrangeira para `jobs`, tabela em que o worker não tem permissão alguma. O `INSERT` funciona porque, no PostgreSQL, a verificação de integridade referencial roda com os privilégios do dono da tabela referenciada e não com os de quem inseriu a linha.
 
