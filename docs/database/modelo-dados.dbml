@@ -16,6 +16,12 @@
 // Nulidade: toda coluna é NOT NULL, salvo onde o note diz por que aceita null.
 // Coluna nula sem justificativa escrita é erro de modelagem, não omissão.
 //
+// Chaves primárias: uuid com default uuidv7(), função nativa do Postgres 18 - sem
+// extensão. O default só vale quando o INSERT omite a coluna, então id gerado pela
+// aplicação continua entrando como veio; é o caso de trilhas_auditoria.evento_id, que
+// vem na mensagem. Não há CHECK de versão: v7 é convenção sustentada pelo default, e
+// o ganho é localidade de índice, não uma invariante imposta pelo banco.
+//
 // Campos jsonb: o formato de cada um é definido por um schema em contracts/domain/,
 // que é a autoridade - jsonb sem schema não é aceito neste modelo. O note da coluna
 // aponta o schema e registra só o que é decisão de modelagem: quando a coluna é nula,
@@ -30,7 +36,7 @@
 // ─────────────── Grupo 0 - Identidade e acesso (escrita exclusiva da API) ───────────────
 
 Table usuarios {
-  id uuid [pk]
+  id uuid [pk, default: `uuidv7()`]
   login text [not null, unique, note: 'credencial de acesso']
   senha_hash text [not null, note: 'hash derivado da senha (bcrypt/argon2); nunca a senha em claro']
   nome text [not null, note: 'nome de exibicao']
@@ -44,7 +50,7 @@ Table usuarios {
 // ─────────────── Grupo 1 - Estado e decisões (escrita exclusiva da API) ───────────────
 
 Table submissoes {
-  id uuid [pk]
+  id uuid [pk, default: `uuidv7()`]
   usuario_id uuid [not null, ref: > usuarios.id]
   tipo text [not null, note: 'formulario | voz. Determina qual das duas cargas vem preenchida: formulario tem conteudo, voz tem binario e formato']
   conteudo jsonb [note: '''
@@ -63,7 +69,7 @@ Append-only: nunca sofre UPDATE.
 }
 
 Table jobs {
-  id uuid [pk]
+  id uuid [pk, default: `uuidv7()`]
   status text [not null, note: 'enum da maquina de estados']
   usuario_id uuid [not null, ref: > usuarios.id]
   submissao_id uuid [ref: > submissoes.id, note: '''
@@ -104,7 +110,7 @@ data real (Black Friday) - ver regras.especificacoes.
 }
 
 Table job_transicoes {
-  id uuid [pk]
+  id uuid [pk, default: `uuidv7()`]
   job_id uuid [not null, ref: > jobs.id]
   status_anterior text [note: 'null na transicao inicial']
   status_novo text [not null]
@@ -118,7 +124,7 @@ Table job_transicoes {
 }
 
 Table job_acoes {
-  id uuid [pk]
+  id uuid [pk, default: `uuidv7()`]
   job_id uuid [not null, ref: > jobs.id]
   acao text [not null, note: 'confirmar_liberar | cancelar | salvar | arquivar']
   executado_em timestamptz [not null]
@@ -129,7 +135,7 @@ Table job_acoes {
 }
 
 Table simulacoes {
-  id uuid [pk, note: 'id da simulacao (US04)']
+  id uuid [pk, default: `uuidv7()`, note: 'id da simulacao (US04)']
   criado_em timestamptz [not null, note: 'timestamp (US04)']
   regra_id uuid [not null, ref: > regras.id, note: 'versao exata (US04) - ON DELETE RESTRICT']
   job_id uuid [not null, ref: > jobs.id, note: 'competencias e orcamento vivem em jobs. Uma simulacao cobre TODAS as competencias de jobs.competencias de uma vez']
@@ -146,7 +152,7 @@ Table simulacoes {
 }
 
 Table trilhas_auditoria {
-  id uuid [pk]
+  id uuid [pk, default: `uuidv7()`]
   evento_id uuid [not null, note: 'uuid aleatorio gerado pelo publicador e carregado na mensagem; a API grava o que recebeu. Chave de idempotencia contra reentrega do broker.']
   job_id uuid [not null, ref: > jobs.id]
   simulacao_id uuid [ref: > simulacoes.id, note: 'null p/ nos 1-2 (voz, Sprint 2)']
@@ -174,7 +180,7 @@ Nao repetir aqui o que a linha ja alcanca: o nome do no (coluna no), o veredito
 // ─────────────── Grupo 2 - Representacao da regra (versionada, imutavel apos uso) ───────────────
 
 Table regras {
-  id uuid [pk]
+  id uuid [pk, default: `uuidv7()`]
   job_id uuid [not null, ref: > jobs.id]
   versao int [not null, note: 'sequencial dentro do job']
   origem text [not null, note: 'confirmacao_usuario | sugestao_adaptacao | reprocessamento']
@@ -212,7 +218,7 @@ resultados_simulacao.decomposicao.
 // ─────────────── Grupo 3 - Artefatos (produtor unico com INSERT; API le todos) ───────────────
 
 Table prompts {
-  id uuid [pk]
+  id uuid [pk, default: `uuidv7()`]
   job_id uuid [not null, ref: > jobs.id]
   no text [not null, note: 'no do grafo que emitiu; mesmo enum de trilhas_auditoria.no (1..8)']
   conteudo text [not null]
@@ -231,7 +237,7 @@ trocado o modelo por baixo (ARCHITECTURE.md §3.3).
 }
 
 Table respostas_modelo {
-  id uuid [pk]
+  id uuid [pk, default: `uuidv7()`]
   job_id uuid [not null, ref: > jobs.id]
   prompt_id uuid [not null, ref: - prompts.id, note: 'pergunta que originou esta resposta; par 1-1 da chamada. o no vem de prompts.no']
   conteudo text [not null, note: 'resposta verbatim do modelo, sem extracao nem limpeza']
@@ -245,7 +251,7 @@ Table respostas_modelo {
 }
 
 Table codigos_gerados {
-  id uuid [pk]
+  id uuid [pk, default: `uuidv7()`]
   job_id uuid [not null, ref: > jobs.id]
   regra_id uuid [not null, ref: > regras.id]
   linguagem text [not null, note: 'python']
@@ -261,7 +267,7 @@ Table codigos_gerados {
 }
 
 Table explicacoes {
-  id uuid [pk]
+  id uuid [pk, default: `uuidv7()`]
   resultado_id uuid [not null, ref: - resultados_simulacao.id]
   texto text [not null, note: 'narrativa para o usuario de negocio - nivel 1 da explicabilidade; nivel 2 e resultados_simulacao.decomposicao, nivel 3 e trilhas_auditoria']
   aderencia_conferida bool [not null, note: 'false quando algum numero citado no texto nao corresponde ao apurado; a API entao marca simulacoes.flag_baixa_rastreabilidade (US05 c2)']
@@ -273,7 +279,7 @@ Table explicacoes {
 }
 
 Table resultados_simulacao {
-  id uuid [pk]
+  id uuid [pk, default: `uuidv7()`]
   job_id uuid [not null, ref: > jobs.id]
   codigo_gerado_id uuid [not null, ref: > codigos_gerados.id]
   status text [not null, note: 'sucesso | assercao_violada | erro_codigo | erro_infra. assercao_violada: o codigo rodou e produziu numeros, mas uma invariante foi violada e o numero nao vale']
@@ -318,7 +324,7 @@ A forma de objeto torna chave repetida dentro de uma quebra impossivel de repres
 // no RabbitMQ e marca como enviado (ARCHITECTURE.md §3.2).
 
 Table outbox_events {
-  id uuid [pk]
+  id uuid [pk, default: `uuidv7()`]
   job_id uuid [not null, ref: > jobs.id]
   tipo text [not null, note: 'nome do evento do catalogo']
   payload jsonb [not null, note: '''

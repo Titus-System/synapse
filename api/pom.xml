@@ -81,9 +81,53 @@
 			<artifactId>jspecify</artifactId>
 		</dependency>
 
+		<!-- DataSource + HikariCP. Não data-jpa: nenhuma entidade de negócio; 
+			só o mecanismo de migration precisa de conexão. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-jdbc</artifactId>
+		</dependency>
+
+		<!-- No Boot 4 a autoconfiguração do Liquibase mora neste módulo, fora do
+		     spring-boot-autoconfigure; ele traz o liquibase-core transitivamente.
+		     Com só o liquibase-core, spring.liquibase.* seria ignorado em silêncio e o
+		     changelog nunca rodaria na subida. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-liquibase</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.postgresql</groupId>
+			<artifactId>postgresql</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- Postgres para os testes de migration; o changelog é verificado
+		     contra a mesma imagem que o compose usa, não contra um banco em memória. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-testcontainers</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- Testcontainers 2.x prefixa os módulos com "testcontainers-"; os nomes
+		     curtos de 1.x (postgresql, junit-jupiter) não existem mais. -->
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-postgresql</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-junit-jupiter</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
