@@ -64,8 +64,19 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-synapse_db}
       SYNAPSE_WORKER_DB_USER: ${SYNAPSE_WORKER_DB_USER:-synapse_worker}
       SYNAPSE_WORKER_DB_PASSWORD: ${SYNAPSE_WORKER_DB_PASSWORD:?defina em deploy/.env}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-guest}
     ports:
       - '${WORKER_PORT:-8002}:8000'
+    volumes:
+      # O worker sobe o container efêmero do sandbox pelo daemon do host.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # O container roda como appuser (uid 1000); sem o grupo docker do host ele não
+    # alcança o socket montado acima. O GID varia por máquina - ver docs/instalacao.md.
+    group_add:
+      - '${DOCKER_GID:?defina em deploy/.env; ver docs/instalacao.md}'
     depends_on:
       postgres:
         condition: service_healthy
@@ -158,7 +169,7 @@ services:
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
       interval: 10s
       timeout: 5s
       retries: 5

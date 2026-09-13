@@ -165,3 +165,8 @@ def test_a_record_serializes_to_one_line(emit_line: EmitLine) -> None:
 
 def test_non_ascii_is_not_escaped(emit_line: EmitLine) -> None:
     assert "execução finalizada" in emit_line("execução finalizada")
+
+
+def test_stdout_defaults_to_json_for_the_collector() -> None:
+    """No container stdout é o transporte, e ele não lê .env — vale o default da classe."""
+    assert Settings.model_fields["LOG_FORMAT"].default == "json"

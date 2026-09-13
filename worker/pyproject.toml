@@ -24,6 +24,8 @@ types-passlib = "^1.7.7.20260211"
 opentelemetry-distro = "^0.65b0"
 opentelemetry-exporter-otlp = {extras = ["http", "proto"], version = "^1.44.0"}
 prometheus-client = "^0.26.0"
+aio-pika = "^9.5"
+docker = "^7.1"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.8.0"
@@ -102,6 +104,11 @@ module = ["alembic.*"]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 ignore_errors = true
+
+# O docker-py tem type hints inline, mas não publica o marcador py.typed.
+[[tool.mypy.overrides]]
+module = ["docker.*"]
+ignore_missing_imports = true
 
 [tool.pydantic-mypy]
 init_forbid_extra = true
