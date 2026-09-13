@@ -72,11 +72,37 @@ public record AppProperties(@NotBlank String environment, @NotNull @Valid Servic
 
 	}
 
-	public record Postgres(@NotBlank String host, @Positive int port, @NotBlank String user, @NotBlank String password,
-			@NotBlank String database) {
+	/**
+	 * @param host endereço do Postgres
+	 * @param port porta do Postgres
+	 * @param database nome do banco, compartilhado pelos três serviços
+	 * @param user usuário com que a aplicação opera
+	 * @param password senha do usuário de runtime
+	 * @param owner dono do schema, usado apenas para migrar
+	 * @param roles nomes dos usuários dos outros serviços, para os GRANT das migrations
+	 */
+	public record Postgres(@NotBlank String host, @Positive int port, @NotBlank String database, @NotBlank String user,
+			@NotBlank String password, @NotNull @Valid Owner owner, @NotNull @Valid Roles roles) {
 
 		public String jdbcUrl() {
 			return "jdbc:postgresql://%s:%d/%s".formatted(this.host, this.port, this.database);
+		}
+
+		/**
+		 * @param user usuário dono do schema
+		 * @param password senha do dono
+		 */
+		public record Owner(@NotBlank String user, @NotBlank String password) {
+		}
+
+		/**
+		 * Nome do usuário de banco de cada serviço que não é a api. A api nunca conecta
+		 * com eles, mas precisa dos nomes porque executa as migrations.
+		 *
+		 * @param codegen usuário de banco do codegen
+		 * @param worker usuário de banco do worker
+		 */
+		public record Roles(@NotBlank String codegen, @NotBlank String worker) {
 		}
 
 	}

@@ -17,4 +17,9 @@ CREATE TABLE codigos_gerados (
 CREATE INDEX idx_codigos_gerados_regra_id ON codigos_gerados (regra_id);
 CREATE INDEX idx_codigos_gerados_prompt_id ON codigos_gerados (prompt_id);
 CREATE INDEX idx_codigos_gerados_job_id ON codigos_gerados (job_id);
+
+GRANT SELECT ON codigos_gerados TO ${usuario_api};
+GRANT SELECT, INSERT ON codigos_gerados TO ${usuario_codegen};
+GRANT SELECT ON codigos_gerados TO ${usuario_worker};
+
 -- rollback DROP TABLE codigos_gerados;

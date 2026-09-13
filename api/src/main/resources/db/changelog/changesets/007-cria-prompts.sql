@@ -12,4 +12,7 @@ CREATE TABLE prompts (
 );
 
 CREATE INDEX idx_prompts_job_id ON prompts (job_id);
+
+GRANT SELECT ON prompts TO ${usuario_api};
+GRANT SELECT, INSERT ON prompts TO ${usuario_codegen};
 -- rollback DROP TABLE prompts;

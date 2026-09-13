@@ -13,4 +13,7 @@ CREATE TABLE submissoes (
     criado_em timestamptz NOT NULL,
     CONSTRAINT fk_submissoes_usuario_id FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
 );
+
+GRANT SELECT, INSERT, UPDATE ON submissoes TO ${usuario_api};
+GRANT SELECT ON submissoes TO ${usuario_codegen};
 -- rollback DROP TABLE submissoes;

@@ -22,4 +22,6 @@ CREATE INDEX idx_jobs_submissao_id ON jobs (submissao_id);
 CREATE INDEX idx_jobs_usuario_id_criado_em ON jobs (usuario_id, criado_em DESC);
 CREATE INDEX idx_jobs_status ON jobs (status);
 CREATE INDEX idx_jobs_job_origem_id ON jobs (job_origem_id);
+
+GRANT SELECT, INSERT, UPDATE ON jobs TO ${usuario_api};
 -- rollback DROP TABLE jobs;

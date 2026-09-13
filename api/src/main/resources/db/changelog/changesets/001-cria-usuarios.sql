@@ -14,4 +14,6 @@ CREATE TABLE usuarios (
 );
 
 CREATE UNIQUE INDEX uq_usuarios_login ON usuarios (login);
+
+GRANT SELECT, INSERT, UPDATE ON usuarios TO ${usuario_api};
 -- rollback DROP TABLE usuarios;

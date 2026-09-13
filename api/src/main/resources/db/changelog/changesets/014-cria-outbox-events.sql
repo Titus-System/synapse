@@ -16,4 +16,6 @@ CREATE TABLE outbox_events (
 -- histórico já enviado.
 CREATE INDEX idx_outbox_events_criado_em_pendentes ON outbox_events (criado_em)
     WHERE publicado_em IS NULL;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON outbox_events TO ${usuario_api};
 -- rollback DROP TABLE outbox_events;

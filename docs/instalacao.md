@@ -10,7 +10,7 @@ O ambiente de infraestrutura fornece a base de persistência de dados e mensager
 
 A infraestrutura local é composta pelos serviços de infraestrutura e pelo codegen:
 
-1. **PostgreSQL 16**: Armazenamento único do sistema (armazena estado dos jobs, artefatos gerados, checkpoints e trilhas de auditoria). Configurado com volume persistente e criação automática do banco `api_db`.
+1. **PostgreSQL 18**: Armazenamento único do sistema (armazena estado dos jobs, artefatos gerados, checkpoints e trilhas de auditoria). Configurado com volume persistente e criação automática do banco `synapse_db`.
 2. **RabbitMQ 3.13 (com Management UI)**: Broker de mensageria assíncrona para troca de eventos e comandos entre a API e os workers, com painel administrativo web exposto.
 3. **API**: aplicação Spring Boot que expõe health check e métricas de infraestrutura.
 4. **codegen**: Processo FastAPI que expõe somente os endpoints operacionais de saúde e métricas.
@@ -63,7 +63,7 @@ Os nomes de host, portas e credenciais abaixo são padronizados para desenvolvim
 
 | Serviço | Nome do Container | Hostname na rede (`synapse-net`) | Porta no Host | Porta Interna | Usuário Padrão | Senha Padrão | Banco / VHost | URL / Interface de Acesso |
 | :--- | :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
-| **PostgreSQL** | `synapse-postgres` | `postgres` | `5432` | `5432` | `postgres` | `postgres` | `api_db` | `postgresql://postgres:postgres@localhost:5432/api_db` |
+| **PostgreSQL** | `synapse-postgres` | `postgres` | `5432` | `5432` | `postgres` | `postgres` | `synapse_db` | `postgresql://postgres:postgres@localhost:5432/synapse_db` |
 | **RabbitMQ (AMQP)** | `synapse-rabbitmq` | `rabbitmq` | `5672` | `5672` | `guest` | `guest` | `/` | `amqp://guest:guest@localhost:5672` |
 | **RabbitMQ (Painel)** | `synapse-rabbitmq` | `rabbitmq` | `15672` | `15672` | `guest` | `guest` | — | [http://localhost:15672](http://localhost:15672) |
 | **codegen** | `synapse-infra-codegen-1` | `codegen` | `8001` | `8000` | — | — | — | [http://localhost:8001/health](http://localhost:8001/health) |
@@ -98,9 +98,11 @@ synapse-infra-api-1 synapse-api:local                Up (healthy)             0.
 1. **PostgreSQL**:
 
    ```bash
-   docker exec synapse-postgres pg_isready -U postgres -d api_db
+   docker exec synapse-postgres pg_isready -U postgres -d synapse_db
    # Retorno esperado: /var/run/postgresql:5432 - accepting connections
    ```
+
+   O usuário `postgres` da tabela acima é o **dono do schema**: só as migrations da API o usam. Cada serviço conecta com um usuário próprio (`synapse_api`, `synapse_codegen`, `synapse_worker`), com a senha definida em `deploy/.env`.
 
 2. **RabbitMQ**:
    Abra no seu navegador o endereço [http://localhost:15672](http://localhost:15672) e faça login com usuário `guest` e senha `guest`. O painel de administração deverá carregar com visão geral das conexões e exchanges.

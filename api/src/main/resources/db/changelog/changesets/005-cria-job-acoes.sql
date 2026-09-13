@@ -10,4 +10,6 @@ CREATE TABLE job_acoes (
 );
 
 CREATE INDEX idx_job_acoes_job_id_executado_em ON job_acoes (job_id, executado_em);
+
+GRANT SELECT, INSERT ON job_acoes TO ${usuario_api};
 -- rollback DROP TABLE job_acoes;

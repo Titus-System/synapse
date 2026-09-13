@@ -26,4 +26,6 @@ CREATE TABLE trilhas_auditoria (
 CREATE UNIQUE INDEX uq_trilhas_auditoria_evento_id ON trilhas_auditoria (evento_id);
 CREATE INDEX idx_trilhas_auditoria_job_id_concluido_em ON trilhas_auditoria (job_id, concluido_em);
 CREATE INDEX idx_trilhas_auditoria_simulacao_id ON trilhas_auditoria (simulacao_id);
+
+GRANT SELECT, INSERT ON trilhas_auditoria TO ${usuario_api};
 -- rollback DROP TABLE trilhas_auditoria;

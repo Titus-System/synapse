@@ -19,4 +19,6 @@ CREATE UNIQUE INDEX uq_simulacoes_codigo_gerado_id ON simulacoes (codigo_gerado_
 CREATE UNIQUE INDEX uq_simulacoes_resultado_id ON simulacoes (resultado_id);
 CREATE INDEX idx_simulacoes_job_id_criado_em ON simulacoes (job_id, criado_em);
 CREATE INDEX idx_simulacoes_regra_id ON simulacoes (regra_id);
+
+GRANT SELECT, INSERT, UPDATE ON simulacoes TO ${usuario_api};
 -- rollback DROP TABLE simulacoes;

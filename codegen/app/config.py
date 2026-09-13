@@ -30,9 +30,9 @@ class Settings(BaseSettings):
         return os.getenv("HOSTNAME") or socket.gethostname()
 
     # Configurações de Postgres
-    POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str = "postgres"
-    POSTGRES_DB: str = "agents_db"
+    SYNAPSE_CODEGEN_DB_USER: str = "synapse_codegen"
+    SYNAPSE_CODEGEN_DB_PASSWORD: str = "synapse_codegen"
+    POSTGRES_DB: str = "synapse_db"
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
 
@@ -43,24 +43,24 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:"
-            f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:"
+            f"postgresql+asyncpg://{self.SYNAPSE_CODEGEN_DB_USER}:"
+            f"{self.SYNAPSE_CODEGEN_DB_PASSWORD}@{self.POSTGRES_HOST}:"
             f"{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
     @property
     def test_database_url(self) -> str:
         return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:"
-            f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:"
+            f"postgresql+asyncpg://{self.SYNAPSE_CODEGEN_DB_USER}:"
+            f"{self.SYNAPSE_CODEGEN_DB_PASSWORD}@{self.POSTGRES_HOST}:"
             f"{self.POSTGRES_PORT}/{self.postgres_db_test}"
         )
 
     @property
     def database_server_url(self) -> str:
         return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:"
-            f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:"
+            f"postgresql+asyncpg://{self.SYNAPSE_CODEGEN_DB_USER}:"
+            f"{self.SYNAPSE_CODEGEN_DB_PASSWORD}@{self.POSTGRES_HOST}:"
             f"{self.POSTGRES_PORT}/postgres"
         )
 
