@@ -156,7 +156,6 @@ class AsyncLoggerRoot:
             os.makedirs("logs")
 
         settings = get_settings()
-        is_dev = settings.ENVIRONMENT == "development"
         log_level = logging.getLevelNamesMapping().get(settings.LOG_LEVEL.upper(), logging.INFO)
 
         json_formatter = JsonFormatter()
@@ -176,9 +175,11 @@ class AsyncLoggerRoot:
         error_handler.setFormatter(json_formatter)
         error_handler.setLevel(logging.ERROR)
 
-        # Console: plaintext in dev, JSON in production
+        # Console: the collector reads this stream, so json by default.
         stream_handler = logging.StreamHandler()
-        stream_handler.setFormatter(DevFormatter() if is_dev else json_formatter)
+        stream_handler.setFormatter(
+            DevFormatter() if settings.LOG_FORMAT == "text" else json_formatter
+        )
         stream_handler.setLevel(log_level)
 
         # Centralized logging queue — snapshots context vars before enqueuing

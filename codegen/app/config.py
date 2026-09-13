@@ -6,8 +6,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    SERVICE_NAME: str = "agents"
-    SERVICE_DESCRIPTION: str = "Servidor rodando os agentes de IA"
+    SERVICE_NAME: str = "synapse-codegen"
+    SERVICE_DESCRIPTION: str = "Processo de geração assistida do Synapse"
     SERVICE_PUBLIC_URL: str = "http://localhost:8000"
     VERSION: str = "0.1.0"
 
@@ -22,17 +22,17 @@ class Settings(BaseSettings):
 
     @property
     def hostname(self) -> str:
-        """Instância onde o processo roda — vai no campo "host" do log.
+        """Instância onde o processo roda — vai no campo "host.name" do log.
 
         Em k8s/Docker o runtime injeta HOSTNAME (nome do pod/container);
         fora deles cai no hostname da máquina.
         """
         return os.getenv("HOSTNAME") or socket.gethostname()
 
-    # Postgres settings
-    POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str = "postgres"
-    POSTGRES_DB: str = "agents_db"
+    # Configurações de Postgres
+    SYNAPSE_CODEGEN_DB_USER: str = "synapse_codegen"
+    SYNAPSE_CODEGEN_DB_PASSWORD: str = "synapse_codegen"
+    POSTGRES_DB: str = "synapse_db"
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
 
@@ -43,24 +43,24 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:"
-            f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:"
+            f"postgresql+asyncpg://{self.SYNAPSE_CODEGEN_DB_USER}:"
+            f"{self.SYNAPSE_CODEGEN_DB_PASSWORD}@{self.POSTGRES_HOST}:"
             f"{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
     @property
     def test_database_url(self) -> str:
         return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:"
-            f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:"
+            f"postgresql+asyncpg://{self.SYNAPSE_CODEGEN_DB_USER}:"
+            f"{self.SYNAPSE_CODEGEN_DB_PASSWORD}@{self.POSTGRES_HOST}:"
             f"{self.POSTGRES_PORT}/{self.postgres_db_test}"
         )
 
     @property
     def database_server_url(self) -> str:
         return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:"
-            f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:"
+            f"postgresql+asyncpg://{self.SYNAPSE_CODEGEN_DB_USER}:"
+            f"{self.SYNAPSE_CODEGEN_DB_PASSWORD}@{self.POSTGRES_HOST}:"
             f"{self.POSTGRES_PORT}/postgres"
         )
 

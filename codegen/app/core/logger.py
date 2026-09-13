@@ -1,246 +1,174 @@
 import copy
 import json
 import logging
-import os
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from functools import lru_cache
-from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
+from logging.handlers import QueueHandler, QueueListener
 from queue import Queue
-from typing import Any, ClassVar
+from typing import Any
 
-from opentelemetry import trace as otel_trace
+from opentelemetry import trace as rastreamento_otel
 
 from app.config import get_settings
 
-# Business-level context. trace_id/span_id are NOT here: they come from the
-# active OpenTelemetry span, so the ids in the log are always the ones the
-# tracing backend knows.
 job_id_ctx: ContextVar[str | None] = ContextVar("job_id", default=None)
 user_id_ctx: ContextVar[str | None] = ContextVar("user_id", default=None)
+no_ctx: ContextVar[str | None] = ContextVar("no", default=None)
+competencia_ctx: ContextVar[str | None] = ContextVar("competencia", default=None)
 
-# conforms to opentelemetry convention
-_OTEL_SEVERITY_TEXT = {"WARNING": "WARN", "CRITICAL": "FATAL"}
-
-
-def severity_text(levelname: str) -> str:
-    """Nome do nível como ele vai para o log, no vocabulário do OpenTelemetry."""
-    return _OTEL_SEVERITY_TEXT.get(levelname, levelname)
+_NOMES_SEVERIDADE = {"WARNING": "WARN", "CRITICAL": "FATAL"}
 
 
-def current_trace_ids() -> tuple[str, str] | None:
-    """W3C-formatted (trace_id, span_id) of the active span, if there is one."""
-    span_context = otel_trace.get_current_span().get_span_context()
-    if not span_context.is_valid:
+def nome_severidade(nome_nivel: str) -> str:
+    return _NOMES_SEVERIDADE.get(nome_nivel, nome_nivel)
+
+
+def identificadores_rastreamento_atuais() -> tuple[str, str] | None:
+    contexto_span = rastreamento_otel.get_current_span().get_span_context()
+    if not contexto_span.is_valid:
         return None
-
-    return format(span_context.trace_id, "032x"), format(span_context.span_id, "016x")
-
-
-class ContextQueueHandler(QueueHandler):
-    """Snapshots context vars onto the record before enqueuing.
-
-    The QueueListener processes records in a separate thread where
-    ContextVar values from the originating async task are not visible.
-    The OTel span context is a ContextVar too, so it is captured here as well.
-    """
-
-    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
-        # Not super().prepare(): it bakes the traceback into the message and drops exc_info.
-        record = copy.copy(record)
-        trace_ids = current_trace_ids()
-        if trace_ids:
-            record.trace_id, record.span_id = trace_ids
-
-        ctx_job_id = job_id_ctx.get()
-        if ctx_job_id:
-            record.job_id = ctx_job_id
-
-        ctx_user_id = user_id_ctx.get()
-        if ctx_user_id:
-            record.user_id = ctx_user_id
-
-        return record
+    return format(contexto_span.trace_id, "032x"), format(contexto_span.span_id, "016x")
 
 
-class JsonFormatter(logging.Formatter):
-    """Structured JSON formatter shared by every microservice.
+class ManipuladorFilaContexto(QueueHandler):
+    """Copia ContextVars antes de a fila entregar o registro em outra thread."""
 
-    Emits a stable envelope: origin identity (service/environment/version/host),
-    correlation fields, source location, and any ``extra={...}`` payload.
-    """
+    def prepare(self, registro: logging.LogRecord) -> logging.LogRecord:
+        copia_registro = copy.copy(registro)
+        identificadores_rastreamento = identificadores_rastreamento_atuais()
+        if identificadores_rastreamento:
+            copia_registro.trace_id, copia_registro.span_id = identificadores_rastreamento
 
-    _DEFAULT_KEYS = frozenset(
+        for campo, contexto in (
+            ("job_id", job_id_ctx),
+            ("user_id", user_id_ctx),
+            ("no", no_ctx),
+            ("competencia", competencia_ctx),
+        ):
+            valor = contexto.get()
+            if valor:
+                setattr(copia_registro, campo, valor)
+        return copia_registro
+
+
+class FormatadorJson(logging.Formatter):
+    _CHAVES_PADRAO = frozenset(
         logging.LogRecord("", 0, "", 0, None, None, None).__dict__.keys()
-        | {"message", "taskName", "trace_id", "span_id", "job_id", "user_id"}
+        | {
+            "message",
+            "taskName",
+            "color_message",
+            "trace_id",
+            "span_id",
+            "job_id",
+            "user_id",
+            "no",
+            "competencia",
+        }
     )
 
     def __init__(self) -> None:
         super().__init__()
-        settings = get_settings()
-        self._service = settings.SERVICE_NAME
-        self._environment = settings.ENVIRONMENT
-        self._version = settings.VERSION
-        self._host = settings.hostname
+        configuracoes = get_settings()
+        self._servico = configuracoes.SERVICE_NAME
+        self._ambiente = configuracoes.ENVIRONMENT
+        self._versao_servico = configuracoes.VERSION
+        self._host = configuracoes.hostname
 
-    def format(self, record: logging.LogRecord) -> str:
-        log_record: dict[str, Any] = {
-            "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
-            "level": severity_text(record.levelname),
-            "message": record.getMessage(),
-            "service": self._service,
-            "environment": self._environment,
-            "version": self._version,
-            "host": self._host,
-            "logger": record.name,
-            "module": record.module,
-            "function": record.funcName,
-            "line": record.lineno,
+    def format(self, registro: logging.LogRecord) -> str:
+        linha_log: dict[str, Any] = {
+            "timestamp": datetime.fromtimestamp(registro.created, UTC).isoformat(),
+            "level": nome_severidade(registro.levelname),
+            "message": registro.getMessage(),
+            "service.name": self._servico,
+            "environment": self._ambiente,
+            "service.version": self._versao_servico,
+            "host.name": self._host,
+            "logger": registro.name,
+            "code": {
+                "module": registro.module,
+                "function": registro.funcName,
+                "line": registro.lineno,
+            },
         }
 
-        for field in ("trace_id", "span_id", "job_id", "user_id"):
-            value = getattr(record, field, None)
-            if value:
-                log_record[field] = value
+        for campo in ("trace_id", "span_id", "job_id", "user_id", "no", "competencia"):
+            valor = getattr(registro, campo, None)
+            if valor:
+                linha_log[campo] = valor
 
-        # Capture extra fields passed via logger.info("msg", extra={...})
-        extra = {k: v for k, v in record.__dict__.items() if k not in self._DEFAULT_KEYS}
+        extra = {
+            chave: valor
+            for chave, valor in registro.__dict__.items()
+            if chave not in self._CHAVES_PADRAO
+        }
         if extra:
-            log_record["extra"] = extra
+            linha_log["extra"] = extra
 
-        if record.exc_info:
-            log_record["exception"] = self.formatException(record.exc_info)
-
-        return json.dumps(log_record, ensure_ascii=False)
-
-
-class DevFormatter(logging.Formatter):
-    LEVEL_COLORS: ClassVar[dict[str, str]] = {
-        "DEBUG": "\033[36m",
-        "INFO": "\033[32m",
-        "WARNING": "\033[33m",
-        "ERROR": "\033[31m",
-        "CRITICAL": "\033[1;31m",
-    }
-    RESET = "\033[0m"
-
-    def format(self, record: logging.LogRecord) -> str:
-        color = self.LEVEL_COLORS.get(record.levelname, self.RESET)
-        ts = datetime.fromtimestamp(record.created, UTC).strftime("%H:%M:%S")
-        tid = getattr(record, "trace_id", None)
-        jid = getattr(record, "job_id", None)
-        uid = getattr(record, "user_id", None)
-        ctx_parts: list[Any] = [
-            f"t:{tid[:8]}" if tid else None,
-            f"j:{jid[:8]}" if jid else None,
-            f"u:{uid[:8]}" if uid else None,
-        ]
-        ctx = " [" + " ".join(p for p in ctx_parts if p) + "]" if any(ctx_parts) else ""
-
-        base = (
-            f"{color}{ts} {severity_text(record.levelname):<7}{self.RESET}"
-            f" {record.name} · {record.funcName}:{record.lineno}"
-            f"{ctx} — {record.getMessage()}"
-        )
-        if record.exc_info:
-            base += "\n" + self.formatException(record.exc_info)
-
-        return base
+        if registro.exc_info:
+            linha_log["exception"] = self.formatException(registro.exc_info)
+        return json.dumps(linha_log, ensure_ascii=False)
 
 
-class AsyncLoggerRoot:
-    """Initializes the root 'app' logger once and manages the QueueListener."""
-
+class RaizRegistradorAssincrono:
     def __init__(self) -> None:
-        if not os.path.exists("logs"):
-            os.makedirs("logs")
-
-        settings = get_settings()
-        is_dev = settings.ENVIRONMENT == "development"
-        log_level = logging.getLevelNamesMapping().get(settings.LOG_LEVEL.upper(), logging.INFO)
-
-        json_formatter = JsonFormatter()
-        max_file_size = 10 * 1024 * 1024  # 10MB
-        backup_count = 5
-
-        # File handlers (always JSON)
-        file_handler = RotatingFileHandler(
-            "logs/app.json", maxBytes=max_file_size, backupCount=backup_count, encoding="utf-8"
+        configuracoes = get_settings()
+        nivel_log = logging.getLevelNamesMapping().get(
+            configuracoes.LOG_LEVEL.upper(), logging.INFO
         )
-        file_handler.setFormatter(json_formatter)
-        file_handler.setLevel(log_level)
 
-        error_handler = RotatingFileHandler(
-            "logs/error.json", maxBytes=max_file_size, backupCount=backup_count, encoding="utf-8"
-        )
-        error_handler.setFormatter(json_formatter)
-        error_handler.setLevel(logging.ERROR)
+        manipulador_saida = logging.StreamHandler()
+        manipulador_saida.setFormatter(FormatadorJson())
+        manipulador_saida.setLevel(nivel_log)
 
-        # Console: plaintext in dev, JSON in production
-        stream_handler = logging.StreamHandler()
-        stream_handler.setFormatter(DevFormatter() if is_dev else json_formatter)
-        stream_handler.setLevel(log_level)
+        self._fila: Queue[logging.LogRecord] = Queue(-1)
+        registrador_raiz = logging.getLogger("app")
+        registrador_raiz.setLevel(logging.DEBUG)
+        registrador_raiz.addHandler(ManipuladorFilaContexto(self._fila))
 
-        # Centralized logging queue — snapshots context vars before enqueuing
-        self.log_queue: Queue[logging.LogRecord] = Queue(-1)
-        queue_handler = ContextQueueHandler(self.log_queue)
+        self._ouvinte = QueueListener(self._fila, manipulador_saida, respect_handler_level=True)
+        self._ouvinte.start()
 
-        # Root app logger
-        root = logging.getLogger("app")
-        root.setLevel(logging.DEBUG)
-        root.addHandler(queue_handler)
-
-        # Queue listener to handle log records asynchronously
-        self.listener = QueueListener(
-            self.log_queue,
-            file_handler,
-            error_handler,
-            stream_handler,
-            respect_handler_level=True,
-        )
-        self.listener.start()
-
-    def stop(self) -> None:
-        self.listener.stop()
+    def encerrar(self) -> None:
+        self._ouvinte.stop()
 
 
-class Logger:
-    """Thin wrapper around a stdlib logger with stacklevel-aware convenience methods."""
+class Registrador:
+    def __init__(self, nome: str = "app") -> None:
+        self._registrador = logging.getLogger(nome)
 
-    def __init__(self, name: str = "app") -> None:
-        self._logger = logging.getLogger(name)
+    def debug(self, mensagem: str, *argumentos: Any, **argumentos_nomeados: Any) -> None:
+        argumentos_nomeados.setdefault("stacklevel", 2)
+        self._registrador.debug(mensagem, *argumentos, **argumentos_nomeados)
 
-    def debug(self, message: str, *args: Any, **kwargs: Any) -> None:
-        kwargs.setdefault("stacklevel", 2)
-        self._logger.debug(message, *args, **kwargs)
+    def info(self, mensagem: str, *argumentos: Any, **argumentos_nomeados: Any) -> None:
+        argumentos_nomeados.setdefault("stacklevel", 2)
+        self._registrador.info(mensagem, *argumentos, **argumentos_nomeados)
 
-    def info(self, message: str, *args: Any, **kwargs: Any) -> None:
-        kwargs.setdefault("stacklevel", 2)
-        self._logger.info(message, *args, **kwargs)
+    def warning(self, mensagem: str, *argumentos: Any, **argumentos_nomeados: Any) -> None:
+        argumentos_nomeados.setdefault("stacklevel", 2)
+        self._registrador.warning(mensagem, *argumentos, **argumentos_nomeados)
 
-    def warning(self, message: str, *args: Any, **kwargs: Any) -> None:
-        kwargs.setdefault("stacklevel", 2)
-        self._logger.warning(message, *args, **kwargs)
+    def error(self, mensagem: str, *argumentos: Any, **argumentos_nomeados: Any) -> None:
+        argumentos_nomeados.setdefault("stacklevel", 2)
+        self._registrador.error(mensagem, *argumentos, **argumentos_nomeados)
 
-    def error(self, message: str, *args: Any, **kwargs: Any) -> None:
-        kwargs.setdefault("stacklevel", 2)
-        self._logger.error(message, *args, **kwargs)
-
-    def exception(self, message: str, *args: Any, **kwargs: Any) -> None:
-        kwargs.setdefault("stacklevel", 2)
-        kwargs.setdefault("exc_info", True)
-        self._logger.error(message, *args, **kwargs)
+    def exception(self, mensagem: str, *argumentos: Any, **argumentos_nomeados: Any) -> None:
+        argumentos_nomeados.setdefault("stacklevel", 2)
+        argumentos_nomeados.setdefault("exc_info", True)
+        self._registrador.error(mensagem, *argumentos, **argumentos_nomeados)
 
 
 @lru_cache
-def _init_root() -> AsyncLoggerRoot:
-    return AsyncLoggerRoot()
+def _inicializar_raiz() -> RaizRegistradorAssincrono:
+    return RaizRegistradorAssincrono()
 
 
-def get_logger(name: str = "app") -> Logger:
-    _init_root()
-    return Logger(name)
+def get_logger(nome: str = "app") -> Registrador:
+    _inicializar_raiz()
+    return Registrador(nome)
 
 
 def stop_logger() -> None:
-    _init_root().stop()
+    _inicializar_raiz().encerrar()

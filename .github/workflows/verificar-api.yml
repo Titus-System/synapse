@@ -1,0 +1,33 @@
+name: Verificar api
+
+on:
+  pull_request:
+    paths:
+      - 'api/**'
+  push:
+    branches:
+      - develop
+    paths:
+      - 'api/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Rodar o portão (make check)
+        working-directory: api
+        run: make check

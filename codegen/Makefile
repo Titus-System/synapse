@@ -16,10 +16,10 @@ requirements:
 	poetry export --with dev --without-hashes --output requirements-dev.txt
 
 run:
-	poetry run uvicorn app.main:create_app --factory
+	poetry run uvicorn app.main:criar_aplicacao --factory --log-config logging.json
 
 dev:
-	poetry run uvicorn app.main:create_app --factory --reload
+	poetry run uvicorn app.main:criar_aplicacao --factory --reload --log-config logging.json
 
 lint:
 	poetry run ruff check app/

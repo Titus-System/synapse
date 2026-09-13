@@ -1,0 +1,25 @@
+{
+  "exemplos": {
+    "domain/comum.json": "domain/comum.schema.json",
+    "domain/consumo-tokens.json": "domain/consumo-tokens.schema.json",
+    "domain/modelo-llm.json": "domain/modelo-llm.schema.json",
+    "domain/regra-especificacoes.json": "domain/regra-especificacoes.schema.json",
+    "domain/regra-nucleo.json": "domain/regra-nucleo.schema.json",
+    "domain/representacao-regra.json": "domain/representacao-regra.schema.json",
+    "domain/representacao-regra-elementos.json": "domain/representacao-regra.schema.json",
+    "domain/representacao-regra-generico.json": "domain/representacao-regra.schema.json",
+    "domain/resultado-assercoes.json": "domain/resultado-assercoes.schema.json",
+    "domain/resultado-decomposicao.json": "domain/resultado-decomposicao.schema.json",
+    "domain/resultado-simulacao.json": "domain/resultado-simulacao.schema.json",
+    "domain/resultado-totais.json": "domain/resultado-totais.schema.json",
+    "domain/submissao-conteudo.json": "domain/submissao-conteudo.schema.json",
+    "domain/trilha-conclusao.json": "domain/trilha-conclusao.schema.json",
+    "events/etapa-alterada.json": "events/etapa-alterada.schema.json",
+    "events/executar-codigo.json": "events/executar-codigo.schema.json",
+    "events/no-concluido.json": "events/no-concluido.schema.json",
+    "events/parametros-confirmados.json": "events/parametros-confirmados.schema.json",
+    "events/regra-submetida.json": "events/regra-submetida.schema.json",
+    "events/regra-submetida-voz.json": "events/regra-submetida.schema.json",
+    "events/simulacao-concluida.json": "events/simulacao-concluida.schema.json"
+  }
+}

@@ -1,0 +1,1306 @@
+openapi: 3.1.0
+
+info:
+  title: Synapse - API HTTP
+  version: 1.0.0
+  summary: Contrato REST e SSE entre o frontend e a api do Synapse.
+  description: |
+    Fonte única do contrato HTTP da Sprint 1. Nenhuma rota da Sprint 1 existe fora
+    deste arquivo: `frontend` e `api` são escritos em paralelo contra ele e só se
+    encontram na integração.
+
+    Sete operações, todas sobre o recurso `job`, que é a unidade de trabalho do
+    sistema e o que a `api` possui de ponta a ponta. O ciclo é assíncrono: a criação
+    devolve o job em processamento, o acompanhamento é por stream de eventos e o
+    resultado aparece na consulta do job quando existe.
+
+    **Fluxo de trabalho padrão:** As sete operações formam um ciclo, não uma lista solta de
+    endpoints. Da submissão ao fechamento:
+
+    * Job é a entidade que envelopa todo o fluxo de trabalho, desde a validação da regra até o resultado da simulação.
+
+    1. `POST /jobs` submete a regra e cria o job. Na Sprint 1 a regra já nasce
+       formada a partir do formulário, mas o job entra em
+       `aguardando_confirmacao_parametros` do mesmo jeito: é ali que a tela de
+       confirmação revisa o que o usuário preencheu.
+    2. O cliente abre conexão SSE `GET /jobs/{id}/events` logo em seguida. O primeiro
+       evento é a fotografia do estado atual; os demais chegam conforme o job avança,
+       inclusive o que os próximos passos disparam. A conexão pode cair e ser
+       reaberta a qualquer momento sem perda: o job vive na `api`, não na conexão, e
+       reabrir devolve a mesma fotografia de novo.
+    3. Se a fotografia (inicial ou de uma reconexão) mostrar
+       `aguardando_confirmacao_parametros`, o cliente busca a regra por
+       `GET /jobs/{id}` - o stream informa o status, não o conteúdo da regra - e
+       exibe `regra.representacao` na tela de confirmação. `POST
+       /jobs/{id}/parameters` confirma ou corrige o que foi exibido. Dali em diante,
+       geração de código, delegação ao worker e simulação acontecem sem nenhuma
+       chamada REST adicional - o cliente só observa pelo stream aberto no passo 2.
+    4. Quando o stream anuncia o evento `resultado`, o cliente consulta
+       `GET /jobs/{id}` para ler os números: totais, asserções e decomposição. O
+       evento no stream anuncia o desfecho; não carrega os valores.
+    5. `POST /jobs/{id}/actions` fecha o ciclo: confirmar e liberar (recusado se a
+       simulação for inviável), cancelar, salvar ou arquivar.
+    6. Job fechado aparece em `GET /jobs`, o histórico. `POST /jobs/{id}/reprocessar`
+       parte de um job arquivado e cria um job novo, que reabre o ciclo a partir do
+       passo 2 com a regra da versão anterior já semeada.
+
+    **A forma da regra e a do resultado não são declaradas aqui.** Elas vêm por
+    `$ref` aos schemas de `contracts/domain/`, que são a autoridade sobre o formato
+    e são os mesmos que o banco e os eventos usam. Duplicar a estrutura neste
+    arquivo criaria uma segunda definição para divergir da primeira.
+
+    **Vocabulário.** Percentual e diferença percentual são fração, nunca
+    porcentagem: `0.025` são 2,5%. Competência é `AAAA-MM`. Código de loja, marca e
+    cargo é sempre string. As mesmas convenções de `contracts/domain/README.md`.
+
+    **Evolução aditiva.** Campo novo entra opcional, campo existente não é removido
+    nem renomeado sem decisão explícita. Nenhum schema fecha o objeto com
+    `additionalProperties: false`, e um cliente ignora campo que não conhece.
+
+    **Fora do escopo desta versão.** O upload de áudio, a consulta de
+    auditoria `GET /jobs/{id}/audit` e a rota de autenticação que emite a
+    sessão exigida por `security`. As três entram quando suas tarefas entrarem.
+
+servers:
+  - url: /api
+    description: |
+      Base que o frontend usa, configurável por `VITE_API_BASE_URL` e com `/api` como
+      padrão. O prefixo é do roteamento de borda; a aplicação Spring serve estes
+      caminhos na raiz, ao lado de `/actuator/health` e `/metrics`, que não fazem
+      parte deste contrato.
+
+security:
+  - sessaoSynapse: []
+
+tags:
+  - name: jobs
+    description: Criação, acompanhamento, finalização e reprocessamento de jobs de simulação.
+
+paths:
+  /jobs:
+    post:
+      tags: [jobs]
+      operationId: criarJob
+      summary: POST /jobs Submete uma regra e cria o job que a simula.
+      description: |
+        Recebe o formulário de campos fixos da Sprint 1 e cria o job. A `api` grava a
+        submissão, o job e o evento de outbox na mesma transação, de modo que nenhum
+        job criado fique sem o evento de processamento correspondente.
+
+        **O corpo tem forma de submissão, mas a rota fica sob /jobs** porque o
+        recurso com ciclo de vida neste contrato é o job: é o `id` dele, não o da
+        submissão, que as outras seis operações rastreiam, e a submissão em si nunca
+        é lida de volta por nenhuma rota daqui. A rota nomeia o que o cliente vai
+        acompanhar, não a forma literal do que envia.
+
+        A resposta chega antes de a simulação terminar: o processamento leva minutos
+        e é acompanhado por `GET /jobs/{id}/events`. O job criado nasce em
+        `aguardando_confirmacao_parametros`, porque o job de formulário entra direto
+        no nó de confirmação do grafo.
+
+        Recusa a criação quando o núcleo está incompleto, com código próprio e
+        distinto do da recusa de liberação: aqui o que falta é dado da regra, e o
+        corpo aponta qual campo falta em vez de devolver "não foi possível
+        processar".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CriarJobRequisicao"
+      responses:
+        "201":
+          description: |
+            Job criado. O corpo é o job, e o que ele traz é o que existe no instante da
+            criação: `id`, `status`, `origem`, `competencias`, `orcamento`,
+            `criado_em`, `submissao_id` e `regra`.
+
+            **`simulacao`, `iniciado_em`, `finalizado_em` e `motivo` são ausentes por
+            construção, não por atraso.** O job nasce em
+            `aguardando_confirmacao_parametros` e nada foi executado ainda; geração de
+            código e simulação são assíncronas e acontecem depois da confirmação. Quem
+            consome esta resposta não precisa tratar esses campos, e eles aparecem em
+            `GET /jobs/{id}` quando passarem a existir.
+
+            **`regra` está presente**, e não é exceção à assincronia. O formulário já
+            chega com parâmetros estruturados, então a versão 1 da regra nasce da
+            própria submissão, na mesma transação que grava o job e o evento de outbox
+            - é o que `regra-submetida` exige ao pedir `regra_id` na origem
+            `formulario`. É também o que a tela de confirmação exibe em seguida, sem um
+            `GET` adicional.
+          headers:
+            Location:
+              description: Caminho do job criado.
+              schema:
+                type: string
+                examples: ["/api/jobs/3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+              examples:
+                jobRecemCriado:
+                  summary: Job recém-criado, aguardando confirmação
+                  value:
+                    id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                    status: aguardando_confirmacao_parametros
+                    origem: formulario
+                    competencias: ["2025-11"]
+                    orcamento: 485000.0
+                    criado_em: "2025-11-24T14:02:00Z"
+                    submissao_id: "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"
+                    regra:
+                      id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                      versao: 1
+                      origem: confirmacao_usuario
+                      representacao:
+                        nucleo:
+                          vigencia: { inicio: "2025-11", fim: "2025-11" }
+                          loja: ["13"]
+                          marca: ["10", "20"]
+                          cargo: ["100", "300"]
+                          percentual: 0.025
+                        especificacoes: []
+                      criada_em: "2025-11-24T14:02:00Z"
+        "400":
+          $ref: "#/components/responses/RequisicaoInvalida"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/SemPermissao"
+        "422":
+          description: |
+            Núcleo incompleto: a regra não tem o mínimo para ser simulada. `elementos`
+            nomeia cada campo ausente, porque a tela precisa destacar o campo e não
+            uma mensagem genérica.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                nucleoIncompleto:
+                  summary: Percentual ausente
+                  value:
+                    codigo: nucleo_incompleto
+                    mensagem: A regra precisa do percentual de comissionamento para ser simulada.
+                    elementos:
+                      - ref: nucleo.percentual
+                        motivo: Campo obrigatório não informado.
+
+    get:
+      tags: [jobs]
+      operationId: listarJobs
+      summary: Lista o histórico de jobs do usuário autenticado.
+      description: |
+        Histórico paginado em ordem decrescente de criação. É por aqui que o
+        usuário reencontra um job depois de fechar a aba: o job vive na `api`, não na
+        sessão do navegador.
+
+        Devolve o resumo de cada job, não o job inteiro. Regra, resultado e
+        decomposição saem de `GET /jobs/{id}`, para que a listagem não carregue
+        dezenas de agregados que a tela de histórico não mostra.
+
+        Lista os jobs do próprio usuário, e não os do sistema: histórico é do fluxo
+        operacional, que é do papel `PROFISSIONAL DE RH` (DEC-087).
+      parameters:
+        - name: pagina
+          in: query
+          required: false
+          description: Página, começando em zero.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: tamanho
+          in: query
+          required: false
+          description: Itens por página.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Página do histórico.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginaJobs"
+        "400":
+          $ref: "#/components/responses/RequisicaoInvalida"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/SemPermissao"
+
+  /jobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [jobs]
+      operationId: consultarJob
+      summary: Consulta o estado, a regra e o resultado de um job.
+      description: |
+        Estado corrente do job e tudo que já existe dele. Os campos opcionais
+        aparecem conforme o job avança: `regra` depois que existe uma versão,
+        `simulacao` depois que a execução termina, `motivo` quando o job parou.
+
+        É a fonte dos números exibidos. Nenhum valor aqui deve ser recalculado ou
+        derivado pelo cliente: a aritmética é determinística, roda sobre os dados
+        históricos e chega pronta nesta resposta.
+      responses:
+        "200":
+          description: O job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+              examples:
+                simulacaoInviavel:
+                  summary: Simulação concluída, acima do orçamento
+                  value:
+                    id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                    status: simulacao_inviavel
+                    origem: formulario
+                    competencias: ["2025-11"]
+                    orcamento: 485000.0
+                    criado_em: "2025-11-24T14:02:00Z"
+                    iniciado_em: "2025-11-24T14:02:03Z"
+                    finalizado_em: "2025-11-24T14:04:47Z"
+                    submissao_id: "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"
+                    regra:
+                      id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                      versao: 1
+                      origem: confirmacao_usuario
+                      representacao:
+                        nucleo:
+                          vigencia: { inicio: "2025-11", fim: "2025-11" }
+                          loja: ["13"]
+                          marca: ["10", "20"]
+                          cargo: ["100", "300"]
+                          percentual: 0.025
+                        especificacoes: []
+                      criada_em: "2025-11-24T14:02:00Z"
+                    simulacao:
+                      id: "d4e5f607-1234-4a5b-8c9d-0e1f2a3b4c5d"
+                      criado_em: "2025-11-24T14:04:47Z"
+                      status: sucesso
+                      veredito: inviavel
+                      flag_baixa_rastreabilidade: false
+                      resultado:
+                        totais:
+                          baseline: 480312.0
+                          simulado: 492100.0
+                          diferenca_abs: 11788.0
+                          diferenca_pct: 0.0245
+                          orcamento: 485000.0
+                        assercoes:
+                          - nome: sem_comissao_negativa
+                            resultado: ok
+                            detalhe: null
+                        decomposicao:
+                          elemento: { "nucleo.percentual": 11788.0 }
+                          loja: { "13": 7100.0, "58": 4688.0 }
+                          marca: { "10": 11788.0 }
+                          cargo: { "100": 9200.0, "150": 2588.0 }
+                          competencia: { "2025-11": 11788.0 }
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/SemPermissao"
+        "404":
+          $ref: "#/components/responses/JobNaoEncontrado"
+
+  /jobs/{id}/events:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [jobs]
+      operationId: acompanharJob
+      summary: Abre o stream SSE de acompanhamento do job.
+      description: |
+        **Esta rota abre um stream Server-Sent Events**, não uma resposta única: o
+        corpo é `text/event-stream` e a conexão fica aberta enquanto o job processa.
+
+        **Ao conectar, o cliente recebe imediatamente um evento `estado` com a
+        situação atual do job**, mesmo que nada tenha acabado de mudar.
+
+        **O evento `estado` traz o status, nunca o conteúdo da regra.** Se o status
+        recebido for `aguardando_confirmacao_parametros` - seja na conexão inicial ou
+        numa reconexão -, o stream por si só não dá o que exibir na tela de
+        confirmação. O cliente busca a regra em `GET /jobs/{id}`, cujo campo `regra`
+        traz a representação estruturada a confirmar ou corrigir.
+
+        **Depois vêm os eventos conforme acontecem**: `etapa` a cada passo iniciado,
+        `estado` a cada transição do job e `resultado` quando a simulação termina. O
+        stream fecha logo após o evento de estado que anuncia um estado terminal;
+        abrir o stream de um job já terminal devolve a fotografia e fecha em
+        seguida.
+
+        **Reconexão.** Se a conexão cair, o cliente reabre a
+        mesma requisição e recebe de novo a fotografia do estado atual.
+
+        **Enquadramento.** Cada evento ocupa uma linha `event:` com o nome e uma
+        linha `data:` com o JSON descrito no schema desta resposta.
+      responses:
+        "200":
+          description: |
+            Stream aberto. O schema descreve o JSON de uma linha `data:`; o corpo da
+            resposta é a sequência desses eventos, não um documento único.
+          headers:
+            Cache-Control:
+              description: Sempre `no-store`; o progresso de um job não é cacheável.
+              schema:
+                type: string
+                examples: ["no-store"]
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/EventoProgresso"
+              examples:
+                streamDeUmJob:
+                  summary: Sequência típica, da conexão ao resultado
+                  description: |
+                    O corpo inteiro da resposta, e não um evento isolado. O primeiro
+                    evento é a fotografia recebida ao conectar; os demais chegam
+                    conforme acontecem. O schema acima descreve o JSON de cada linha
+                    `data:`; é este exemplo que mostra o enquadramento em volta dele.
+                  value: |
+                    event: estado
+                    data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","status":"gerando_regra"}
+
+                    event: etapa
+                    data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","etapa":"geracao_codigo","status":"iniciada"}
+
+                    event: etapa
+                    data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","etapa":"delegacao_worker","status":"iniciada"}
+
+                    event: resultado
+                    data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","simulacao_id":"b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93","status":"sucesso","veredito":"inviavel"}
+
+                    event: estado
+                    data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","status":"simulacao_inviavel","status_anterior":"simulando"}
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/SemPermissao"
+        "404":
+          $ref: "#/components/responses/JobNaoEncontrado"
+
+  /jobs/{id}/parameters:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    post:
+      tags: [jobs]
+      operationId: confirmarParametros
+      summary: Confirma ou corrige a representação da regra e retoma o processamento.
+      description: |
+        O que o usuário confirma na tela de validação é a representação da regra, e
+        nunca código. A `api` grava uma versão nova de regra -
+        correção nunca altera a versão anterior - e publica `parametros-confirmados`,
+        que retoma o grafo do codegen no nó de confirmação.
+
+        Aceita também `orcamento` e `competencias`, porque a mesma tela permite
+        ajustá-los antes de simular, inclusive no reprocessamento de uma regra
+        arquivada. Ausentes, os valores atuais do job permanecem.
+
+        Recusa por completude e por coerência, com códigos distintos: núcleo
+        incompleto é campo faltando; regra incoerente é a regra ter todos os campos e
+        ainda assim não descrever nada simulável, como uma faixa cujo limite inferior
+        é maior que o superior. A segunda não rende sugestão de adaptação, e sim
+        revisão manual.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmarParametrosRequisicao"
+      responses:
+        "202":
+          description: |
+            Parâmetros confirmados e processamento retomado. O corpo é o job já em
+            `gerando_regra`, com `regra` na versão que acabou de ser confirmada:
+            correção do usuário vira versão nova, e é o `id` dela que identifica o que
+            será simulado.
+
+            **`simulacao`, `finalizado_em` e `motivo` continuam ausentes.** A operação
+            só é aceita com o job em `aguardando_confirmacao_parametros`, estado em que
+            nenhuma simulação concluiu. A geração de código e a execução no sandbox são
+            assíncronas e começam agora; o desfecho chega pelo stream e, depois dele,
+            por `GET /jobs/{id}`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+              examples:
+                parametrosConfirmados:
+                  summary: Parâmetros confirmados com correção, geração em curso
+                  value:
+                    id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                    status: gerando_regra
+                    origem: formulario
+                    competencias: ["2025-11"]
+                    orcamento: 485000.0
+                    criado_em: "2025-11-24T14:02:00Z"
+                    iniciado_em: "2025-11-24T14:03:10Z"
+                    submissao_id: "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"
+                    regra:
+                      id: "1f2e3d4c-5b6a-4978-8d7c-6e5f4a3b2c1d"
+                      versao: 2
+                      origem: confirmacao_usuario
+                      representacao:
+                        nucleo:
+                          vigencia: { inicio: "2025-11", fim: "2025-11" }
+                          loja: ["13"]
+                          marca: ["10", "20"]
+                          cargo: ["100", "300"]
+                          percentual: 0.03
+                        especificacoes: []
+                      criada_em: "2025-11-24T14:03:10Z"
+        "400":
+          $ref: "#/components/responses/RequisicaoInvalida"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/SemPermissao"
+        "404":
+          $ref: "#/components/responses/JobNaoEncontrado"
+        "409":
+          description: |
+            O job não está aguardando confirmação de parâmetros. Confirmar duas vezes
+            ou confirmar um job já finalizado cai aqui.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                estadoInvalido:
+                  value:
+                    codigo: estado_invalido
+                    mensagem: Este job não está aguardando confirmação de parâmetros.
+        "422":
+          description: |
+            A regra não pode ser simulada como está. `codigo` distingue campo ausente
+            de conflito entre elementos, e `elementos` localiza o problema na parte da
+            regra que o causou.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                nucleoIncompleto:
+                  summary: Campo obrigatório ausente
+                  value:
+                    codigo: nucleo_incompleto
+                    mensagem: A regra precisa do percentual de comissionamento para ser simulada.
+                    elementos:
+                      - ref: nucleo.percentual
+                        motivo: Campo obrigatório não informado.
+                regraIncoerente:
+                  summary: Elementos que se contradizem
+                  value:
+                    codigo: regra_incoerente
+                    mensagem: A vigência termina antes de começar.
+                    elementos:
+                      - ref: nucleo.vigencia
+                        motivo: A competência final é anterior à inicial.
+
+  /jobs/{id}/actions:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    post:
+      tags: [jobs]
+      operationId: executarAcao
+      summary: Executa uma ação de finalização sobre o job.
+      description: |
+        As quatro ações de fechamento: **confirmar e liberar, cancelar, salvar e
+        arquivar**. A `api` aplica a transição de estado, de que é dona, e registra a
+        ação na trilha.
+
+        **A liberação é recusada quando a simulação é inviável.** O bloqueio é da
+        `api`, não da tela: o alerta visual do frontend é apresentação, e a garantia
+        de que uma regra fora do orçamento não vai para produção é da máquina de
+        estados. Inviável é regra coerente cujo custo não cabe no
+        orçamento, e é caso distinto de asserção violada, em que o número não vale.
+
+        A recusa é `409` e não `403` porque o bloqueio é do estado do job e não do
+        papel de quem pede: vale para todos, sem override (DEC-087).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecutarAcaoRequisicao"
+      responses:
+        "200":
+          description: Ação aplicada; o job vem no novo estado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+              examples:
+                liberado:
+                  summary: Liberado após simulação viável
+                  value:
+                    id: "7a8b9c0d-1e2f-4a3b-9c8d-7e6f5a4b3c2d"
+                    status: liberado
+                    origem: formulario
+                    competencias: ["2025-11"]
+                    orcamento: 500000.0
+                    criado_em: "2025-11-20T09:15:00Z"
+                    iniciado_em: "2025-11-20T09:15:30Z"
+                    finalizado_em: "2025-11-20T09:22:18Z"
+                    submissao_id: "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6a"
+                    regra:
+                      id: "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b"
+                      versao: 1
+                      origem: confirmacao_usuario
+                      representacao:
+                        nucleo:
+                          vigencia: { inicio: "2025-11", fim: "2025-11" }
+                          loja: ["13"]
+                          marca: ["10"]
+                          cargo: ["100"]
+                          percentual: 0.02
+                        especificacoes: []
+                      criada_em: "2025-11-20T09:15:00Z"
+                    simulacao:
+                      id: "9f0a1b2c-3d4e-4f5a-8b6c-7d8e9f0a1b2c"
+                      criado_em: "2025-11-20T09:22:10Z"
+                      status: sucesso
+                      veredito: viavel
+                      flag_baixa_rastreabilidade: false
+                      resultado:
+                        totais:
+                          baseline: 300000.0
+                          simulado: 312000.0
+                          diferenca_abs: 12000.0
+                          diferenca_pct: 0.04
+                          orcamento: 500000.0
+                        assercoes:
+                          - nome: sem_comissao_negativa
+                            resultado: ok
+                            detalhe: null
+                        decomposicao:
+                          elemento: { "nucleo.percentual": 12000.0 }
+                          loja: { "13": 12000.0 }
+                          marca: { "10": 12000.0 }
+                          cargo: { "100": 12000.0 }
+                          competencia: { "2025-11": 12000.0 }
+        "400":
+          $ref: "#/components/responses/RequisicaoInvalida"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/SemPermissao"
+        "404":
+          $ref: "#/components/responses/JobNaoEncontrado"
+        "409":
+          description: |
+            A ação não é permitida no estado atual. `simulacao_inviavel` é a recusa de
+            liberação e tem código próprio, distinto de
+            `estado_invalido`, para que a tela possa oferecer o caminho de adaptação
+            em vez de repetir a tentativa.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                simulacaoInviavel:
+                  summary: Liberação recusada por inviabilidade orçamentária
+                  value:
+                    codigo: simulacao_inviavel
+                    mensagem: >-
+                      A simulação excede o orçamento informado e a regra não pode ser
+                      liberada para produção.
+                estadoInvalido:
+                  summary: Ação fora do estado que a permite
+                  value:
+                    codigo: estado_invalido
+                    mensagem: Este job já foi finalizado.
+
+  /jobs/{id}/reprocessar:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    post:
+      tags: [jobs]
+      operationId: reprocessarJob
+      summary: Cria um job novo semeado com a regra de um job anterior.
+      description: |
+        **Nunca sobrescreve o original.** Cria um job novo, com `job_origem_id`
+        apontando para o job informado no caminho e semeado com a representação da
+        regra dele. O job anterior e sua trilha ficam intactos.
+
+        O job novo nasce em `aguardando_confirmacao_parametros`: o usuário ajusta
+        parâmetros e orçamento em `POST /jobs/{id}/parameters` antes de simular de
+        novo. `competencias` e `orcamento` podem vir já ajustados
+        aqui; ausentes, são copiados do job de origem.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReprocessarRequisicao"
+      responses:
+        "201":
+          description: |
+            Job novo criado. O corpo é o job novo, não o de origem, e `Location`
+            aponta para ele. Traz `id`, `status`, `origem` como `reprocessamento`,
+            `competencias`, `orcamento`, `criado_em`, `job_origem_id` e a `regra`
+            semeada a partir do job de origem.
+
+            **`simulacao`, `iniciado_em`, `finalizado_em` e `motivo` são ausentes por
+            construção**, pelo mesmo motivo de `POST /jobs`: o job nasce em
+            `aguardando_confirmacao_parametros` e nada foi executado nele. O resultado
+            do job de origem permanece no job de origem, intacto e consultável.
+
+            `submissao_id` também é ausente. A procedência aqui é outro job, e as duas
+            nunca coexistem.
+          headers:
+            Location:
+              description: Caminho do job criado.
+              schema:
+                type: string
+                examples: ["/api/jobs/7d41b0aa-1f6e-4c33-b5a8-2e90c7d41f58"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+              examples:
+                jobReprocessado:
+                  summary: Job novo, semeado a partir do job de origem
+                  value:
+                    id: "7d41b0aa-1f6e-4c33-b5a8-2e90c7d41f58"
+                    status: aguardando_confirmacao_parametros
+                    origem: reprocessamento
+                    competencias: ["2025-08", "2025-11"]
+                    orcamento: 960000.0
+                    criado_em: "2025-12-01T10:00:00Z"
+                    job_origem_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                    regra:
+                      id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+                      versao: 1
+                      origem: reprocessamento
+                      representacao:
+                        nucleo:
+                          vigencia: { inicio: "2025-11", fim: "2025-11" }
+                          loja: ["13"]
+                          marca: ["10", "20"]
+                          cargo: ["100", "300"]
+                          percentual: 0.025
+                        especificacoes: []
+                      criada_em: "2025-12-01T10:00:00Z"
+        "400":
+          $ref: "#/components/responses/RequisicaoInvalida"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/SemPermissao"
+        "404":
+          $ref: "#/components/responses/JobNaoEncontrado"
+        "409":
+          description: |
+            O job de origem não tem regra formada para semear o job novo, ou ainda não
+            chegou a um estado que permita reprocessá-lo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                estadoInvalido:
+                  value:
+                    codigo: estado_invalido
+                    mensagem: Este job ainda está em processamento e não pode ser reprocessado.
+
+components:
+  securitySchemes:
+    sessaoSynapse:
+      type: http
+      scheme: bearer
+      description: |
+        Sessão emitida pela `api` após login com credencial. A `api` é dona das
+        credenciais, da sessão e do papel do usuário, sem provedor de identidade
+        externo. O papel é único por usuário, sem RBAC fino, e as sete
+        operações deste contrato são do papel `PROFISSIONAL DE RH`; o `AUDITOR` é
+        perfil investigativo, fora do fluxo operacional (DEC-087).
+
+        A rota que emite a sessão e a forma de renovação não fazem parte desta
+        versão do contrato e entram com a tarefa de autenticação. O que este arquivo
+        fixa é que toda operação exige sessão válida e que o acesso a um job confere
+        posse, e não apenas autenticação.
+
+  parameters:
+    JobId:
+      name: id
+      in: path
+      required: true
+      description: Identificador do job.
+      schema:
+        type: string
+        format: uuid
+        examples: ["3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"]
+
+  responses:
+    RequisicaoInvalida:
+      description: O corpo ou os parâmetros da requisição não têm a forma esperada.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Erro"
+          examples:
+            requisicaoInvalida:
+              value:
+                codigo: requisicao_invalida
+                mensagem: O campo orcamento precisa ser um número.
+
+    NaoAutenticado:
+      description: Sessão ausente, expirada ou inválida.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Erro"
+          examples:
+            naoAutenticado:
+              value:
+                codigo: nao_autenticado
+                mensagem: Sessão ausente ou expirada.
+
+    SemPermissao:
+      description: |
+        A sessão é válida, mas o solicitante não é dono do job nem tem papel que
+        autorize a operação sobre ele.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Erro"
+          examples:
+            semPermissao:
+              value:
+                codigo: sem_permissao
+                mensagem: Você não tem acesso a este job.
+
+    JobNaoEncontrado:
+      description: Não existe job com o identificador informado.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Erro"
+          examples:
+            jobNaoEncontrado:
+              value:
+                codigo: job_nao_encontrado
+                mensagem: Job não encontrado.
+
+  schemas:
+    Erro:
+      type: object
+      title: Erro
+      description: |
+        Corpo de erro de toda operação. `codigo` é o que o cliente decide em cima;
+        `mensagem` é texto que o domínio decidiu expor e nunca detalhe interno, como
+        stack trace, mensagem de driver ou nome de tabela.
+
+        `elementos` existe porque interrupção sem motivo é o pior caso para o usuário
+        leigo: todo caminho de parada devolve razão localizada na parte da regra que a
+        causou, em vez de "não foi possível processar".
+      required: [codigo, mensagem]
+      properties:
+        codigo:
+          $ref: "#/components/schemas/CodigoErro"
+        mensagem:
+          type: string
+          minLength: 1
+          description: Explicação em linguagem do usuário, própria para exibição direta.
+        elementos:
+          type: array
+          description: |
+            Partes da regra que motivaram a recusa. Ausente quando o erro não é sobre
+            a regra. Um conflito entre dois elementos rende uma entrada por elemento
+            envolvido.
+          items:
+            type: object
+            required: [ref, motivo]
+            properties:
+              ref:
+                $ref: "../domain/comum.schema.json#/$defs/elemento_ref"
+              motivo:
+                type: string
+                minLength: 1
+                description: O que falta ou o que conflita neste elemento.
+
+    CodigoErro:
+      type: string
+      title: Código de erro
+      description: |
+        Vocabulário de recusa. Cada código tem um status HTTP próprio, e dois motivos
+        diferentes nunca compartilham código: `nucleo_incompleto` é dado da regra
+        faltando na entrada, `simulacao_inviavel` é regra completa e coerente cujo
+        custo não cabe no orçamento. Vocabulário aberto a valores novos, sempre de
+        forma aditiva.
+      enum:
+        - requisicao_invalida
+        - nao_autenticado
+        - sem_permissao
+        - job_nao_encontrado
+        - estado_invalido
+        - simulacao_inviavel
+        - nucleo_incompleto
+        - regra_incoerente
+
+    StatusJob:
+      type: string
+      title: Estado do job
+      description: |
+        Estados da máquina de estados do job, de que a `api` é dona. `simulacao_inviavel` e
+        `erro` são coisas distintas: o primeiro é uma simulação que terminou bem e
+        produziu um número que não cabe no orçamento; o segundo é o job que não chegou
+        a produzir número.
+      enum:
+        - aguardando_transcricao
+        - aguardando_confirmacao_parametros
+        - gerando_regra
+        - simulando
+        - simulacao_inviavel
+        - aguardando_decisao_usuario
+        - liberado
+        - cancelado
+        - arquivado
+        - erro
+
+    OrigemJob:
+      type: string
+      title: Origem do job
+      description: |
+        Como o job nasceu, no mesmo vocabulário de `contracts/events/regra-submetida`.
+        É o que determina o ponto de entrada do grafo. Na Sprint 1 apenas `formulario`
+        é aceito em `POST /jobs`; `reprocessamento` é produzido por
+        `POST /jobs/{id}/reprocessar` e `voz`.
+      enum: [formulario, voz, reprocessamento]
+
+    AcaoJob:
+      type: string
+      title: Ação de finalização
+      description: Ações de fechamento, no mesmo vocabulário da coluna `job_acoes.acao`.
+      enum: [confirmar_liberar, cancelar, salvar, arquivar]
+
+    Veredito:
+      type: string
+      title: Veredito de viabilidade
+      description: |
+        Viabilidade orçamentária, apurada pelo worker fora do container a partir do
+        total simulado e do orçamento aplicado. Ausente quando a execução não produziu
+        número que o sustente.
+      enum: [viavel, inviavel, indeterminado]
+
+    StatusResultado:
+      type: string
+      title: Desfecho da execução
+      description: |
+        Mesmo vocabulário de `resultados_simulacao.status`. `assercao_violada` é o
+        código ter rodado e produzido números que uma invariante reprovou: é erro do
+        código gerado e invalida o número, diferente de `veredito: inviavel`.
+      enum: [sucesso, assercao_violada, erro_codigo, erro_infra]
+
+    Competencias:
+      type: array
+      title: Competências do job
+      description: |
+        Competências históricas a simular. O job cobre o período inteiro numa única
+        simulação, com os meses agregados; não existe uma simulação por competência. A
+        contribuição de cada mês sai na quebra `competencia` da decomposição. Não
+        precisa ser contíguo. Nunca vazio: um job que não simula nada não é job.
+      minItems: 1
+      items:
+        $ref: "../domain/comum.schema.json#/$defs/competencia"
+      examples:
+        - ["2025-08", "2025-11"]
+
+    CriarJobRequisicao:
+      type: object
+      title: Submissão de regra por formulário
+      description: |
+        Corpo de `POST /jobs`. Carrega a origem do job, as competências de referência,
+        o orçamento e o núcleo da regra.
+
+        `conteudo` é o formulário exatamente como foi preenchido, na forma de
+        `submissoes.conteudo`: é o registro da entrada, e o que permite conferir
+        depois o que o sistema recebeu contra o que ele produziu. Por isso vem no
+        formato da coluna e não numa forma própria da requisição.
+      required: [origem, orcamento, conteudo]
+      properties:
+        origem:
+          $ref: "#/components/schemas/OrigemJob"
+          description: |
+            Na Sprint 1, sempre `formulario`. `voz` e
+            `reprocessamento` não é submetido por aqui, e sim criado por
+            `POST /jobs/{id}/reprocessar`.
+        competencias:
+          $ref: "#/components/schemas/Competencias"
+          description: |
+            Competências a simular. Ausente, a `api` preenche com todas as
+            competências do dataset - o período inteiro. Anotação de intenção, não
+            comportamento de validador: o preenchimento é da `api`.
+        orcamento:
+          $ref: "../domain/comum.schema.json#/$defs/brl"
+          description: |
+            Orçamento de comissionamento do período, informado pelo usuário. Não está
+            em nenhuma base: é parâmetro da simulação, e confrontá-lo com o total
+            apurado é o que dispara o alerta de inviabilidade e o bloqueio da
+            liberação. É do período, não mensal.
+        conteudo:
+          $ref: "../domain/submissao-conteudo.schema.json"
+          description: |
+            O formulário como recebido: os cinco campos do núcleo, com lista vazia ou
+            nulo onde o usuário não preencheu, mais o texto livre. O texto livre é
+            conteúdo não confiável - é dado a extrair, nunca instrução.
+      examples:
+        - origem: formulario
+          competencias: ["2025-11"]
+          orcamento: 485000.0
+          conteudo:
+            nucleo:
+              vigencia: { inicio: "2025-11", fim: "2025-11" }
+              loja: ["13"]
+              marca: ["10", "20"]
+              cargo: ["100", "300"]
+              percentual: 0.025
+            texto_livre: null
+
+    ConfirmarParametrosRequisicao:
+      type: object
+      title: Confirmação dos parâmetros
+      description: |
+        Corpo de `POST /jobs/{id}/parameters`. `regra` é a representação confirmada ou
+        corrigida pelo usuário, no mesmo formato que o banco e o código gerado usam.
+        Correção gera uma versão nova de regra; a anterior permanece.
+      required: [regra]
+      properties:
+        regra:
+          $ref: "../domain/representacao-regra.schema.json"
+          description: |
+            Núcleo e especificações juntos. Na Sprint 1 o formulário só permite
+            informar o núcleo, então `especificacoes` chega como array vazio; a
+            limitação está no que pode ser inserido, nunca no que é simulado daquilo
+            que foi inserido.
+        orcamento:
+          $ref: "../domain/comum.schema.json#/$defs/brl"
+          description: |
+            Orçamento ajustado na tela de confirmação. Ausente mantém o orçamento
+            atual do job.
+        competencias:
+          $ref: "#/components/schemas/Competencias"
+          description: |
+            Competências ajustadas na tela de confirmação. Ausente mantém as
+            competências atuais do job.
+      examples:
+        - regra:
+            nucleo:
+              vigencia: { inicio: "2025-11", fim: "2025-11" }
+              loja: ["13"]
+              marca: ["10", "20"]
+              cargo: ["100", "300"]
+              percentual: 0.025
+            especificacoes: []
+          orcamento: 485000.0
+
+    ExecutarAcaoRequisicao:
+      type: object
+      title: Ação de finalização
+      description: Corpo de `POST /jobs/{id}/actions`.
+      required: [acao]
+      properties:
+        acao:
+          $ref: "#/components/schemas/AcaoJob"
+      examples:
+        - acao: confirmar_liberar
+
+    ReprocessarRequisicao:
+      type: object
+      title: Parâmetros do reprocessamento
+      description: |
+        Corpo de `POST /jobs/{id}/reprocessar`. Todos os campos são opcionais: o corpo
+        pode ser omitido, e então o job novo herda competências e orçamento do job de
+        origem.
+      properties:
+        competencias:
+          $ref: "#/components/schemas/Competencias"
+          description: Ausente, copia as competências do job de origem.
+        orcamento:
+          $ref: "../domain/comum.schema.json#/$defs/brl"
+          description: Ausente, copia o orçamento do job de origem.
+      examples:
+        - competencias: ["2025-08", "2025-11"]
+          orcamento: 960000.0
+
+    Job:
+      type: object
+      title: Job
+      description: |
+        Estado corrente do job e os artefatos que ele já produziu. Os campos opcionais
+        aparecem conforme o job avança; a ausência de `simulacao` significa que ainda
+        não há resultado, e não que o resultado é vazio.
+      required: [id, status, origem, competencias, orcamento, criado_em]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador do job, e a chave de correlação em toda a observabilidade.
+        status:
+          $ref: "#/components/schemas/StatusJob"
+        origem:
+          $ref: "#/components/schemas/OrigemJob"
+        competencias:
+          $ref: "#/components/schemas/Competencias"
+        orcamento:
+          $ref: "../domain/comum.schema.json#/$defs/brl"
+          description: Orçamento do período aplicado a este job.
+        criado_em:
+          type: string
+          format: date-time
+        iniciado_em:
+          type: string
+          format: date-time
+          description: Ausente até o processamento começar.
+        finalizado_em:
+          type: string
+          format: date-time
+          description: Ausente até o job atingir estado terminal.
+        job_origem_id:
+          type: string
+          format: uuid
+          description: |
+            Job de que este nasceu por reprocessamento. Ausente no job original.
+            Exatamente uma das duas procedências existe: `submissao_id` quando o job
+            nasceu de gente, `job_origem_id` quando nasceu de outro job.
+        submissao_id:
+          type: string
+          format: uuid
+          description: Submissão que originou o job. Ausente quando a origem é reprocessamento.
+        motivo:
+          type: string
+          description: |
+            Razão localizada da parada, quando o job parou. Existe porque interrupção
+            sem motivo é inaceitável para o usuário leigo: regra fora do domínio,
+            elemento sem implementação correspondente, asserção violada, campo
+            obrigatório ausente e conflito entre elementos são casos distintos e
+            chegam aqui distinguidos. Ausente fora de paradas.
+        regra:
+          $ref: "#/components/schemas/RegraVersionada"
+          description: Versão corrente da regra. Ausente enquanto nenhuma versão foi formada.
+        simulacao:
+          $ref: "#/components/schemas/Simulacao"
+          description: Simulação corrente do job. Ausente enquanto a execução não terminou.
+
+    RegraVersionada:
+      type: object
+      title: Versão da regra
+      description: |
+        Uma versão da regra dentro do job. Regra é imutável depois de usada: correção
+        do usuário e sugestão de adaptação criam versões novas, e é o `id` daqui que
+        identifica univocamente o que foi simulado.
+      required: [id, versao, origem, representacao, criada_em]
+      properties:
+        id:
+          type: string
+          format: uuid
+        versao:
+          type: integer
+          minimum: 1
+          description: Sequencial dentro do job.
+        origem:
+          type: string
+          enum: [confirmacao_usuario, sugestao_adaptacao, reprocessamento]
+          description: De onde esta versão veio.
+        representacao:
+          $ref: "../domain/representacao-regra.schema.json"
+        criada_em:
+          type: string
+          format: date-time
+
+    Simulacao:
+      type: object
+      title: Simulação
+      description: |
+        A simulação do job e, quando houve sucesso, o resultado que o sandbox produziu.
+        `status` e `veredito` respondem perguntas diferentes: o primeiro diz se o
+        número vale, o segundo diz se ele cabe no orçamento.
+      required: [id, criado_em, status, flag_baixa_rastreabilidade]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Id da simulação exigido pela trilha de auditoria.
+        criado_em:
+          type: string
+          format: date-time
+        status:
+          $ref: "#/components/schemas/StatusResultado"
+        veredito:
+          $ref: "#/components/schemas/Veredito"
+          description: Ausente quando o status não é sucesso.
+        flag_baixa_rastreabilidade:
+          type: boolean
+          description: |
+            Verdadeiro quando o modelo não devolveu justificativa utilizável ou quando
+            a narrativa reprovou na conferência numérica. Falha de
+            explicação degrada a rastreabilidade e não invalida o número; falha de
+            cobertura ou de asserção invalida.
+        resultado:
+          $ref: "../domain/resultado-simulacao.schema.json"
+          description: |
+            Totais, desfecho das asserções e decomposição da diferença. Ausente quando
+            o status não é sucesso, porque aí não há número. É a fonte dos valores
+            exibidos: o frontend apresenta, não calcula.
+
+    JobResumo:
+      type: object
+      title: Resumo do job
+      description: |
+        O que a listagem de histórico mostra. Sem regra, resultado nem decomposição -
+        para isso existe `GET /jobs/{id}`.
+      required: [id, status, competencias, orcamento, criado_em]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/StatusJob"
+        competencias:
+          $ref: "#/components/schemas/Competencias"
+        orcamento:
+          $ref: "../domain/comum.schema.json#/$defs/brl"
+        veredito:
+          $ref: "#/components/schemas/Veredito"
+          description: Ausente enquanto o job não tem simulação concluída com sucesso.
+        criado_em:
+          type: string
+          format: date-time
+        finalizado_em:
+          type: string
+          format: date-time
+          description: Ausente até o job atingir estado terminal.
+        job_origem_id:
+          type: string
+          format: uuid
+          description: Preenchido quando o job nasceu de reprocessamento.
+
+    PaginaJobs:
+      type: object
+      title: Página do histórico
+      description: Página de jobs em ordem decrescente de criação.
+      required: [itens, pagina, tamanho, total]
+      properties:
+        itens:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobResumo"
+        pagina:
+          type: integer
+          minimum: 0
+        tamanho:
+          type: integer
+          minimum: 1
+        total:
+          type: integer
+          minimum: 0
+          description: Total de jobs do usuário, não da página.
+
+    EventoProgresso:
+      title: Evento do stream de progresso
+      description: |
+        JSON de uma linha `data:` do stream. O nome do evento vai na linha `event:` e
+        diz qual das três formas chegou: `etapa`, `estado` ou `resultado`.
+
+        Os três têm `job_id`, que é redundante com o caminho e existe assim mesmo -
+        um cliente que mantém mais de um stream aberto não precisa se apoiar em qual
+        conexão entregou a mensagem.
+
+        `anyOf` e não `oneOf`: quem discrimina é a linha `event:`, que é o mecanismo
+        nativo do `text/event-stream` e o que o `EventSource` entrega ao cliente. As
+        formas não se distinguem sozinhas, porque nenhum schema aqui fecha o objeto -
+        a evolução é aditiva e um payload com campo a mais precisa continuar válido.
+      anyOf:
+        - $ref: "#/components/schemas/EventoEtapa"
+        - $ref: "#/components/schemas/EventoEstado"
+        - $ref: "#/components/schemas/EventoResultado"
+
+    EventoEtapa:
+      type: object
+      title: Evento `etapa`
+      description: |
+        Etapa do processamento que acabou de começar. É o que alimenta o "gerando
+        código…" na tela. Dispara na entrada da etapa, e por isso não se confunde com
+        a trilha de auditoria, que registra a saída do nó.
+      required: [job_id, etapa, status]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        etapa:
+          $ref: "../domain/comum.schema.json#/$defs/no_grafo"
+          description: |
+            Etapa iniciada, no mesmo vocabulário fechado dos nós do grafo. Usar a lista
+            única evita que a tela e a trilha chamem o mesmo passo por nomes
+            diferentes.
+        status:
+          type: string
+          minLength: 1
+          description: Situação reportada para a etapa iniciada. O vocabulário ainda não está fechado.
+      examples:
+        - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          etapa: geracao_codigo
+          status: iniciada
+
+    EventoEstado:
+      type: object
+      title: Evento `estado`
+      description: |
+        Transição da máquina de estados do job, de que a `api` é dona. É o que move a
+        tela entre as fases e o que anuncia a parada, com o motivo localizado.
+
+        A mesma forma abre toda conexão ao stream, como fotografia do estado atual -
+        na primeira conexão e em toda reconexão.
+      required: [job_id, status]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/StatusJob"
+        status_anterior:
+          $ref: "#/components/schemas/StatusJob"
+          description: Ausente na transição inicial e na fotografia de conexão.
+        motivo:
+          type: string
+          description: Razão localizada da parada. Ausente fora de paradas.
+      examples:
+        - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          status: simulacao_inviavel
+          status_anterior: simulando
+
+    EventoResultado:
+      type: object
+      title: Evento `resultado`
+      description: |
+        Anuncia que a simulação terminou. Carrega a referência e o desfecho, não os
+        números: a tela busca `GET /jobs/{id}` e lê os valores de um lugar só, para
+        que resultado e stream não tenham duas formas do mesmo dado para divergir.
+      required: [job_id, simulacao_id, status]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        simulacao_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/StatusResultado"
+        veredito:
+          $ref: "#/components/schemas/Veredito"
+          description: Ausente quando o status não é sucesso.
+      examples:
+        - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          simulacao_id: "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"
+          status: sucesso
+          veredito: inviavel

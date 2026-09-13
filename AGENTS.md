@@ -19,7 +19,7 @@ O Synapse é um monorepo poliglota sem ferramenta de build na raiz. A raiz não 
 | `codegen/` | Extração, geração e explicação assistidas por IA | Python, LangGraph |
 | `worker/` | Execução isolada do código gerado e comparação com baseline | Python, RabbitMQ, Docker |
 | `contracts/` | Schemas neutros entre stacks | JSON Schema |
-| `docs/` | Arquitetura, escopo e decisões | Markdown |
+| `docs/` | Arquitetura, escopo, modelo de dados e decisões | Markdown, DBML |
 | `deploy/` | Artefatos de implantação compartilhados | conforme o artefato |
 
 Leia, antes de editar, o `AGENTS.md` do componente tocado. Consulte também o ADR ou a seção de arquitetura relacionada quando a mudança atravessar limites de serviço.
@@ -119,6 +119,7 @@ Não leia toda a documentação por padrão. Depois do `AGENTS.md` local, consul
 | Estrutura da raiz, `contracts/` como insumo de build ou limites do monorepo | [ADR-002](docs/adrs/ADR-002.md) |
 | Comunicação entre serviços, RabbitMQ, eventos ou claim-check | [ADR-001](docs/adrs/ADR-001.md) e o trecho correspondente da [arquitetura](docs/ARCHITECTURE.md) |
 | Regras de simulação, baseline ou domínio | [Escopo da simulação](docs/ESCOPO-SIMULACAO.md) e a seção relevante da [arquitetura](docs/ARCHITECTURE.md) |
+| Uma tabela, coluna, índice ou o conteúdo de um campo `jsonb` | [`docs/database/modelo-dados.dbml`](docs/database/modelo-dados.dbml), que é a fonte canônica do esquema, e o [modelo de dados](docs/database/modelo-dados.md) para as decisões e os exemplos |
 | Logs, traces ou métricas | `contracts/observability/` e a seção de observabilidade da [arquitetura](docs/ARCHITECTURE.md) |
 | Um contrato de evento, domínio ou HTTP | O schema específico em `contracts/` e seus exemplos |
 | Uma decisão já registrada ou uma mudança de fronteira | O ADR específico em [`docs/adrs/`](docs/adrs/) |
@@ -130,4 +131,5 @@ Abra a [arquitetura](docs/ARCHITECTURE.md) inteira apenas quando a tarefa exigir
 
 - [`frontend/AGENTS.md`](frontend/AGENTS.md), [`api/AGENTS.md`](api/AGENTS.md), [`codegen/AGENTS.md`](codegen/AGENTS.md) e [`worker/`](worker/): regras específicas de cada componente. O `worker/` ainda não possui um `AGENTS.md`; siga este guia e a arquitetura até que suas instruções locais sejam criadas.
 - [`contracts/`](contracts/): contratos entre componentes; alterações exigem validar todos os consumidores relevantes.
+- [`docs/database/`](docs/database/): o esquema do banco. O `.dbml` é canônico para tabelas, colunas, tipos, nulidade, chaves e índices; o `.md` registra as decisões de modelagem e explica com exemplos os campos mais propensos a confusão. O formato de cada coluna `jsonb` é definido pelos schemas em [`contracts/domain/`](contracts/domain/), que prevalecem sobre a nota da coluna e sobre os exemplos.
 - [`docs/adrs/`](docs/adrs/): decisões arquiteturais registradas.

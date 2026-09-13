@@ -11,7 +11,7 @@ endif
 endif
 
 .DEFAULT_GOAL := help
-.PHONY: help run test build package jar clean deps fmt lint check
+.PHONY: help run test build package jar clean deps fmt lint check pre-commit
 
 help: ## Show the available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -33,6 +33,8 @@ lint: ## Check formatting and run Error Prone / NullAway
 	$(MVN) -DskipTests compile
 
 check: lint test ## The gate: formatting, static analysis and tests
+
+pre-commit: check ## Same gate as `make check`, named for a pre-commit hook
 
 package: ## Build the executable jar into target/
 	$(MVN) clean package

@@ -10,6 +10,8 @@ from fastapi.responses import JSONResponse
 from app.config import get_settings
 from app.core.logger import get_logger, stop_logger
 from app.core.metrics.prometheus import prometheus
+from app.mensageria.broker import conectar, desconectar
+from app.sandbox.daemon import verificar_acesso
 
 settings = get_settings()
 
@@ -61,9 +63,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
     logger.info(f"Starting Application {settings.SERVICE_NAME}...")
 
+    await verificar_acesso()
+    broker = await conectar()
+
     try:
         yield
     finally:
+        await desconectar(broker)
         logger.info("Shutting down application...")
         stop_logger()
 
