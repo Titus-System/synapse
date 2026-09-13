@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from itertools import pairwise
 from pathlib import Path
 from typing import Any, cast
 
@@ -85,6 +86,11 @@ COMISSOES_COLUMN_MAP = {
     "%_Comiss": "percentual_comissao",
 }
 KNOWN_CARGO_CODES = frozenset({100, 150, 200, 300})
+PUBLISHED_COMPETENCIAS = ("2025-08", "2025-09", "2025-10", "2025-11", "2025-12")
+RH_KEY = ("competencia", "matricula")
+COMISSAO_KEY = ("competencia", "cod_marca", "cod_cargo")
+MOVEMENT_FIELDS = ("cod_loja", "cod_marca", "cod_cargo", "descr_cargo")
+REVIEW_AUTHORITY = "https://github.com/Titus-System/synapse/pull/86#pullrequestreview-5182423687"
 
 
 @dataclass(frozen=True)
@@ -176,24 +182,28 @@ def build_dataset(
 ) -> BuildResult:
     report = empty_report()
     competencia_sources = manifest(source_root)
-    rh_rows: list[CanonicalRow] = []
-    vendas_rows: list[CanonicalRow] = []
-    comissoes_rows: list[CanonicalRow] = []
+    source_rh: list[CanonicalRow] = []
+    source_vendas: list[CanonicalRow] = []
 
     for source in competencia_sources:
-        rh_rows.extend(build_rh_rows(source, report))
-        vendas_rows.extend(build_vendas_rows(source, report))
+        source_rh.extend(build_rh_rows(source, report))
+        source_vendas.extend(build_vendas_rows(source, report))
 
-    register_missing_rh_warnings(rh_rows, vendas_rows, report)
-    comissoes_rows.extend(
-        build_comissoes_rows(
-            source_root / "BASE_COMMISS_FINAL.xlsx",
-            "Commission",
-            tuple(source.competencia for source in competencia_sources),
-            report,
-        )
+    history = build_history(source_rh)
+    register_history(history, report)
+    rh_rows = fill_rh_continuity(history, reconcile_rh(history, source_rh, report), report)
+    vendas_rows = [
+        row for row in source_vendas if row.record["competencia"] in PUBLISHED_COMPETENCIAS
+    ]
+    vendas_rows = reconcile_sales(history, rh_rows, vendas_rows, report)
+    comissoes_rows = build_comissoes_rows(
+        source_root / "BASE_COMMISS_FINAL.xlsx",
+        "Commission",
+        PUBLISHED_COMPETENCIAS,
+        report,
     )
-
+    validate_commission_matches(rh_rows, comissoes_rows)
+    register_dataset_diagnostics(source_rh, source_vendas, rh_rows, vendas_rows, history, report)
     report["checks"] = build_checks(rh_rows, vendas_rows, comissoes_rows, report)
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -219,6 +229,7 @@ def build_dataset(
 
 def empty_report() -> JsonObject:
     return {
+        "version": 3,
         "source_validations": {
             "rh": {},
             "vendas": {},
@@ -227,7 +238,11 @@ def empty_report() -> JsonObject:
         "normalizations_applied": [],
         "discarded_rows": [],
         "discarded_columns": [],
+        "reconciliations": [],
         "warnings": [],
+        "invariants": [],
+        "competency_status": {},
+        "decisions": build_decisions(),
         "checks": {},
     }
 
@@ -274,7 +289,8 @@ def build_rh_rows(source: CompetenciaSource, report: JsonObject) -> list[Canonic
         )
         for row in table.rows
     ]
-    rows = discard_known_rh_duplicate(source, rows, report)
+    validate_reference_month(rows)
+    rows = deduplicate_rh(rows, report)
     register_rh_validation(source, table, rows, report)
     register_date_normalizations(
         report,
@@ -293,10 +309,8 @@ def build_vendas_rows(source: CompetenciaSource, report: JsonObject) -> list[Can
         allowed_extra=(),
         source_file=source.vendas_file,
     )
-    rows = [
-        build_venda_row(source, row)
-        for row in table.rows
-    ]
+    rows = [build_venda_row(source, row) for row in table.rows]
+    validate_reference_month(rows)
     register_vendas_validation(source, table, rows, report)
     register_date_normalizations(
         report,
@@ -340,33 +354,54 @@ def build_comissoes_rows(
         allowed_extra=(),
         source_file=source_file,
     )
-    rows: list[CanonicalRow] = []
-    for competencia in competencias:
-        for row in table.rows:
-            rows.append(
-                CanonicalRow(
-                    source_file=source_file,
-                    source_sheet=sheet_name,
-                    source_row=row.row_number,
-                    record={
-                        "competencia": competencia,
-                        "cod_marca": required_int(row.values["Cod_Marca"], "Cod_Marca"),
-                        "descr_marca": required_string(row.values["Descr_Marca"], "Descr_Marca"),
-                        "cod_cargo": required_int(row.values["Cod_Cargo"], "Cod_Cargo"),
-                        "descr_cargo": required_string(row.values["Descri_Cargo"], "Descri_Cargo"),
-                        "percentual_comissao": required_number(
-                            row.values["%_Comiss"],
-                            "%_Comiss",
-                        ),
-                    },
-                )
+    base_rows: list[CanonicalRow] = []
+    source_key_counts: Counter[tuple[int, int]] = Counter()
+    for row in table.rows:
+        record: JsonObject = {
+            "cod_marca": required_int(row.values["Cod_Marca"], "Cod_Marca"),
+            "descr_marca": required_string(row.values["Descr_Marca"], "Descr_Marca"),
+            "cod_cargo": required_int(row.values["Cod_Cargo"], "Cod_Cargo"),
+            "descr_cargo": required_string(row.values["Descri_Cargo"], "Descri_Cargo"),
+            "percentual_comissao": required_number(row.values["%_Comiss"], "%_Comiss"),
+        }
+        source_key_counts[(cast(int, record["cod_marca"]), cast(int, record["cod_cargo"]))] += 1
+        if record["cod_cargo"] == 150 and record["descr_cargo"] == "GERENTE QUIOSQUE":
+            discarded_rows(report).append(
+                {
+                    "dataset": "comissoes",
+                    "source_file": relative_source(source_file),
+                    "source_sheet": sheet_name,
+                    "source_row": row.row_number,
+                    **record,
+                    "reason": "manager_kiosk_rate_superseded_by_canonical_manager_rate",
+                }
             )
-
+            continue
+        if record["cod_cargo"] == 150 and record["descr_cargo"] != "GERENTE DE LOJA":
+            raise ValueError(f"Unknown manager rate description: {record['descr_cargo']}")
+        base_rows.append(CanonicalRow(source_file, sheet_name, row.row_number, record))
+    rows = [
+        CanonicalRow(
+            row.source_file,
+            row.source_sheet,
+            row.source_row,
+            {"competencia": competencia, **row.record},
+        )
+        for competencia in competencias
+        for row in base_rows
+    ]
+    validate_commission_matches([], rows)
     source_validations(report)["comissoes"] = {
         "source_file": relative_source(source_file),
         "source_sheet": sheet_name,
         "source_row_count": len(table.rows),
         "canonical_row_count": len(rows),
+        "canonical_rules_per_competencia": len(base_rows),
+        "ambiguous_source_keys": [
+            {"cod_marca": marca, "cod_cargo": cargo, "source_rows": count}
+            for (marca, cargo), count in sorted(source_key_counts.items())
+            if count > 1
+        ],
         "expanded_competencias": list(competencias),
     }
     return rows
@@ -405,9 +440,7 @@ def validate_columns(
     missing = sorted(set(expected) - set(headers))
     extra = sorted(set(headers) - set(expected) - set(allowed_extra))
     if missing or extra:
-        raise ValueError(
-            f"{source_file} has invalid columns: missing={missing}, extra={extra}"
-        )
+        raise ValueError(f"{source_file} has invalid columns: missing={missing}, extra={extra}")
 
 
 def validate_data_demiss_alignment(source: CompetenciaSource, table: SourceTable) -> None:
@@ -434,40 +467,46 @@ def known_cargo_code_value(value: CellValue) -> int | None:
     return None
 
 
-def discard_known_rh_duplicate(
-    source: CompetenciaSource,
-    rows: list[CanonicalRow],
-    report: JsonObject,
-) -> list[CanonicalRow]:
-    if source.competencia != "2025-09":
-        return rows
-
-    matric_246_rows = [row for row in rows if row.record["matricula"] == "MATRIC-246"]
-    if len(matric_246_rows) != 2 or matric_246_rows[0].record != matric_246_rows[1].record:
-        raise ValueError("Expected exactly one integral RH duplicate for MATRIC-246 in 2025-09")
-
-    kept, discarded = matric_246_rows
-    discarded_rows(report).append(
-        {
-            "dataset": "rh",
-            "competencia": source.competencia,
-            "source_file": relative_source(discarded.source_file),
-            "source_sheet": discarded.source_sheet,
-            "source_row": discarded.source_row,
-            "matricula": "MATRIC-246",
-            "reason": "duplicate_integral_rh_row_for_matric_246",
-            "kept_source_row": kept.source_row,
-        }
-    )
-
-    removed = False
-    result: list[CanonicalRow] = []
+def deduplicate_rh(rows: list[CanonicalRow], report: JsonObject) -> list[CanonicalRow]:
+    groups: dict[tuple[str, str], list[CanonicalRow]] = defaultdict(list)
     for row in rows:
-        if row is discarded and not removed:
-            removed = True
-            continue
-        result.append(row)
+        groups[(cast(str, row.record["competencia"]), cast(str, row.record["matricula"]))].append(
+            row
+        )
+    result: list[CanonicalRow] = []
+    for (competencia, matricula), duplicates in groups.items():
+        kept = duplicates[0]
+        if any(row.record != kept.record for row in duplicates[1:]):
+            locations = [
+                (source_label(row.source_file), row.source_sheet, row.source_row)
+                for row in duplicates
+            ]
+            raise ValueError(
+                f"Conflicting RH rows: competencia={competencia}, matricula={matricula}, "
+                f"source_rows={locations}"
+            )
+        result.append(kept)
+        for row in duplicates[1:]:
+            discarded_rows(report).append(
+                {
+                    "dataset": "rh",
+                    **provenance(row),
+                    "matricula": matricula,
+                    "reason": "duplicate_integral_rh_row",
+                    "kept_source_row": kept.source_row,
+                }
+            )
     return result
+
+
+def validate_reference_month(rows: list[CanonicalRow]) -> None:
+    for row in rows:
+        if cast(str, row.record["data_ref"])[:7] != row.record["competencia"]:
+            raise ValueError(
+                f"data_ref month differs from manifest: competencia={row.record['competencia']}, "
+                f"data_ref={row.record['data_ref']}, file={source_label(row.source_file)}, "
+                f"sheet={row.source_sheet}, row={row.source_row}"
+            )
 
 
 def register_rh_validation(
@@ -476,32 +515,20 @@ def register_rh_validation(
     rows: list[CanonicalRow],
     report: JsonObject,
 ) -> None:
-    invalid_data_demiss_rows = [
-        row.row_number
-        for row in table.rows
-        if row.values["Data_Demiss"] is not None
-        and optional_date(row.values["Data_Demiss"], "Data_Demiss") is None
-    ]
-    invalid_cod_cargo_rows = [
-        row.source_row
-        for row in rows
-        if not isinstance(row.record["cod_cargo"], int)
-    ]
     source_validations(report)["rh"][source.competencia] = {
         "source_file": relative_source(source.rh_file),
         "source_sheet": source.rh_sheet,
         "source_row_count": len(table.rows),
-        "canonical_row_count": len(rows),
+        "normalized_row_count": len(rows),
+        "canonical_row_count": len(rows) if source.competencia in PUBLISHED_COMPETENCIAS else 0,
         "headers_after_trim": list(table.headers),
         "data_demiss_cod_cargo_alignment": {
-            "checked": True,
-            "result": "ok",
+            "validation": "reject_invalid_values_before_normalization",
+            "validated_source_rows": len(table.rows),
             "known_cargo_codes_checked": sorted(KNOWN_CARGO_CODES),
-            "known_cargo_code_values_in_data_demiss": [],
-            "invalid_data_demiss_rows": invalid_data_demiss_rows,
-            "invalid_cod_cargo_rows": invalid_cod_cargo_rows,
-            "message": "Data_Demiss validated as date/null and Cod_Cargo validated as integer.",
+            "failure_behavior": "raise_before_artifact_writes",
         },
+        "reference_month_validated_rows": len(rows),
     }
 
 
@@ -523,7 +550,9 @@ def register_vendas_validation(
         "source_file": relative_source(source.vendas_file),
         "source_sheet": source.vendas_sheet,
         "source_row_count": len(table.rows),
-        "canonical_row_count": len(rows),
+        "normalized_row_count": len(rows),
+        "canonical_row_count": len(rows) if source.competencia in PUBLISHED_COMPETENCIAS else 0,
+        "reference_month_validated_rows": len(rows),
         "date_ref_check": {
             "checked": True,
             "non_day_one_count": sum(non_month_reference_dates.values()),
@@ -531,39 +560,15 @@ def register_vendas_validation(
             "all_date_ref_counts": sorted_dict(date_ref_counts),
         },
         "source_total_vlr_venda": decimal_text(sum_source_vlr_venda(table)),
-        "canonical_total_vlr_venda": decimal_text(sum_record_number(rows, "vlr_venda")),
+        "normalized_total_vlr_venda": decimal_text(sum_record_number(rows, "vlr_venda")),
+        "canonical_total_vlr_venda": (
+            decimal_text(sum_record_number(rows, "vlr_venda"))
+            if source.competencia in PUBLISHED_COMPETENCIAS
+            else "0"
+        ),
     }
-
-
-def register_missing_rh_warnings(
-    rh_rows: list[CanonicalRow],
-    vendas_rows: list[CanonicalRow],
-    report: JsonObject,
-) -> None:
-    rh_by_competencia: dict[str, set[str]] = defaultdict(set)
-    vendas_by_competencia: dict[str, set[str]] = defaultdict(set)
-    for row in rh_rows:
-        rh_by_competencia[cast(str, row.record["competencia"])].add(
-            cast(str, row.record["matricula"])
-        )
-    for row in vendas_rows:
-        vendas_by_competencia[cast(str, row.record["competencia"])].add(
-            cast(str, row.record["matricula"])
-        )
-
-    for competencia in sorted(vendas_by_competencia):
-        missing = sorted(vendas_by_competencia[competencia] - rh_by_competencia[competencia])
-        if missing:
-            warnings(report).append(
-                {
-                    "dataset": "vendas",
-                    "competencia": competencia,
-                    "warning": "matriculas_presentes_em_vendas_ausentes_no_rh",
-                    "count": len(missing),
-                    "matriculas": missing,
-                    "action": "preserved",
-                }
-            )
+    if sum_source_vlr_venda(table) != sum_record_number(rows, "vlr_venda"):
+        raise ValueError(f"Sales total differs from source: competencia={source.competencia}")
 
 
 def build_checks(
@@ -572,54 +577,56 @@ def build_checks(
     comissoes_rows: list[CanonicalRow],
     report: JsonObject,
 ) -> JsonObject:
-    vendas_counts: dict[str, int] = defaultdict(int)
-    vendas_data_venda_counts: dict[str, int] = defaultdict(int)
-    competencias = sorted(
-        {
-            cast(str, row.record["competencia"])
-            for row in [*rh_rows, *vendas_rows, *comissoes_rows]
-        }
+    sales_counts = Counter(cast(str, r.record["competencia"]) for r in vendas_rows)
+    real_dates = Counter(
+        cast(str, r.record["competencia"])
+        for r in vendas_rows
+        if r.record["data_venda"] is not None
     )
-    for row in vendas_rows:
-        competencia = cast(str, row.record["competencia"])
-        vendas_counts[competencia] += 1
-        if row.record["data_venda"] is not None:
-            vendas_data_venda_counts[competencia] += 1
-
+    commission_source = source_validations(report)["comissoes"]
     return {
         "determinism": {
             "encoding": "utf-8",
             "line_endings": "LF",
             "field_order": "fixed",
-            "record_order": "manifest_order_then_source_row_order",
+            "record_order": "manifest order; observed rows then synthetic RH by matricula",
             "timestamps": "not_included",
             "uuids": "not_included",
         },
+        "published_competencias": list(PUBLISHED_COMPETENCIAS),
         "rh": {
             "total_rows": len(rh_rows),
-            "setembro_matric_246_duplicate": {
-                "handled": True,
-                "discarded_rows": [
-                    item
-                    for item in discarded_rows(report)
-                    if item.get("reason") == "duplicate_integral_rh_row_for_matric_246"
-                ],
-            },
-            "discarded_columns": discarded_columns(report),
+            "rows_by_competencia": counts_for_competencias(
+                dict(Counter(cast(str, r.record["competencia"]) for r in rh_rows)),
+                PUBLISHED_COMPETENCIAS,
+            ),
+            "unique_key": list(RH_KEY),
+            "admission_reconciliations": len(
+                reconciliations_of(report, "canonical_admission_date")
+            ),
+            "termination_reconciliations": len(
+                reconciliations_of(report, "terminal_termination_propagation")
+            ),
         },
         "vendas": {
-            "rows_by_competencia": counts_for_competencias(vendas_counts, competencias),
+            "total_rows": len(vendas_rows),
+            "rows_by_competencia": counts_for_competencias(
+                dict(sales_counts), PUBLISHED_COMPETENCIAS
+            ),
             "data_venda_rows_by_competencia": counts_for_competencias(
-                vendas_data_venda_counts,
-                competencias,
+                dict(real_dates), PUBLISHED_COMPETENCIAS
             ),
             "duplicates_policy": "preserved",
         },
         "comissoes": {
-            "source_rows": 30,
-            "competencias": 6,
-            "expected_rows": 180,
+            "source_rows": commission_source["source_row_count"],
+            "rules_per_competencia": commission_source["canonical_rules_per_competencia"],
+            "competencias": len(PUBLISHED_COMPETENCIAS),
+            "expected_rows": cast(int, commission_source["canonical_rules_per_competencia"])
+            * len(PUBLISHED_COMPETENCIAS),
             "actual_rows": len(comissoes_rows),
+            "unique_key": list(COMISSAO_KEY),
+            "rh_rows_with_exactly_one_match": len(rh_rows),
         },
     }
 
@@ -728,7 +735,10 @@ def counts_for_competencias(values: dict[str, int], competencias: Sequence[str])
 
 
 def relative_source(path: Path) -> str:
-    return path.resolve().relative_to(PROJECT_ROOT.resolve()).as_posix()
+    try:
+        return path.resolve().relative_to(PROJECT_ROOT.resolve()).as_posix()
+    except ValueError:
+        return f"external_sources/{path.parent.name}/{path.name}"
 
 
 def source_label(path: Path) -> str:
@@ -781,13 +791,849 @@ def warnings(report: JsonObject) -> list[JsonObject]:
     return cast(list[JsonObject], report["warnings"])
 
 
+def provenance(row: CanonicalRow) -> JsonObject:
+    return {
+        "source_file": relative_source(row.source_file),
+        "source_sheet": row.source_sheet,
+        "source_row": row.source_row,
+        "competencia": row.record["competencia"],
+    }
+
+
+def rh_evidence(row: CanonicalRow) -> JsonObject:
+    return {**provenance(row), **row.record}
+
+
+def build_history(rows: list[CanonicalRow]) -> dict[str, list[CanonicalRow]]:
+    history: dict[str, list[CanonicalRow]] = defaultdict(list)
+    for row in rows:
+        history[cast(str, row.record["matricula"])].append(row)
+    return {
+        matricula: sorted(
+            records,
+            key=lambda r: (
+                cast(str, r.record["competencia"]),
+                r.source_file.as_posix(),
+                r.source_row,
+            ),
+        )
+        for matricula, records in sorted(history.items())
+    }
+
+
+def canonical_dates(records: list[CanonicalRow]) -> tuple[CanonicalRow, CanonicalRow | None]:
+    admission = min(
+        records,
+        key=lambda r: (
+            cast(str, r.record["data_admiss"]),
+            cast(str, r.record["competencia"]),
+            r.source_row,
+        ),
+    )
+    terminations = [r for r in records if r.record["data_demiss"] is not None]
+    termination = min(
+        terminations,
+        key=lambda r: (
+            cast(str, r.record["data_demiss"]),
+            cast(str, r.record["competencia"]),
+            r.source_row,
+        ),
+        default=None,
+    )
+    return admission, termination
+
+
+def register_history(history: dict[str, list[CanonicalRow]], report: JsonObject) -> None:
+    admissions: list[JsonObject] = []
+    for matricula, records in history.items():
+        if len({r.record["data_admiss"] for r in records}) > 1:
+            admission, _ = canonical_dates(records)
+            admissions.append(
+                {
+                    "matricula": matricula,
+                    "canonical_value": admission.record["data_admiss"],
+                    "observations": [rh_evidence(r) for r in records],
+                }
+            )
+        for previous, current in pairwise(records):
+            before = cast(str, previous.record["competencia"])
+            after = cast(str, current.record["competencia"])
+            for field_name in MOVEMENT_FIELDS:
+                if previous.record[field_name] != current.record[field_name]:
+                    warnings(report).append(
+                        {
+                            "invariant_id": "I5",
+                            "classification": "observed_attribute_change",
+                            "matricula": matricula,
+                            "field": field_name,
+                            "previous_competencia": before,
+                            "current_competencia": after,
+                            "previous_value": previous.record[field_name],
+                            "current_value": current.record[field_name],
+                            "previous_source": provenance(previous),
+                            "current_source": provenance(current),
+                            "intermediate_missing_competencias": months_between(before, after),
+                            "action": "preserved",
+                            "effective_date": None,
+                            "blocking": False,
+                        }
+                    )
+    source_validations(report)["history"] = {
+        "analyzed_competencias": sorted(
+            {
+                cast(str, row.record["competencia"])
+                for records in history.values()
+                for row in records
+            }
+        ),
+        "admission_variations": admissions,
+        "matriculas_with_admission_variations": len(admissions),
+    }
+
+
+def months_between(before: str, after: str) -> list[str]:
+    year, month = map(int, before.split("-"))
+    result: list[str] = []
+    while True:
+        month += 1
+        if month == 13:
+            year, month = year + 1, 1
+        value = f"{year:04d}-{month:02d}"
+        if value >= after:
+            return result
+        result.append(value)
+
+
+def reconciliations_of(report: JsonObject, kind: str) -> list[JsonObject]:
+    return [r for r in cast(list[JsonObject], report["reconciliations"]) if r["type"] == kind]
+
+
+def reconcile_rh(
+    history: dict[str, list[CanonicalRow]],
+    source_rows: list[CanonicalRow],
+    report: JsonObject,
+) -> list[CanonicalRow]:
+    dates = {matricula: canonical_dates(records) for matricula, records in history.items()}
+    result: list[CanonicalRow] = []
+    reconciliations = cast(list[JsonObject], report["reconciliations"])
+    for row in source_rows:
+        competencia = cast(str, row.record["competencia"])
+        if competencia not in PUBLISHED_COMPETENCIAS:
+            continue
+        record = row.record.copy()
+        matricula = cast(str, record["matricula"])
+        admission, termination = dates[matricula]
+        if record["data_admiss"] != admission.record["data_admiss"]:
+            reconciliations.append(
+                {
+                    "type": "canonical_admission_date",
+                    "matricula": matricula,
+                    **provenance(row),
+                    "original_value": record["data_admiss"],
+                    "canonical_value": admission.record["data_admiss"],
+                    "evidence_competencia": admission.record["competencia"],
+                    "evidence_source_file": relative_source(admission.source_file),
+                    "evidence_source_sheet": admission.source_sheet,
+                    "evidence_source_row": admission.source_row,
+                }
+            )
+            record["data_admiss"] = admission.record["data_admiss"]
+        if termination is not None:
+            terminal_date = cast(str, termination.record["data_demiss"])
+            if competencia >= terminal_date[:7] and record["data_demiss"] != terminal_date:
+                reconciliations.append(
+                    {
+                        "type": "terminal_termination_propagation",
+                        "matricula": matricula,
+                        **provenance(row),
+                        "origin_competencia": termination.record["competencia"],
+                        "origin_data_demiss": terminal_date,
+                        "target_competencia": competencia,
+                        "original_value": record["data_demiss"],
+                        "canonical_value": terminal_date,
+                        "evidence_source_file": relative_source(termination.source_file),
+                        "evidence_source_sheet": termination.source_sheet,
+                        "evidence_source_row": termination.source_row,
+                    }
+                )
+                record["data_demiss"] = terminal_date
+        result.append(CanonicalRow(row.source_file, row.source_sheet, row.source_row, record))
+    return result
+
+
+def eligible_rh_month(records: list[CanonicalRow], competencia: str) -> bool:
+    admission, termination = canonical_dates(records)
+    return cast(str, admission.record["data_admiss"])[:7] <= competencia and (
+        termination is None or cast(str, termination.record["data_demiss"])[:7] >= competencia
+    )
+
+
+def fill_rh_continuity(
+    history: dict[str, list[CanonicalRow]], observed: list[CanonicalRow], report: JsonObject
+) -> list[CanonicalRow]:
+    keys = {(r.record["competencia"], r.record["matricula"]) for r in observed}
+    synthetic: list[CanonicalRow] = []
+    for competencia in PUBLISHED_COMPETENCIAS:
+        for matricula, records in sorted(history.items()):
+            if (competencia, matricula) in keys or not eligible_rh_month(records, competencia):
+                continue
+            previous = [r for r in records if cast(str, r.record["competencia"]) < competencia]
+            following = [r for r in records if cast(str, r.record["competencia"]) > competencia]
+            base = previous[-1] if previous else following[0]
+            admission, termination = canonical_dates(records)
+            terminal_date = cast(str, termination.record["data_demiss"]) if termination else None
+            record = base.record.copy()
+            record.update(
+                {
+                    "competencia": competencia,
+                    "data_ref": competencia + "-01",
+                    "data_admiss": admission.record["data_admiss"],
+                    "data_demiss": terminal_date
+                    if terminal_date and competencia >= terminal_date[:7]
+                    else None,
+                }
+            )
+            synthetic.append(
+                CanonicalRow(base.source_file, base.source_sheet, base.source_row, record)
+            )
+            cast(list[JsonObject], report["reconciliations"]).append(
+                {
+                    "type": "rh_continuity_fill",
+                    "matricula": matricula,
+                    "competencia": competencia,
+                    "source_direction": "previous" if previous else "next",
+                    "evidence_competencia": base.record["competencia"],
+                    "evidence_source_file": relative_source(base.source_file),
+                    "evidence_source_sheet": base.source_sheet,
+                    "evidence_source_row": base.source_row,
+                    "canonical_admission_date": admission.record["data_admiss"],
+                    "terminal_termination_date": terminal_date,
+                    "reason": "maintain_employee_continuity",
+                }
+            )
+    return [
+        row
+        for competencia in PUBLISHED_COMPETENCIAS
+        for row in observed + synthetic
+        if row.record["competencia"] == competencia
+    ]
+
+
+def sale_after_termination(row: CanonicalRow, terminal_date: str | None) -> bool:
+    if terminal_date is None:
+        return False
+    actual_date = cast(str | None, row.record["data_venda"])
+    if actual_date is not None:
+        return actual_date > terminal_date
+    return cast(str, row.record["competencia"]) > terminal_date[:7]
+
+
+def reconcile_sales(
+    history: dict[str, list[CanonicalRow]],
+    rh: list[CanonicalRow],
+    sales: list[CanonicalRow],
+    report: JsonObject,
+) -> list[CanonicalRow]:
+    keys = {(r.record["competencia"], r.record["matricula"]) for r in rh}
+    terminals = {
+        matricula: cast(str, termination.record["data_demiss"]) if termination else None
+        for matricula, records in history.items()
+        for _, termination in [canonical_dates(records)]
+    }
+    result: list[CanonicalRow] = []
+    for row in sales:
+        matricula = cast(str, row.record["matricula"])
+        terminal_date = terminals.get(matricula)
+        reason = None
+        if sale_after_termination(row, terminal_date):
+            reason = "sale_after_terminal_termination"
+        elif (row.record["competencia"], matricula) not in keys:
+            reason = "sale_without_reconstructable_rh"
+        if reason:
+            discarded_rows(report).append(
+                {
+                    "dataset": "vendas",
+                    **provenance(row),
+                    **{
+                        field: row.record[field]
+                        for field in (
+                            "matricula",
+                            "data_ref",
+                            "data_venda",
+                            "cod_marca",
+                            "cod_loja",
+                            "vlr_venda",
+                        )
+                    },
+                    "terminal_termination_date": terminal_date,
+                    "reason": reason,
+                }
+            )
+        else:
+            result.append(row)
+    return result
+
+
+def commission_key(row: CanonicalRow) -> tuple[str, int, int]:
+    return (
+        cast(str, row.record["competencia"]),
+        cast(int, row.record["cod_marca"]),
+        cast(int, row.record["cod_cargo"]),
+    )
+
+
+def validate_commission_matches(rh: list[CanonicalRow], commissions: list[CanonicalRow]) -> None:
+    keys = Counter(commission_key(row) for row in commissions)
+    duplicates = [key for key, count in sorted(keys.items()) if count != 1]
+    if duplicates:
+        raise ValueError(f"Commission keys must be unique: {duplicates}")
+    for row in rh:
+        key = commission_key(row)
+        if keys[key] != 1:
+            raise ValueError(
+                f"Expected exactly one commission: key={key}, matricula={row.record['matricula']}"
+            )
+
+
+def build_decisions() -> list[JsonObject]:
+    definitions = [
+        (
+            "EXCLUDE_2025_07",
+            "unreconcilable_source_population",
+            "July has a partial employee population and incompatible sales scale. "
+            "Read it as historical evidence; exclude it from published tables.",
+            ["2025-07"],
+        ),
+        (
+            "CANONICAL_ADMISSION_MINIMUM",
+            "minimum_observed_admission",
+            "Use the minimum admission date across all six RH sources in every published RH row.",
+            list(PUBLISHED_COMPETENCIAS),
+        ),
+        (
+            "TERMINATION_IS_TERMINAL",
+            "first_known_termination",
+            "Keep subsequent RH rows and propagate the earliest known termination. "
+            "A termination before the competency makes the employee ineligible for commission.",
+            list(PUBLISHED_COMPETENCIAS),
+        ),
+        (
+            "CANONICAL_MANAGER_RATE",
+            "manager_store_rate_is_canonical",
+            "Use GERENTE DE LOJA rates for code 150; keep both descriptions in RH.",
+            list(PUBLISHED_COMPETENCIAS),
+        ),
+    ]
+    decisions: list[JsonObject] = [
+        {
+            "id": ident,
+            "status": "defined",
+            "reason": reason,
+            "description": description,
+            "authority": REVIEW_AUTHORITY,
+            "affected_scope": scope,
+        }
+        for ident, reason, description, scope in definitions
+    ]
+    for ident, description in [
+        ("RECONSTRUCT_MISSING_RH", "Reconstruct eligible missing RH using observed history."),
+        ("SALE_STORE_IS_AUTHORITATIVE", "Preserve sale store and brand, including shared sales."),
+        ("DISCARD_POST_TERMINATION_SALES", "Discard sales after terminal termination."),
+        (
+            "FILL_RH_CONTINUITY",
+            "Fill eligible months from previous observed RH, else next observed RH.",
+        ),
+        ("DISCARD_UNRESOLVED_ORPHAN_SALES", "Discard sales without reconstructable RH."),
+    ]:
+        decisions.append(
+            {
+                "id": ident,
+                "status": "defined",
+                "description": description,
+                "authority": "T-026 final policy instructions",
+                "affected_scope": list(PUBLISHED_COMPETENCIAS),
+            }
+        )
+    return decisions
+
+
+def invariant(
+    ident: str,
+    name: str,
+    unit: str,
+    found: int,
+    reconciled: int,
+    remaining: int,
+    details: list[JsonObject],
+    *,
+    status: str,
+    blocking: bool = False,
+) -> JsonObject:
+    return {
+        "id": ident,
+        "name": name,
+        "status": status,
+        "blocking": blocking,
+        "count_unit": unit,
+        "violations_found": found,
+        "reconciliations_applied": reconciled,
+        "remaining_violations": remaining,
+        "details": details,
+    }
+
+
+def dimension_diagnostics(rh: list[CanonicalRow], sales: list[CanonicalRow]) -> list[JsonObject]:
+    index = {(r.record["competencia"], r.record["matricula"]): r for r in rh}
+    by_month: dict[str, list[CanonicalRow]] = defaultdict(list)
+    for row in sales:
+        by_month[cast(str, row.record["competencia"])].append(row)
+    result: list[JsonObject] = []
+    for competencia, rows in sorted(by_month.items()):
+        mismatches: list[JsonObject] = []
+        counts: Counter[str] = Counter({"only_store": 0, "only_brand": 0, "store_and_brand": 0})
+        dimensions: dict[str, set[tuple[int, int]]] = defaultdict(set)
+        for row in rows:
+            matricula = cast(str, row.record["matricula"])
+            dimensions[matricula].add(
+                (cast(int, row.record["cod_marca"]), cast(int, row.record["cod_loja"]))
+            )
+            employee = index.get((competencia, matricula))
+            if employee is None:
+                continue
+            store_diff = row.record["cod_loja"] != employee.record["cod_loja"]
+            brand_diff = row.record["cod_marca"] != employee.record["cod_marca"]
+            if not (store_diff or brand_diff):
+                continue
+            kind = (
+                "store_and_brand"
+                if store_diff and brand_diff
+                else ("only_store" if store_diff else "only_brand")
+            )
+            counts[kind] += 1
+            mismatches.append(
+                {
+                    **provenance(row),
+                    "matricula": matricula,
+                    "type": kind,
+                    "sale_cod_loja": row.record["cod_loja"],
+                    "sale_cod_marca": row.record["cod_marca"],
+                    "rh_cod_loja": employee.record["cod_loja"],
+                    "rh_cod_marca": employee.record["cod_marca"],
+                    "rh_source": provenance(employee),
+                }
+            )
+        result.append(
+            {
+                "competencia": competencia,
+                "sale_rows": len(mismatches),
+                "by_type": dict(counts),
+                "matriculas": sorted({cast(str, r["matricula"]) for r in mismatches}),
+                "mismatches": mismatches,
+                "multiple_store_sales": [
+                    {
+                        "matricula": matricula,
+                        "dimensions": [
+                            {"cod_marca": marca, "cod_loja": loja} for marca, loja in sorted(values)
+                        ],
+                    }
+                    for matricula, values in sorted(dimensions.items())
+                    if len({loja for _, loja in values}) > 1
+                ],
+            }
+        )
+    return result
+
+
+def register_excluded_competency(
+    source_rh: list[CanonicalRow],
+    source_sales: list[CanonicalRow],
+    report: JsonObject,
+) -> JsonObject:
+    july = {
+        cast(str, r.record["matricula"]): r
+        for r in source_rh
+        if r.record["competencia"] == "2025-07"
+    }
+    august = {
+        cast(str, r.record["matricula"]): r
+        for r in source_rh
+        if r.record["competencia"] == "2025-08"
+    }
+    missing = sorted(august.keys() - july.keys())
+    old_missing = [m for m in missing if cast(str, august[m].record["data_admiss"]) < "2025-07-01"]
+    comparison: list[JsonObject] = []
+    for competencia in sorted({cast(str, r.record["competencia"]) for r in source_rh}):
+        employees = [r for r in source_rh if r.record["competencia"] == competencia]
+        sales = [r for r in source_sales if r.record["competencia"] == competencia]
+        comparison.append(
+            {
+                "competencia": competencia,
+                "rh_rows": len(employees),
+                "sale_rows": len(sales),
+                "rh_stores": len({r.record["cod_loja"] for r in employees}),
+                "sale_stores": len({r.record["cod_loja"] for r in sales}),
+                "roles": {
+                    str(k): v
+                    for k, v in sorted(
+                        Counter(cast(int, r.record["cod_cargo"]) for r in employees).items()
+                    )
+                },
+                "total_vlr_venda": decimal_text(sum_record_number(sales, "vlr_venda")),
+                "maximum_sale": max(
+                    (cast(int | float, r.record["vlr_venda"]) for r in sales), default=0
+                ),
+            }
+        )
+    detail: JsonObject = {
+        "competencia": "2025-07",
+        "status": "excluded",
+        "published": False,
+        "reason": "unreconcilable_source_population",
+        "decision_id": "EXCLUDE_2025_07",
+        "historical_evidence": True,
+        "description": "Partial population and incompatible sales scale; no July reconstruction.",
+        "august_matriculas_missing_in_july": missing,
+        "admitted_before_july_missing_in_july": old_missing,
+        "comparison": comparison,
+    }
+    cast(dict[str, JsonObject], report["competency_status"])["2025-07"] = detail
+    for dataset, rows in [("rh", source_rh), ("vendas", source_sales)]:
+        excluded = [r for r in rows if r.record["competencia"] == "2025-07"]
+        detail[f"excluded_{dataset}_rows"] = len(excluded)
+        detail[f"excluded_{dataset}_sources"] = (
+            [
+                {
+                    "source_file": relative_source(excluded[0].source_file),
+                    "source_sheet": excluded[0].source_sheet,
+                    "first_source_row": min(r.source_row for r in excluded),
+                    "last_source_row": max(r.source_row for r in excluded),
+                    "row_count": len(excluded),
+                }
+            ]
+            if excluded
+            else []
+        )
+    return detail
+
+
+def sales_reconciliation(
+    original: list[CanonicalRow], final: list[CanonicalRow], discarded: list[JsonObject]
+) -> JsonObject:
+    source_total = sum_record_number(original, "vlr_venda")
+    canonical_total = sum_record_number(final, "vlr_venda")
+    discarded_total = sum((Decimal(str(r["vlr_venda"])) for r in discarded), Decimal(0))
+    difference = source_total - discarded_total - canonical_total
+    if len(original) - len(discarded) != len(final) or difference:
+        raise ValueError("Published source minus discarded sales must equal canonical sales")
+    return {
+        "source_row_count": len(original),
+        "discarded_row_count": len(discarded),
+        "canonical_row_count": len(final),
+        "source_total_vlr_venda": decimal_text(source_total),
+        "discarded_total_vlr_venda": decimal_text(discarded_total),
+        "canonical_total_vlr_venda": decimal_text(canonical_total),
+        "reconciliation_difference": decimal_text(difference),
+    }
+
+
+def register_dataset_diagnostics(
+    source_rh: list[CanonicalRow],
+    source_sales: list[CanonicalRow],
+    rh: list[CanonicalRow],
+    sales: list[CanonicalRow],
+    history: dict[str, list[CanonicalRow]],
+    report: JsonObject,
+) -> None:
+    original = [r for r in source_sales if r.record["competencia"] in PUBLISHED_COMPETENCIAS]
+    observed = [r for r in source_rh if r.record["competencia"] in PUBLISHED_COMPETENCIAS]
+    keys = {(r.record["competencia"], r.record["matricula"]) for r in rh}
+    if len(keys) != len(rh):
+        raise ValueError("RH uniqueness violated after reconciliation")
+    if any((r.record["competencia"], r.record["matricula"]) not in keys for r in sales):
+        raise ValueError("Final sales must have exactly one RH match")
+    missing_slots = [
+        {"competencia": c, "matricula": m}
+        for c in PUBLISHED_COMPETENCIAS
+        for m, records in sorted(history.items())
+        if eligible_rh_month(records, c) and (c, m) not in keys
+    ]
+    if missing_slots:
+        raise ValueError("Eligible RH continuity is incomplete")
+    for row in rh:
+        admission, termination = canonical_dates(history[cast(str, row.record["matricula"])])
+        if row.record["data_admiss"] != admission.record["data_admiss"]:
+            raise ValueError("Canonical admission violated")
+        if termination:
+            value = cast(str, termination.record["data_demiss"])
+            if (
+                cast(str, row.record["competencia"]) >= value[:7]
+                and row.record["data_demiss"] != value
+            ):
+                raise ValueError("Terminal termination violated")
+    for row in sales:
+        records = history[cast(str, row.record["matricula"])]
+        _, termination = canonical_dates(records)
+        terminal_date = cast(str, termination.record["data_demiss"]) if termination else None
+        if sale_after_termination(row, terminal_date):
+            raise ValueError("Final sales include post-termination sale")
+    originals = {(r.source_file, r.source_sheet, r.source_row): r.record for r in original}
+    if any(r.record != originals[(r.source_file, r.source_sheet, r.source_row)] for r in sales):
+        raise ValueError("Retained sale values or dimensions changed")
+    discarded = [r for r in discarded_rows(report) if r["dataset"] == "vendas"]
+    discarded_index = {(r["source_file"], r["source_sheet"], r["source_row"]): r for r in discarded}
+    if len(discarded_index) != len(discarded):
+        raise ValueError("Sale discarded more than once")
+    observed_keys = {(r.record["competencia"], r.record["matricula"]) for r in observed}
+    orphans: list[JsonObject] = []
+    for row in original:
+        if (row.record["competencia"], row.record["matricula"]) in observed_keys:
+            continue
+        discard = discarded_index.get(
+            (relative_source(row.source_file), row.source_sheet, row.source_row)
+        )
+        orphans.append(
+            {
+                **provenance(row),
+                "matricula": row.record["matricula"],
+                "action": discard["reason"] if discard else "reconstructed_rh",
+                "blocking": False,
+            }
+        )
+    dimensions = dimension_diagnostics(source_rh, source_sales)
+    final_dimensions = dimension_diagnostics(rh, sales)
+    source_validations(report)["sale_dimensions"] = {
+        "by_competencia": dimensions,
+        "final_by_competencia": final_dimensions,
+        "blocking": False,
+        "policy": "sale_store_and_brand_are_authoritative",
+    }
+    admissions = reconciliations_of(report, "canonical_admission_date")
+    terminations = reconciliations_of(report, "terminal_termination_propagation")
+    fills = reconciliations_of(report, "rh_continuity_fill")
+    post_termination = [r for r in discarded if r["reason"] == "sale_after_terminal_termination"]
+    movements = [
+        w for w in warnings(report) if w.get("classification") == "observed_attribute_change"
+    ]
+    register_excluded_competency(source_rh, source_sales, report)
+    totals: list[JsonObject] = []
+    rh_counts: list[JsonObject] = []
+    for competencia in PUBLISHED_COMPETENCIAS:
+        detail = {
+            "competencia": competencia,
+            **sales_reconciliation(
+                [r for r in original if r.record["competencia"] == competencia],
+                [r for r in sales if r.record["competencia"] == competencia],
+                [r for r in discarded if r["competencia"] == competencia],
+            ),
+        }
+        totals.append(detail)
+        cast(JsonObject, source_validations(report)["vendas"][competencia]).update(detail)
+        rh_detail: JsonObject = {
+            "competencia": competencia,
+            "observed_row_count": sum(r.record["competencia"] == competencia for r in observed),
+            "synthetic_row_count": sum(r["competencia"] == competencia for r in fills),
+            "canonical_row_count": sum(r.record["competencia"] == competencia for r in rh),
+        }
+        rh_counts.append(rh_detail)
+        cast(JsonObject, source_validations(report)["rh"][competencia]).update(rh_detail)
+    report["financial_reconciliation"] = {
+        "by_competencia": totals,
+        "aggregate": sales_reconciliation(original, sales, discarded),
+    }
+    report["sale_discard_summary"] = {
+        "by_reason": [
+            {
+                "reason": reason,
+                "row_count": sum(r["reason"] == reason for r in discarded),
+                "total_vlr_venda": decimal_text(
+                    sum(
+                        (Decimal(str(r["vlr_venda"])) for r in discarded if r["reason"] == reason),
+                        Decimal(0),
+                    )
+                ),
+            }
+            for reason in ("sale_after_terminal_termination", "sale_without_reconstructable_rh")
+        ],
+        "dated_same_termination_month_discarded": sum(
+            r["data_venda"] is not None
+            and r["competencia"] == cast(str, r["terminal_termination_date"])[:7]
+            for r in post_termination
+        ),
+        "undated_same_termination_month_preserved": sum(
+            row.record["data_venda"] is None
+            and termination is not None
+            and row.record["competencia"] == cast(str, termination.record["data_demiss"])[:7]
+            for row in sales
+            for _, termination in [canonical_dates(history[cast(str, row.record["matricula"])])]
+        ),
+        "former_orphans_recovered": sum(r["action"] == "reconstructed_rh" for r in orphans),
+        "former_orphans_discarded": sum(r["action"] != "reconstructed_rh" for r in orphans),
+    }
+    report["rh_population"] = {
+        "by_competencia": rh_counts,
+        "observed_row_count": len(observed),
+        "synthetic_row_count": len(fills),
+        "canonical_row_count": len(rh),
+        "fills_by_direction": dict(Counter(cast(str, r["source_direction"]) for r in fills)),
+    }
+    validate_reference_month(rh + sales)
+    duplicates = [
+        r
+        for r in discarded_rows(report)
+        if r["reason"] == "duplicate_integral_rh_row" and r["competencia"] in PUBLISHED_COMPETENCIAS
+    ]
+    commission_details = [
+        {"competencia": c, **key}
+        for c in PUBLISHED_COMPETENCIAS
+        for key in cast(
+            list[JsonObject], source_validations(report)["comissoes"]["ambiguous_source_keys"]
+        )
+    ]
+    report["invariants"] = [
+        invariant(
+            "I1",
+            "unique_rh_per_competency",
+            "rh_row",
+            len(duplicates),
+            len(duplicates),
+            0,
+            duplicates,
+            status="reconciled" if duplicates else "passed",
+        ),
+        invariant(
+            "I2",
+            "sale_employee_exists_in_rh",
+            "sale_row",
+            len(orphans),
+            len(orphans),
+            0,
+            orphans,
+            status="reconciled" if orphans else "passed",
+        ),
+        invariant(
+            "I3",
+            "source_sale_dimensions_preserved",
+            "sale_row",
+            0,
+            0,
+            0,
+            final_dimensions,
+            status="passed",
+        ),
+        invariant(
+            "I4",
+            "termination_is_terminal",
+            "rh_row_or_sale_row",
+            len(terminations) + len(post_termination),
+            len(terminations) + len(post_termination),
+            0,
+            [
+                {
+                    "rh_reconciliations": terminations,
+                    "rh_reconciliation_count": len(terminations),
+                    "discarded_sale_count": len(post_termination),
+                    "discarded_sales": post_termination,
+                }
+            ],
+            status="reconciled" if terminations or post_termination else "passed",
+        ),
+        invariant(
+            "I5",
+            "canonical_admission_and_recorded_attribute_changes",
+            "rh_admission_field",
+            len(admissions),
+            len(admissions),
+            0,
+            [{"admission_reconciliations": admissions, "observed_attribute_changes": movements}],
+            status="warning" if movements else ("reconciled" if admissions else "passed"),
+        ),
+        invariant(
+            "I6",
+            "exactly_one_commission_rate",
+            "published_commission_key",
+            len(commission_details),
+            len(commission_details),
+            0,
+            commission_details,
+            status="reconciled" if commission_details else "passed",
+        ),
+        invariant(
+            "I7",
+            "eligible_employee_month_continuity",
+            "eligible_rh_month",
+            len(fills),
+            len(fills),
+            0,
+            fills,
+            status="reconciled" if fills else "passed",
+        ),
+        invariant(
+            "I8",
+            "source_minus_discarded_equals_canonical",
+            "competencia",
+            0,
+            0,
+            0,
+            totals,
+            status="passed",
+        ),
+        invariant(
+            "I9",
+            "reference_month_matches_manifest",
+            "rh_or_sale_row",
+            0,
+            0,
+            0,
+            [
+                {
+                    "competencia": c,
+                    "validated_rows": sum(r.record["competencia"] == c for r in rh + sales),
+                }
+                for c in PUBLISHED_COMPETENCIAS
+            ],
+            status="passed",
+        ),
+    ]
+    statuses = cast(dict[str, JsonObject], report["competency_status"])
+    for competencia in PUBLISHED_COMPETENCIAS:
+        statuses[competencia] = {
+            "published": True,
+            "status": "ready",
+            "blocking_invariants": [],
+            "blocking_decisions": [],
+            "publication_semantics": "all_final_preparation_invariants_validated",
+        }
+
+
 def build_schema() -> JsonObject:
     return {
-        "version": 1,
+        "version": 3,
         "format": "jsonl",
+        "published_competencias": list(PUBLISHED_COMPETENCIAS),
+        "historical_evidence": {
+            "excluded_competencias": ["2025-07"],
+            "semantics": "July is read for history and date reconciliation, never published.",
+        },
+        "readiness": "Consult normalization_report.competency_status before simulation; "
+        "ready means preparation invariants pass; movements are nonblocking observations.",
         "tables": {
             "rh": {
                 "file": "rh.jsonl",
+                "continuity": {
+                    "eligibility": "admission <= month end; termination absent or >= month start",
+                    "evidence": "latest previous observed RH, otherwise nearest next observed RH",
+                    "synthetic_evidence": False,
+                    "post_termination": "retain observed; never synthesize after termination month",
+                },
+                "primary_key": list(RH_KEY),
+                "unique_by": list(RH_KEY),
+                "reference_month_constraint": "data_ref[:7] == competencia",
+                "commission_join": {
+                    "table": "comissoes",
+                    "fields": list(COMISSAO_KEY),
+                    "cardinality": "exactly_one",
+                    "descr_cargo_participates": False,
+                },
                 "fields": [
                     field(
                         "competencia",
@@ -803,7 +1649,7 @@ def build_schema() -> JsonObject:
                         "string",
                         False,
                         "YYYY-MM-DD",
-                        "Monthly reference date from RH source.",
+                        "RH source reference date; target month day one for reconstructed rows.",
                     ),
                     field("cod_marca", "Cod_Marca", "integer", False, None, "Brand code."),
                     field(
@@ -814,7 +1660,14 @@ def build_schema() -> JsonObject:
                         None,
                         "Brand description.",
                     ),
-                    field("cod_loja", "Cod_Loja", "integer", False, None, "Store code."),
+                    field(
+                        "cod_loja",
+                        "Cod_Loja",
+                        "integer",
+                        False,
+                        None,
+                        "RH assignment in this competency; may differ from sale location.",
+                    ),
                     field("descr_loja", "Descr_Loja", "string", False, None, "Store description."),
                     field(
                         "matricula",
@@ -830,7 +1683,8 @@ def build_schema() -> JsonObject:
                         "string",
                         False,
                         "YYYY-MM-DD",
-                        "Admission date.",
+                        "Minimum admission date across all six RH sources, including July; "
+                        "applied to every published record, including earlier competencies.",
                     ),
                     field(
                         "data_demiss",
@@ -838,7 +1692,10 @@ def build_schema() -> JsonObject:
                         "string",
                         True,
                         "YYYY-MM-DD",
-                        "Termination date when present.",
+                        "Earliest known termination is terminal and propagated to subsequent RH. "
+                        "A date before the competency starts makes the employee ineligible for "
+                        "commission in that competency. Observed RH remains; "
+                        "post-termination sales are discarded.",
                     ),
                     field("cod_cargo", "Cod_Cargo", "integer", False, None, "Role code."),
                     field(
@@ -853,6 +1710,18 @@ def build_schema() -> JsonObject:
             },
             "vendas": {
                 "file": "vendas.jsonl",
+                "discard_policy": {
+                    "priority": [
+                        "sale_after_terminal_termination",
+                        "sale_without_reconstructable_rh",
+                    ],
+                    "dated_sale": "discard if data_venda > terminal termination date",
+                    "undated_sale": "discard only if competencia > terminal termination month",
+                    "financial_invariant": "source - discarded = canonical, exact Decimal",
+                },
+                "dimension_semantics": "Store and brand are the observed sale dimensions, "
+                "preserved independently of RH assignment; sale store and brand are authoritative.",
+                "reference_month_constraint": "data_ref[:7] == competencia",
                 "fields": [
                     field(
                         "competencia",
@@ -912,6 +1781,16 @@ def build_schema() -> JsonObject:
             },
             "comissoes": {
                 "file": "comissoes.jsonl",
+                "primary_key": list(COMISSAO_KEY),
+                "unique_by": list(COMISSAO_KEY),
+                "manager_rate": {
+                    "cod_cargo": 150,
+                    "rh_descriptions": ["GERENTE DE LOJA", "GERENTE QUIOSQUE"],
+                    "source_description": "GERENTE DE LOJA",
+                    "semantics": "Use the store manager rate of the corresponding brand for "
+                    "both descriptions. descr_cargo is descriptive, not a join field.",
+                    "decision_id": "CANONICAL_MANAGER_RATE",
+                },
                 "fields": [
                     field(
                         "competencia",

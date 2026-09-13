@@ -24,9 +24,11 @@ O conteúdo das bases foi verificado abrindo os 13 arquivos `.xlsx` do dataset.
 60 CINZA), 4 códigos de cargo (100 VENDEDOR LOJA, 150 GERENTE, 200 VENDEDOR BALCÃO,
 300 ASSISTENTE DE VENDAS), ~79 lojas.
 
-**O cargo 150 é duplo.** Aparece como `GERENTE DE LOJA` e como `GERENTE QUIOSQUE`, com o
-mesmo código e percentuais diferentes na tabela de comissão. O join RH → Comissionamento
-precisa usar `Descri_Cargo`, não só `Cod_Cargo` (§15.2 item 5).
+**O cargo 150 possui duas descrições na fonte.** `GERENTE DE LOJA` e `GERENTE QUIOSQUE`
+têm percentuais diferentes. A decisão da [revisão da T-026](https://github.com/Titus-System/synapse/pull/86#pullrequestreview-5182423687)
+define a taxa de `GERENTE DE LOJA` como canônica para ambos. O canônico preserva
+`descr_cargo` no RH e seleciona comissão por `(competencia, cod_marca, cod_cargo)`.
+As seis linhas-fonte de quiosque são descartadas; restam 24 regras por competência.
 
 ### 1.2. As seis competências
 
@@ -102,8 +104,44 @@ suporte de dado:
 
 ### 3.3. Sobre quais competências
 
-Cinco competências são base sólida: **Ago, Set, Out, Nov e Dez de 2025**.
-**Julho fica fora** até revisão dos dados (ver §5).
+O dataset canônico publica **Ago, Set, Out, Nov e Dez de 2025**.
+**Julho está excluído** por universo parcial e escala de vendas incompatível, sem
+reconstrução. Suas fontes continuam sendo lidas como evidência histórica para as datas
+canônicas de admissão e demissão.
+
+A preparação da T-026 aplica a menor admissão observada nas seis fontes a todas as
+linhas publicadas da matrícula e propaga a primeira demissão conhecida. O RH posterior
+é preservado: demissão anterior ao início da competência indica inelegibilidade à
+comissão naquele mês. Loja, marca, cargo e descrição do cargo mantêm os valores da
+competência, com mudanças observadas registradas no relatório.
+
+A continuidade do RH é preenchida nos meses publicados em que a admissão canônica
+não seja posterior ao fim do mês e a demissão terminal não seja anterior ao início
+do mês. Cada lacuna usa a linha **observada anterior mais recente**; na ausência
+dela, usa a próxima observação mais próxima. Linhas sintetizadas nunca servem como
+evidência de outras reconstruções. Os atributos anteriores valem até a próxima
+observação; a referência sintetizada é o primeiro dia do mês. O relatório registra
+origem, direção e datas canônicas de cada preenchimento. Não se sintetiza RH após
+o mês da demissão, mas as linhas observadas posteriores permanecem.
+
+Loja e marca da **venda são autoritativas**, inclusive quando diferem da lotação do
+RH ou quando uma matrícula vende em várias lojas. Essas dimensões são preservadas;
+a futura regra de comissão tratará o compartilhamento. A preparação não calcula comissão.
+
+Vendas com data transacional real posterior à demissão terminal são descartadas,
+inclusive no mesmo mês. Sem data real, o descarte ocorre apenas em competências
+posteriores ao mês da demissão: a referência mensal no dia 1 não prova o dia da
+transação. Depois desse filtro, vendas sem correspondência no RH final são
+descartadas como não reconstruíveis. Cada venda tem no máximo um motivo de
+descarte, com prioridade para demissão, e fica registrada com proveniência e valor.
+
+O `normalization_report.json` e o descritor `schema.json` passam à versão **3**
+pela mudança de semântica dos invariantes e da população publicada; os campos
+físicos das tabelas permanecem iguais. I3 verifica a preservação das dimensões da
+venda; I7, a completude dos meses elegíveis de RH; I8 exige, em Decimal exato,
+**fonte publicada − descartes = canônico**, por competência e no agregado.
+`competency_status` fica `ready` após validar os invariantes finais. Movimentações
+observadas continuam como avisos não bloqueantes, sem criar eventos de transferência.
 
 ---
 
@@ -149,8 +187,8 @@ Não são impossíveis; dependem de trabalho de dados que ainda não foi feito:
 | --- | --- | --- |
 | Regras que interagem com **afastamento, férias ou licença maternidade** (regras base 5e–5g) | Extrair os eventos da prosa do `Especificacao.md` e congelar com conferência humana | T-028, T-029 |
 | **Gerente rateado entre lojas** (caso MATRIC-293, jul) | Lógica nova nas regras base, além do fato em si | T-030 |
-| **Julho/2025** | RH com 322 funcionários (vs ~465), vendas cobrindo 54 de 78 lojas, `Vlr _Venda` até R$ 78,5 mil (demais meses: máx ~R$ 5,1 mil), venda/matrícula mediana R$ 66,7 mil (vs R$ 23–32 mil). Escala e estrutura diferentes — decidir se normaliza ou exclui | T-025, T-026 |
-| **Matrículas órfãs** — em Vendas sem correspondência no RH (Ago 3, Set 1, Out 1, Nov 2, Dez 5) | Regra de tratamento (ignorar, imputar, reportar) | T-025 (§15.2 item 6) |
+| **Julho/2025 — excluído** | RH com 322 funcionários (vs ~465), vendas cobrindo 54 de 78 lojas, `Vlr _Venda` até R$ 78,5 mil (demais meses: máx ~R$ 5,1 mil). Não há reconstrução integral sustentada pelos dados; usado somente como evidência histórica | T-026 |
+| **Matrículas órfãs — política definida** | Reconstruir RH elegível com evidência histórica; descartar vendas sem RH reconstruível após o filtro por demissão (§3.3) | T-026 |
 | **`Date_Ref` com semântica dupla** na base de vendas de novembro | Separar competência de data real antes de agrupar, senão a Black Friday vira competência à parte | T-027 |
 
 ---
@@ -160,7 +198,7 @@ Não são impossíveis; dependem de trabalho de dados que ainda não foi feito:
 1. **Resultado é sempre relativo.** Diferença e variação percentual contra o baseline são
    confiáveis; o valor absoluto carrega a imprecisão de interpretação das regras (que se
    cancela na diferença, mas não no total).
-2. **O baseline é auto-apurado**, não oficial. Reapurar todos os seis baselines é barato e
+2. **O baseline é auto-apurado**, não oficial. Reapurar os cinco baselines em escopo é barato e
    previsto; se o total agregado do parceiro chegar depois de T-032 e não bater, os baselines
    se deslocam (§15.2 item 4).
 3. **A regra é simulada por inteiro** (§1.5). Elemento sem implementação correspondente é
@@ -174,7 +212,7 @@ Não são impossíveis; dependem de trabalho de dados que ainda não foi feito:
 
 - **§15.2 item 3** (vocabulário: "canal") — bloqueia regras de núcleo que usem canal; T-084.
 - **§15.2 item 4** (sem gabarito) — fixa o escopo em comparação relativa; T-025, T-032.
-- **§15.2 item 5** (cargo 150 duplo) — condiciona o join e a regra do gerente; T-025, T-030.
+- **§15.2 item 5** (cargo 150 duplo na fonte) — taxa canônica definida pela revisão da T-026; loja e marca da venda são autoritativas; a implementação do compartilhamento pertence à futura regra de comissão.
 - **§15.2 item 6** (matrículas órfãs, alinhamento de colunas do RH) — T-025, T-026.
 - **T-030** consome as regras base desta lista; **T-031** as asserções que as protegem;
   **T-032** apura e congela os baselines das cinco competências em escopo.
