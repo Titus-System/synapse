@@ -119,6 +119,8 @@ make check
 
 Rode `make help` para ver todos os alvos disponíveis (`dev`, `build`, `preview`, `test`, `format`, `clean`, etc.).
 
+Para executar a verificação completa usada pelo hook e pela CI, incluindo o build de produção, rode `./verify.sh`.
+
 ## Rodando com Docker
 
 A imagem faz build multi-stage (Node 24 compila, [Caddy](https://caddyserver.com/) serve os arquivos estáticos com HTTPS automático) — ver [Dockerfile](Dockerfile), [docker/Caddyfile](docker/Caddyfile) e [deploy/docker-compose.yml](../deploy/docker-compose.yml).
