@@ -1,13 +1,17 @@
-install:
+install: contracts
 	poetry install
+
+.PHONY: contracts
+contracts:
+	python scripts/preparar_contratos.py
 
 # Alternativa sem poetry (pip + venv):
 #   python -m venv venv && source venv/bin/activate
 #   make install-pip      (runtime)  |  make install-pip-dev (runtime + ferramentas)
-install-pip:
+install-pip: contracts
 	pip install -r requirements.txt
 
-install-pip-dev:
+install-pip-dev: contracts
 	pip install -r requirements-dev.txt
 
 # Regera os requirements*.txt a partir do poetry.lock (rode após alterar deps).
@@ -15,10 +19,10 @@ requirements:
 	poetry export --only main --without-hashes --output requirements.txt
 	poetry export --with dev --without-hashes --output requirements-dev.txt
 
-run:
+run: contracts
 	poetry run uvicorn app.main:criar_aplicacao --factory --log-config logging.json
 
-dev:
+dev: contracts
 	poetry run uvicorn app.main:criar_aplicacao --factory --reload --log-config logging.json
 
 lint:
@@ -32,7 +36,7 @@ typecheck:
 	poetry run mypy app/
 
 
-test:
+test: contracts
 	poetry run pytest
 
 test-e2e:
@@ -47,7 +51,7 @@ migrate:
 makemigration:
 	poetry run alembic revision --autogenerate -m "$(m)"
 
-pre-commit:
+pre-commit: contracts
 	poetry run ruff check --fix app/
 	poetry run ruff format app/
 	poetry run mypy app/
