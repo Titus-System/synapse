@@ -2,3 +2,4 @@
 deploy/.env
 .env
 *.dbdiagram
+__pycache__/
