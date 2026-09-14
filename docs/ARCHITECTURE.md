@@ -566,6 +566,8 @@ A distinção não é cosmética: um imperativo no catálogo é sinalizador de d
 
 A API publica `regra-submetida` pelo **outbox transacional** (seção 3.2), garantindo que nenhum job criado fique sem evento correspondente. As etapas da própria API (transcrição, por exemplo) não passam pela fila: ela as repassa direto ao SSE.
 
+**Topologia no broker (DEC-089).** Toda fila simples tem o mesmo nome da mensagem que carrega - `regra-submetida`, `parametros-confirmados`, `etapa-alterada`, `no-concluido`. A exchange fanout de `simulacao-concluida` também leva esse nome, e cada consumidor liga a ela a própria fila, nomeada `simulacao-concluida.<consumidor>` (`simulacao-concluida.api`, `simulacao-concluida.codegen`). Toda fila e exchange é **durável** e declarada sem argumento extra (`x-*`); API, codegen e Worker declaram cada um o próprio lado de forma **idempotente**, nunca exclusiva - a ordem de subida entre os três não é garantida, e uma declaração com argumento divergente do que já existe falha com `406 PRECONDITION_FAILED` em vez de silenciosamente perder a mensagem.
+
 ### 6.4. Frontend ↔ API
 
 - **REST** para as ações síncronas: submissão da regra, confirmação de parâmetros, consulta de histórico, ações de finalização.

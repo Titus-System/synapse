@@ -22,11 +22,13 @@ import org.springframework.validation.annotation.Validated;
  * @param service identidade do serviço
  * @param observability logs e traces
  * @param postgres banco de dados
+ * @param rabbitmq broker de mensageria
  */
 @ConfigurationProperties("app")
 @Validated
 public record AppProperties(@NotBlank String environment, @NotNull @Valid Service service,
-		@NotNull @Valid Observability observability, @NotNull @Valid Postgres postgres) {
+		@NotNull @Valid Observability observability, @NotNull @Valid Postgres postgres,
+		@NotNull @Valid Rabbitmq rabbitmq) {
 
 	/**
 	 * Configura a identidade pública do serviço.
@@ -105,6 +107,17 @@ public record AppProperties(@NotBlank String environment, @NotNull @Valid Servic
 		public record Roles(@NotBlank String codegen, @NotBlank String worker) {
 		}
 
+	}
+
+	/**
+	 * @param host endereço do RabbitMQ
+	 * @param port porta do RabbitMQ
+	 * @param user usuário com que a aplicação conecta
+	 * @param password senha do usuário
+	 * @param vhost virtual host do broker
+	 */
+	public record Rabbitmq(@NotBlank String host, @Positive int port, @NotBlank String user, @NotBlank String password,
+			@NotBlank String vhost) {
 	}
 
 }

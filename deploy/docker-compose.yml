@@ -141,6 +141,10 @@ services:
       # Nomes usados nos GRANT dos changesets; têm que bater com os do initdb.
       SYNAPSE_CODEGEN_DB_USER: ${SYNAPSE_CODEGEN_DB_USER:-synapse_codegen}
       SYNAPSE_WORKER_DB_USER: ${SYNAPSE_WORKER_DB_USER:-synapse_worker}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-guest}
     ports:
       - '${API_PORT:-8080}:8080'
     depends_on:

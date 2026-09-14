@@ -66,6 +66,16 @@ class AppPropertiesTests {
 	}
 
 	@Test
+	void carriesTheRabbitmqSettings() {
+		AppProperties.Rabbitmq rabbitmq = this.properties.rabbitmq();
+		assertThat(rabbitmq.host()).isEqualTo("localhost");
+		assertThat(rabbitmq.port()).isEqualTo(5672);
+		assertThat(rabbitmq.user()).isEqualTo("guest");
+		assertThat(rabbitmq.password()).isEqualTo("guest");
+		assertThat(rabbitmq.vhost()).isEqualTo("/");
+	}
+
+	@Test
 	void fallsBackToTheMachineHostnameWhenHostIsBlank() {
 		assertThat(new AppProperties.Observability("INFO", 1.0, "http://localhost:4318", "").host()).isNotBlank();
 	}
