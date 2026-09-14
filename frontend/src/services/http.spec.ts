@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { HttpError, http } from './http'
+import { http } from './http'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -35,7 +35,7 @@ describe('http', () => {
       ),
     )
 
-    await expect(http.post('/jobs', {})).rejects.toMatchObject<HttpError>({
+    await expect(http.post('/jobs', {})).rejects.toMatchObject({
       message: 'Percentual de comissionamento: Campo obrigatório não informado.',
       fieldErrors: [
         {
@@ -49,8 +49,23 @@ describe('http', () => {
   it('usa mensagem própria para erro do servidor sem expor o status', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('erro interno', { status: 503 }))
 
-    await expect(http.get('/jobs')).rejects.toMatchObject<HttpError>({
+    await expect(http.get('/jobs')).rejects.toMatchObject({
       message: 'O serviço está temporariamente indisponível. Tente novamente em alguns instantes.',
     })
+  })
+
+  it('não envia body em requisição GET', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ itens: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    await http.get('/jobs')
+
+    const init = fetchMock.mock.calls[0]?.[1]
+    expect(init?.method).toBe('GET')
+    expect(init).not.toHaveProperty('body')
   })
 })

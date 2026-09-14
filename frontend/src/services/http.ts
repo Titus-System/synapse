@@ -44,7 +44,9 @@ export class HttpError extends Error {
 }
 
 function nomearCampo(elemento: ElementoErro): FieldError {
-  const nome = nomesDeCampo[elemento.ref] ?? elemento.ref.split('.').at(-1)?.replaceAll('_', ' ') ?? 'Campo'
+  const partes = elemento.ref.split('.')
+  const ultimoSegmento = partes[partes.length - 1]
+  const nome = nomesDeCampo[elemento.ref] ?? ultimoSegmento?.split('_').join(' ') ?? 'Campo'
   return { field: nome, message: elemento.motivo }
 }
 
@@ -94,7 +96,11 @@ async function criarErro(response: Response): Promise<HttpError> {
   }
 
   if (apiError) {
-    return new HttpError(response.status, mensagensPorCodigo[apiError.codigo], {
+    const message =
+      mensagensPorCodigo[apiError.codigo] ??
+      'Não foi possível concluir a solicitação. Revise as informações e tente novamente.'
+
+    return new HttpError(response.status, message, {
       code: apiError.codigo,
       fieldErrors,
     })
@@ -119,14 +125,23 @@ async function request<TResponse>(
 
   if (hasBody) headers.set('Content-Type', 'application/json')
 
+  const requestInit: RequestInit =
+    method === 'GET'
+      ? {
+          method: 'GET',
+          headers,
+          signal: options?.signal,
+        }
+      : {
+          method: 'POST',
+          headers,
+          ...(hasBody ? { body: JSON.stringify(options.body) } : {}),
+          signal: options?.signal,
+        }
+
   let response: Response
   try {
-    response = await fetch(construirUrl(path), {
-      method,
-      headers,
-      body: hasBody ? JSON.stringify(options.body) : undefined,
-      signal: options?.signal,
-    })
+    response = await fetch(construirUrl(path), requestInit)
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error
     throw new HttpError(0, 'Não foi possível se conectar ao serviço. Verifique sua conexão e tente novamente.')
