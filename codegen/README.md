@@ -26,7 +26,7 @@ O serviço fica disponível em `http://localhost:8000`. Os testes e verificaçõ
 qualidade são executados por:
 
 ```bash
-make pre-commit
+./verify.sh
 ```
 
 ## Docker Compose
