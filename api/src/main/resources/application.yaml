@@ -21,6 +21,14 @@ spring:
       '[usuario_api]': ${app.postgres.user}
       '[usuario_codegen]': ${app.postgres.roles.codegen}
       '[usuario_worker]': ${app.postgres.roles.worker}
+  # A ConnectionFactory, o health indicator e as métricas vêm do autoconfigure do
+  # starter; só o endereço é nosso.
+  rabbitmq:
+    host: ${app.rabbitmq.host}
+    port: ${app.rabbitmq.port}
+    username: ${app.rabbitmq.user}
+    password: ${app.rabbitmq.password}
+    virtual-host: ${app.rabbitmq.vhost}
 
 # Único lugar que lê variável de ambiente. Todo o resto consome app.*.
 app:
@@ -51,6 +59,12 @@ app:
     roles:
       codegen: ${SYNAPSE_CODEGEN_DB_USER:synapse_codegen}
       worker: ${SYNAPSE_WORKER_DB_USER:synapse_worker}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    user: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    vhost: ${RABBITMQ_VHOST:/}
 
 logging:
   level:
