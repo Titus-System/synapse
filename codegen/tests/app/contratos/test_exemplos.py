@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.contratos.mensagens import (
+    ConclusaoDaTrilha,
     EtapaAlterada,
     ExecutarCodigo,
     ModeloContrato,
@@ -47,3 +48,16 @@ def test_regra_submetida_rejeita_origem_incompativel() -> None:
 
     with pytest.raises(ValidationError):
         RegraSubmetida.model_validate(conteudo)
+
+
+def test_no_concluido_desserializa_a_conclusao_no_tipo_da_trilha() -> None:
+    caminho_exemplo = DIRETORIO_EXEMPLOS / "events/no-concluido.json"
+    conteudo = caminho_exemplo.read_text(encoding="utf-8-sig")
+
+    evento = NoConcluido.model_validate_json(conteudo)
+
+    assert evento.conclusao == ConclusaoDaTrilha(
+        resumo="código gerado implementando 2 elementos",
+        elementos_implementados=["nucleo.percentual", "elem.1"],
+        fontes=["base_vendas", "base_rh"],
+    )

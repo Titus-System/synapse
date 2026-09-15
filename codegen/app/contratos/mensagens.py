@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -40,6 +40,25 @@ NoGrafo = Literal[
     "decisao",
     "explicacao",
 ]
+
+TextoNaoVazio = Annotated[str, Field(min_length=1)]
+ReferenciaDeElemento = Annotated[
+    str,
+    Field(pattern=r"^(nucleo\.[a-z_]+|elem\.[0-9]+)$"),
+]
+
+
+class ConclusaoDaTrilha(ModeloContrato):
+    resumo: TextoNaoVazio
+    fontes: list[TextoNaoVazio] | None = None
+    elementos_extraidos: list[ReferenciaDeElemento] | None = None
+    no_dominio: bool | None = None
+    editado_pelo_usuario: bool | None = None
+    campos_corrigidos: list[ReferenciaDeElemento] | None = None
+    elementos_implementados: list[ReferenciaDeElemento] | None = None
+    diagnostico: str | None = None
+    concentracao: list[str] | None = None
+    encaminhamento: str | None = None
 
 
 class RegraSubmetida(ModeloContrato):
@@ -84,7 +103,7 @@ class NoConcluido(ModeloContrato):
     job_id: UUID
     no: NoGrafo
     concluido_em: datetime
-    conclusao: dict[str, object]
+    conclusao: ConclusaoDaTrilha
     regra_id: UUID | None = None
     simulacao_id: UUID | None = None
     prompt_id: UUID | None = None
