@@ -1,0 +1,158 @@
+# Mensageria do codegen (T-049)
+
+## Contratos e topologia
+
+A implementação segue ADR-001, ADR-002, DEC-088 e DEC-089. Usa `aio-pika`,
+também adotado pelo worker, com conexão robusta compartilhada, publisher confirms,
+publicação obrigatória (`mandatory`) e mensagens persistentes JSON UTF-8 sem envelope.
+O corpo é o contrato; `type`, `correlation_id` e `message_id` são propriedades AMQP.
+
+| DTO manual | Direção | Fila / routing key | Exchange |
+| --- | --- | --- | --- |
+| `RegraSubmetida` | entrada | `regra-submetida` | padrão (`""`) |
+| `ParametrosConfirmados` | entrada | `parametros-confirmados` | padrão (`""`) |
+| `SimulacaoConcluida` | entrada | `simulacao-concluida.codegen` / `""` | `simulacao-concluida` (fanout) |
+| `ExecutarCodigo` | saída | `executar-codigo` | padrão (`""`) |
+| `EtapaAlterada` | saída | `etapa-alterada` | padrão (`""`) |
+| `NoConcluido` | saída | `no-concluido` | padrão (`""`) |
+
+Cada DTO corresponde a `contracts/events/<mensagem>.schema.json`, inclusive
+o comando `executar-codigo`. A topologia é durável, não exclusiva, sem auto-delete
+e sem argumentos `x-*`. Cada lado declara as filas em que participa de forma
+idempotente. O codegen não declara nem consome `simulacao-concluida.api`.
+
+`scripts/preparar_contratos.py` incorpora dinamicamente todos os schemas, mantendo
+os caminhos relativos e removendo cópias obsoletas. O Docker já copia `contracts/`.
+O runtime registra os schemas incorporados por `$id`, sem consulta ao monorepo
+nem download de referências. Os DTOs são independentes de `EstadoGrafo`.
+
+Números recebidos são decodificados com `simplejson` em `Decimal`. A saída usa
+`use_decimal=True`, mantendo número JSON sem conversão para float. Campos opcionais
+ausentes não são emitidos; `null` explícito é recusado pelo schema. Campos adicionais
+são ignorados nos DTOs conforme ADR-002. Datas incluem fuso e são verificadas pelo
+validador de formatos RFC 3339 de `jsonschema[format-nongpl]`.
+
+Cada producer recebe um DTO pronto, serializa e valida o corpo serializado pelo
+schema oficial antes de tocar o broker. Alterações posteriores à construção do DTO
+também passam por essa validação. Falha local gera `ProdutorError` sem publicar;
+falhas AMQP e mensagens devolvidas pelo broker propagam ao chamador. Uma confirmação
+do broker não prova execução pelo worker. Nenhum producer decide quando publicar.
+
+## Entrega ao grafo e confirmações
+
+`RoteadorGrafo.entregar(job_id, mensagem)` é a única fronteira com o grafo.
+A implementação injetada deve criar/resolver o grafo inicial, retomar os demais
+eventos pelo job_id e retornar apenas quando o processamento estiver persistido.
+Deve tolerar reentregas de forma idempotente: uma desconexão pode ocorrer depois
+da persistência e antes do ACK. T-049 não implementa nós nem checkpointer.
+
+| Situação | Decisão |
+| --- | --- |
+| Retorno seguro do roteador | `ack()` |
+| Falha de processamento | `nack(requeue=True)` |
+| JSON/DTO/schema inválido | `reject(requeue=False)` |
+| `JobDesconhecidoError` do roteador | `reject(requeue=False)` e log correlacionado |
+| Cancelamento | sem ACK; fechamento da conexão devolve mensagens não confirmadas |
+
+A rejeição de mensagens inválidas e jobs desconhecidos é a decisão mínima local
+da T-049 para falhas não recuperáveis. **Na topologia existente não há DLQ; essas
+rejeições descartam a mensagem.** Ausência de roteador configurado não é job
+desconhecido: nesse caso nenhum consumer é iniciado e as mensagens ficam nas filas.
+Falhas transitórias usam a reentrega do broker, sem republicação/retry manual.
+Sem backoff configurado, uma falha persistente pode causar reentregas repetidas.
+
+**Pendência arquitetural da T-049:** falta atribuir quem implementa/configura
+retry e DLQ de `executar-codigo`, incluindo limite, atraso, destino e recuperação.
+A [T-065](https://github.com/Titus-System/synapse/issues/66) define a classificação
+de falhas e sua relação com `retry_count`; a
+[T-063](https://github.com/Titus-System/synapse/issues/64) e a
+[T-057](https://github.com/Titus-System/synapse/issues/59) excluem a política de
+retry de seu escopo e dependem dessa classificação. Isso não atribui a topologia
+de DLQ à T-065. A [T-067](https://github.com/Titus-System/synapse/issues/68) trata
+da persistência e publicação do resultado, sem definir retry/DLQ do comando.
+A DEC-089 determina declarações sem argumentos `x-*`; não há policy externa
+de RabbitMQ no repositório. A fila atual é compatível com essa decisão, mas não
+implementa a semântica de retry/DLQ exigida pela T-049. Não há implementação de
+T-057, T-062 ou T-067 nesta camada.
+
+Logs usam o logger do codegen, `job_id_ctx` com restauração ao sair e atributos
+operacionais `tipo_mensagem`, `causa` e `decisao`. Não incluem payloads, texto de
+exceção ou traceback do processador, que podem carregar dados confidenciais.
+
+## Ciclo de vida e configuração
+
+O lifespan abre uma conexão robusta, habilita confirmações e limita prefetch
+(padrão 1), declara topologia e disponibiliza `aplicacao.state.producers`.
+`criar_aplicacao(roteador=...)` injeta a implementação real de `RoteadorGrafo` e
+inicia os três consumers. Sem essa integração, o processo emite um aviso e mantém
+as mensagens no broker. `/health` continua sendo liveness do processo.
+
+O entrypoint Docker/uvicorn chama a factory sem argumentos, portanto não ativa
+consumers. A [T-050](https://github.com/Titus-System/synapse/issues/53), dependente
+da T-049, cria o esqueleto do grafo e recebe como entrada o evento dessa camada:
+é o ponto de integração previsto por essa sequência. Contudo, a issue não atribui
+explicitamente a injeção do roteador na factory; essa composição precisa ser
+confirmada no escopo da T-050. Ela deverá fornecer o adaptador real e passá-lo a
+`criar_aplicacao`, com a persistência da T-048 quando necessária para retorno seguro.
+A [T-053](https://github.com/Titus-System/synapse/issues/56) é a abstração de LLM,
+não a composição da aplicação. A interface da T-049 pode ser testada isoladamente;
+o consumo pelo entrypoint padrão permanece pendente dessa integração.
+
+Ao encerrar, cancela as inscrições, aguarda handlers ativos e fecha a conexão
+(incluindo canais). Falha na abertura de canal/topologia também fecha a conexão.
+Não abre conexão por mensagem, não expõe endpoint HTTP de negócio e não inclui
+grafo simulado na aplicação.
+
+Configure `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`,
+`RABBITMQ_VHOST` e `RABBITMQ_PREFETCH` pelo ambiente ou `.env`.
+Localmente o padrão é `localhost:5672`, usuário/senha `guest`, vhost `/`.
+O compose compartilhado injeta host e credenciais no serviço codegen.
+
+## Verificação
+
+Na pasta `codegen/`:
+
+```bash
+poetry install
+poetry run python scripts/preparar_contratos.py
+poetry run pytest -p no:cacheprovider -m 'not rabbitmq'
+poetry run ruff check app/ tests/ scripts/
+poetry run ruff format --check app/ tests/ scripts/
+poetry run mypy app/
+poetry run bandit -r app/
+poetry check --lock
+make pre-commit
+```
+
+Os testes de contrato leem os exemplos oficiais da raiz, validam entrada e saída
+por um registro independente dos schemas oficiais. A suíte unitária cobre roteamento,
+ACK, falhas, decimais, campos opcionais e ciclo de vida.
+
+Para integração, configure `deploy/.env` conforme a instalação do repositório e suba
+apenas o broker do compose oficial, a partir da raiz:
+
+```bash
+docker compose -f deploy/docker-compose.yml up -d rabbitmq
+```
+
+Na pasta `codegen/`, com as mesmas credenciais do broker no ambiente:
+
+```bash
+make test-rabbitmq
+```
+
+PowerShell sem make:
+
+```powershell
+$env:RUN_RABBITMQ_INTEGRATION = '1'
+poetry run pytest -p no:cacheprovider -m rabbitmq
+Remove-Item Env:RUN_RABBITMQ_INTEGRATION
+```
+
+Cada teste cria e remove somente seu próprio vhost `t049-<uuid>` no RabbitMQ real,
+usando `docker compose exec ... rabbitmqctl`; não há segundo ambiente RabbitMQ.
+As credenciais precisam permitir acesso a esse vhost. São sete cenários: três
+entradas sem fila/consumer da API, fanout com cópia independente na fila API sem
+consumer, e três producers. Nenhum serviço API ou worker precisa ser iniciado.
+Sem `RUN_RABBITMQ_INTEGRATION=1`, esses testes são explicitamente pulados;
+habilitados, ausência de broker/Docker é falha, nunca aprovação simulada.

@@ -69,3 +69,34 @@ else:
         p.name: p.read_bytes() for p in origem.glob("*.schema.json")
     }
     subprocess.run([sys.executable, "-I", "-c", programa, str(artefato)], cwd=artefato, check=True)
+
+
+def test_preparacao_incorpora_eventos_e_referencias_fora_do_monorepo(tmp_path: Path) -> None:
+    componente = Path(__file__).resolve().parents[2]
+    origem = tmp_path / "contracts"
+    artefato = tmp_path / "codegen"
+    scripts = artefato / "scripts"
+    scripts.mkdir(parents=True)
+    copyfile(componente / "scripts" / "preparar_contratos.py", scripts / "preparar_contratos.py")
+    copytree(componente.parent / "contracts", origem)
+    copytree(componente / "app", artefato / "app")
+    subprocess.run([sys.executable, str(scripts / "preparar_contratos.py")], check=True)
+    destino = artefato / "contracts"
+    assert {p.relative_to(destino): p.read_bytes() for p in destino.rglob("*.schema.json")} == {
+        p.relative_to(origem): p.read_bytes() for p in origem.rglob("*.schema.json")
+    }
+    programa = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from app.mensageria.contratos import NoConcluido
+import simplejson
+from pathlib import Path
+payload = simplejson.loads(
+    (Path(sys.argv[1]) / 'contracts/examples/events/no-concluido.json').read_bytes(),
+    use_decimal=True,
+)
+NoConcluido.model_validate(payload)
+"""
+    copytree(origem / "examples", destino / "examples")
+    origem.rename(tmp_path / "fonte-indisponivel")
+    subprocess.run([sys.executable, "-I", "-c", programa, str(artefato)], cwd=artefato, check=True)
