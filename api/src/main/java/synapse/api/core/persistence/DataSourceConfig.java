@@ -6,6 +6,7 @@ import org.springframework.boot.jdbc.DataSourceBuilder;
 import org.springframework.boot.liquibase.autoconfigure.LiquibaseDataSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 import synapse.api.core.config.AppProperties;
 
@@ -16,7 +17,12 @@ import synapse.api.core.config.AppProperties;
 @Configuration
 public class DataSourceConfig {
 
+	/**
+	 * {@code @Primary} porque é a conexão que o {@code JdbcTemplate} autoconfigurado deve
+	 * usar; sem isto, duas beans {@code DataSource} tornam a autoconfiguração ambígua.
+	 */
 	@Bean
+	@Primary
 	DataSource dataSource(AppProperties properties) {
 		AppProperties.Postgres postgres = properties.postgres();
 		return DataSourceBuilder.create()
