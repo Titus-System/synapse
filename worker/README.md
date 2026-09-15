@@ -59,9 +59,10 @@ O repositorio contem o esqueleto operacional do servico, incluindo:
 - imagem Docker multi-stage;
 - verificacoes de lint, tipos e testes;
 - conexao com o RabbitMQ e declaracao da fila `executar-codigo`, duravel e com `prefetch` 1;
-- verificacao do acesso ao daemon do Docker na subida do processo.
+- verificacao do acesso ao daemon do Docker na subida do processo;
+- loop consumidor de `executar-codigo`: le o codigo pela referencia do comando no Postgres (usuario com `SELECT` apenas) e prepara o payload de execucao, retendo o orcamento fora dele.
 
-As duas ultimas sao apenas a prova de que o worker alcanca o broker e o daemon. O **consumo** efetivo de `executar-codigo`, a subida do container efemero e a persistencia/publicacao do resultado sao as proximas partes do fluxo de negocio a implementar.
+A subida do container efemero e a persistencia/publicacao do resultado sao as proximas partes do fluxo de negocio a implementar.
 
 O acesso ao daemon e verificado na subida: se o socket do Docker nao estiver acessivel, o processo falha imediatamente com mensagem explicita em vez de subir e quebrar so na primeira execucao. O pre-requisito de ambiente esta em [docs/instalacao.md](../docs/instalacao.md) secao 2.1.
 
@@ -171,3 +172,9 @@ worker/
 - [Arquitetura do Synapse](../docs/ARCHITECTURE.md)
 - [Secao do Worker na arquitetura](../docs/ARCHITECTURE.md#34-worker-de-execucao)
 - [Sandbox de execucao](../docs/ARCHITECTURE.md#7-sandbox-de-execucao)
+
+## Regras base de comissionamento
+
+A apuração determinística das regras 5a a 5g da Dom Rock está em `app/sandbox/regras_base.py`. A função `apurar` consome somente as tabelas canônicas (`rh`, `vendas`, `comissionamento` e `eventos_rh`) e não lê planilhas de origem. O resultado é ordenado por matrícula e inclui referências às linhas de entrada, eventos e chaves de percentual usados no cálculo. Para cargo 150, `linhas_vendas` referencia todas as vendas da loja que compõem a base do gerente; para os demais cargos, referencia somente as vendas da própria matrícula. As janelas `data_inicio`/`data_fim` de afastamentos e férias são consumidas como intervalos fechados, conforme a semântica da T-028.
+
+As premissas de cargo 150, vendas órfãs, licença-maternidade e o caso de gerente rateado entre lojas estão registradas em [`DEC-090`](../docs/decisoes/dec-090.md).
