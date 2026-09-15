@@ -38,6 +38,11 @@ jobs:
       worker: ${{ steps.filtro.outputs.worker }}
       contracts: ${{ steps.filtro.outputs.contracts }}
     steps:
+      - name: Obter repositório
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+
       - name: Filtrar caminhos alterados
         id: filtro
         uses: dorny/paths-filter@v3
