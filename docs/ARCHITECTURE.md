@@ -19,7 +19,7 @@ A necessidade de gerar código vem da **variação na estrutura da própria regr
 
 ### 1.2. O domínio concreto: as bases e as regras da Dom Rock
 
-O parceiro forneceu o dataset em `dataset_domrock/`: seis competências mensais (Jul–Dez/2025) e uma especificação de processamento (`Especificacao.pdf`).
+O parceiro forneceu o dataset em `dataset_domrock/`: seis competências mensais brutas (Jul–Dez/2025) e uma especificação de processamento (`Especificacao.pdf`). Após a normalização da T-026, o dataset canônico publicado cobre cinco competências (Ago–Dez/2025); julho permanece apenas como evidência histórica pela decisão `EXCLUDE_2025_07`.
 
 **Três bases, relacionadas por competência:**
 
@@ -64,7 +64,7 @@ A extração acontece **uma vez, no script de preparação**, e seu resultado é
 **A fronteira entre as camadas 2 e 3 não é sempre óbvia, e onde traçá-la é decisão de projeto.** Dois exemplos do próprio dataset:
 
 - *"Os funcionários abaixo receberam um bônus fixo de R$ 500"*, seguido de oito matrículas. Pode virar código com uma lista fixa embutida, ou uma tabela de bônus ad hoc com oito linhas. **A segunda é melhor:** evita gerar código com identificadores fixos e mantém o que varia como dado.
-- *"O gerente MATRIC-293 ficou 10 dias na LOJA-5 e precisa receber comissionamento proporcional a esta loja também"* - é um fato (ele trabalhou lá), mas as regras base não têm regra para gerente rateado entre lojas. Exige as duas coisas: o dado e a lógica nova.
+- *"O gerente MATRIC-293 ficou 10 dias na LOJA-5 e precisa receber comissionamento proporcional a esta loja também"* - é um fato (ele trabalhou lá), mas as regras base não têm regra para gerente rateado entre lojas. A DEC-090 mantém esse caso fora das regras base; como julho não é publicado pela T-026, ele não participa dos baselines atuais. Se julho for reintroduzido, o fato e a lógica específica da competência precisam ser resolvidos antes da reapuração.
 
 O princípio: **preferir dado a código sempre que a variação estiver em "quem/quando/quanto" e não em "qual lógica"**. Como consequência, a fronteira se move com o tempo - um formato que hoje exige código gerado pode ser promovido às regras base e, a partir daí, novas ocorrências dele viram apenas parâmetros.
 
@@ -463,7 +463,7 @@ Sem essa separação, um evento com o prompt inteiro - que inclui o esquema anot
 **Estrutura interna:**
 
 - **Loop consumidor** - inscrito na fila de "executar código" do RabbitMQ, com `prefetch` baixo (ex. 1) para não travar múltiplas execuções longas em uma única instância.
-- **Preparação do container** - lê do Postgres o código a executar, pela referência do evento, e sobe um container a partir da **imagem do sandbox**, que já traz embutidos o dataset normalizado das seis competências e os baselines apurados (seção 1.3). Só o código entra de fora. Como o container não tem rede, tudo que o código precisa ler tem que estar dentro dele antes de iniciar.
+- **Preparação do container** - lê do Postgres o código a executar, pela referência do evento, e sobe um container a partir da **imagem do sandbox**, que já traz embutidos o dataset normalizado das cinco competências publicadas (Ago–Dez/2025) e os baselines apurados (seção 1.3). Só o código entra de fora. Como o container não tem rede, tudo que o código precisa ler tem que estar dentro dele antes de iniciar.
 - **Execução isolada (Docker SDK)** - sobe um container efêmero por execução, com:
   - sem acesso à rede;
   - limites de CPU e memória;
@@ -681,8 +681,8 @@ Outras regras:
 ### 15.1. Decisões tomadas
 
 - **Linguagem do código gerado:** o código gerado pelo agente e executado pelo worker será obrigatoriamente Python. O sandbox Docker do worker (seções 3.4 e 7) precisa apenas suportar um runtime Python isolado (sem acesso à rede, com limites de CPU/memória, timeout).
-- **Origem do baseline:** dataset entregue pela Dom Rock em `dataset_domrock/` - seis competências (Jul–Dez/2025) das bases de RH, Vendas e Comissionamento, mais a especificação de processamento (seção 1.2).
-- **Simulação = backtesting sobre período histórico:** a regra proposta é recalculada sobre um período que já aconteceu - o dataset inteiro ou um subconjunto escolhido pelo usuário - e comparada com o apurado pela regra vigente, isolando a regra como única variável. As competências são agregadas numa simulação só, com um total e um veredito para o conjunto. Não há projeção estatística de vendas futuras - os seis meses disponíveis não sustentariam um forecast, e ele introduziria incerteza maior que o efeito a medir (seção 1.3).
+- **Origem do baseline:** dataset canônico derivado do material entregue pela Dom Rock em `dataset_domrock/`. A fonte bruta cobre Jul–Dez/2025, mas a T-026 publica somente Ago–Dez/2025; julho fica como evidência histórica e não gera baseline corrente (seção 1.2).
+- **Simulação = backtesting sobre período histórico:** a regra proposta é recalculada sobre um período que já aconteceu - o conjunto de competências canônicas publicadas ou um subconjunto escolhido pelo usuário - e comparada com o apurado pela regra vigente, isolando a regra como única variável. As competências são agregadas numa simulação só, com um total e um veredito para o conjunto. Não há projeção estatística de vendas futuras - as cinco competências publicadas não sustentariam um forecast, e ele introduziria incerteza maior que o efeito a medir (seção 1.3).
 - **Três camadas, e a regra de fronteira entre elas:** o regras base (aplicação do %, regra do gerente, proporcionalidade de admissão/demissão/afastamento/férias) é código determinístico escrito uma vez; os eventos de RH (afastamentos, férias, correções cadastrais) viram linhas de tabela; apenas as regras da competência - mudanças de política descritas em texto livre - são traduzidas em código pela IA. O critério: prefere-se dado a código sempre que a variação estiver em "quem/quando/quanto" e não em "qual lógica" (seção 1.2).
 - **Nenhum número sai do modelo:** a LLM interpreta linguagem e escreve código; toda a aritmética roda em código determinístico sobre as bases reais, no sandbox. É o que torna cada valor do relatório rastreável até as linhas que o produziram (US04) - ver seção 1.4.
 - **A regra é simulada por inteiro:** todo elemento especificado pelo usuário entra no código gerado e se reflete no resultado. Não há simulação parcial nem elemento aproximado; o agente não escolhe o que dentro da regra vai ser simulado. Elemento sem implementação correspondente é falha de geração, e o job para em vez de devolver um número que parece completo. O vocabulário de construtos reconhecidos existe como auxílio de reconhecimento - dá campos nomeados e validação individual aos formatos frequentes -, jamais como filtro do que o sistema aceita: nenhuma regra é recusada ou podada por ter forma inédita (seção 1.5).
