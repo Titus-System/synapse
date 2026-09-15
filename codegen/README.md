@@ -27,7 +27,7 @@ O serviço fica disponível em `http://localhost:8000`. Os testes e verificaçõ
 qualidade são executados por:
 
 ```bash
-make pre-commit
+./verify.sh
 ```
 
 Sem `make`, prepare os contratos com o comando acima e execute `poetry run pytest`,
