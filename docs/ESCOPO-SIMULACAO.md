@@ -24,11 +24,13 @@ O conteúdo das bases foi verificado abrindo os 13 arquivos `.xlsx` do dataset.
 60 CINZA), 4 códigos de cargo (100 VENDEDOR LOJA, 150 GERENTE, 200 VENDEDOR BALCÃO,
 300 ASSISTENTE DE VENDAS), ~79 lojas.
 
-**O cargo 150 é duplo.** Aparece como `GERENTE DE LOJA` e como `GERENTE QUIOSQUE`, com o
-mesmo código e percentuais diferentes na tabela de comissão. O join RH → Comissionamento
-precisa usar `Descri_Cargo`, não só `Cod_Cargo` (§15.2 item 5).
+**O cargo 150 tem duas descrições na origem.** A fonte bruta traz `GERENTE DE LOJA` e
+`GERENTE QUIOSQUE` com o mesmo código e percentuais distintos. A T-026 resolveu essa
+ambiguidade pela decisão `CANONICAL_MANAGER_RATE`: no dataset canônico, ambas as
+descrições usam a taxa de `GERENTE DE LOJA`, e `Descri_Cargo` é apenas descritivo — o join
+de comissionamento usa `Cod_Cargo` + `Cod_Marca` + competência.
 
-### 1.2. As seis competências
+### 1.2. Competências recebidas e competências publicadas
 
 | Competência | Funcionários (RH) | Venda total do mês | `Date_Ref` das vendas |
 | --- | --- | --- | --- |
@@ -38,6 +40,11 @@ precisa usar `Descri_Cargo`, não só `Cod_Cargo` (§15.2 item 5).
 | Out/2025 | 460 | R$ 9,78 mi | dia 1º |
 | **Nov/2025** | 469 | R$ 13,85 mi | **dia 1º + datas reais 24 a 28/11** |
 | Dez/2025 | 467 | R$ 13,24 mi | dia 1º |
+
+A Dom Rock entregou seis competências brutas (Jul–Dez/2025), mas a T-026 publica no
+dataset canônico somente **cinco competências: Ago–Dez/2025**. Julho é mantido apenas como
+evidência histórica para reconciliação e está excluído da simulação pela decisão
+`EXCLUDE_2025_07` registrada no relatório de normalização.
 
 Só a base de vendas de **novembro** carrega data real dentro do mês (4.279 linhas no dia 1º,
 721 distribuídas entre 24 e 28/11 — a janela da Black Friday). Nos demais meses toda venda
@@ -102,7 +109,9 @@ suporte de dado:
 
 ### 3.3. Sobre quais competências
 
-**As seis competências estão no escopo: Jul, Ago, Set, Out, Nov e Dez de 2025.**
+**Atualmente, cinco competências canônicas estão no escopo da simulação: Ago, Set, Out,
+Nov e Dez de 2025.** Julho foi recebido na base bruta, mas não é publicado pela T-026 e,
+portanto, não possui baseline corrente.
 
 A simulação roda sobre um **período**, não sobre um mês. O usuário escolhe quais
 competências entram — por padrão todas — e o job as agrega num total único, com um
@@ -136,24 +145,26 @@ Qualquer regra que dependa de um destes recortes é inviável com os dados atuai
   sustenta **comparação relativa** ao baseline ("esta regra aumenta o custo em 6,5%"). Como o
   orçamento informado pelo usuário é confrontado com o total absoluto, o alerta de
   inviabilidade recai sobre um total auto-apurado, não sobre uma verdade externa (§1.3).
-- **Projeção de vendas futuras** — seis meses, sem ciclo sazonal completo e sem ano anterior.
-  A arquitetura descarta forecast: introduziria mais incerteza do que o efeito a medir (§1.3).
+- **Projeção de vendas futuras** — cinco competências canônicas publicadas, sem ciclo sazonal
+  completo e sem ano anterior. A arquitetura descarta forecast: introduziria mais incerteza
+  do que o efeito a medir (§1.3).
 - **Resposta comportamental** — o backtest assume que as pessoas venderiam o mesmo sob a
   regra nova. Uma comissão maior pode motivar mais vendas; isso o modelo não captura, e é
   limitação a declarar ao usuário (§1.3).
 
 ---
 
-## 5. Simulável, mas só depois de um passo de preparação
+## 5. Itens que exigem ou exigiram preparação
 
-Não são impossíveis; dependem de trabalho de dados que ainda não foi feito:
+Alguns destes pontos já foram resolvidos pelas tarefas de preparação; os demais continuam
+registrados aqui para deixar explícito o que precisa ser resolvido caso o escopo publicado mude:
 
 | Item | O que falta | Tarefa |
 | --- | --- | --- |
-| Regras que interagem com **afastamento, férias ou licença maternidade** (regras base 5e–5g) | Extrair os eventos da prosa do `Especificacao.md` e congelar com conferência humana | T-028, T-029 |
-| **Gerente rateado entre lojas** (caso MATRIC-293, jul) | Lógica nova nas regras base, além do fato em si | T-030 |
-| **Julho/2025** | RH com 322 funcionários (vs ~465), vendas cobrindo 54 de 78 lojas, `Vlr _Venda` até R$ 78,5 mil (demais meses: máx ~R$ 5,1 mil), venda/matrícula mediana R$ 66,7 mil (vs R$ 23–32 mil). Escala e estrutura diferentes — normalizar | T-025, T-026 |
-| **Matrículas órfãs** — em Vendas sem correspondência no RH (Ago 3, Set 1, Out 1, Nov 2, Dez 5) | Regra de tratamento (ignorar, imputar, reportar) | T-025 (§15.2 item 6) |
+| Regras que interagem com **afastamento, férias ou licença maternidade** | A T-028 congelou os eventos de RH; a T-030 os consome como dados normalizados. A conferência da extração continua pertencendo à trilha T-028/T-029 | T-028, T-029, T-030 |
+| **Gerente rateado entre lojas** (caso MATRIC-293, jul) | Fora das regras base atuais. Se julho voltar ao dataset publicado, o fato precisa estar na tabela de eventos e a lógica específica da competência precisa ser definida antes da reapuração | DEC-090 |
+| **Julho/2025** | A T-026 concluiu que a competência não é publicável com as demais e a marcou como evidência histórica (`EXCLUDE_2025_07`) | T-026 |
+| **Matrículas órfãs** — vendas sem correspondência no RH | A T-026 definiu `DISCARD_UNRESOLVED_ORPHAN_SALES`; a T-030 preserva a política e emite aviso se receber órfã diretamente | T-026, DEC-090 |
 | **`Date_Ref` com semântica dupla** na base de vendas de novembro | Separar competência de data real antes de agrupar, senão a Black Friday vira competência à parte | T-027 |
 
 ---
@@ -163,7 +174,7 @@ Não são impossíveis; dependem de trabalho de dados que ainda não foi feito:
 1. **Resultado é sempre relativo.** Diferença e variação percentual contra o baseline são
    confiáveis; o valor absoluto carrega a imprecisão de interpretação das regras (que se
    cancela na diferença, mas não no total).
-2. **O baseline é auto-apurado**, não oficial. Reapurar todos os seis baselines é barato e
+2. **O baseline é auto-apurado**, não oficial. Reapurar os cinco baselines atualmente publicados é barato e
    previsto; se o total agregado do parceiro chegar depois de T-032 e não bater, os baselines
    se deslocam (§15.2 item 4).
 3. **A regra é simulada por inteiro** (§1.5). Elemento sem implementação correspondente é
@@ -176,7 +187,7 @@ Não são impossíveis; dependem de trabalho de dados que ainda não foi feito:
 ## 7. Relação com pontos em aberto e tarefas
 
 - **§15.2 item 4** (sem gabarito) — fixa o escopo em comparação relativa; T-025, T-032.
-- **§15.2 item 5** (cargo 150 duplo) — condiciona o join e a regra do gerente; T-025, T-030.
+- **§15.2 item 5** (cargo 150 duplo) — resolvido pela T-026 em `CANONICAL_MANAGER_RATE`; a T-030 aplica a regra de gerente a todo `Cod_Cargo = 150`.
 - **§15.2 item 6** (matrículas órfãs, alinhamento de colunas do RH) — T-025, T-026.
 - **T-030** consome as regras base desta lista; **T-031** as asserções que as protegem;
   **T-032** apura e congela os baselines das cinco competências em escopo.
