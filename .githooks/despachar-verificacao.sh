@@ -71,7 +71,7 @@ fi
 
 if [ "$quantidade_de_componentes" -gt 1 ]; then
 	echo "Commit recusado: toca mais de um componente sem alterar contracts/." >&2
-	echo "Componentes tocados:$(printf ' %s' $componentes_tocados)" >&2
+	echo "Componentes tocados:$(printf ' %s' "$componentes_tocados")" >&2
 	echo "Mantenha um servico por PR (ADR-002): separe em commits/PRs distintos." >&2
 	exit 1
 fi
