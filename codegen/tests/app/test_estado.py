@@ -290,13 +290,77 @@ def test_recusa_formato_pickle() -> None:
 
 def test_contratos_incorporados_sao_copias_exatas() -> None:
     incorporados = Path(__file__).resolve().parents[2] / "contracts" / "domain"
-    for nome in (
-        "representacao-regra.schema.json",
-        "regra-nucleo.schema.json",
-        "regra-especificacoes.schema.json",
-        "comum.schema.json",
-    ):
-        assert (incorporados / nome).read_bytes() == (CONTRATOS / "domain" / nome).read_bytes()
+    fontes = {
+        arquivo.name: arquivo.read_bytes()
+        for arquivo in (CONTRATOS / "domain").glob("*.schema.json")
+    }
+    copias = {arquivo.name: arquivo.read_bytes() for arquivo in incorporados.glob("*.schema.json")}
+
+    assert copias == fontes
+
+
+@pytest.mark.parametrize("falha", ["jsonschema", "pydantic"])
+@pytest.mark.parametrize("entrada", ["modelo", "construtor", "adapter", "estado", "historico"])
+def test_erro_de_regra_nao_expoe_conteudo(falha: str, entrada: str, inicial: EstadoGrafo) -> None:
+    regra = carregar_regra()
+    segredo = "REGRA_CONFIDENCIAL_947281"
+    regra[segredo] = segredo
+    regra["nucleo"]["percentual"] = (
+        "VALOR_SIGILOSO_829164" if falha == "jsonschema" else 987654321.125
+    )
+
+    with pytest.raises(ValidationError, match="Representação incompatível com T-004") as capturada:
+        if entrada == "modelo":
+            RepresentacaoRegra.model_validate(regra)
+        elif entrada == "construtor":
+            RepresentacaoRegra(regra)
+        elif entrada == "adapter":
+            TypeAdapter(RepresentacaoRegra).validate_python(regra)
+        else:
+            campo = "representacao_regra" if entrada == "estado" else "historico_sugestoes"
+            valor = regra if entrada == "estado" else [regra]
+            EstadoGrafo.model_validate({**inicial.model_dump(), campo: valor})
+
+    assert "input_value" not in str(capturada.value)
+    for publico in (str(capturada.value), repr(capturada.value.errors()), capturada.value.json()):
+        assert segredo not in publico
+        assert "VALOR_SIGILOSO_829164" not in publico
+        assert "987654321.125" not in publico
+        assert "percentual" not in publico
+
+
+@pytest.mark.parametrize("mutacao", ["raiz", "aninhada", "float"])
+def test_para_contrato_recusa_mutacao_invalida(mutacao: str) -> None:
+    regra = RepresentacaoRegra.model_validate(carregar_regra())
+    if mutacao == "raiz":
+        regra.root.pop("nucleo")
+    else:
+        elementos = regra.root["especificacoes"]
+        assert isinstance(elementos, list)
+        elemento = elementos[0]
+        assert isinstance(elemento, dict)
+        if mutacao == "aninhada":
+            elemento.pop("efeito")
+        else:
+            elemento["limite_inferior"] = 987654321.125
+
+    with pytest.raises(ValueError, match="Representação incompatível com T-004") as capturada:
+        regra.para_contrato()
+
+    assert "input_value" not in str(capturada.value)
+    assert "987654321.125" not in str(capturada.value)
+
+
+def test_regra_preserva_extensoes_permitidas_pela_t004(
+    validador_oficial: Draft202012Validator,
+) -> None:
+    regra = carregar_regra()
+    regra["extensao"] = {"origem": "formulario"}
+    regra["nucleo"]["extensao"] = True
+    regra["especificacoes"][0]["extensao"] = ["campo_aditivo"]
+    validador_oficial.validate(regra)
+
+    assert RepresentacaoRegra.model_validate(regra).para_contrato() == regra
 
 
 def test_tipos_do_estado_seguem_vocabulario_dos_contratos() -> None:

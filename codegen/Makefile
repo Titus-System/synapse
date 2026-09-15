@@ -3,16 +3,18 @@ install: contracts
 
 .PHONY: contracts
 contracts:
-	python scripts/preparar_contratos.py
+	poetry run python scripts/preparar_contratos.py
 
 # Alternativa sem poetry (pip + venv):
 #   python -m venv venv && source venv/bin/activate
 #   make install-pip      (runtime)  |  make install-pip-dev (runtime + ferramentas)
-install-pip: contracts
-	pip install -r requirements.txt
+install-pip:
+	python scripts/preparar_contratos.py
+	python -m pip install -r requirements.txt
 
-install-pip-dev: contracts
-	pip install -r requirements-dev.txt
+install-pip-dev:
+	python scripts/preparar_contratos.py
+	python -m pip install -r requirements-dev.txt
 
 # Regera os requirements*.txt a partir do poetry.lock (rode após alterar deps).
 requirements:

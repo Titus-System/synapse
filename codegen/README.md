@@ -54,17 +54,22 @@ de adaptação ou resultados de novas simulações.
 
 `RepresentacaoRegra` envolve a estrutura original da T-004 e a valida diretamente
 com `jsonschema` (draft 2020-12, incluindo formatos e referências locais).
-Não há outro schema da regra. `scripts/preparar_contratos.py` copia os quatro
-schemas necessários para `codegen/contracts/`, um artefato ignorado pelo Git.
+Não há outro schema da regra. `scripts/preparar_contratos.py` copia todos os
+`contracts/domain/*.schema.json` para `codegen/contracts/domain/`, um artefato ignorado pelo Git.
 Os alvos de instalação, execução e testes do Makefile fazem essa preparação.
 No Docker, o `COPY contracts ./contracts` existente incorpora os schemas na imagem.
 Runtime lê somente essa cópia do componente, sem consultar a raiz do monorepo.
+Todos os schemas de domínio incorporados são registrados dinamicamente; apenas
+`representacao-regra.schema.json` identifica o schema raiz. Os objetos permanecem
+extensíveis conforme as [convenções canônicas da T-004](../contracts/domain/README.md#convenções).
 
 Ao ler uma regra JSON, use `json.loads(texto, parse_float=Decimal)` para preservar
 os números como decimais desde a entrada. O modelo recusa `float`; aceita números
 inteiros e `Decimal`, e datas ISO ou objetos `date`. Não interpreta textos
 arbitrários como datas. `para_contrato()` fornece a estrutura para validação JSON
-Schema: datas nativas viram ISO e `Decimal` continua numérico.
+Schema: datas nativas viram ISO e `Decimal` continua numérico. Cada chamada revalida
+a estrutura atual, inclusive mutações aninhadas. Falhas estruturais e de contrato
+produzem erros sanitizados, sem valores ou caminhos extraídos do conteúdo da regra.
 
 ```python
 from decimal import Decimal

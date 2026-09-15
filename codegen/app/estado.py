@@ -10,7 +10,10 @@ from app.tipos_estado import Competencia, Orcamento, Origem, Veredito
 
 class EstadoGrafo(BaseModel):
     model_config = ConfigDict(
-        extra="forbid", validate_assignment=True, revalidate_instances="always"
+        extra="forbid",
+        validate_assignment=True,
+        revalidate_instances="always",
+        hide_input_in_errors=True,
     )
 
     job_id: UUID
