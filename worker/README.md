@@ -59,9 +59,10 @@ O repositorio contem o esqueleto operacional do servico, incluindo:
 - imagem Docker multi-stage;
 - verificacoes de lint, tipos e testes;
 - conexao com o RabbitMQ e declaracao da fila `executar-codigo`, duravel e com `prefetch` 1;
-- verificacao do acesso ao daemon do Docker na subida do processo.
+- verificacao do acesso ao daemon do Docker na subida do processo;
+- loop consumidor de `executar-codigo`: le o codigo pela referencia do comando no Postgres (usuario com `SELECT` apenas) e prepara o payload de execucao, retendo o orcamento fora dele.
 
-As duas ultimas sao apenas a prova de que o worker alcanca o broker e o daemon. O **consumo** efetivo de `executar-codigo`, a subida do container efemero e a persistencia/publicacao do resultado sao as proximas partes do fluxo de negocio a implementar.
+A subida do container efemero e a persistencia/publicacao do resultado sao as proximas partes do fluxo de negocio a implementar.
 
 O acesso ao daemon e verificado na subida: se o socket do Docker nao estiver acessivel, o processo falha imediatamente com mensagem explicita em vez de subir e quebrar so na primeira execucao. O pre-requisito de ambiente esta em [docs/instalacao.md](../docs/instalacao.md) secao 2.1.
 

@@ -8,7 +8,7 @@ cd "$diretorio_do_script"
 poetry run ruff check app/ scripts/ tests/
 poetry run ruff format --check app/ scripts/ tests/
 poetry run mypy app/ scripts/ tests/scripts/ tests/contracts/
-poetry run pytest -m "not docker"
+poetry run pytest -m "not docker and not postgres and not rabbitmq"
 
 if poetry run python - <<'PY'
 import sys
@@ -33,4 +33,71 @@ then
     poetry run pytest -m docker
 else
     echo "AVISO: testes marcados com 'docker' foram pulados porque o daemon Docker não está disponível."
+fi
+
+# Os dois checks abaixo carregam .env.test (como tests/conftest.py) para checar o
+# mesmo alvo que os testes marcados vão usar.
+if poetry run python - <<'PY'
+import asyncio
+import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path.cwd() / ".env.test", override=True)
+
+from app.config import get_settings  # noqa: E402
+from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
+
+
+async def checar() -> None:
+    engine = create_async_engine(get_settings().database_url)
+    try:
+        async with engine.connect():
+            pass
+    finally:
+        await engine.dispose()
+
+
+try:
+    asyncio.run(checar())
+except Exception:
+    sys.exit(1)
+PY
+then
+    echo "Postgres disponível: executando testes marcados com 'postgres'."
+    poetry run pytest -m postgres
+else
+    echo "AVISO: testes marcados com 'postgres' foram pulados porque o Postgres não está acessível."
+fi
+
+if poetry run python - <<'PY'
+import asyncio
+import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path.cwd() / ".env.test", override=True)
+
+from aio_pika import connect_robust  # noqa: E402
+
+from app.config import get_settings  # noqa: E402
+
+
+async def checar() -> None:
+    conexao = await connect_robust(get_settings().rabbitmq_url, timeout=5)
+    await conexao.close()
+
+
+try:
+    asyncio.run(checar())
+except Exception:
+    sys.exit(1)
+PY
+then
+    echo "RabbitMQ disponível: executando testes marcados com 'rabbitmq'."
+    poetry run pytest -m rabbitmq
+else
+    echo "AVISO: testes marcados com 'rabbitmq' foram pulados porque o RabbitMQ não está acessível."
 fi

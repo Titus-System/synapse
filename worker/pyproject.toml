@@ -128,6 +128,8 @@ asyncio_default_fixture_loop_scope = "function"
 addopts = "--import-mode=importlib"
 markers = [
     "docker: testes de integração que exigem acesso a um daemon Docker real",
+    "postgres: testes de integração que exigem um Postgres real com o schema da api aplicado",
+    "rabbitmq: testes de integração que exigem acesso a um RabbitMQ real",
 ]
 
 
