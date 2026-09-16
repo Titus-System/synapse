@@ -170,3 +170,23 @@ export interface ListarJobsParametros {
   pagina?: number
   tamanho?: number
 }
+
+export interface EventoEtapa {
+  job_id: string
+  etapa: string
+  status: string
+}
+
+export interface EventoEstado {
+  job_id: string
+  status: StatusJob
+  status_anterior?: StatusJob
+  motivo?: string
+}
+
+export interface EventoResultado {
+  job_id: string
+  simulacao_id: string
+  status: StatusResultado
+  veredito?: Veredito
+}
