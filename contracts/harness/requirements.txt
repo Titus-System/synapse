@@ -1,0 +1,3 @@
+# Dependências do exemplo e dos testes do contrato do harness (T-034).
+# O validador (validar-saida.py) usa jsonschema, já declarado em ../requirements.txt.
+pandas>=2.2
