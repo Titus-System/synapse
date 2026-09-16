@@ -24,8 +24,10 @@ types-passlib = "^1.7.7.20260211"
 opentelemetry-distro = "^0.65b0"
 opentelemetry-exporter-otlp = {extras = ["http", "proto"], version = "^1.44.0"}
 prometheus-client = "^0.26.0"
-jsonschema = "4.25.1"
+jsonschema = {version = "4.25.1", extras = ["format-nongpl"]}
 langgraph-checkpoint = "4.2.0"
+aio-pika = "^9.5"
+simplejson = "^3.20"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.8.0"
@@ -37,6 +39,7 @@ httpx = "^0.28.0"
 python-dotenv = "^1.0"
 pre-commit = "^4.6.2"
 types-jsonschema = "^4.26.0.20260518"
+types-simplejson = "^4.1.0.20260724"
 
 [build-system]
 requires = ["poetry-core>=1.8.0"]
@@ -121,6 +124,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--import-mode=importlib"
+markers = ["rabbitmq: integração com RabbitMQ real do compose oficial"]
 
 
 # --------------------------------------------------------------------------- #

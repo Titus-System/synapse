@@ -4,16 +4,17 @@ from shutil import copyfile
 
 def preparar_contratos() -> None:
     componente = Path(__file__).resolve().parents[1]
-    origem = componente.parent / "contracts" / "domain"
-    destino = componente / "contracts" / "domain"
-    esquemas = {arquivo.name: arquivo for arquivo in origem.glob("*.schema.json")}
+    origem = componente.parent / "contracts"
+    destino = componente / "contracts"
+    esquemas = {arquivo.relative_to(origem): arquivo for arquivo in origem.rglob("*.schema.json")}
     if not esquemas:
-        raise FileNotFoundError("Contratos de domínio ausentes na fonte de build")
+        raise FileNotFoundError("Contratos ausentes na fonte de build")
     destino.mkdir(parents=True, exist_ok=True)
     for nome, esquema in esquemas.items():
+        (destino / nome).parent.mkdir(parents=True, exist_ok=True)
         copyfile(esquema, destino / nome)
-    for incorporado in destino.glob("*.schema.json"):
-        if incorporado.name not in esquemas:
+    for incorporado in destino.rglob("*.schema.json"):
+        if incorporado.relative_to(destino) not in esquemas:
             incorporado.unlink()
 
 

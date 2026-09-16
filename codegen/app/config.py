@@ -1,7 +1,9 @@
 import os
 import socket
 from functools import lru_cache
+from urllib.parse import quote
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +21,20 @@ class Settings(BaseSettings):
 
     # Observabilidade
     LOG_LEVEL: str = "INFO"
+
+    RABBITMQ_HOST: str = "localhost"
+    RABBITMQ_PORT: int = 5672
+    RABBITMQ_USER: str = "guest"
+    RABBITMQ_PASSWORD: str = "guest"
+    RABBITMQ_VHOST: str = "/"
+    RABBITMQ_PREFETCH: int = Field(default=1, ge=1)
+
+    @property
+    def rabbitmq_url(self) -> str:
+        usuario = quote(self.RABBITMQ_USER, safe="")
+        senha = quote(self.RABBITMQ_PASSWORD, safe="")
+        vhost = quote(self.RABBITMQ_VHOST, safe="")
+        return f"amqp://{usuario}:{senha}@{self.RABBITMQ_HOST}:{self.RABBITMQ_PORT}/{vhost}"
 
     @property
     def hostname(self) -> str:
