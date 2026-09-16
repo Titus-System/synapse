@@ -5,16 +5,23 @@ from uuid import UUID
 import simplejson
 from aio_pika.abc import AbstractIncomingMessage
 
+from app.contratos.mensagens import ParametrosConfirmados, RegraSubmetida, SimulacaoConcluida
+from app.contratos.validacao import validar
 from app.core.logger import get_logger, job_id_ctx
-from app.mensageria.contratos import Entrada, validar
 from app.mensageria.roteamento import JobDesconhecidoError, RoteadorGrafo
 
 logger = get_logger("app.mensageria.consumers")
 
 
 class Consumer:
-    def __init__(self, modelo: type[Entrada], roteador: RoteadorGrafo) -> None:
+    def __init__(
+        self,
+        modelo: type[RegraSubmetida | ParametrosConfirmados | SimulacaoConcluida],
+        nome: str,
+        roteador: RoteadorGrafo,
+    ) -> None:
         self.modelo = modelo
+        self.nome = nome
         self.roteador = roteador
         self._ativos: set[asyncio.Task[None]] = set()
 
@@ -33,13 +40,17 @@ class Consumer:
                 if isinstance(payload, dict) and isinstance(payload.get("job_id"), str):
                     with suppress(ValueError):
                         job_id_ctx.set(str(UUID(payload["job_id"])))
-                validar(self.modelo.nome, payload)
-                dto = self.modelo.model_validate(payload)
+                validar(self.nome, payload)
+                # O schema já verificou os tipos. Decimal como texto intermediário evita
+                # a conversão para float no parser JSON do Pydantic, mantendo strict=True.
+                dto = self.modelo.model_validate_json(
+                    simplejson.dumps(payload, use_decimal=False, default=str)
+                )
             except ValueError:
                 logger.warning(
                     "mensagem inválida rejeitada",
                     extra={
-                        "tipo_mensagem": self.modelo.nome,
+                        "tipo_mensagem": self.nome,
                         "causa": "contrato_invalido",
                         "decisao": "reject_sem_requeue",
                     },
@@ -54,7 +65,7 @@ class Consumer:
                 logger.warning(
                     "job sem grafo correspondente",
                     extra={
-                        "tipo_mensagem": self.modelo.nome,
+                        "tipo_mensagem": self.nome,
                         "causa": "job_desconhecido",
                         "decisao": "reject_sem_requeue",
                     },
@@ -65,7 +76,7 @@ class Consumer:
                 logger.error(
                     "processamento da mensagem falhou",
                     extra={
-                        "tipo_mensagem": self.modelo.nome,
+                        "tipo_mensagem": self.nome,
                         "causa": "processamento_falhou",
                         "decisao": "nack_com_requeue",
                     },

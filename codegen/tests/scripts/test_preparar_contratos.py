@@ -88,14 +88,23 @@ def test_preparacao_incorpora_eventos_e_referencias_fora_do_monorepo(tmp_path: P
     programa = """
 import sys
 sys.path.insert(0, sys.argv[1])
-from app.mensageria.contratos import NoConcluido
+from app.contratos.mensagens import NoConcluido
+from app.contratos.validacao import validar, ContratoError
 import simplejson
 from pathlib import Path
 payload = simplejson.loads(
     (Path(sys.argv[1]) / 'contracts/examples/events/no-concluido.json').read_bytes(),
     use_decimal=True,
 )
-NoConcluido.model_validate(payload)
+validar("no-concluido", payload)
+NoConcluido.model_validate_json(simplejson.dumps(payload))
+payload["concluido_em"] = "2025-11-28T14:32:10"
+try:
+    validar("no-concluido", payload)
+except ContratoError:
+    pass
+else:
+    raise AssertionError("Runtime ignorou o formato do schema incorporado")
 """
     copytree(origem / "examples", destino / "examples")
     origem.rename(tmp_path / "fonte-indisponivel")

@@ -1,7 +1,9 @@
 from typing import Protocol
 from uuid import UUID
 
-from app.mensageria.contratos import Entrada
+from app.contratos.mensagens import ParametrosConfirmados, RegraSubmetida, SimulacaoConcluida
+
+type Entrada = RegraSubmetida | ParametrosConfirmados | SimulacaoConcluida
 
 
 class JobDesconhecidoError(Exception):

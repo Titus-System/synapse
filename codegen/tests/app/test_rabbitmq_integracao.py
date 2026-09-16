@@ -11,15 +11,14 @@ from aio_pika import Message
 from aiormq.exceptions import ChannelNotFoundEntity
 
 from app.config import Settings
-from app.mensageria.broker import EXCHANGE_SIMULACAO, FILA_SIMULACAO, ConexaoBroker, conectar
-from app.mensageria.contratos import (
-    Entrada,
-    Mensagem,
-    ParametrosConfirmados,
-    RegraSubmetida,
+from app.contratos.mensagens import (
+    ModeloContrato,
     SimulacaoConcluida,
 )
-from tests.app.test_mensageria import SAIDAS, exemplo, oficial
+from app.contratos.serializacao import serializar
+from app.mensageria.broker import EXCHANGE_SIMULACAO, FILA_SIMULACAO, ConexaoBroker, conectar
+from app.mensageria.roteamento import Entrada
+from tests.app.test_mensageria import ENTRADAS, SAIDAS, exemplo, oficial
 
 pytestmark = [
     pytest.mark.rabbitmq,
@@ -77,10 +76,11 @@ class RoteadorTeste:
         await self.entregas.put((job_id, mensagem))
 
 
-@pytest.mark.parametrize("modelo", [RegraSubmetida, ParametrosConfirmados, SimulacaoConcluida])
+@pytest.mark.parametrize("modelo,nome", ENTRADAS)
 async def test_broker_real_entrega_ao_codegen_sem_api(
     broker_real: ConexaoBroker,
     modelo: type[Entrada],
+    nome: str,
 ) -> None:
     roteador = RoteadorTeste()
     await broker_real.iniciar_consumers(roteador)
@@ -91,7 +91,7 @@ async def test_broker_real_entrega_ao_codegen_sem_api(
     finally:
         if not canal_verificacao.is_closed:
             await canal_verificacao.close()
-    payload = exemplo(modelo.nome)
+    payload = exemplo(nome)
     corpo = simplejson.dumps(payload, use_decimal=True).encode()
     if modelo is SimulacaoConcluida:
         exchange = await broker_real.canal.get_exchange(EXCHANGE_SIMULACAO)
@@ -99,14 +99,14 @@ async def test_broker_real_entrega_ao_codegen_sem_api(
         assert broker_real.filas[FILA_SIMULACAO].name == "simulacao-concluida.codegen"
     else:
         exchange = broker_real.canal.default_exchange
-        rota = modelo.nome
+        rota = nome
 
     await exchange.publish(Message(body=corpo, content_type="application/json"), routing_key=rota)
     job_id, dto = await asyncio.wait_for(roteador.entregas.get(), timeout=10)
 
     assert isinstance(dto, modelo)
     assert str(job_id) == payload["job_id"]
-    assert simplejson.loads(dto.serializar(), use_decimal=True) == payload
+    assert simplejson.loads(serializar(dto), use_decimal=True) == payload
 
 
 async def test_fanout_mantem_copia_na_fila_api_sem_consumer(broker_real: ConexaoBroker) -> None:
@@ -126,20 +126,21 @@ async def test_fanout_mantem_copia_na_fila_api_sem_consumer(broker_real: Conexao
     await copia_api.ack()
 
 
-@pytest.mark.parametrize("modelo,metodo", SAIDAS)
+@pytest.mark.parametrize("modelo,nome,metodo", SAIDAS)
 async def test_producer_real_entrega_payload_oficial_na_fila(
     broker_real: ConexaoBroker,
-    modelo: type[Mensagem],
+    modelo: type[ModeloContrato],
+    nome: str,
     metodo: str,
 ) -> None:
-    dto = modelo.model_validate(exemplo(modelo.nome))
+    dto = modelo.model_validate_json(simplejson.dumps(exemplo(nome)))
 
     await getattr(broker_real.producers, metodo)(dto)
-    recebido = await broker_real.filas[modelo.nome].get(timeout=10)
+    recebido = await broker_real.filas[nome].get(timeout=10)
 
     payload = simplejson.loads(recebido.body, use_decimal=True)
-    oficial(modelo.nome).validate(payload)
-    assert payload == exemplo(modelo.nome)
+    oficial(nome).validate(payload)
+    assert payload == exemplo(nome)
     assert recebido.exchange == ""
-    assert recebido.routing_key == modelo.nome
+    assert recebido.routing_key == nome
     await recebido.ack()

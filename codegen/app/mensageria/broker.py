@@ -4,9 +4,9 @@ from aio_pika import ExchangeType, connect_robust
 from aio_pika.abc import AbstractChannel, AbstractQueue, AbstractRobustConnection
 
 from app.config import Settings
+from app.contratos.mensagens import ParametrosConfirmados, RegraSubmetida, SimulacaoConcluida
 from app.core.logger import get_logger
 from app.mensageria.consumers import Consumer
-from app.mensageria.contratos import ParametrosConfirmados, RegraSubmetida, SimulacaoConcluida
 from app.mensageria.producers import Producers
 from app.mensageria.roteamento import RoteadorGrafo
 
@@ -42,13 +42,13 @@ class ConexaoBroker:
     async def iniciar_consumers(self, roteador: RoteadorGrafo) -> None:
         if self.consumidores:
             raise RuntimeError("Consumers já iniciados")
-        for modelo, nome in (
-            (RegraSubmetida, "regra-submetida"),
-            (ParametrosConfirmados, "parametros-confirmados"),
-            (SimulacaoConcluida, FILA_SIMULACAO),
+        for modelo, nome, nome_fila in (
+            (RegraSubmetida, "regra-submetida", "regra-submetida"),
+            (ParametrosConfirmados, "parametros-confirmados", "parametros-confirmados"),
+            (SimulacaoConcluida, EXCHANGE_SIMULACAO, FILA_SIMULACAO),
         ):
-            consumer = Consumer(modelo, roteador)
-            fila = self.filas[nome]
+            consumer = Consumer(modelo, nome, roteador)
+            fila = self.filas[nome_fila]
             tag = await fila.consume(consumer.receber, no_ack=False)
             self.consumidores.append((fila, tag, consumer))
 

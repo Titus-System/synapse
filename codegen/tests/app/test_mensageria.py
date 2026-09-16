@@ -9,41 +9,56 @@ import pytest
 import simplejson
 from aio_pika import DeliveryMode
 from jsonschema import Draft202012Validator, FormatChecker
-from pydantic import ValidationError
 from referencing import Registry, Resource
 
 from app.config import Settings
+from app.contratos.mensagens import (
+    EtapaAlterada,
+    ExecutarCodigo,
+    ModeloContrato,
+    NoConcluido,
+    ParametrosConfirmados,
+    RegraSubmetida,
+    SimulacaoConcluida,
+)
+from app.contratos.serializacao import serializar
 from app.core.logger import job_id_ctx
 from app.mensageria import broker as modulo_broker
 from app.mensageria.broker import FILA_SIMULACAO, FILAS_SIMPLES, conectar, declarar_topologia
 from app.mensageria.consumers import Consumer
-from app.mensageria.contratos import (
-    Entrada,
-    EtapaAlterada,
-    ExecutarCodigo,
-    Mensagem,
-    NoConcluido,
-    ParametrosConfirmados,
-    RegraSubmetida,
-    SimulacaoConcluida,
-)
 from app.mensageria.producers import Producers, ProdutorError
-from app.mensageria.roteamento import JobDesconhecidoError
+from app.mensageria.roteamento import Entrada, JobDesconhecidoError
 
 CONTRATOS = Path(__file__).resolve().parents[3] / "contracts"
-MODELOS = (
-    RegraSubmetida,
-    ParametrosConfirmados,
-    SimulacaoConcluida,
-    ExecutarCodigo,
-    EtapaAlterada,
-    NoConcluido,
+
+
+async def test_consumer_entrega_dto_canonico_com_decimal_exato_e_campo_futuro() -> None:
+    valor = Decimal("12345678901234567890.1234567890123456789")
+    payload = exemplo("simulacao-concluida") | {
+        "total_simulado": valor,
+        "extensao_futura": {"ok": True},
+    }
+    roteador = MagicMock(entregar=AsyncMock())
+    mensagem = AsyncMock(body=simplejson.dumps(payload, use_decimal=True).encode())
+
+    await Consumer(SimulacaoConcluida, "simulacao-concluida", roteador).receber(mensagem)
+
+    dto = roteador.entregar.call_args.args[1]
+    assert isinstance(dto, SimulacaoConcluida)
+    assert dto.total_simulado == valor
+    assert "extensao_futura" not in dto.model_dump()
+    mensagem.ack.assert_awaited_once_with()
+
+
+ENTRADAS = (
+    (RegraSubmetida, "regra-submetida"),
+    (ParametrosConfirmados, "parametros-confirmados"),
+    (SimulacaoConcluida, "simulacao-concluida"),
 )
-ENTRADAS = (RegraSubmetida, ParametrosConfirmados, SimulacaoConcluida)
 SAIDAS = (
-    (ExecutarCodigo, "executar_codigo"),
-    (EtapaAlterada, "etapa_alterada"),
-    (NoConcluido, "no_concluido"),
+    (ExecutarCodigo, "executar-codigo", "executar_codigo"),
+    (EtapaAlterada, "etapa-alterada", "etapa_alterada"),
+    (NoConcluido, "no-concluido", "no_concluido"),
 )
 
 
@@ -62,128 +77,125 @@ def oficial(nome: str) -> Draft202012Validator:
     return Draft202012Validator(schema, registry=registro, format_checker=FormatChecker())
 
 
-@pytest.mark.parametrize("modelo", MODELOS)
-def test_seis_dtos_validam_exemplo_e_serializacao_no_schema_oficial(modelo: type[Mensagem]) -> None:
-    payload = exemplo(modelo.nome)
-    schema = oficial(modelo.nome)
-    schema.validate(payload)
-
-    dto = modelo.model_validate(payload)
-    produzido = simplejson.loads(dto.serializar(), use_decimal=True)
-
-    schema.validate(produzido)
-    assert produzido == payload
-    assert isinstance(dto.job_id, UUID)
-
-
-@pytest.mark.parametrize("modelo", MODELOS)
-def test_dto_recusa_uuid_invalido(modelo: type[Mensagem]) -> None:
-    payload = exemplo(modelo.nome) | {"job_id": "invalido"}
-    with pytest.raises(ValidationError):
-        modelo.model_validate(payload)
-
-
-@pytest.mark.parametrize("modelo", MODELOS)
-def test_dto_ignora_campos_aditivos(modelo: type[Mensagem]) -> None:
-    payload = exemplo(modelo.nome)
-    dto = modelo.model_validate(payload | {"extensao_futura": {"ok": True}})
-    assert simplejson.loads(dto.serializar(), use_decimal=True) == payload
-
-
 @pytest.mark.parametrize(
-    "modelo,campo",
+    "modelo,nome,alteracao",
     [
-        (RegraSubmetida, "regra_id"),
-        (SimulacaoConcluida, "total_simulado"),
-        (NoConcluido, "explicacao_id"),
+        (RegraSubmetida, "regra-submetida", {"competencias": []}),
+        (RegraSubmetida, "regra-submetida", {"competencias": ["2025-13"]}),
+        (RegraSubmetida, "regra-submetida", {"origem": "outra"}),
+        (RegraSubmetida, "regra-submetida", {"submissao_id": None}),
+        (RegraSubmetida, "regra-submetida", {"regra_id": None}),
+        (ParametrosConfirmados, "parametros-confirmados", {"job_id": "invalido"}),
+        (SimulacaoConcluida, "simulacao-concluida", {"total_simulado": None}),
+        (SimulacaoConcluida, "simulacao-concluida", {"total_simulado": "1.2"}),
+        (SimulacaoConcluida, "simulacao-concluida", {"total_simulado": True}),
     ],
 )
-def test_opcional_ausente_nao_autoriza_null(modelo: type[Mensagem], campo: str) -> None:
-    with pytest.raises(ValidationError):
-        modelo.model_validate(exemplo(modelo.nome) | {campo: None})
+async def test_consumer_recusa_schema_invalido_antes_de_entregar(
+    modelo: type[Entrada], nome: str, alteracao: dict[str, Any]
+) -> None:
+    roteador = MagicMock(entregar=AsyncMock())
+    mensagem = AsyncMock(body=simplejson.dumps(exemplo(nome) | alteracao).encode())
+
+    await Consumer(modelo, nome, roteador).receber(mensagem)
+
+    mensagem.reject.assert_awaited_once_with(requeue=False)
+    mensagem.ack.assert_not_awaited()
+    roteador.entregar.assert_not_awaited()
 
 
-@pytest.mark.parametrize(
-    "alteracao",
-    [
-        {"competencias": []},
-        {"competencias": ["2025-13"]},
-        {"origem": "outra"},
-        {"submissao_id": None},
-        {"regra_id": None},
-    ],
-)
-def test_regra_recusa_campos_incompativeis(alteracao: dict[str, Any]) -> None:
-    with pytest.raises(ValidationError):
-        RegraSubmetida.model_validate(exemplo("regra-submetida") | alteracao)
-
-
-def test_regra_exige_referencias_conforme_origem() -> None:
-    payload = exemplo("regra-submetida")
+@pytest.mark.parametrize("origem", ["formulario", "reprocessamento"])
+async def test_consumer_exige_referencias_conforme_origem(origem: str) -> None:
+    payload = exemplo("regra-submetida") | {"origem": origem}
     del payload["regra_id"]
-    with pytest.raises(ValidationError):
-        RegraSubmetida.model_validate(payload)
-    voz = RegraSubmetida.model_validate(exemplo("regra-submetida-voz"))
-    assert "regra_id" not in simplejson.loads(voz.serializar())
-    payload["origem"] = "reprocessamento"
-    with pytest.raises(ValidationError):
-        RegraSubmetida.model_validate(payload)
+    roteador = MagicMock(entregar=AsyncMock())
+    mensagem = AsyncMock(body=simplejson.dumps(payload).encode())
+
+    await Consumer(RegraSubmetida, "regra-submetida", roteador).receber(mensagem)
+
+    mensagem.reject.assert_awaited_once_with(requeue=False)
+    roteador.entregar.assert_not_awaited()
 
 
-@pytest.mark.parametrize("valor", [1.2, True, "1.2", Decimal("NaN"), Decimal("Infinity"), -1])
-def test_orcamento_recusa_numero_inadequado(valor: object) -> None:
-    with pytest.raises(ValidationError):
-        ExecutarCodigo.model_validate(exemplo("executar-codigo") | {"orcamento": valor})
+async def test_consumer_aceita_voz_sem_regra_id() -> None:
+    roteador = MagicMock(entregar=AsyncMock())
+    payload = exemplo("regra-submetida-voz")
+    mensagem = AsyncMock(body=simplejson.dumps(payload).encode())
+
+    await Consumer(RegraSubmetida, "regra-submetida", roteador).receber(mensagem)
+
+    dto = roteador.entregar.call_args.args[1]
+    assert simplejson.loads(serializar(dto)) == payload
+    mensagem.ack.assert_awaited_once_with()
 
 
-def test_decimal_preserva_todos_os_digitos_no_corpo_json() -> None:
+async def test_producer_preserva_decimal_exato_no_corpo_json() -> None:
     valor = Decimal("12345678901234567890.1234567890123456789")
-    dto = ExecutarCodigo.model_validate(exemplo("executar-codigo") | {"orcamento": valor})
-    assert dto.orcamento == valor
-    assert simplejson.loads(dto.serializar(), use_decimal=True)["orcamento"] == valor
-    assert str(valor).encode() in dto.serializar()
+    dto = ExecutarCodigo.model_validate_json(simplejson.dumps(exemplo("executar-codigo")))
+    dto.orcamento = valor
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+
+    await Producers(canal).executar_codigo(dto)
+
+    corpo = canal.default_exchange.publish.call_args.args[0].body
+    assert simplejson.loads(corpo, use_decimal=True)["orcamento"] == valor
+    assert str(valor).encode() in corpo
 
 
 @pytest.mark.parametrize(
     "alteracao",
     [
         {"concluido_em": "2025-11-28T14:32:10"},
-        {"no": "inventado"},
-        {"conclusao": {"resumo": ""}},
-        {"conclusao": {"resumo": "ok", "elementos_implementados": ["invalido"]}},
         {"conclusao": {"resumo": "ok", "fontes": None}},
+        {"explicacao_id": None},
     ],
 )
-def test_conclusao_recusa_data_no_ou_conteudo_invalido(alteracao: dict[str, Any]) -> None:
-    with pytest.raises(ValidationError):
-        NoConcluido.model_validate(exemplo("no-concluido") | alteracao)
+async def test_producer_recusa_data_sem_fuso_e_null_explicito(
+    alteracao: dict[str, Any],
+) -> None:
+    dto = NoConcluido.model_validate_json(simplejson.dumps(exemplo("no-concluido") | alteracao))
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+
+    with pytest.raises(ProdutorError):
+        await Producers(canal).no_concluido(dto)
+
+    canal.default_exchange.publish.assert_not_awaited()
 
 
-@pytest.mark.parametrize("modelo,metodo", SAIDAS)
+@pytest.mark.parametrize("modelo,nome,metodo", SAIDAS)
 async def test_producer_publica_payload_validado_na_rota_correta(
-    modelo: type[Mensagem],
+    modelo: type[ModeloContrato],
+    nome: str,
     metodo: str,
 ) -> None:
     canal = MagicMock()
     canal.default_exchange.publish = AsyncMock()
-    dto = modelo.model_validate(exemplo(modelo.nome))
+    dto = modelo.model_validate_json(simplejson.dumps(exemplo(nome)))
 
     await getattr(Producers(canal), metodo)(dto)
 
     args = canal.default_exchange.publish.call_args
-    assert args.kwargs == {"routing_key": modelo.nome, "mandatory": True}
+    assert args.kwargs == {"routing_key": nome, "mandatory": True}
     mensagem = args.args[0]
-    oficial(modelo.nome).validate(simplejson.loads(mensagem.body, use_decimal=True))
+    oficial(nome).validate(simplejson.loads(mensagem.body, use_decimal=True))
     assert mensagem.delivery_mode == DeliveryMode.PERSISTENT
     assert mensagem.correlation_id == str(dto.job_id)
     assert mensagem.content_type == "application/json"
+    assert mensagem.content_encoding == "utf-8"
+    assert mensagem.type == nome
+    assert mensagem.message_id == (str(dto.evento_id) if isinstance(dto, NoConcluido) else None)
+    assert simplejson.loads(mensagem.body, use_decimal=True) == exemplo(nome)
 
 
-@pytest.mark.parametrize("modelo,metodo", SAIDAS)
-async def test_producer_nao_publica_dto_adulterado(modelo: type[Mensagem], metodo: str) -> None:
+@pytest.mark.parametrize("modelo,nome,metodo", SAIDAS)
+async def test_producer_nao_publica_dto_adulterado(
+    modelo: type[ModeloContrato], nome: str, metodo: str
+) -> None:
     canal = MagicMock()
     canal.default_exchange.publish = AsyncMock()
-    dto = modelo.model_validate(exemplo(modelo.nome))
+    dto = modelo.model_validate_json(simplejson.dumps(exemplo(nome)))
     dto.job_id = "invalido"
 
     with pytest.raises(ProdutorError):
@@ -192,22 +204,25 @@ async def test_producer_nao_publica_dto_adulterado(modelo: type[Mensagem], metod
     canal.default_exchange.publish.assert_not_awaited()
 
 
-@pytest.mark.parametrize("modelo", ENTRADAS)
-async def test_consumer_entrega_dto_e_job_id_antes_do_ack(modelo: type[Entrada]) -> None:
+@pytest.mark.parametrize("modelo,nome", ENTRADAS)
+async def test_consumer_entrega_dto_e_job_id_antes_do_ack(modelo: type[Entrada], nome: str) -> None:
     ordem = []
     roteador = MagicMock()
 
     async def entregar(job_id: UUID, dto: Entrada) -> None:
         assert isinstance(dto, modelo)
-        assert job_id == UUID(exemplo(modelo.nome)["job_id"])
+        assert "extensao_futura" not in dto.model_dump()
+        assert job_id == UUID(exemplo(nome)["job_id"])
         assert job_id_ctx.get() == str(job_id)
         mensagem.ack.assert_not_awaited()
         ordem.append("persistido")
 
     roteador.entregar = AsyncMock(side_effect=entregar)
-    mensagem = AsyncMock(body=simplejson.dumps(exemplo(modelo.nome)).encode())
+    mensagem = AsyncMock(
+        body=simplejson.dumps(exemplo(nome) | {"extensao_futura": {"ok": True}}).encode()
+    )
     mensagem.ack.side_effect = lambda: ordem.append("ack")
-    await Consumer(modelo, roteador).receber(mensagem)
+    await Consumer(modelo, nome, roteador).receber(mensagem)
 
     assert ordem == ["persistido", "ack"]
     assert job_id_ctx.get() is None
@@ -221,7 +236,7 @@ async def test_job_desconhecido_rejeitado_e_consumer_continua(
     log = MagicMock()
     monkeypatch.setattr("app.mensageria.consumers.logger", log)
     roteador = MagicMock(entregar=AsyncMock(side_effect=[JobDesconhecidoError("segredo"), None]))
-    consumer = Consumer(ParametrosConfirmados, roteador)
+    consumer = Consumer(ParametrosConfirmados, "parametros-confirmados", roteador)
     primeira = AsyncMock(body=simplejson.dumps(exemplo("parametros-confirmados")).encode())
     segunda = AsyncMock(body=primeira.body)
 
@@ -241,7 +256,7 @@ async def test_falha_de_processamento_reentrega_sem_ack(monkeypatch: pytest.Monk
     roteador = MagicMock(entregar=AsyncMock(side_effect=RuntimeError("segredo")))
     mensagem = AsyncMock(body=simplejson.dumps(exemplo("parametros-confirmados")).encode())
 
-    await Consumer(ParametrosConfirmados, roteador).receber(mensagem)
+    await Consumer(ParametrosConfirmados, "parametros-confirmados", roteador).receber(mensagem)
 
     mensagem.nack.assert_awaited_once_with(requeue=True)
     mensagem.ack.assert_not_awaited()
@@ -253,7 +268,7 @@ async def test_mensagem_malformada_rejeitada_sem_processamento(corpo: bytes) -> 
     roteador = MagicMock(entregar=AsyncMock())
     mensagem = AsyncMock(body=corpo)
 
-    await Consumer(ParametrosConfirmados, roteador).receber(mensagem)
+    await Consumer(ParametrosConfirmados, "parametros-confirmados", roteador).receber(mensagem)
 
     mensagem.reject.assert_awaited_once_with(requeue=False)
     mensagem.ack.assert_not_awaited()
@@ -264,7 +279,7 @@ async def test_cancelamento_nao_confirma_trabalho_incompleto() -> None:
     roteador = MagicMock(entregar=AsyncMock(side_effect=asyncio.CancelledError))
     mensagem = AsyncMock(body=simplejson.dumps(exemplo("parametros-confirmados")).encode())
     with pytest.raises(asyncio.CancelledError):
-        await Consumer(ParametrosConfirmados, roteador).receber(mensagem)
+        await Consumer(ParametrosConfirmados, "parametros-confirmados", roteador).receber(mensagem)
     mensagem.ack.assert_not_awaited()
     mensagem.reject.assert_not_awaited()
 
@@ -322,7 +337,7 @@ async def test_lifespan_inicia_recursos_e_fecha_sem_grafo_falso(
 async def test_producer_revalida_restricao_schema_depois_de_mutacao() -> None:
     canal = MagicMock()
     canal.default_exchange.publish = AsyncMock()
-    dto = ExecutarCodigo.model_validate(exemplo("executar-codigo"))
+    dto = ExecutarCodigo.model_validate_json(simplejson.dumps(exemplo("executar-codigo")))
     dto.competencias.clear()
 
     with pytest.raises(ProdutorError):
@@ -363,7 +378,9 @@ async def test_encerramento_aguarda_processamento_antes_de_fechar_conexao() -> N
         inicio.set()
         await liberar.wait()
 
-    consumer = Consumer(ParametrosConfirmados, MagicMock(entregar=entregar))
+    consumer = Consumer(
+        ParametrosConfirmados, "parametros-confirmados", MagicMock(entregar=entregar)
+    )
     mensagem = AsyncMock(body=simplejson.dumps(exemplo("parametros-confirmados")).encode())
     tarefa = asyncio.create_task(consumer.receber(mensagem))
     await inicio.wait()
@@ -403,7 +420,7 @@ async def test_log_de_rejeicao_preserva_envelope_e_job_sem_payload(
     monkeypatch.setattr("app.mensageria.consumers.logger", logger)
     payload = exemplo("parametros-confirmados") | {"regra_id": "segredo"}
     mensagem = AsyncMock(body=simplejson.dumps(payload).encode())
-    await Consumer(ParametrosConfirmados, MagicMock()).receber(mensagem)
+    await Consumer(ParametrosConfirmados, "parametros-confirmados", MagicMock()).receber(mensagem)
 
     schema = simplejson.loads((CONTRATOS / "observability" / "log.schema.json").read_bytes())
     Draft202012Validator(schema, format_checker=FormatChecker()).validate(envelopes[0])

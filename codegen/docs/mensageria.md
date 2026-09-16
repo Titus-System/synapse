@@ -16,6 +16,12 @@ O corpo é o contrato; `type`, `correlation_id` e `message_id` são propriedades
 | `EtapaAlterada` | saída | `etapa-alterada` | padrão (`""`) |
 | `NoConcluido` | saída | `no-concluido` | padrão (`""`) |
 
+Os DTOs canônicos ficam em `app/contratos/mensagens.py` e são reutilizados pela
+mensageria, sem subclasses de transporte. Os nomes de mensagens e o roteamento
+ficam na camada de mensageria. A validação JSON Schema ocorre na fronteira de
+transporte, por `app/contratos/validacao.py`, antes de construir o DTO recebido ou
+publicar o corpo serializado por `app/contratos/serializacao.py`.
+
 Cada DTO corresponde a `contracts/events/<mensagem>.schema.json`, inclusive
 o comando `executar-codigo`. A topologia é durável, não exclusiva, sem auto-delete
 e sem argumentos `x-*`. Cada lado declara as filas em que participa de forma
@@ -26,7 +32,10 @@ os caminhos relativos e removendo cópias obsoletas. O Docker já copia `contrac
 O runtime registra os schemas incorporados por `$id`, sem consulta ao monorepo
 nem download de referências. Os DTOs são independentes de `EstadoGrafo`.
 
-Números recebidos são decodificados com `simplejson` em `Decimal`. A saída usa
+Números recebidos são decodificados com `simplejson` em `Decimal`. Após validar o
+schema, esses decimais são representados como texto apenas no JSON intermediário
+entregue ao Pydantic, evitando perda de precisão no parser e preservando `strict=True`
+e a conversão de UUIDs e enums a partir de JSON. A saída usa
 `use_decimal=True`, mantendo número JSON sem conversão para float. Campos opcionais
 ausentes não são emitidos; `null` explícito é recusado pelo schema. Campos adicionais
 são ignorados nos DTOs conforme ADR-002. Datas incluem fuso e são verificadas pelo
