@@ -55,25 +55,24 @@ da persistência e antes do ACK. T-049 não implementa nós nem checkpointer.
 | Cancelamento | sem ACK; fechamento da conexão devolve mensagens não confirmadas |
 
 A rejeição de mensagens inválidas e jobs desconhecidos é a decisão mínima local
-da T-049 para falhas não recuperáveis. **Na topologia existente não há DLQ; essas
-rejeições descartam a mensagem.** Ausência de roteador configurado não é job
+da T-049 para falhas não recuperáveis. **As filas de entrada do codegen não têm DLQ;
+essas rejeições descartam a mensagem.** Ausência de roteador configurado não é job
 desconhecido: nesse caso nenhum consumer é iniciado e as mensagens ficam nas filas.
 Falhas transitórias usam a reentrega do broker, sem republicação/retry manual.
 Sem backoff configurado, uma falha persistente pode causar reentregas repetidas.
 
-**Pendência arquitetural da T-049:** falta atribuir quem implementa/configura
-retry e DLQ de `executar-codigo`, incluindo limite, atraso, destino e recuperação.
-A [T-065](https://github.com/Titus-System/synapse/issues/66) define a classificação
-de falhas e sua relação com `retry_count`; a
-[T-063](https://github.com/Titus-System/synapse/issues/64) e a
-[T-057](https://github.com/Titus-System/synapse/issues/59) excluem a política de
-retry de seu escopo e dependem dessa classificação. Isso não atribui a topologia
-de DLQ à T-065. A [T-067](https://github.com/Titus-System/synapse/issues/68) trata
-da persistência e publicação do resultado, sem definir retry/DLQ do comando.
-A DEC-089 determina declarações sem argumentos `x-*`; não há policy externa
-de RabbitMQ no repositório. A fila atual é compatível com essa decisão, mas não
-implementa a semântica de retry/DLQ exigida pela T-049. Não há implementação de
-T-057, T-062 ou T-067 nesta camada.
+Para o comando de saída `executar-codigo`, a
+[DEC-091](../../docs/decisoes/dec-091.md) define retry gerenciado pela aplicação no
+**worker, lado consumidor**. O producer do codegen apenas publica o comando inicial.
+O worker usa o header AMQP `synapse_retry_count` (ausente = zero), com até três
+tentativas totais, sem alterar o payload ou o schema. Somente falhas de
+infraestrutura permitem retry automático; falhas permanentes e tentativas esgotadas
+vão para `executar-codigo.dlq`, declarada pelo worker, sem consumidor automático.
+O worker republica uma cópia persistente, aguarda publisher confirm e só então
+confirma a original; se a publicação falhar, devolve a original com requeue.
+As filas permanecem sem argumentos `x-*`, conforme DEC-089, e não há backoff,
+TTL ou plugins. A classificação completa da T-065 e a persistência/publicação de
+resultado da T-067 permanecem fora desta camada.
 
 Logs usam o logger do codegen, `job_id_ctx` com restauração ao sair e atributos
 operacionais `tipo_mensagem`, `causa` e `decisao`. Não incluem payloads, texto de

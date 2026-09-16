@@ -1,12 +1,13 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from aio_pika import Message
+from pamqp.commands import Basic
 
 from app.mensageria import consumidor
 from app.mensageria.broker import ConexaoBroker
@@ -14,37 +15,22 @@ from app.mensageria.consumidor import consumir_fila_execucao
 from app.repositorio.codigos_gerados import CodigoGerado, CodigoNaoEncontradoError
 
 
-class _ProcessoFalso:
-    """Reproduz o essencial de aio_pika.message.ProcessContext: aceita em sucesso,
-    rejeita (sem requeue) e deixa a exceção propagar quando o corpo do `async with`
-    falha"""
+class MensagemFalsa(Message):
+    def __init__(self, body: bytes) -> None:
+        super().__init__(body=body)
+        self.aceita = False
+        self.requeued = False
 
-    def __init__(self, mensagem: "MensagemFalsa") -> None:
-        self._mensagem = mensagem
+    async def ack(self) -> None:
+        self.aceita = True
 
-    async def __aenter__(self) -> "MensagemFalsa":
-        return self._mensagem
-
-    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
-        if exc_type is None:
-            self._mensagem.aceita = True
-        else:
-            self._mensagem.rejeitada = True
-        return False
-
-
-@dataclass
-class MensagemFalsa:
-    body: bytes
-    aceita: bool = field(default=False, init=False)
-    rejeitada: bool = field(default=False, init=False)
-
-    def process(self, requeue: bool = False) -> _ProcessoFalso:
-        assert requeue is False
-        return _ProcessoFalso(self)
+    async def nack(self, requeue: bool) -> None:
+        self.requeued = requeue
 
 
 class FilaFalsa:
+    name = "executar-codigo"
+
     def __init__(self, mensagens: list[MensagemFalsa]) -> None:
         self._mensagens = mensagens
 
@@ -73,7 +59,7 @@ def _corpo_comando(**overrides: Any) -> bytes:
     return json.dumps(dados).encode("utf-8")
 
 
-async def test_mensagem_invalida_e_rejeitada_e_nao_interrompe_a_fila(
+async def test_mensagem_invalida_vai_a_dlq_e_nao_interrompe_a_fila(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     invalida = MensagemFalsa(body=b"{}")
@@ -83,15 +69,19 @@ async def test_mensagem_invalida_e_rejeitada_e_nao_interrompe_a_fila(
     monkeypatch.setattr(consumidor, "get_sessionmaker", lambda: _SessionmakerFalso())
 
     fila = FilaFalsa([invalida, valida])
-    broker = ConexaoBroker(conexao=AsyncMock(), canal=AsyncMock(), fila=fila)  # type: ignore[arg-type]
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock(return_value=Basic.Ack())
+    broker = ConexaoBroker(conexao=AsyncMock(), canal=canal, fila=fila)  # type: ignore[arg-type]
 
     await consumir_fila_execucao(broker)
 
-    assert invalida.rejeitada is True
+    assert invalida.aceita is True
+    canal.default_exchange.publish.assert_awaited_once()
+    assert canal.default_exchange.publish.call_args.kwargs["routing_key"] == "executar-codigo.dlq"
     assert valida.aceita is True
 
 
-async def test_codigo_nao_encontrado_rejeita_a_mensagem_com_erro_especifico(
+async def test_codigo_nao_encontrado_vai_direto_a_dlq(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     codigo_gerado_id = uuid4()
@@ -104,12 +94,18 @@ async def test_codigo_nao_encontrado_rejeita_a_mensagem_com_erro_especifico(
 
     mensagem = MensagemFalsa(body=_corpo_comando(codigo_gerado_id=str(codigo_gerado_id)))
     fila = FilaFalsa([mensagem])
-    broker = ConexaoBroker(conexao=AsyncMock(), canal=AsyncMock(), fila=fila)  # type: ignore[arg-type]
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock(return_value=Basic.Ack())
+    broker = ConexaoBroker(conexao=AsyncMock(), canal=canal, fila=fila)  # type: ignore[arg-type]
 
     await consumir_fila_execucao(broker)
 
-    assert mensagem.rejeitada is True
-    assert mensagem.aceita is False
+    assert mensagem.aceita is True
+    canal.default_exchange.publish.assert_awaited_once()
+    assert canal.default_exchange.publish.call_args.kwargs["routing_key"] == "executar-codigo.dlq"
+    copia = canal.default_exchange.publish.call_args.args[0]
+    assert copia.body == mensagem.body
+    assert copia.headers == {}
 
 
 async def test_dois_comandos_sao_processados_um_de_cada_vez(
@@ -117,7 +113,7 @@ async def test_dois_comandos_sao_processados_um_de_cada_vez(
 ) -> None:
     ordem: list[str] = []
 
-    async def _processar_instrumentado(mensagem: MensagemFalsa) -> None:
+    async def _processar_instrumentado(mensagem: MensagemFalsa, broker: ConexaoBroker) -> None:
         identificador = mensagem.body.decode()
         ordem.append(f"entrou:{identificador}")
         await asyncio.sleep(0.01)
