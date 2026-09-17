@@ -1,7 +1,7 @@
 # codegen
 
 Processo Python responsável pela geração assistida do Synapse. A comunicação de negócio
-com os outros serviços ocorrerá somente pelo RabbitMQ; a aplicação FastAPI existe para
+com os outros serviços ocorre somente pelo RabbitMQ; a aplicação FastAPI existe para
 observabilidade operacional, não como API de negócio.
 
 ## Endpoints
@@ -12,6 +12,14 @@ observabilidade operacional, não como API de negócio.
 | GET | `/metrics` | Expõe métricas no formato de texto do Prometheus. |
 
 Não há outros endpoints, documentação OpenAPI ou rotas de negócio.
+
+## Mensageria
+
+Os seis DTOs, consumers/producers, política de confirmações, configuração do broker
+e testes reais do compose estão descritos em [Mensageria T-049](docs/mensageria.md).
+O lifespan declara a topologia e disponibiliza producers; inicia o consumo quando
+`criar_aplicacao(roteador=...)` recebe a integração real com o grafo. Sem roteador,
+as mensagens permanecem no broker e o processo registra um aviso.
 
 ## Execução local
 
@@ -55,7 +63,9 @@ de adaptação ou resultados de novas simulações.
 `RepresentacaoRegra` envolve a estrutura original da T-004 e a valida diretamente
 com `jsonschema` (draft 2020-12, incluindo formatos e referências locais).
 Não há outro schema da regra. `scripts/preparar_contratos.py` copia todos os
-`contracts/domain/*.schema.json` para `codegen/contracts/domain/`, um artefato ignorado pelo Git.
+`contracts/**/*.schema.json` para `codegen/contracts/`, preservando diretórios,
+um artefato ignorado pelo Git. A descoberta recursiva inclui eventos, comandos
+(armazenados em `events/` pela T-003) e suas referências sem listas de arquivos.
 Os alvos de instalação, execução e testes do Makefile fazem essa preparação.
 No Docker, o `COPY contracts ./contracts` existente incorpora os schemas na imagem.
 Runtime lê somente essa cópia do componente, sem consultar a raiz do monorepo.

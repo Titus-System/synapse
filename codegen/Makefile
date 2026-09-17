@@ -44,6 +44,9 @@ test: contracts
 test-e2e:
 	poetry run pytest tests/app/e2e/
 
+test-rabbitmq: contracts
+	RUN_RABBITMQ_INTEGRATION=1 poetry run pytest -p no:cacheprovider -m rabbitmq
+
 seed:
 	poetry run python app/seed/run_seed.py
 
