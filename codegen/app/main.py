@@ -7,20 +7,31 @@ from prometheus_client import CONTENT_TYPE_LATEST
 from app.config import get_settings
 from app.core.logger import get_logger, stop_logger
 from app.core.metrics.prometheus import prometheus
+from app.mensageria.broker import conectar
+from app.mensageria.roteamento import RoteadorGrafo
 
 
 @asynccontextmanager
-async def ciclo_de_vida(_: FastAPI) -> AsyncGenerator[None, None]:
+async def ciclo_de_vida(aplicacao: FastAPI) -> AsyncGenerator[None, None]:
     registrador = get_logger("app.main")
     registrador.info("aplicação codegen iniciada")
     try:
-        yield
+        broker = await conectar(get_settings())
+        aplicacao.state.producers = broker.producers
+        try:
+            if aplicacao.state.roteador is not None:
+                await broker.iniciar_consumers(aplicacao.state.roteador)
+            else:
+                registrador.warning("consumo não iniciado: roteador de grafos não configurado")
+            yield
+        finally:
+            await broker.fechar()
     finally:
         registrador.info("aplicação codegen encerrada")
         stop_logger()
 
 
-def criar_aplicacao() -> FastAPI:
+def criar_aplicacao(roteador: RoteadorGrafo | None = None) -> FastAPI:
     configuracoes = get_settings()
     aplicacao = FastAPI(
         title=configuracoes.SERVICE_NAME,
@@ -31,6 +42,7 @@ def criar_aplicacao() -> FastAPI:
         redoc_url=None,
         openapi_url=None,
     )
+    aplicacao.state.roteador = roteador
 
     @aplicacao.get("/health", include_in_schema=False)
     async def verificar_saude() -> dict[str, str]:

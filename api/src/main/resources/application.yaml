@@ -65,6 +65,9 @@ app:
     user: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASSWORD:guest}
     vhost: ${RABBITMQ_VHOST:/}
+  sse:
+    heartbeat: ${SSE_HEARTBEAT:15s}
+    timeout: ${SSE_TIMEOUT:30m}
 
 logging:
   level:

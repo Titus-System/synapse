@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
@@ -22,7 +22,23 @@ async def test_declara_a_fila_de_execucao_como_duravel(
 ) -> None:
     await conectar()
 
-    canal.declare_queue.assert_awaited_once_with(settings.RABBITMQ_FILA_EXECUCAO, durable=True)
+    assert canal.declare_queue.await_args_list == [
+        call(settings.RABBITMQ_FILA_EXECUCAO, durable=True),
+        call(
+            f"{settings.RABBITMQ_FILA_EXECUCAO}.dlq",
+            durable=True,
+            exclusive=False,
+            auto_delete=False,
+        ),
+    ]
+
+
+async def test_habilita_confirmacoes_e_falha_para_publicacao_sem_rota(canal: AsyncMock) -> None:
+    await conectar()
+
+    broker.connect_robust.return_value.channel.assert_awaited_once_with(
+        publisher_confirms=True, on_return_raises=True
+    )
 
 
 async def test_limita_o_canal_a_uma_execucao_por_vez(canal: AsyncMock) -> None:

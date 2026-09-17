@@ -22,9 +22,15 @@ async def conectar() -> ConexaoBroker:
     settings = get_settings()
 
     conexao = await connect_robust(settings.rabbitmq_url)
-    canal = await conexao.channel()
+    canal = await conexao.channel(publisher_confirms=True, on_return_raises=True)
     await canal.set_qos(prefetch_count=settings.RABBITMQ_PREFETCH)
     fila = await canal.declare_queue(settings.RABBITMQ_FILA_EXECUCAO, durable=True)
+    await canal.declare_queue(
+        f"{settings.RABBITMQ_FILA_EXECUCAO}.dlq",
+        durable=True,
+        exclusive=False,
+        auto_delete=False,
+    )
 
     logger.info(
         "fila de execução declarada",
