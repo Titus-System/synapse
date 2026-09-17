@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
@@ -44,6 +45,15 @@ class ExemplosDeContratoTests {
 		assertThat(resultado.totais().orcamento()).isEqualTo(new BigDecimal("485000.0"));
 		assertThat(resultado.assercoes()).hasSize(3);
 		assertThat(resultado.decomposicao().competencia()).containsEntry("2025-08", BigDecimal.ZERO);
+	}
+
+	@Test
+	void desserializaOEventoDeEtapaAlterada() throws IOException {
+		EtapaAlteradaDto evento = desserializar("events/etapa-alterada.json", EtapaAlteradaDto.class);
+
+		assertThat(evento.job_id()).isEqualTo(UUID.fromString("3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"));
+		assertThat(evento.etapa()).isEqualTo("geracao_codigo");
+		assertThat(evento.status()).isEqualTo("iniciada");
 	}
 
 	private <T> T desserializar(String caminhoRelativo, Class<T> tipo) throws IOException {
