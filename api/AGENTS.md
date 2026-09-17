@@ -12,6 +12,9 @@ Toda convenção deste repositório é um skill. Leia o que cobre o que você va
 | [`code-quality`](.agents/skills/code-quality/SKILL.md) | Commitar, escrever um método que pode não ter resposta, ou escrever um comentário. |
 | [`architecture`](.agents/skills/architecture/SKILL.md) | Criar um domínio, decidir onde uma classe mora, ou fazer uma fatia enxergar outra. |
 | [`migrations`](.agents/skills/migrations/SKILL.md) | Criar ou alterar uma migration, acrescentar tabela ou coluna, ou investigar por que um changeset não rodou. |
+| [`sse`](.agents/skills/sse/SKILL.md) | Emitir progresso para o stream SSE do job, ou mexer no stream em si. |
+| [`outbox`](.agents/skills/outbox/SKILL.md) | Publicar um evento novo pela api, ou mexer no outbox transacional em si. |
+| [`consumidores`](.agents/skills/consumidores/SKILL.md) | Escrever um `@RabbitListener` novo, ou investigar por que uma mensagem some ou volta em loop. |
 
 O envelope de log é contrato entre serviços e está especificado no repositório `agents`, em `.agents/skills/observability/SKILL.md`. Mudar um campo de topo aqui exige mudar os outros serviços junto.
 

@@ -29,6 +29,18 @@ spring:
     username: ${app.rabbitmq.user}
     password: ${app.rabbitmq.password}
     virtual-host: ${app.rabbitmq.vhost}
+    # O outbox só marca um evento como publicado depois do ack do broker, e trata como
+    # falha a mensagem devolvida por não ter fila de destino (ver PublicadorOutbox).
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+  # O scheduler padrão tem uma thread só; o heartbeat SSE bloqueia enquanto envia a um
+  # cliente lento e atrasaria o poller do outbox.
+  task:
+    scheduling:
+      pool:
+        size: 2
 
 # Único lugar que lê variável de ambiente. Todo o resto consome app.*.
 app:
@@ -65,6 +77,12 @@ app:
     user: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASSWORD:guest}
     vhost: ${RABBITMQ_VHOST:/}
+  sse:
+    heartbeat: ${SSE_HEARTBEAT:15s}
+    timeout: ${SSE_TIMEOUT:30m}
+  outbox:
+    enabled: ${OUTBOX_ENABLED:true}
+    poll-interval: ${OUTBOX_POLL_INTERVAL:1s}
 
 logging:
   level:
