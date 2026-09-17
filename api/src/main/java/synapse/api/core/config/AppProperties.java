@@ -2,6 +2,7 @@ package synapse.api.core.config;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.time.Duration;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
@@ -23,12 +24,13 @@ import org.springframework.validation.annotation.Validated;
  * @param observability logs e traces
  * @param postgres banco de dados
  * @param rabbitmq broker de mensageria
+ * @param sse stream de acompanhamento do job
  */
 @ConfigurationProperties("app")
 @Validated
 public record AppProperties(@NotBlank String environment, @NotNull @Valid Service service,
 		@NotNull @Valid Observability observability, @NotNull @Valid Postgres postgres,
-		@NotNull @Valid Rabbitmq rabbitmq) {
+		@NotNull @Valid Rabbitmq rabbitmq, @NotNull @Valid Sse sse) {
 
 	/**
 	 * Configura a identidade pública do serviço.
@@ -118,6 +120,15 @@ public record AppProperties(@NotBlank String environment, @NotNull @Valid Servic
 	 */
 	public record Rabbitmq(@NotBlank String host, @Positive int port, @NotBlank String user, @NotBlank String password,
 			@NotBlank String vhost) {
+	}
+
+	/**
+	 * @param heartbeat intervalo entre comentários SSE enviados a todo emissor conectado,
+	 * para manter a conexão viva através de proxy e detectar cliente que saiu
+	 * @param timeout tempo máximo que um emissor fica aberto sem atividade antes do
+	 * container encerrá-lo
+	 */
+	public record Sse(@NotNull Duration heartbeat, @NotNull Duration timeout) {
 	}
 
 }
