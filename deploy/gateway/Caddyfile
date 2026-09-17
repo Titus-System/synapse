@@ -1,5 +1,8 @@
-{$SITE_ADDRESS:localhost} {
-	root * /usr/share/caddy
+# Ponto único de entrada do droplet: termina TLS e roteia por subdomínio pra
+# cada um dos quatro serviços. Nenhum outro serviço expõe porta 80/443.
+
+app.synnapse.pro {
+	root * /srv/app
 	encode gzip
 
 	@assets path /assets/*
@@ -17,8 +20,20 @@
 	}
 }
 
-# Internal-only health check, isolated from the SITE_ADDRESS block so it
-# doesn't go through the automatic HTTPS redirect.
+api.synnapse.pro {
+	reverse_proxy api:8080
+}
+
+codegen.synnapse.pro {
+	reverse_proxy codegen:8000
+}
+
+worker.synnapse.pro {
+	reverse_proxy worker:8000
+}
+
+# Healthcheck interno do próprio gateway, isolado dos blocos acima pra não
+# entrar no redirecionamento automático de HTTPS.
 :8080 {
 	respond /healthz 200
 }

@@ -1,6 +1,8 @@
 name: synapse-infra
 
 services:  
+  # Só compila o SPA e copia o resultado pro volume que o gateway serve -
+  # não fica de pé (restart: "no") e não expõe porta nem participa da rede.
   frontend:
     build:
       context: ..
@@ -8,20 +10,46 @@ services:
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
     image: synapse-frontend:${TAG:-local}
+    restart: "no"
+    command: ['sh', '-c', 'rm -rf /dist/* && cp -r /app/dist/. /dist/']
+    volumes:
+      - frontend-dist:/dist
+
+  # Único ponto de entrada do droplet: termina TLS e roteia por subdomínio
+  # pra frontend/api/codegen/worker. Ver deploy/gateway/Caddyfile.
+  gateway:
+    image: caddy:2-alpine
+    container_name: synapse-gateway
     restart: unless-stopped
     environment:
-      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      GATEWAY_APP_DOMAIN: ${GATEWAY_APP_DOMAIN:-app.localhost}
+      GATEWAY_API_DOMAIN: ${GATEWAY_API_DOMAIN:-api.localhost}
+      GATEWAY_CODEGEN_DOMAIN: ${GATEWAY_CODEGEN_DOMAIN:-codegen.localhost}
+      GATEWAY_WORKER_DOMAIN: ${GATEWAY_WORKER_DOMAIN:-worker.localhost}
     ports:
       - '${HTTP_PORT:-80}:80'
       - '${HTTPS_PORT:-443}:443'
     volumes:
+      - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+      - frontend-dist:/srv/app:ro
       - caddy_data:/data
       - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+      codegen:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
     healthcheck:
       test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:8080/healthz']
       interval: 30s
       timeout: 3s
       retries: 3
+    networks:
+      - synapse-net
 
   codegen:
     build:
@@ -185,13 +213,34 @@ services:
     networks:
       - synapse-net
 
+  alloy:
+    image: grafana/alloy:latest
+    container_name: synapse-alloy
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    env_file:
+      - .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./observability/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+    networks:
+      - synapse-net
+    restart: unless-stopped
+
 volumes:
+  frontend-dist:
+    name: synapse-frontend-dist
   caddy_data:
   caddy_config:
   postgres-data:
     name: synapse-postgres-data
   rabbitmq-data:
     name: synapse-rabbitmq-data
+  alloy-data:
 
 networks:
   synapse-net:
