@@ -17,6 +17,12 @@ Referências de linha começam em 1 e apontam para a tabela completa recebida pe
 função, antes do filtro de competência. Não reordenar/filtrar a entrada e depois
 reutilizar referências antigas.
 
+As datas de admissão e demissão consideram as correções cadastrais de RH da
+própria matrícula vigentes até a competência. A ordem é competência de origem
+e ID do evento, como no motor da T-030. Uma admissão corrigida para um mês
+anterior pode habilitar a comissão; uma correção que a adie para depois da
+competência impede o pagamento. As tabelas de entrada permanecem intactas.
+
 ## Integração e saída
 
 `regras_base.apurar(...)` chama `finalizar_apuracao` obrigatoriamente ao fim do
@@ -68,3 +74,6 @@ sh verify.sh
 
 Os testes injetam cada violação, referências falsas, troca de loja com total
 preservado e duplicidade. Também cobrem piso sem venda e gerente sem venda própria.
+As regressões de admissão cobrem os dois nomes de campo aceitos pela T-030,
+correções que habilitam ou impedem o pagamento, proporcionalidade dentro do mês,
+eventos futuros ou de outra matrícula e a precedência de múltiplas correções.

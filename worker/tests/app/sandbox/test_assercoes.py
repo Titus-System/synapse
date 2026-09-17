@@ -41,6 +41,113 @@ def test_apurar_executa_as_tres_e_incorpora_desfecho_sem_veredito() -> None:
     }
 
 
+@pytest.mark.parametrize("campo", ["Data_Admiss", "data_admiss"])
+@pytest.mark.parametrize("data_corrigida,comissao", [("2025-10-01", 100.0), ("2025-11-15", 50.0)])
+def test_admissao_corrigida_pelo_rh_e_valida_na_apuracao_e_nas_assercoes(
+    campo: str, data_corrigida: str, comissao: float
+) -> None:
+    pessoas = [rh("A", data_admiss="2025-12-01")]
+    eventos = [
+        evento(
+            "CORR-ADM",
+            "correcao_cadastral",
+            "A",
+            None,
+            None,
+            detalhes={"campo": campo, "valor_novo": data_corrigida},
+        )
+    ]
+    entradas_antes = deepcopy((pessoas, eventos))
+
+    resultado = apurar(pessoas, [venda("A", 1000)], [taxa(0.10)], eventos, "2025-11")
+
+    assert isinstance(resultado, TabelaApurada)
+    assert resultado[0]["comissao"] == comissao
+    assert resultado.resultado_apuracao["status"] == "sucesso"
+    assert all(a["resultado"] == "ok" for a in resultado.resultado_apuracao["assercoes"])
+    assert (pessoas, eventos) == entradas_antes
+
+
+@pytest.mark.parametrize("campo", ["Data_Admiss", "data_admiss"])
+def test_correcao_que_adia_admissao_invalida_comissao_na_competencia(campo: str) -> None:
+    linhas, contexto = exemplo()
+    contexto["eventos_rh"] = [
+        evento(
+            "CORR-ADM",
+            "correcao_cadastral",
+            "VENDEDOR",
+            None,
+            None,
+            detalhes={"campo": campo, "valor_novo": "2025-12-01"},
+        )
+    ]
+
+    resultado = finalizar_apuracao(linhas, **contexto)
+
+    assert resultado["status"] == "assercao_violada"
+    assert resultado["assercoes"][1]["resultado"] == "violada"
+    assert "matrícula VENDEDOR" in str(resultado["assercoes"][1]["detalhe"])
+    assert "admitida após a competência" in str(resultado["assercoes"][1]["detalhe"])
+
+
+@pytest.mark.parametrize(
+    "matricula,competencia_origem",
+    [("VENDEDOR", "2025-12"), ("OUTRO", "2025-11")],
+)
+def test_correcao_futura_ou_de_outra_pessoa_nao_justifica_admissao(
+    matricula: str, competencia_origem: str
+) -> None:
+    linhas, contexto = exemplo()
+    contexto["rh"][0]["data_admiss"] = "2025-12-01"
+    contexto["eventos_rh"] = [
+        evento(
+            "CORR-ADM",
+            "correcao_cadastral",
+            matricula,
+            None,
+            None,
+            competencia_origem=competencia_origem,
+            detalhes={"campo": "Data_Admiss", "valor_novo": "2025-10-01"},
+        )
+    ]
+
+    resultado = finalizar_apuracao(linhas, **contexto)
+
+    assert resultado["assercoes"][1]["resultado"] == "violada"
+    assert "admitida após a competência" in str(resultado["assercoes"][1]["detalhe"])
+
+
+def test_correcoes_de_admissao_respeitam_competencia_e_id_independente_da_ordem() -> None:
+    eventos = [
+        evento(
+            identificador,
+            "correcao_cadastral",
+            "A",
+            None,
+            None,
+            competencia_origem=competencia_origem,
+            detalhes={"campo": "Data_Admiss", "valor_novo": data_corrigida},
+        )
+        for identificador, competencia_origem, data_corrigida in [
+            ("B", "2025-11", "2025-10-01"),
+            ("A", "2025-11", "2025-12-01"),
+            ("Z", "2025-10", "2025-12-15"),
+        ]
+    ]
+
+    resultado = apurar(
+        [rh("A", data_admiss="2025-12-01")],
+        [venda("A", 1000)],
+        [taxa(0.10)],
+        eventos,
+        "2025-11",
+    )
+
+    assert isinstance(resultado, TabelaApurada)
+    assert resultado[0]["comissao"] == 100.0
+    assert resultado.resultado_apuracao["status"] == "sucesso"
+
+
 @pytest.mark.parametrize("valor", [-1, -0.001, float("nan"), float("inf"), True])
 def test_comissao_negativa_ou_nao_finita_invalida_os_numeros(valor: object) -> None:
     linhas, contexto = exemplo()

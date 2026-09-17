@@ -14,6 +14,7 @@ from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Protocol, cast
 
+from app.sandbox.ajustes_competencia import AjusteCompetencia
 from app.sandbox.assercoes import (
     AssercaoVioladaError,
     ResultadoApuracao,
@@ -58,6 +59,8 @@ def apurar(
     eventos_rh: Sequence[Registro] | DataFrameLike,
     competencia: str,
     regra: object | None = None,
+    *,
+    ajustes_competencia: Mapping[str, AjusteCompetencia] | None = None,
 ) -> TabelaSaida:
     """Calcula a apuração base de uma competência.
 
@@ -65,8 +68,9 @@ def apurar(
     Quando ``rh`` é um DataFrame-like, a saída é reconstruída usando a mesma classe;
     com listas, retorna uma lista de dicionários.
 
-    ``regra`` fica reservado ao fluxo de simulação. Regras específicas de competência
-    não pertencem ao baseline e, por isso, não são aceitas nesta função.
+    ``regra`` fica reservado ao fluxo de simulação. A T-032 fornece os ajustes
+    históricos explicitamente em ``ajustes_competencia``; sem eles o cálculo
+    continua sendo apenas o das regras base da T-030.
     """
     if regra is not None:
         raise RegraCompetenciaForaDoEscopoError(
@@ -142,8 +146,11 @@ def apurar(
 
         regras_aplicadas = ["5a", "5b" if cargo == CARGO_GERENTE else "5a"]
         fatores: dict[str, float] = {}
-        base_calculo = base_original
-        comissao = comissao_original
+        ajuste = (ajustes_competencia or {}).get(matricula, AjusteCompetencia())
+        base_calculo = base_original + ajuste.base_adicional
+        comissao = comissao_original + ajuste.comissao_adicional
+        if ajuste.base_adicional:
+            comissao += ajuste.base_adicional * _taxa_obrigatoria(taxas, marca_rh, cargo)
 
         fator_vinculo, regras_vinculo = _fator_vinculo(
             registro_rh.data_admiss,
@@ -216,6 +223,14 @@ def apurar(
                 ),
             },
         }
+        if ajuste.origens:
+            rastreabilidade["regras_competencia"] = [str(item["id"]) for item in ajuste.origens]
+            rastreabilidade["ajustes_competencia"] = {
+                "base_adicional": str(ajuste.base_adicional),
+                "comissao_adicional": str(ajuste.comissao_adicional),
+                "bonus_final": str(ajuste.bonus_final),
+            }
+        comissao += ajuste.bonus_final
         comissao_final = _moeda(comissao)
         totais_por_loja[str(loja)] += Decimal(str(comissao_final))
         resultado.append(
@@ -237,6 +252,9 @@ def apurar(
         vendas=[linha.dados for linha in linhas_vendas],
         eventos_rh=[linha.dados for linha in linhas_eventos],
         por_loja=totais_por_loja,
+        origens_competencia=[
+            origem for ajuste in (ajustes_competencia or {}).values() for origem in ajuste.origens
+        ],
     )
     if desfecho["status"] != "sucesso":
         raise AssercaoVioladaError(desfecho)

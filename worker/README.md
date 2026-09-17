@@ -182,3 +182,7 @@ As premissas de cargo 150, vendas órfãs, licença-maternidade e o caso de gere
 ## Asserções invariantes (T-031)
 
 Toda chamada a `apurar` finaliza com as três asserções internas, sem baseline nem orçamento. Uma violação interrompe a apuração com `AssercaoVioladaError` e desfecho estruturado; não é um veredito de inviabilidade. A interface de tabela da T-030 permanece compatível. Consulte [integração, saída e testes](docs/t031-assercoes.md), incluindo o ponto de integração para o futuro executor de containers.
+
+## Baselines congelados (T-032)
+
+Os cinco baselines de agosto a dezembro de 2025 ficam em `sandbox/data/domrock/baselines/`, com total, lojas, matrículas e asserções no próprio JSONL de cada mês. **Baseline não é gabarito.** A preparação inclui as regras históricas de todos os meses e preserva os eventos da T-028. Confira os bytes com `poetry run python -m scripts.build_baselines --check`. Veja [totais, formato, premissas e reprodução](docs/t032-baselines.md).

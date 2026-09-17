@@ -77,8 +77,11 @@ def _lista(valor: object) -> list[object]:
     return valor if isinstance(valor, list) else []
 
 
-def _demissao(rh: Registro, eventos: Sequence[Registro], competencia: str) -> str | None:
-    valor = rh.get("data_demiss")
+def _datas_vinculo(
+    rh: Registro, eventos: Sequence[Registro], competencia: str
+) -> tuple[str | None, str | None]:
+    admissao = rh.get("data_admiss")
+    demissao = rh.get("data_demiss")
     for evento in sorted(
         eventos, key=lambda e: (str(e.get("competencia_origem")), str(e.get("id")))
     ):
@@ -87,15 +90,17 @@ def _demissao(rh: Registro, eventos: Sequence[Registro], competencia: str) -> st
         if str(evento.get("competencia_origem")) > competencia:
             continue
         if evento.get("tipo") == "demissao":
-            valor = evento.get("data_inicio")
+            demissao = evento.get("data_inicio")
         detalhes = evento.get("detalhes")
-        if (
-            evento.get("tipo") == "correcao_cadastral"
-            and isinstance(detalhes, Mapping)
-            and detalhes.get("campo") in {"Data_Demiss", "data_demiss"}
-        ):
-            valor = detalhes.get("valor_novo")
-    return valor if isinstance(valor, str) else None
+        if evento.get("tipo") == "correcao_cadastral" and isinstance(detalhes, Mapping):
+            if detalhes.get("campo") in {"Data_Admiss", "data_admiss"}:
+                admissao = detalhes.get("valor_novo")
+            elif detalhes.get("campo") in {"Data_Demiss", "data_demiss"}:
+                demissao = detalhes.get("valor_novo")
+    return (
+        admissao if isinstance(admissao, str) else None,
+        demissao if isinstance(demissao, str) else None,
+    )
 
 
 def _evento_remunerado(evento: Registro, matricula: object, competencia: str) -> bool:
@@ -135,10 +140,12 @@ def _origem_valida(
         return "linha_rh não corresponde à matrícula"
     if pessoa.get("competencia") != competencia or pessoa.get("cod_cargo") != linha.get("cargo"):
         return "linha_rh não corresponde à competência/cargo"
-    demissao = _demissao(pessoa, eventos, competencia)
+    admissao, demissao = _datas_vinculo(pessoa, eventos, competencia)
     if demissao is not None and demissao[:7] < competencia:
         return "matrícula demitida antes da competência"
-    if str(pessoa.get("data_admiss"))[:7] > competencia:
+    if admissao is None:
+        return "data de admissão ausente ou inválida"
+    if admissao[:7] > competencia:
         return "matrícula admitida após a competência"
 
     tem_venda = False

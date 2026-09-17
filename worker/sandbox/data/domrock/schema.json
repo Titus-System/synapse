@@ -16,6 +16,234 @@
   },
   "readiness": "Consult normalization_report.competency_status before simulation; ready means preparation invariants pass; movements are nonblocking observations.",
   "tables": {
+    "baseline": {
+      "files": [
+        "baselines/baseline-2025-08.jsonl",
+        "baselines/baseline-2025-09.jsonl",
+        "baselines/baseline-2025-10.jsonl",
+        "baselines/baseline-2025-11.jsonl",
+        "baselines/baseline-2025-12.jsonl"
+      ],
+      "produced_by": "python -m scripts.build_baselines (T-032, após T-026)",
+      "schema_version": 1,
+      "semantics": "Baseline não é gabarito; apuração interna da regra vigente.",
+      "levels": {
+        "total": "Uma linha por competência, com total e asserções.",
+        "loja": "Uma linha por competência/cod_loja; comissão pela lotação no RH.",
+        "matricula": "Uma linha por competência/matricula; detalhes auditáveis."
+      },
+      "aggregation": "Filtrar nivel antes de somar; os três níveis são a mesma apuração.",
+      "traceability": "Linhas 1-based de rh/vendas completos; IDs de eventos e regras.",
+      "fields": [
+        {
+          "name": "competencia",
+          "source": null,
+          "type": "string",
+          "nullable": false,
+          "semantics": "Competência apurada.",
+          "format": "YYYY-MM"
+        },
+        {
+          "name": "nivel",
+          "source": null,
+          "type": "string",
+          "nullable": false,
+          "semantics": "total, loja ou matricula."
+        },
+        {
+          "name": "matricula",
+          "source": null,
+          "type": "string",
+          "nullable": true,
+          "semantics": "Preenchida no nível matricula."
+        },
+        {
+          "name": "cod_loja",
+          "source": null,
+          "type": "integer",
+          "nullable": true,
+          "semantics": "Nulo no nível total."
+        },
+        {
+          "name": "loja",
+          "source": null,
+          "type": "string",
+          "nullable": true,
+          "semantics": "Descrição da lotação no RH."
+        },
+        {
+          "name": "cargo",
+          "source": null,
+          "type": "integer",
+          "nullable": true,
+          "semantics": "Preenchido no nível matricula."
+        },
+        {
+          "name": "base_calculo",
+          "source": null,
+          "type": "number",
+          "nullable": true,
+          "semantics": "Base individual ajustada."
+        },
+        {
+          "name": "comissao",
+          "source": null,
+          "type": "number",
+          "nullable": false,
+          "semantics": "BRL, duas casas decimais."
+        },
+        {
+          "name": "rastreabilidade",
+          "source": null,
+          "type": "object",
+          "nullable": true,
+          "semantics": "Fontes do cálculo individual."
+        },
+        {
+          "name": "assercoes",
+          "source": null,
+          "type": "array",
+          "nullable": true,
+          "semantics": "Três desfechos T-031 na linha total."
+        }
+      ]
+    },
+    "eventos_rh": {
+      "file": "eventos_rh.jsonl",
+      "produced_by": "python -m scripts.build_baselines",
+      "primary_key": [
+        "id"
+      ],
+      "semantics": "T-028 preservada: mesmas datas/IDs e intervalos fechados.",
+      "fields": [
+        {
+          "name": "id",
+          "source": null,
+          "type": "string",
+          "nullable": false,
+          "semantics": "ID da fonte T-028."
+        },
+        {
+          "name": "tipo",
+          "source": null,
+          "type": "string",
+          "nullable": false,
+          "semantics": "Tipo do evento."
+        },
+        {
+          "name": "matricula",
+          "source": null,
+          "type": "string",
+          "nullable": false,
+          "semantics": "Pessoa afetada."
+        },
+        {
+          "name": "competencia_origem",
+          "source": null,
+          "type": "string",
+          "nullable": false,
+          "semantics": "Mês do registro.",
+          "format": "YYYY-MM"
+        },
+        {
+          "name": "data_inicio",
+          "source": null,
+          "type": "string",
+          "nullable": true,
+          "semantics": "Início inclusivo.",
+          "format": "YYYY-MM-DD"
+        },
+        {
+          "name": "data_fim",
+          "source": null,
+          "type": "string",
+          "nullable": true,
+          "semantics": "Fim inclusivo.",
+          "format": "YYYY-MM-DD"
+        },
+        {
+          "name": "detalhes",
+          "source": null,
+          "type": "object",
+          "nullable": true,
+          "semantics": "Metadados originais, inclusive estimativas."
+        }
+      ]
+    },
+    "regras_competencia": {
+      "file": "regras_competencia.jsonl",
+      "primary_key": [
+        "id"
+      ],
+      "semantics": "Catálogo histórico versionado de T-032; percentuais são frações.",
+      "documentation": "worker/docs/t032-baselines.md",
+      "fields": [
+        {
+          "name": "id",
+          "source": null,
+          "type": "string",
+          "nullable": false,
+          "semantics": "Referência única da política."
+        },
+        {
+          "name": "competencia",
+          "source": null,
+          "type": "string",
+          "nullable": false,
+          "semantics": "Mês de vigência.",
+          "format": "YYYY-MM"
+        },
+        {
+          "name": "tipo",
+          "source": null,
+          "type": "string",
+          "nullable": false,
+          "semantics": "Operação determinística."
+        },
+        {
+          "name": "fonte",
+          "source": null,
+          "type": "string",
+          "nullable": false,
+          "semantics": "Item da especificação."
+        }
+      ],
+      "optional_fields_by_type": {
+        "selectors": [
+          "marcas",
+          "cargos",
+          "cargos_excluidos",
+          "matriculas"
+        ],
+        "bonus_final": [
+          "valor",
+          "admissao_ate"
+        ],
+        "bonus_base": [
+          "valor"
+        ],
+        "substituir_percentual": [
+          "valor"
+        ],
+        "copiar_percentual": [
+          "marca_origem"
+        ],
+        "adicional_percentual": [
+          "valor"
+        ],
+        "adicional_periodo": [
+          "valor",
+          "inicio",
+          "fim"
+        ],
+        "bonus_faixa_individual": [
+          "faixas"
+        ],
+        "bonus_faixa_loja": [
+          "faixas"
+        ]
+      }
+    },
     "rh": {
       "file": "rh.jsonl",
       "continuity": {
