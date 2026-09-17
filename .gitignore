@@ -3,3 +3,4 @@ deploy/.env
 .env
 *.dbdiagram
 __pycache__/
+.digital-ocean
