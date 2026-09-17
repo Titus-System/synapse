@@ -14,6 +14,13 @@ from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Protocol, cast
 
+from app.sandbox.assercoes import (
+    AssercaoVioladaError,
+    ResultadoApuracao,
+    TabelaApurada,
+    finalizar_apuracao,
+)
+
 type Registro = Mapping[str, object]
 type LinhaSaida = dict[str, object]
 type TabelaSaida = list[LinhaSaida] | DataFrameLike
@@ -110,6 +117,7 @@ def apurar(
         marcas_por_loja[cod_loja].add(cod_marca)
 
     resultado: list[LinhaSaida] = []
+    totais_por_loja: dict[str, Decimal] = defaultdict(Decimal)
     for matricula in sorted(rh_efetivo):
         registro_rh = rh_efetivo[matricula]
         if not registro_rh.elegivel:
@@ -208,18 +216,31 @@ def apurar(
                 ),
             },
         }
+        comissao_final = _moeda(comissao)
+        totais_por_loja[str(loja)] += Decimal(str(comissao_final))
         resultado.append(
             {
                 "matricula": matricula,
+                "cod_loja": loja,
                 "loja": _texto(registro_rh.dados, "descr_loja", "rh"),
                 "cargo": cargo,
                 "base_calculo": _moeda(base_calculo),
-                "comissao": _moeda(comissao),
+                "comissao": comissao_final,
                 "rastreabilidade": rastreabilidade,
             }
         )
 
-    return _recriar_tabela(rh, resultado)
+    desfecho = finalizar_apuracao(
+        resultado,
+        competencia=competencia,
+        rh=[linha.dados for linha in linhas_rh],
+        vendas=[linha.dados for linha in linhas_vendas],
+        eventos_rh=[linha.dados for linha in linhas_eventos],
+        por_loja=totais_por_loja,
+    )
+    if desfecho["status"] != "sucesso":
+        raise AssercaoVioladaError(desfecho)
+    return _recriar_tabela(rh, resultado, desfecho)
 
 
 class _LinhaComNumero:
@@ -282,12 +303,19 @@ def _extrair_linhas(
 def _recriar_tabela(
     modelo: Sequence[Registro] | DataFrameLike,
     linhas: list[LinhaSaida],
+    resultado: ResultadoApuracao,
 ) -> TabelaSaida:
     if not hasattr(modelo, "to_dict"):
-        return linhas
+        return TabelaApurada(linhas, resultado)
 
     construtor = cast(Callable[[list[LinhaSaida]], DataFrameLike], type(modelo))
-    return construtor(linhas)
+    tabela = construtor(linhas)
+    atributos = getattr(tabela, "attrs", None)
+    if isinstance(atributos, dict):
+        atributos["resultado_apuracao"] = resultado
+    else:
+        tabela.resultado_apuracao = resultado  # type: ignore[attr-defined]
+    return tabela
 
 
 def _preparar_rh(
