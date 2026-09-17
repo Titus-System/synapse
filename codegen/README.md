@@ -1,6 +1,8 @@
 # agents
 
-FastAPI service that runs the AI agents. It is one component of a distributed system — a Spring Boot API, this server, and an execution worker — communicating asynchronously over RabbitMQ, with telemetry landing in Grafana (Loki, Prometheus, Tempo) through a Grafana Alloy collector.
+FastAPI service that runs the AI agents. It is one component of a distributed system — a Spring Boot API, this server, and an execution worker — with telemetry landing in Grafana (Loki, Prometheus, Tempo) through a Grafana Alloy collector.
+
+The service's own business logic runs as a LangGraph state graph. Another service hands it a unique id and the user's prompt; that id is used as the graph's `thread_id`, so a previous run resumes automatically if a checkpoint exists for it, and starts fresh otherwise (see `.agents/skills/graph/SKILL.md`). The transport that delivers `(id, prompt)` to the service is not decided yet — it is no longer RabbitMQ.
 
 ## Stack
 
@@ -8,14 +10,15 @@ FastAPI service that runs the AI agents. It is one component of a distributed sy
 | --- | --- |
 | Runtime | Python 3.12 |
 | Web | FastAPI, Uvicorn |
+| Agents | LangGraph (`astream`, `AsyncPostgresSaver` checkpointer) |
 | Settings | Pydantic Settings, read from `.env` |
-| Database | PostgreSQL via SQLAlchemy 2 (async, asyncpg) and Alembic |
+| Database | PostgreSQL via SQLAlchemy 2 (async, asyncpg) and Alembic; LangGraph's checkpointer talks to the same Postgres server through a separate `psycopg` 3 connection, since that library does not support `asyncpg` |
 | Telemetry | Structured JSON logging, `prometheus-client`, OpenTelemetry SDK |
 | Packaging | Poetry, with `requirements*.txt` exported for pip |
 | Quality | Ruff, mypy (strict), Bandit, pytest |
 | Container | Docker multi-stage build, Compose with Grafana Alloy |
 
-The database and OpenTelemetry packages are installed and configured, but no models, migrations or spans exist yet: the service starts and serves without a database, and traces are not emitted until instrumentation is wired.
+The database and OpenTelemetry packages are installed and configured, but no models, migrations or spans exist yet: the service starts and serves without a database, and traces are not emitted until instrumentation is wired. LangGraph's own checkpoint tables (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations`) are created by `AsyncPostgresSaver.setup()`, not by Alembic.
 
 ## Requirements
 
@@ -34,6 +37,12 @@ The service listens on http://localhost:8000, with interactive docs at http://lo
 `make dev` runs Uvicorn with `--reload`; `make run` is the same without it. Neither needs Postgres or the Grafana stack to be reachable.
 
 If you would rather not use Poetry, `make install-pip` installs the runtime dependencies into an active virtualenv from `requirements.txt`, and `make install-pip-dev` adds the tooling. Both files are generated from `poetry.lock` by `make requirements`, so change dependencies through Poetry and re-export.
+
+`make requirements` needs the `poetry-plugin-export` plugin, which Poetry 2.0+ no longer bundles. One-time setup per machine, not per project — this installs into Poetry's own environment, not the project's:
+
+```bash
+poetry self add poetry-plugin-export
+```
 
 ## Running with Docker
 
@@ -97,12 +106,12 @@ app/
   config.py            Settings
   core/logger.py       structured JSON logging
   core/metrics/        Prometheus registry and shared metrics
+  graph/               the LangGraph state graph — state, builder, entry point, nodes, tools
 tests/                 mirrors app/
 alloy/config.alloy     collector pipelines: logs, metrics, traces
 docs/                  design sketches that are not yet code
-.agents/skills/        the conventions this repo is written to
 ```
 
 ## Conventions
 
-Every convention lives as a skill in `.agents/skills/` — observability, logging, metrics, testing, and commit and comment style. `AGENTS.md` indexes them and `CONTRIBUTING.md` is the human entry point. Read the skill that covers what you are about to touch, and when a rule changes, change it there.
+Every convention lives as a skill in `.agents/skills/` — the graph, observability, logging, metrics, testing, and commit and comment style. `AGENTS.md` indexes them and `CONTRIBUTING.md` is the human entry point. Read the skill that covers what you are about to touch, and when a rule changes, change it there.

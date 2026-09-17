@@ -24,6 +24,8 @@ types-passlib = "^1.7.7.20260211"
 opentelemetry-distro = "^0.65b0"
 opentelemetry-exporter-otlp = {extras = ["http", "proto"], version = "^1.44.0"}
 prometheus-client = "^0.26.0"
+langgraph = "^1.2.11"
+langgraph-checkpoint-postgres = "^3.1.2"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.8.0"
