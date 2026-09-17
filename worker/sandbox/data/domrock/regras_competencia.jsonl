@@ -1,0 +1,12 @@
+{"id":"AGO-2g","competencia":"2025-08","tipo":"bonus_final","valor":500,"matriculas":["MATRIC-134","MATRIC-135","MATRIC-14","MATRIC-141","MATRIC-143","MATRIC-144","MATRIC-147","MATRIC-148"],"fonte":"Especificacao.pdf, Intercorrências 2g"}
+{"id":"AGO-2h","competencia":"2025-08","tipo":"substituir_percentual","marcas":[10],"cargos":[300],"valor":0.0175,"fonte":"Especificacao.pdf, Intercorrências 2h"}
+{"id":"SET-3f","competencia":"2025-09","tipo":"bonus_base","valor":20000,"matriculas":["MATRIC-227","MATRIC-139","MATRIC-400","MATRIC-122","MATRIC-387","MATRIC-78","MATRIC-10","MATRIC-356","MATRIC-405"],"fonte":"Especificacao.pdf, Intercorrências 3f"}
+{"id":"SET-3g","competencia":"2025-09","tipo":"copiar_percentual","marcas":[10],"marca_origem":20,"fonte":"Especificacao.pdf, Intercorrências 3g"}
+{"id":"OUT-4g","competencia":"2025-10","tipo":"adicional_percentual","marcas":[30],"cargos_excluidos":[150],"valor":0.005,"fonte":"Especificacao.pdf, Intercorrências 4g"}
+{"id":"OUT-4h","competencia":"2025-10","tipo":"bonus_final","cargos":[100],"admissao_ate":"2025-10-10","valor":1000,"fonte":"Especificacao.pdf, Intercorrências 4h"}
+{"id":"NOV-5f","competencia":"2025-11","tipo":"adicional_periodo","cargos_excluidos":[150],"inicio":"2025-11-24","fim":"2025-11-30","valor":0.01,"fonte":"Especificacao.pdf, Intercorrências 5f"}
+{"id":"NOV-5g","competencia":"2025-11","tipo":"adicional_periodo","cargos":[150],"inicio":"2025-11-24","fim":"2025-11-30","valor":0.005,"fonte":"Especificacao.pdf, Intercorrências 5g"}
+{"id":"DEZ-6f","competencia":"2025-12","tipo":"adicional_percentual","marcas":[40,50,60],"cargos_excluidos":[150],"valor":0.01,"fonte":"Especificacao.pdf, Intercorrências 6f"}
+{"id":"DEZ-6g","competencia":"2025-12","tipo":"adicional_percentual","marcas":[30],"cargos_excluidos":[150],"valor":0.005,"fonte":"Especificacao.pdf, Intercorrências 6g"}
+{"id":"DEZ-6h","competencia":"2025-12","tipo":"bonus_faixa_individual","marcas":[10,20],"faixas":[{"minimo_exclusivo":40000,"maximo_inclusivo":50000,"valor":3500},{"minimo_exclusivo":50000,"maximo_inclusivo":60000,"valor":4000},{"minimo_exclusivo":60000,"maximo_inclusivo":null,"valor":4500}],"fonte":"Especificacao.pdf, Intercorrências 6h"}
+{"id":"DEZ-6i","competencia":"2025-12","tipo":"bonus_faixa_loja","cargos":[150],"faixas":[{"minimo_exclusivo":120000,"maximo_inclusivo":140000,"valor":5000},{"minimo_exclusivo":140000,"maximo_inclusivo":160000,"valor":6000},{"minimo_exclusivo":160000,"maximo_inclusivo":null,"valor":7000}],"fonte":"Especificacao.pdf, Intercorrências 6i"}

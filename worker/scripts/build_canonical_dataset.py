@@ -1617,6 +1617,94 @@ def build_schema() -> JsonObject:
         "readiness": "Consult normalization_report.competency_status before simulation; "
         "ready means preparation invariants pass; movements are nonblocking observations.",
         "tables": {
+            "baseline": {
+                "files": [f"baselines/baseline-{c}.jsonl" for c in PUBLISHED_COMPETENCIAS],
+                "produced_by": "python -m scripts.build_baselines (T-032, após T-026)",
+                "schema_version": 1,
+                "semantics": "Baseline não é gabarito; apuração interna da regra vigente.",
+                "levels": {
+                    "total": "Uma linha por competência, com total e asserções.",
+                    "loja": "Uma linha por competência/cod_loja; comissão pela lotação no RH.",
+                    "matricula": "Uma linha por competência/matricula; detalhes auditáveis.",
+                },
+                "aggregation": "Filtrar nivel antes de somar; os três níveis são a mesma apuração.",
+                "traceability": "Linhas 1-based de rh/vendas completos; IDs de eventos e regras.",
+                "fields": [
+                    field("competencia", None, "string", False, "YYYY-MM", "Competência apurada."),
+                    field("nivel", None, "string", False, None, "total, loja ou matricula."),
+                    field(
+                        "matricula", None, "string", True, None, "Preenchida no nível matricula."
+                    ),
+                    field("cod_loja", None, "integer", True, None, "Nulo no nível total."),
+                    field("loja", None, "string", True, None, "Descrição da lotação no RH."),
+                    field("cargo", None, "integer", True, None, "Preenchido no nível matricula."),
+                    field("base_calculo", None, "number", True, None, "Base individual ajustada."),
+                    field("comissao", None, "number", False, None, "BRL, duas casas decimais."),
+                    field(
+                        "rastreabilidade",
+                        None,
+                        "object",
+                        True,
+                        None,
+                        "Fontes do cálculo individual.",
+                    ),
+                    field(
+                        "assercoes",
+                        None,
+                        "array",
+                        True,
+                        None,
+                        "Três desfechos T-031 na linha total.",
+                    ),
+                ],
+            },
+            "eventos_rh": {
+                "file": "eventos_rh.jsonl",
+                "produced_by": "python -m scripts.build_baselines",
+                "primary_key": ["id"],
+                "semantics": "T-028 preservada: mesmas datas/IDs e intervalos fechados.",
+                "fields": [
+                    field("id", None, "string", False, None, "ID da fonte T-028."),
+                    field("tipo", None, "string", False, None, "Tipo do evento."),
+                    field("matricula", None, "string", False, None, "Pessoa afetada."),
+                    field(
+                        "competencia_origem", None, "string", False, "YYYY-MM", "Mês do registro."
+                    ),
+                    field("data_inicio", None, "string", True, "YYYY-MM-DD", "Início inclusivo."),
+                    field("data_fim", None, "string", True, "YYYY-MM-DD", "Fim inclusivo."),
+                    field(
+                        "detalhes",
+                        None,
+                        "object",
+                        True,
+                        None,
+                        "Metadados originais, inclusive estimativas.",
+                    ),
+                ],
+            },
+            "regras_competencia": {
+                "file": "regras_competencia.jsonl",
+                "primary_key": ["id"],
+                "semantics": "Catálogo histórico versionado de T-032; percentuais são frações.",
+                "documentation": "worker/docs/t032-baselines.md",
+                "fields": [
+                    field("id", None, "string", False, None, "Referência única da política."),
+                    field("competencia", None, "string", False, "YYYY-MM", "Mês de vigência."),
+                    field("tipo", None, "string", False, None, "Operação determinística."),
+                    field("fonte", None, "string", False, None, "Item da especificação."),
+                ],
+                "optional_fields_by_type": {
+                    "selectors": ["marcas", "cargos", "cargos_excluidos", "matriculas"],
+                    "bonus_final": ["valor", "admissao_ate"],
+                    "bonus_base": ["valor"],
+                    "substituir_percentual": ["valor"],
+                    "copiar_percentual": ["marca_origem"],
+                    "adicional_percentual": ["valor"],
+                    "adicional_periodo": ["valor", "inicio", "fim"],
+                    "bonus_faixa_individual": ["faixas"],
+                    "bonus_faixa_loja": ["faixas"],
+                },
+            },
             "rh": {
                 "file": "rh.jsonl",
                 "continuity": {
