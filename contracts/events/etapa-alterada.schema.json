@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/events/etapa-alterada.schema.json",
+  "title": "etapa-alterada",
+  "description": "Evento publicado pelo codegen ao iniciar uma etapa do processamento. Dispara na ENTRADA da etapa e alimenta o acompanhamento na tela, que a API repassa ao frontend por SSE. Não se confunde com no-concluido, que dispara na saída do nó e alimenta a trilha de auditoria; manter os dois separados é o que evita a tela e a auditoria discordarem.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "etapa",
+    "status"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job cujo andamento foi atualizado."
+    },
+    "etapa": {
+      "$ref": "../domain/comum.schema.json#/$defs/no_grafo",
+      "description": "Etapa que acabou de ser iniciada, no mesmo vocabulário fechado dos nós do grafo. Usar a lista única evita que a tela e a trilha chamem o mesmo passo por nomes diferentes."
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Situação reportada pelo codegen para a etapa iniciada. A API a traduz para o estado do job, de que ela é dona, e repassa o progresso ao frontend. O vocabulário ainda não está fechado."
+    }
+  },
+  "examples": [
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "etapa": "geracao_codigo",
+      "status": "iniciada"
+    }
+  ]
+}

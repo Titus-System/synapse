@@ -1,0 +1,281 @@
+{
+  "version": 3,
+  "format": "jsonl",
+  "published_competencias": [
+    "2025-08",
+    "2025-09",
+    "2025-10",
+    "2025-11",
+    "2025-12"
+  ],
+  "historical_evidence": {
+    "excluded_competencias": [
+      "2025-07"
+    ],
+    "semantics": "July is read for history and date reconciliation, never published."
+  },
+  "readiness": "Consult normalization_report.competency_status before simulation; ready means preparation invariants pass; movements are nonblocking observations.",
+  "tables": {
+    "rh": {
+      "file": "rh.jsonl",
+      "continuity": {
+        "eligibility": "admission <= month end; termination absent or >= month start",
+        "evidence": "latest previous observed RH, otherwise nearest next observed RH",
+        "synthetic_evidence": false,
+        "post_termination": "retain observed; never synthesize after termination month"
+      },
+      "primary_key": [
+        "competencia",
+        "matricula"
+      ],
+      "unique_by": [
+        "competencia",
+        "matricula"
+      ],
+      "reference_month_constraint": "data_ref[:7] == competencia",
+      "commission_join": {
+        "table": "comissoes",
+        "fields": [
+          "competencia",
+          "cod_marca",
+          "cod_cargo"
+        ],
+        "cardinality": "exactly_one",
+        "descr_cargo_participates": false
+      },
+      "fields": [
+        {
+          "name": "competencia",
+          "source": null,
+          "type": "string",
+          "nullable": false,
+          "semantics": "Explicit source manifest competency.",
+          "format": "YYYY-MM"
+        },
+        {
+          "name": "data_ref",
+          "source": "Data_Ref",
+          "type": "string",
+          "nullable": false,
+          "semantics": "RH source reference date; target month day one for reconstructed rows.",
+          "format": "YYYY-MM-DD"
+        },
+        {
+          "name": "cod_marca",
+          "source": "Cod_Marca",
+          "type": "integer",
+          "nullable": false,
+          "semantics": "Brand code."
+        },
+        {
+          "name": "descr_marca",
+          "source": "Descri_Marca",
+          "type": "string",
+          "nullable": false,
+          "semantics": "Brand description."
+        },
+        {
+          "name": "cod_loja",
+          "source": "Cod_Loja",
+          "type": "integer",
+          "nullable": false,
+          "semantics": "RH assignment in this competency; may differ from sale location."
+        },
+        {
+          "name": "descr_loja",
+          "source": "Descr_Loja",
+          "type": "string",
+          "nullable": false,
+          "semantics": "Store description."
+        },
+        {
+          "name": "matricula",
+          "source": "Matricula",
+          "type": "string",
+          "nullable": false,
+          "semantics": "Employee identifier preserved as text."
+        },
+        {
+          "name": "data_admiss",
+          "source": "Data_Admiss",
+          "type": "string",
+          "nullable": false,
+          "semantics": "Minimum admission date across all six RH sources, including July; applied to every published record, including earlier competencies.",
+          "format": "YYYY-MM-DD"
+        },
+        {
+          "name": "data_demiss",
+          "source": "Data_Demiss",
+          "type": "string",
+          "nullable": true,
+          "semantics": "Earliest known termination is terminal and propagated to subsequent RH. A date before the competency starts makes the employee ineligible for commission in that competency. Observed RH remains; post-termination sales are discarded.",
+          "format": "YYYY-MM-DD"
+        },
+        {
+          "name": "cod_cargo",
+          "source": "Cod_Cargo",
+          "type": "integer",
+          "nullable": false,
+          "semantics": "Role code."
+        },
+        {
+          "name": "descr_cargo",
+          "source": "Descri_Cargo",
+          "type": "string",
+          "nullable": false,
+          "semantics": "Role description."
+        }
+      ]
+    },
+    "vendas": {
+      "file": "vendas.jsonl",
+      "discard_policy": {
+        "priority": [
+          "sale_after_terminal_termination",
+          "sale_without_reconstructable_rh"
+        ],
+        "dated_sale": "discard if data_venda > terminal termination date",
+        "undated_sale": "discard only if competencia > terminal termination month",
+        "financial_invariant": "source - discarded = canonical, exact Decimal"
+      },
+      "dimension_semantics": "Store and brand are the observed sale dimensions, preserved independently of RH assignment; sale store and brand are authoritative.",
+      "reference_month_constraint": "data_ref[:7] == competencia",
+      "fields": [
+        {
+          "name": "competencia",
+          "source": null,
+          "type": "string",
+          "nullable": false,
+          "semantics": "Competência explícita do registro. Deve ser usada para selecionar/agrupar competência e nunca deve ser inferida de data_ref.",
+          "format": "YYYY-MM"
+        },
+        {
+          "name": "data_ref",
+          "source": "Date_Ref",
+          "type": "string",
+          "nullable": false,
+          "semantics": "Normalized Date_Ref value from the source.",
+          "format": "YYYY-MM-DD"
+        },
+        {
+          "name": "data_venda",
+          "source": null,
+          "type": "string",
+          "nullable": true,
+          "semantics": "Data real da venda quando disponibilizada pela fonte; null quando Date_Ref representa somente a referência mensal.",
+          "format": "YYYY-MM-DD"
+        },
+        {
+          "name": "cod_marca",
+          "source": "Cod_Marca",
+          "type": "integer",
+          "nullable": false,
+          "semantics": "Brand code."
+        },
+        {
+          "name": "descr_marca",
+          "source": "Descr_Marca",
+          "type": "string",
+          "nullable": false,
+          "semantics": "Brand description."
+        },
+        {
+          "name": "cod_loja",
+          "source": "Cod_Loja",
+          "type": "integer",
+          "nullable": false,
+          "semantics": "Store code."
+        },
+        {
+          "name": "descr_loja",
+          "source": "Descr_Loja",
+          "type": "string",
+          "nullable": false,
+          "semantics": "Store description."
+        },
+        {
+          "name": "matricula",
+          "source": "Matricula",
+          "type": "string",
+          "nullable": false,
+          "semantics": "Employee identifier preserved as text."
+        },
+        {
+          "name": "vlr_venda",
+          "source": "Vlr _Venda",
+          "type": "number",
+          "nullable": false,
+          "semantics": "Source sale value preserved without two-decimal rounding."
+        }
+      ]
+    },
+    "comissoes": {
+      "file": "comissoes.jsonl",
+      "primary_key": [
+        "competencia",
+        "cod_marca",
+        "cod_cargo"
+      ],
+      "unique_by": [
+        "competencia",
+        "cod_marca",
+        "cod_cargo"
+      ],
+      "manager_rate": {
+        "cod_cargo": 150,
+        "rh_descriptions": [
+          "GERENTE DE LOJA",
+          "GERENTE QUIOSQUE"
+        ],
+        "source_description": "GERENTE DE LOJA",
+        "semantics": "Use the store manager rate of the corresponding brand for both descriptions. descr_cargo is descriptive, not a join field.",
+        "decision_id": "CANONICAL_MANAGER_RATE"
+      },
+      "fields": [
+        {
+          "name": "competencia",
+          "source": null,
+          "type": "string",
+          "nullable": false,
+          "semantics": "Explicit source manifest competency.",
+          "format": "YYYY-MM"
+        },
+        {
+          "name": "cod_marca",
+          "source": "Cod_Marca",
+          "type": "integer",
+          "nullable": false,
+          "semantics": "Brand code."
+        },
+        {
+          "name": "descr_marca",
+          "source": "Descr_Marca",
+          "type": "string",
+          "nullable": false,
+          "semantics": "Brand description."
+        },
+        {
+          "name": "cod_cargo",
+          "source": "Cod_Cargo",
+          "type": "integer",
+          "nullable": false,
+          "semantics": "Role code."
+        },
+        {
+          "name": "descr_cargo",
+          "source": "Descri_Cargo",
+          "type": "string",
+          "nullable": false,
+          "semantics": "Role description."
+        },
+        {
+          "name": "percentual_comissao",
+          "source": "%_Comiss",
+          "type": "number",
+          "nullable": false,
+          "semantics": "Fração decimal; 0.025 representa 2,5%."
+        }
+      ]
+    }
+  }
+}

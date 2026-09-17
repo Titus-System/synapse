@@ -11,8 +11,11 @@
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
     "lint": "run-s \"lint:*\"",
+    "lint:verificar": "run-s lint:oxlint:verificar lint:eslint:verificar",
     "lint:oxlint": "oxlint . --fix",
     "lint:eslint": "eslint . --fix --cache",
+    "lint:oxlint:verificar": "oxlint .",
+    "lint:eslint:verificar": "eslint . --cache",
     "format": "prettier --write --experimental-cli src/",
     "prepare": "husky",
     "pre-commit": "npm run type-check && npm run lint && npm run test:unit -- --run"

@@ -1,0 +1,38 @@
+# Git / VCS
+.git
+.gitignore
+
+# Ambientes virtuais
+venv/
+.venv/
+
+# Caches Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Variáveis de ambiente / segredos (injetadas em runtime pelo compose)
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Docs e meta (não precisam ir para a imagem)
+docs/
+LICENSE
+.agents/
+
+# Logs locais — o container escreve os seus próprios
+logs/
+
+# Config do Alloy: entra por volume, não na imagem da app
+alloy/
+
+# Artefatos Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

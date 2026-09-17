@@ -1,0 +1,116 @@
+spring:
+  main:
+    banner-mode: off
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: ${app.service.name}
+    version: ${app.service.version}
+  profiles:
+    active: ${app.environment}
+  # O DataSource é um bean montado a partir de app.postgres (ver DataSourceConfig);
+  # aqui só tem o changelog. A raiz é YAML porque include/includeAll em raiz SQL é
+  # recurso pago do Liquibase - os changesets em si são .sql puros.
+  liquibase:
+    change-log: classpath:db/changelog/changelog.yaml
+    # O Liquibase 4.30+ manda telemetria anônima por default, buscando configuração em
+    # config.liquibase.com na subida. A aplicação não fala com a internet para migrar.
+    analytics-enabled: false
+    # Os nomes dos usuários de banco chegam aos changesets por aqui
+    parameters:
+      '[usuario_api]': ${app.postgres.user}
+      '[usuario_codegen]': ${app.postgres.roles.codegen}
+      '[usuario_worker]': ${app.postgres.roles.worker}
+  # A ConnectionFactory, o health indicator e as métricas vêm do autoconfigure do
+  # starter; só o endereço é nosso.
+  rabbitmq:
+    host: ${app.rabbitmq.host}
+    port: ${app.rabbitmq.port}
+    username: ${app.rabbitmq.user}
+    password: ${app.rabbitmq.password}
+    virtual-host: ${app.rabbitmq.vhost}
+
+# Único lugar que lê variável de ambiente. Todo o resto consome app.*.
+app:
+  environment: ${ENVIRONMENT:development}
+  service:
+    name: ${SERVICE_NAME:synapse-api}
+    description: ${SERVICE_DESCRIPTION:}
+    public-url: ${SERVICE_PUBLIC_URL:http://localhost:8080}
+    version: ${VERSION:0.0.1-SNAPSHOT}
+  observability:
+    log-level: ${LOG_LEVEL:INFO}
+    trace-sample-rate: ${TRACE_SAMPLE_RATE:1.0}
+    otlp-endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}
+    host: ${HOSTNAME:}
+  postgres:
+    host: ${POSTGRES_HOST:localhost}
+    port: ${POSTGRES_PORT:5432}
+    database: ${POSTGRES_DB:synapse_db}
+    user: ${SYNAPSE_API_DB_USER:synapse_api} # usuário com o qual a aplicação opera
+    password: ${SYNAPSE_API_DB_PASSWORD:synapse_api}
+
+    # Dono do schema usado só pelo Liquibase
+    owner:
+      user: ${POSTGRES_OWNER_USER:postgres}
+      password: ${POSTGRES_OWNER_PASSWORD:postgres}
+
+    # Nome dos usuários dos outros serviços
+    roles:
+      codegen: ${SYNAPSE_CODEGEN_DB_USER:synapse_codegen}
+      worker: ${SYNAPSE_WORKER_DB_USER:synapse_worker}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    user: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    vhost: ${RABBITMQ_VHOST:/}
+
+logging:
+  level:
+    root: ${app.observability.log-level}
+
+management:
+  endpoints:
+    web:
+      base-path: /
+      path-mapping:
+        health: actuator/health
+        prometheus: metrics
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  tracing:
+    export:
+      enabled: false
+    sampling:
+      probability: ${app.observability.trace-sample-rate}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${app.observability.otlp-endpoint}/v1/traces
+  # O Alloy já coleta métricas por scrape e logs por stdout; sem isto o starter de
+  # OpenTelemetry duplicaria ambos por OTLP.
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  logging:
+    export:
+      otlp:
+        enabled: false
+
+# Swagger UI lendo o contrato estático (copiado em build time pelo maven-resources-
+# plugin, ver pom.xml). api-docs.enabled continua true - é o que sustenta os beans da
+# própria UI - mas packages-to-exclude no pacote raiz garante que o documento gerado
+# por anotação nunca tenha rota nenhuma, mesmo quando existirem controllers no
+# futuro: o contrato é o arquivo em contracts/http/, nunca anotação.
+springdoc:
+  packages-to-exclude: synapse.api
+  swagger-ui:
+    path: /docs
+    url: /openapi/http/openapi.yaml

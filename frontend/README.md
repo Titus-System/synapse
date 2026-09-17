@@ -119,26 +119,30 @@ make check
 
 Rode `make help` para ver todos os alvos disponíveis (`dev`, `build`, `preview`, `test`, `format`, `clean`, etc.).
 
+Para executar a verificação completa usada pelo hook e pela CI, incluindo o build de produção, rode `./verify.sh`.
+
 ## Rodando com Docker
 
-A imagem faz build multi-stage (Node 24 compila, [Caddy](https://caddyserver.com/) serve os arquivos estáticos com HTTPS automático) — ver [Dockerfile](Dockerfile), [docker/Caddyfile](docker/Caddyfile) e [docker-compose.yml](docker-compose.yml).
+A imagem ([Dockerfile](Dockerfile)) só compila o SPA com Node 24 — não serve nada sozinha. Quem termina TLS e roteia por subdomínio pra ela (e para `api`, `codegen`, `worker`) é o gateway compartilhado do monorepo, um Caddy único em [`deploy/gateway/Caddyfile`](../deploy/gateway/Caddyfile). No `docker compose`, o serviço `frontend` roda uma vez, copia o build pro volume que o gateway lê, e sai — ver [deploy/docker-compose.yml](../deploy/docker-compose.yml).
+
+Execute a partir da raiz do monorepo:
 
 ```sh
-docker compose up -d --build
+docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
-Por padrão sobe em `https://localhost`. Como `localhost` não é um domínio público, o Caddy emite um certificado pela própria CA interna dele — o navegador vai marcar a conexão como "não segura", e isso é esperado em ambiente local, não é um bug.
+Por padrão o gateway sobe em `https://app.localhost`. Como `.localhost` não é um domínio público, o Caddy emite um certificado pela própria CA interna dele — o navegador vai marcar a conexão como "não segura", e isso é esperado em ambiente local, não é um bug.
 
-Variáveis de ambiente úteis (via `.env` na raiz ou exportadas no shell antes do `docker compose up`):
+Variáveis de ambiente úteis (via `.env` em `deploy/` ou exportadas no shell antes do `docker compose up`):
 
 | Variável | Efeito |
 | --- | --- |
-| `SITE_ADDRESS` | Domínio do site no Caddy. Em produção, aponte para o domínio real (ex.: `app.exemplo.com`) para ganhar HTTPS automático via Let's Encrypt. |
-| `VITE_API_BASE_URL` | URL base da API, embutida no bundle em tempo de build (build arg do Docker). Aponte para a API de staging/produção. |
-| `HTTP_PORT` / `HTTPS_PORT` | Portas do host mapeadas para 80/443 do container. Padrão: `80`/`443`. |
+| `GATEWAY_APP_DOMAIN` | Domínio deste frontend no gateway. Em produção, aponte para o domínio real (ex.: `app.exemplo.com`) para ganhar HTTPS automático via Let's Encrypt. As demais (`GATEWAY_API_DOMAIN`, `GATEWAY_CODEGEN_DOMAIN`, `GATEWAY_WORKER_DOMAIN`) são dos outros serviços. |
+| `VITE_API_BASE_URL` | URL base da API, embutida no bundle em tempo de build (build arg do Docker). Com subdomínio próprio por serviço, precisa ser a URL completa da API (ex.: `https://api.exemplo.com`) — um caminho relativo (`/api`) não atravessa subdomínios. |
+| `HTTP_PORT` / `HTTPS_PORT` | Portas do host mapeadas para 80/443 do gateway. Padrão: `80`/`443`. |
 
 ```sh
-SITE_ADDRESS=app.exemplo.com VITE_API_BASE_URL=https://api.exemplo.com docker compose up -d --build
+GATEWAY_APP_DOMAIN=app.exemplo.com VITE_API_BASE_URL=https://api.exemplo.com docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
 ## Estrutura do projeto

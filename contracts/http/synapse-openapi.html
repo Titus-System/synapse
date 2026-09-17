@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <title>Synapse - API HTTP (Redoc)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>body { margin: 0; padding: 0; }</style>
+</head>
+<body>
+  <!--
+    Pré-visualização local do contrato, para abrir sem precisar do `api` rodando.
+    Busca `openapi.yaml` ao vivo (caminho relativo, mesma pasta) - nunca embute uma
+    cópia congelada do contrato, para não virar uma segunda definição divergindo da
+    primeira. Para isso, o Redoc precisa acessar o arquivo via HTTP:
+
+      npx @redocly/cli preview-docs openapi.yaml
+      # ou, sem dependências:
+      python3 -m http.server --directory . 8080
+
+    A versão que reflete o contrato de verdade em produção é o Swagger UI servido
+    pelo `api` em /docs, construído a partir deste mesmo arquivo.
+  -->
+  <div id="redoc-container"></div>
+  <script src="https://cdn.redocly.com/redoc/v2.5.4/bundles/redoc.standalone.js"></script>
+  <script>
+    Redoc.init("openapi.yaml", {}, document.getElementById("redoc-container"));
+  </script>
+</body>
+</html>

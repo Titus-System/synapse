@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/resultado-totais.schema.json",
+  "title": "Totais da simulação",
+  "description": "Coluna resultados_simulacao.totais. Agregados do período inteiro, somando todas as competências do job; não existe um total por competência. Nula quando resultados_simulacao.status não é sucesso.",
+  "type": "object",
+  "required": ["baseline", "simulado", "diferenca_abs", "diferenca_pct", "orcamento"],
+  "properties": {
+    "baseline": {
+      "$ref": "comum.schema.json#/$defs/brl",
+      "description": "Comissionamento apurado pelas regras vigentes, somado no período."
+    },
+    "simulado": {
+      "$ref": "comum.schema.json#/$defs/brl",
+      "description": "Comissionamento apurado pela regra proposta, somado no período."
+    },
+    "diferenca_abs": {
+      "$ref": "comum.schema.json#/$defs/brl",
+      "description": "simulado menos baseline. É este número que resultado-decomposicao quebra por dimensão."
+    },
+    "diferenca_pct": {
+      "$ref": "comum.schema.json#/$defs/fracao",
+      "description": "diferenca_abs sobre baseline, em fração."
+    },
+    "orcamento": {
+      "$ref": "comum.schema.json#/$defs/brl",
+      "description": "Critério efetivamente aplicado ao período, recebido no comando de execução. Aparece aqui, e não só em jobs.orcamento, porque esta tabela só aceita INSERT: o insumo do veredito acompanha o veredito e não pode ser alterado depois."
+    }
+  },
+  "examples": [
+    {
+      "baseline": 480312.0,
+      "simulado": 492100.0,
+      "diferenca_abs": 11788.0,
+      "diferenca_pct": 0.0245,
+      "orcamento": 485000.0
+    }
+  ]
+}

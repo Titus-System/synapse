@@ -1,0 +1,38 @@
+name: agents
+
+# Loki, Prometheus and Tempo run outside this project. Point the *_URL variables
+# at them, or join their network, before Alloy has anywhere to deliver.
+
+services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
+    ports:
+      - "8000:8000"
+    depends_on:
+      - alloy
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.12.0
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    environment:
+      LOKI_URL: ${LOKI_URL:?set LOKI_URL in .env}
+      PROMETHEUS_URL: ${PROMETHEUS_URL:?set PROMETHEUS_URL in .env}
+      TEMPO_URL: ${TEMPO_URL:?set TEMPO_URL in .env}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+    ports:
+      - "12345:12345"
+    restart: unless-stopped
+
+volumes:
+  alloy-data:

@@ -1,0 +1,193 @@
+name: Verificar
+
+# Workflow único de verificação: sempre roda, com um job por
+# componente disparado só quando o caminho correspondente muda, e um job
+# agregador como único check obrigatório na branch protection — ele evita a
+# armadilha de um check que nunca roda quando o PR não toca aquele componente.
+#
+# Cada job de componente chama exatamente o mesmo `verify.sh` que o hook de
+# pré-commit (.githooks/despachar-verificacao.sh) roda localmente; a
+# detecção de caminhos tocados é a única lógica que existe aqui e não duplica
+# as regras do script de despacho.
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - staging
+      - main
+  push:
+    branches:
+      - develop
+      - staging
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  mudancas:
+    name: Detectar componentes tocados
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.filtro.outputs.frontend }}
+      api: ${{ steps.filtro.outputs.api }}
+      codegen: ${{ steps.filtro.outputs.codegen }}
+      worker: ${{ steps.filtro.outputs.worker }}
+      contracts: ${{ steps.filtro.outputs.contracts }}
+    steps:
+      - name: Obter repositório
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+
+      - name: Filtrar caminhos alterados
+        id: filtro
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+            api:
+              - 'api/**'
+            codegen:
+              - 'codegen/**'
+            worker:
+              - 'worker/**'
+            contracts:
+              - 'contracts/**'
+
+  frontend:
+    name: Verificar frontend
+    needs: mudancas
+    if: needs.mudancas.outputs.frontend == 'true' || needs.mudancas.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependências
+        working-directory: frontend
+        run: npm ci
+
+      - name: Rodar o gate (verify.sh)
+        working-directory: frontend
+        run: ./verify.sh
+
+  api:
+    name: Verificar api
+    needs: mudancas
+    if: needs.mudancas.outputs.api == 'true' || needs.mudancas.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Rodar o gate (verify.sh)
+        working-directory: api
+        run: ./verify.sh
+
+  codegen:
+    name: Verificar codegen
+    needs: mudancas
+    if: needs.mudancas.outputs.codegen == 'true' || needs.mudancas.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar Poetry
+        run: pipx install poetry
+
+      - name: Instalar dependências (inclui preparo de contracts/)
+        working-directory: codegen
+        run: make install
+
+      - name: Rodar o gate (verify.sh)
+        working-directory: codegen
+        run: poetry run ./verify.sh
+
+  worker:
+    name: Verificar worker
+    needs: mudancas
+    if: needs.mudancas.outputs.worker == 'true' || needs.mudancas.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar Poetry
+        run: pipx install poetry
+
+      - name: Instalar dependências
+        working-directory: worker
+        run: poetry install
+
+      - name: Rodar o gate (verify.sh)
+        working-directory: worker
+        run: ./verify.sh
+
+  verificacao:
+    name: Verificação (agregador)
+    needs: [mudancas, frontend, api, codegen, worker]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checar resultado dos jobs aplicáveis
+        run: |
+          if [ "${{ needs.mudancas.result }}" != "success" ]; then
+            echo "A detecção de componentes tocados falhou; não é possível confiar nos jobs que rodaram." >&2
+            exit 1
+          fi
+
+          falhou=0
+          for resultado in \
+            "frontend:${{ needs.frontend.result }}" \
+            "api:${{ needs.api.result }}" \
+            "codegen:${{ needs.codegen.result }}" \
+            "worker:${{ needs.worker.result }}"; do
+            componente="${resultado%%:*}"
+            status="${resultado#*:}"
+            case "$status" in
+            success | skipped)
+              echo "$componente: $status"
+              ;;
+            *)
+              echo "$componente: $status" >&2
+              falhou=1
+              ;;
+            esac
+          done
+
+          if [ "$falhou" -eq 1 ]; then
+            echo "Um ou mais componentes aplicáveis falharam." >&2
+            exit 1
+          fi
+
+          echo "Todos os jobs aplicáveis passaram (ou nenhum era aplicável)."

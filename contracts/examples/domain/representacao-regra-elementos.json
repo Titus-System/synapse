@@ -1,0 +1,31 @@
+{
+  "nucleo": {
+    "vigencia": { "inicio": "2025-11", "fim": "2025-11" },
+    "loja": ["13", "58"],
+    "marca": ["10"],
+    "cargo": ["100"],
+    "percentual": 0.02
+  },
+  "especificacoes": [
+    {
+      "ref": "elem.1",
+      "construto": "faixa_valor",
+      "limite_inferior": 40000,
+      "limite_superior": 50000,
+      "efeito": { "tipo": "bonus_fixo", "valor": 3500 }
+    },
+    {
+      "ref": "elem.2",
+      "construto": "janela_datas",
+      "data_inicial": "2025-11-24",
+      "data_final": "2025-11-30",
+      "efeito": { "tipo": "acrescimo_pct", "valor": 0.01 }
+    },
+    {
+      "ref": "elem.3",
+      "construto": "exclusao",
+      "dimensao": "cargo",
+      "valores": ["150"]
+    }
+  ]
+}

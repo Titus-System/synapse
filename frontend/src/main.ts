@@ -2,13 +2,15 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 
 import App from './App.vue'
-import router from './router'
+import roteador from './router'
+import { instalarRegistroDeErrosDoNavegador } from './observability/browserErrorLogging'
 
 import './assets/main.css'
 
-const app = createApp(App)
+const aplicacao = createApp(App)
 
-app.use(createPinia())
-app.use(router)
+aplicacao.use(createPinia())
+aplicacao.use(roteador)
+instalarRegistroDeErrosDoNavegador(aplicacao)
 
-app.mount('#app')
+aplicacao.mount('#app')
