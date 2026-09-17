@@ -25,12 +25,13 @@ import org.springframework.validation.annotation.Validated;
  * @param postgres banco de dados
  * @param rabbitmq broker de mensageria
  * @param sse stream de acompanhamento do job
+ * @param outbox publicação dos eventos gravados no outbox transacional
  */
 @ConfigurationProperties("app")
 @Validated
 public record AppProperties(@NotBlank String environment, @NotNull @Valid Service service,
 		@NotNull @Valid Observability observability, @NotNull @Valid Postgres postgres,
-		@NotNull @Valid Rabbitmq rabbitmq, @NotNull @Valid Sse sse) {
+		@NotNull @Valid Rabbitmq rabbitmq, @NotNull @Valid Sse sse, @NotNull @Valid Outbox outbox) {
 
 	/**
 	 * Configura a identidade pública do serviço.
@@ -129,6 +130,15 @@ public record AppProperties(@NotBlank String environment, @NotNull @Valid Servic
 	 * container encerrá-lo
 	 */
 	public record Sse(@NotNull Duration heartbeat, @NotNull Duration timeout) {
+	}
+
+	/**
+	 * @param enabled liga o poller que publica os eventos pendentes; desligado, os
+	 * eventos continuam sendo gravados e ficam pendentes
+	 * @param pollInterval pausa entre o fim de um ciclo do poller e o início do seguinte;
+	 * é a latência somada entre o commit de um evento e sua publicação
+	 */
+	public record Outbox(boolean enabled, @NotNull Duration pollInterval) {
 	}
 
 }

@@ -89,4 +89,14 @@ class AppPropertiesTests {
 		assertThat(sse.timeout()).isEqualTo(Duration.ofMinutes(30));
 	}
 
+	/**
+	 * O perfil de teste desliga o poller; o intervalo é o default do application.yaml.
+	 */
+	@Test
+	void carriesTheOutboxSettings() {
+		AppProperties.Outbox outbox = this.properties.outbox();
+		assertThat(outbox.enabled()).isFalse();
+		assertThat(outbox.pollInterval()).isEqualTo(Duration.ofSeconds(1));
+	}
+
 }
