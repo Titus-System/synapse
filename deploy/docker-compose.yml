@@ -1,6 +1,6 @@
 name: synapse-infra
 
-services:  
+services:
   # Só compila o SPA e copia o resultado pro volume que o gateway serve -
   # não fica de pé (restart: "no") e não expõe porta nem participa da rede.
   frontend:
@@ -10,10 +10,13 @@ services:
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
     image: synapse-frontend:${TAG:-local}
-    restart: "no"
-    command: ['sh', '-c', 'rm -rf /dist/* && cp -r /app/dist/. /dist/']
+    command: npm run dev -- --host 0.0.0.0
+    ports:
+      - "5173:5173"
     volumes:
-      - frontend-dist:/dist
+      - ../frontend:/app
+      - /app/node_modules
+    restart: unless-stopped
 
   # Único ponto de entrada do droplet: termina TLS e roteia por subdomínio
   # pra frontend/api/codegen/worker. Ver deploy/gateway/Caddyfile.
