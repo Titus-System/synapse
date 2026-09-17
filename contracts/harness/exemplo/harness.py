@@ -6,11 +6,15 @@ testes; a implementação real é do worker (T-033, T-064, T-066).
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import pandas as pd
 
-RegraFn = Callable[[dict[str, pd.DataFrame], pd.DataFrame, str], dict[str, pd.DataFrame]]
+type RegraFn = Callable[
+    [dict[str, pd.DataFrame], pd.DataFrame, list[str]],
+    dict[str, pd.DataFrame],
+]
 
 
 def preparar(bases: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
@@ -22,10 +26,10 @@ def chamar(
     regra: RegraFn,
     bases: dict[str, pd.DataFrame],
     apuracao_base: pd.DataFrame,
-    competencia: str,
+    competencias: list[str],
 ) -> dict[str, pd.DataFrame]:
     """Chama a função gerada com cópias das entradas."""
-    return regra(preparar(bases), apuracao_base.copy(deep=True), competencia)
+    return regra(preparar(bases), apuracao_base.copy(deep=True), competencias)
 
 
 def _quebra_por_dimensao(delta_por_dim: "pd.Series[float]") -> dict[str, float]:
@@ -35,7 +39,7 @@ def _quebra_por_dimensao(delta_por_dim: "pd.Series[float]") -> dict[str, float]:
 def montar_resultado(
     saida: dict[str, pd.DataFrame],
     apuracao_base: pd.DataFrame,
-    competencia: str,
+    competencias: list[str],
     orcamento: float,
 ) -> dict[str, Any]:
     """Agrega a saída da função gerada no resultado-simulacao.
@@ -51,12 +55,14 @@ def montar_resultado(
     diferenca_abs = simulado - baseline
     diferenca_pct = diferenca_abs / baseline if baseline else 0.0
 
-    delta = (
-        simulada.set_index("matricula")["comissao"]
-        - apuracao_base.set_index("matricula")["comissao"]
-    )
-    dims = apuracao_base.set_index("matricula")[["cod_loja", "cod_marca", "cod_cargo"]]
-    dims = dims.assign(delta=delta)
+    # matricula sozinha não é chave única quando o período tem mais de uma
+    # competência: a mesma matrícula aparece uma vez por mês processado.
+    chave = ["matricula", "competencia"]
+    base_indexada = apuracao_base.set_index(chave)
+    simulada_indexada = simulada.set_index(chave)
+    delta = simulada_indexada["comissao"] - base_indexada["comissao"]
+    dims = base_indexada[["cod_loja", "cod_marca", "cod_cargo"]].assign(delta=delta)
+    dims = dims.reset_index()
 
     decomposicao = {
         "elemento": {
@@ -66,7 +72,13 @@ def montar_resultado(
         "loja": _quebra_por_dimensao(dims.groupby("cod_loja")["delta"].sum()),
         "marca": _quebra_por_dimensao(dims.groupby("cod_marca")["delta"].sum()),
         "cargo": _quebra_por_dimensao(dims.groupby("cod_cargo")["delta"].sum()),
-        "competencia": {competencia: diferenca_abs},
+        # toda competência do período entra, mesmo com delta zero - uma regra
+        # sazonal processada junto com meses fora da sua vigência não afeta
+        # aqueles meses, mas eles foram simulados e precisam aparecer.
+        "competencia": {
+            competencia: float(dims.loc[dims["competencia"] == competencia, "delta"].sum())
+            for competencia in competencias
+        },
     }
 
     return {
