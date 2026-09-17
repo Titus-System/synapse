@@ -1,5 +1,7 @@
 package synapse.api.core.config;
 
+import java.time.Duration;
+
 import org.junit.jupiter.api.Test;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -78,6 +80,13 @@ class AppPropertiesTests {
 	@Test
 	void fallsBackToTheMachineHostnameWhenHostIsBlank() {
 		assertThat(new AppProperties.Observability("INFO", 1.0, "http://localhost:4318", "").host()).isNotBlank();
+	}
+
+	@Test
+	void carriesTheSseSettings() {
+		AppProperties.Sse sse = this.properties.sse();
+		assertThat(sse.heartbeat()).isEqualTo(Duration.ofSeconds(15));
+		assertThat(sse.timeout()).isEqualTo(Duration.ofMinutes(30));
 	}
 
 }

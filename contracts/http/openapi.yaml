@@ -341,8 +341,16 @@ paths:
         **Reconexão.** Se a conexão cair, o cliente reabre a
         mesma requisição e recebe de novo a fotografia do estado atual.
 
-        **Enquadramento.** Cada evento ocupa uma linha `event:` com o nome e uma
-        linha `data:` com o JSON descrito no schema desta resposta.
+        **Enquadramento.** Cada evento ocupa uma linha `event:` com o nome, uma linha
+        `id:` com um identificador numérico crescente e uma linha `data:` com o JSON
+        descrito no schema desta resposta. O `id` é o mesmo em toda conexão que recebe
+        aquele evento, mas não sobrevive a um reinício da `api` - a reconexão não
+        retoma a partir dele, e sim pela fotografia.
+
+        **Heartbeat.** Em intervalo fixo, o servidor envia uma linha de comentário SSE
+        (`:` seguido de texto) sem `event:` nem `data:`. O `EventSource` do navegador a
+        ignora silenciosamente; ela existe para manter a conexão viva através de proxy
+        e para o servidor detectar o cliente que saiu.
       responses:
         "200":
           description: |
@@ -368,18 +376,25 @@ paths:
                     `data:`; é este exemplo que mostra o enquadramento em volta dele.
                   value: |
                     event: estado
+                    id: 1
                     data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","status":"gerando_regra"}
 
+                    : heartbeat
+
                     event: etapa
+                    id: 2
                     data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","etapa":"geracao_codigo","status":"iniciada"}
 
                     event: etapa
+                    id: 3
                     data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","etapa":"delegacao_worker","status":"iniciada"}
 
                     event: resultado
+                    id: 4
                     data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","simulacao_id":"b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93","status":"sucesso","veredito":"inviavel"}
 
                     event: estado
+                    id: 5
                     data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","status":"simulacao_inviavel","status_anterior":"simulando"}
         "401":
           $ref: "#/components/responses/NaoAutenticado"
