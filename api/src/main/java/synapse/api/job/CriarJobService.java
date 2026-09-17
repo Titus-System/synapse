@@ -4,6 +4,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
+import java.util.List;
 import java.util.UUID;
 
 import tools.jackson.databind.json.JsonMapper;
@@ -28,7 +29,14 @@ class CriarJobService {
 	}
 
 	@Transactional
-	JobCriadoDto criar(UUID usuarioId, CriarJobRequisicao requisicao) {
+	JobCriadoDto criar(CriarJobRequisicao requisicao) {
+		List<UUID> usuarios = this.jdbc.queryForList("""
+				SELECT id FROM usuarios WHERE ativo = true ORDER BY criado_em, id LIMIT 1
+				""", UUID.class);
+		if (usuarios.isEmpty()) {
+			throw CriarJobException.semUsuarioAtivo();
+		}
+		UUID usuarioId = usuarios.getFirst();
 		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		Timestamp timestamp = Timestamp.from(agora);
 		RepresentacaoRegraDto representacao = requisicao.representacao();

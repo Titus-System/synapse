@@ -20,7 +20,6 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -50,18 +49,17 @@ class CriarJobControllerTests {
 	}
 
 	@Test
-	void responde201ComLocationEExatamenteOsCamposIniciais() throws Exception {
+	void semPrincipalResponde201ComLocationEExatamenteOsCamposIniciais() throws Exception {
 		UUID jobId = UUID.randomUUID();
-		when(this.service.criar(eq(USUARIO), any())).thenAnswer(invocacao -> {
-			CriarJobRequisicao requisicao = invocacao.getArgument(1);
+		when(this.service.criar(any())).thenAnswer(invocacao -> {
+			CriarJobRequisicao requisicao = invocacao.getArgument(0);
 			return new JobCriadoDto(jobId, "aguardando_confirmacao_parametros", "formulario", requisicao.competencias(),
 					requisicao.orcamento(), Instant.parse("2026-09-16T15:00:00Z"), UUID.randomUUID(),
 					new RegraCriadaDto(UUID.randomUUID(), 1, "confirmacao_usuario", requisicao.representacao(),
 							Instant.parse("2026-09-16T15:00:00Z")));
 		});
 
-		String resposta = this.mvc.perform(
-				post("/jobs").principal(USUARIO::toString).contentType(MediaType.APPLICATION_JSON).content(FORMULARIO))
+		String resposta = this.mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(FORMULARIO))
 			.andExpect(status().isCreated())
 			.andExpect(header().string("Location", "/api/jobs/" + jobId))
 			.andExpect(jsonPath("$.status").value("aguardando_confirmacao_parametros"))
@@ -76,14 +74,13 @@ class CriarJobControllerTests {
 				"criado_em", "submissao_id", "regra");
 		assertThat(job.path("regra").propertyNames()).containsExactlyInAnyOrder("id", "versao", "origem",
 				"representacao", "criada_em");
-		verify(this.service).criar(eq(USUARIO), any());
+		verify(this.service).criar(any());
 	}
 
 	@ParameterizedTest
 	@MethodSource("requisicoesInvalidas")
 	void recusaRequisicaoInvalidaAntesDePersistir(String corpo) throws Exception {
-		this.mvc
-			.perform(post("/jobs").principal(USUARIO::toString).contentType(MediaType.APPLICATION_JSON).content(corpo))
+		this.mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(corpo))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.codigo").value("requisicao_invalida"))
 			.andExpect(jsonPath("$.mensagem").isNotEmpty());
@@ -112,10 +109,7 @@ class CriarJobControllerTests {
 		JsonMapper json = new JsonMapper();
 		ObjectNode corpo = (ObjectNode) json.readTree(FORMULARIO);
 		((ObjectNode) corpo.path("conteudo")).set("nucleo", json.readTree(valor));
-		this.mvc
-			.perform(post("/jobs").principal(USUARIO::toString)
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(corpo.toString()))
+		this.mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(corpo.toString()))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.codigo").value("requisicao_invalida"))
 			.andExpect(jsonPath("$.mensagem").value("O campo conteudo.nucleo é obrigatório e precisa ser um objeto."));
@@ -133,10 +127,7 @@ class CriarJobControllerTests {
 		else {
 			nucleo.remove(campo);
 		}
-		this.mvc
-			.perform(post("/jobs").principal(USUARIO::toString)
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(corpo.toString()))
+		this.mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(corpo.toString()))
 			.andExpect(status().isUnprocessableContent())
 			.andExpect(jsonPath("$.codigo").value("nucleo_incompleto"))
 			.andExpect(jsonPath("$.elementos[0].ref").value("nucleo." + campo));
@@ -154,10 +145,7 @@ class CriarJobControllerTests {
 		JsonMapper json = new JsonMapper();
 		ObjectNode corpo = (ObjectNode) json.readTree(FORMULARIO);
 		((ObjectNode) corpo.path("conteudo").path("nucleo")).set(campo, json.readTree(valor));
-		this.mvc
-			.perform(post("/jobs").principal(USUARIO::toString)
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(corpo.toString()))
+		this.mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(corpo.toString()))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.codigo").value("requisicao_invalida"))
 			.andExpect(jsonPath("$.elementos[0].ref").value("nucleo." + campo));
@@ -173,32 +161,18 @@ class CriarJobControllerTests {
 	}
 
 	@Test
-	void naoCriaJobSemPrincipalMesmoComUserIdNoBodyOuCabecalho() throws Exception {
-		this.mvc
-			.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON)
-				.header("Authorization", "Bearer " + USUARIO)
-				.content(FORMULARIO.replace("\"origem\"", "\"user_id\":\"" + USUARIO + "\",\"origem\"")))
-			.andExpect(status().isUnauthorized())
-			.andExpect(jsonPath("$.codigo").value("nao_autenticado"));
-		verifyNoInteractions(this.service);
-	}
-
-	@Test
-	void recusaPrincipalSemUuid() throws Exception {
-		this.mvc
-			.perform(post("/jobs").principal(() -> "login-sem-uuid")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(FORMULARIO))
-			.andExpect(status().isUnauthorized());
-		verifyNoInteractions(this.service);
+	void semUsuarioAtivoResponde503ComErroDeDominio() throws Exception {
+		when(this.service.criar(any())).thenThrow(CriarJobException.semUsuarioAtivo());
+		this.mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(FORMULARIO))
+			.andExpect(status().isServiceUnavailable())
+			.andExpect(jsonPath("$.codigo").value("usuario_ativo_indisponivel"))
+			.andExpect(jsonPath("$.mensagem").value("Nenhum usuário ativo disponível para criar o job."));
 	}
 
 	@Test
 	void naoExpoeErroDoJdbc() throws Exception {
-		when(this.service.criar(eq(USUARIO), any()))
-			.thenThrow(new DataIntegrityViolationException("regras SQL stack trace"));
-		this.mvc.perform(
-				post("/jobs").principal(USUARIO::toString).contentType(MediaType.APPLICATION_JSON).content(FORMULARIO))
+		when(this.service.criar(any())).thenThrow(new DataIntegrityViolationException("regras SQL stack trace"));
+		this.mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(FORMULARIO))
 			.andExpect(status().isInternalServerError())
 			.andExpect(content().string(""));
 	}

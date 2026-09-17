@@ -32,9 +32,9 @@ class CriarJobException extends RuntimeException {
 				List.of(new ElementoErroDto("nucleo." + campo, motivo)));
 	}
 
-	static CriarJobException naoAutenticado() {
-		return new CriarJobException(HttpStatus.UNAUTHORIZED, "nao_autenticado", "Sessão ausente ou inválida.",
-				List.of());
+	static CriarJobException semUsuarioAtivo() {
+		return new CriarJobException(HttpStatus.SERVICE_UNAVAILABLE, "usuario_ativo_indisponivel",
+				"Nenhum usuário ativo disponível para criar o job.", List.of());
 	}
 
 	HttpStatus status() {

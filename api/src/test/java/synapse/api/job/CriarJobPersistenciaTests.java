@@ -84,8 +84,15 @@ class CriarJobPersistenciaTests {
 		jdbc = new JdbcTemplate(dataSource);
 		jdbc.update("""
 				INSERT INTO usuarios (id, login, senha_hash, nome, papel, criado_em)
-				VALUES (?, 'rh-t037', 'x', 'RH', 'profissional_rh', now())
+				VALUES (?, 'rh-t037', 'x', 'RH', 'profissional_rh', '2026-01-02T00:00:00Z')
 				""", USUARIO);
+		jdbc.update(
+				"""
+						INSERT INTO usuarios (id, login, senha_hash, nome, papel, ativo, criado_em)
+						VALUES ('11111111-1111-4111-8111-111111111111', 'inativo', 'x', 'Inativo', 'profissional_rh', false, '2026-01-01T00:00:00Z'),
+						       ('33333333-3333-4333-8333-333333333333', 'empate', 'x', 'Empate', 'profissional_rh', true, '2026-01-02T00:00:00Z'),
+						       ('00000000-0000-4000-8000-000000000000', 'recente', 'x', 'Recente', 'profissional_rh', true, '2026-01-03T00:00:00Z')
+						""");
 		contexto = new AnnotationConfigApplicationContext();
 		contexto.registerBean(DataSource.class, () -> dataSource);
 		contexto.registerBean(JdbcTemplate.class, () -> jdbc);
@@ -113,7 +120,7 @@ class CriarJobPersistenciaTests {
 	}
 
 	@Test
-	void httpCriaAsTresLinhasComUsuarioDoPrincipalEFormularioOriginal() throws Exception {
+	void httpSemPrincipalPersisteUsuarioAtivoIgnorandoUserIdDoBody() throws Exception {
 		String corpo = CriarJobControllerTests.FORMULARIO
 			.replace("\"origem\"", "\"user_id\":\"99999999-9999-4999-8999-999999999999\",\"origem\"")
 			.replace("\"texto_livre\":null", "\"texto_livre\":\"Observação recebida\",\"extra\":{\"preservar\":true}")
@@ -121,8 +128,7 @@ class CriarJobPersistenciaTests {
 		var mvc = MockMvcBuilders.standaloneSetup(contexto.getBean(CriarJobController.class))
 			.setControllerAdvice(contexto.getBean(CriarJobAdvice.class))
 			.build();
-		var resposta = mvc
-			.perform(post("/jobs").principal(USUARIO::toString).contentType(MediaType.APPLICATION_JSON).content(corpo))
+		var resposta = mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(corpo))
 			.andExpect(status().isCreated())
 			.andReturn()
 			.getResponse();
@@ -174,8 +180,23 @@ class CriarJobPersistenciaTests {
 	}
 
 	@Test
+	void semUsuarioAtivoNaoPersisteEProduzErroDeDominio() {
+		Map<String, Object> antes = contagens();
+		jdbc.update("UPDATE usuarios SET ativo = false WHERE ativo = true");
+		try {
+			assertThatThrownBy(() -> service.criar(CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO)))
+				.isInstanceOf(CriarJobException.class)
+				.hasMessage("Nenhum usuário ativo disponível para criar o job.");
+			assertThat(contagens()).isEqualTo(antes);
+		}
+		finally {
+			jdbc.update("UPDATE usuarios SET ativo = true WHERE login <> ?", "inativo");
+		}
+	}
+
+	@Test
 	void ausenciaDeCompetenciasPersisteOsSeisMeses() {
-		JobCriadoDto job = service.criar(USUARIO, CriarJobRequisicao
+		JobCriadoDto job = service.criar(CriarJobRequisicao
 			.deJson(CriarJobControllerTests.FORMULARIO.replace("\"competencias\":[\"2025-11\"],", "")));
 		assertThat(competencias(job.id())).containsExactly("2025-07", "2025-08", "2025-09", "2025-10", "2025-11",
 				"2025-12");
@@ -184,17 +205,17 @@ class CriarJobPersistenciaTests {
 
 	@Test
 	void ordenaCompetenciasAntesDePersistir() {
-		JobCriadoDto job = service.criar(USUARIO, CriarJobRequisicao.deJson(
+		JobCriadoDto job = service.criar(CriarJobRequisicao.deJson(
 				CriarJobControllerTests.FORMULARIO.replace("[\"2025-11\"]", "[\"2025-12\",\"2025-07\",\"2025-09\"]")));
 		assertThat(competencias(job.id())).containsExactly("2025-07", "2025-09", "2025-12");
 	}
 
 	@Test
 	void listasVaziasRepresentamTodosConformeSchema() {
-		JobCriadoDto job = service.criar(USUARIO,
-				CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO.replace("[\"13\"]", "[]")
-					.replace("[\"10\",\"20\"]", "[]")
-					.replace("[\"100\",\"300\"]", "[]")));
+		JobCriadoDto job = service
+			.criar(CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO.replace("[\"13\"]", "[]")
+				.replace("[\"10\",\"20\"]", "[]")
+				.replace("[\"100\",\"300\"]", "[]")));
 		assertThat(job.regra().representacao().nucleo().loja()).isEmpty();
 		assertThat(job.regra().representacao().nucleo().marca()).isEmpty();
 		assertThat(job.regra().representacao().nucleo().cargo()).isEmpty();
@@ -205,8 +226,7 @@ class CriarJobPersistenciaTests {
 		Map<String, Object> antes = contagens();
 		dono.execute("REVOKE INSERT ON regras FROM synapse_api");
 		try {
-			assertThatThrownBy(
-					() -> service.criar(USUARIO, CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO)))
+			assertThatThrownBy(() -> service.criar(CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO)))
 				.isInstanceOf(DataAccessException.class)
 				.hasMessageContaining("INSERT INTO regras");
 		}
