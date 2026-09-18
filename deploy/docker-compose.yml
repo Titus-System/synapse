@@ -16,6 +16,8 @@ services:
     volumes:
       - ../frontend:/app
       - /app/node_modules
+    networks:
+      - synapse-net
     restart: unless-stopped
 
   # Único ponto de entrada do droplet: termina TLS e roteia por subdomínio
