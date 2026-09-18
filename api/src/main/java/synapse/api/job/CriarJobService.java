@@ -14,6 +14,9 @@ import org.springframework.jdbc.support.SqlArrayValue;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import synapse.api.core.outbox.EventoOutbox;
+import synapse.api.core.outbox.Outbox;
+
 @Service
 class CriarJobService {
 
@@ -21,11 +24,14 @@ class CriarJobService {
 
 	private final MaquinaDeEstadosDoJob maquina;
 
+	private final Outbox outbox;
+
 	private final JsonMapper json = new JsonMapper();
 
-	CriarJobService(JdbcTemplate jdbc, MaquinaDeEstadosDoJob maquina) {
+	CriarJobService(JdbcTemplate jdbc, MaquinaDeEstadosDoJob maquina, Outbox outbox) {
 		this.jdbc = jdbc;
 		this.maquina = maquina;
+		this.outbox = outbox;
 	}
 
 	@Transactional
@@ -58,6 +64,8 @@ class CriarJobService {
 				VALUES (?, 1, 'confirmacao_usuario', ?::jsonb, '[]'::jsonb, ?, ?) RETURNING id
 				""", UUID.class, jobId, this.json.writeValueAsString(representacao.nucleo()), hash, timestamp));
 		RegraCriadaDto regra = new RegraCriadaDto(regraId, 1, "confirmacao_usuario", representacao, agora);
+		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA,
+				new RegraSubmetidaDto(jobId, requisicao.origem(), requisicao.competencias(), submissaoId, regraId));
 		return new JobCriadoDto(jobId, status, requisicao.origem(), requisicao.competencias(), requisicao.orcamento(),
 				agora, submissaoId, regra);
 	}
