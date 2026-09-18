@@ -22,6 +22,7 @@ import org.junit.jupiter.api.condition.EnabledIf;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -35,6 +36,8 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+
+import synapse.api.core.outbox.Outbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -114,7 +117,8 @@ class CriarJobPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ CriarJobService.class, MaquinaDeEstadosDoJob.class, CriarJobController.class, CriarJobAdvice.class })
+	@Import({ CriarJobService.class, MaquinaDeEstadosDoJob.class, Outbox.class, CriarJobController.class,
+			CriarJobAdvice.class })
 	static class Config {
 
 	}
@@ -175,8 +179,22 @@ class CriarJobPersistenciaTests {
 				"SELECT count(*) FROM job_transicoes WHERE job_id = ? AND status_anterior IS NULL AND ator = 'usuario'",
 				Integer.class, jobId))
 			.isEqualTo(1);
-		assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE job_id = ?", Integer.class, jobId))
-			.isZero();
+		Map<String, Object> evento = jdbc.queryForMap("""
+				SELECT tipo, payload::text AS payload, publicado_em, tentativas
+				FROM outbox_events WHERE job_id = ?
+				""", jobId);
+		assertThat(evento).containsEntry("tipo", "regra-submetida")
+			.containsEntry("publicado_em", null)
+			.containsEntry("tentativas", 0);
+		String payload = Objects.requireNonNull((String) evento.get("payload"));
+		ContratoDeEvento.validar("regra-submetida", payload);
+		var payloadNode = JSON.readTree(payload);
+		assertThat(payloadNode.path("job_id").asString()).isEqualTo(jobId.toString());
+		assertThat(payloadNode.path("origem").asString()).isEqualTo("formulario");
+		assertThat(payloadNode.path("competencias").valueStream().map(JsonNode::asString).toList())
+			.containsExactly("2025-11");
+		assertThat(payloadNode.path("submissao_id").asString()).isEqualTo(submissaoId.toString());
+		assertThat(payloadNode.path("regra_id").asString()).isEqualTo(regraId.toString());
 	}
 
 	@Test
@@ -245,7 +263,8 @@ class CriarJobPersistenciaTests {
 				SELECT (SELECT count(*) FROM submissoes) AS submissoes,
 				       (SELECT count(*) FROM jobs) AS jobs,
 				       (SELECT count(*) FROM regras) AS regras,
-				       (SELECT count(*) FROM job_transicoes) AS transicoes
+				       (SELECT count(*) FROM job_transicoes) AS transicoes,
+				       (SELECT count(*) FROM outbox_events) AS eventos
 				""");
 	}
 
