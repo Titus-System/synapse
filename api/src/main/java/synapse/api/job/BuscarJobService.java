@@ -109,18 +109,22 @@ class BuscarJobService {
                             ResultadoSimulacaoDto resultado = null;
 
                             if (simulacaoStatus != null) {
-                                TotaisSimulacaoDto totais = this.json.readValue(
-                                        rs.getString("simulacao_totais"),
-                                        TotaisSimulacaoDto.class);
+                                TotaisSimulacaoDto totais = rs.getString("simulacao_totais") != null
+                                    ? this.json.readValue(
+                                            rs.getString("simulacao_totais"),
+                                            TotaisSimulacaoDto.class)
+                                    : null;
 
                                 List<ResultadoAssercaoDto> assercoes = this.json.readValue(
                                         rs.getString("simulacao_assercoes"),
                                         new TypeReference<List<ResultadoAssercaoDto>>() {
                                         });
 
-                                DecomposicaoResultadoDto decomposicao = this.json.readValue(
-                                        rs.getString("simulacao_decomposicao"),
-                                        DecomposicaoResultadoDto.class);
+                                DecomposicaoResultadoDto decomposicao = rs.getString("simulacao_decomposicao") != null
+                                        ? this.json.readValue(
+                                                rs.getString("simulacao_decomposicao"),
+                                                DecomposicaoResultadoDto.class)
+                                        : null;
 
                                 resultado = new ResultadoSimulacaoDto(
                                         totais,
