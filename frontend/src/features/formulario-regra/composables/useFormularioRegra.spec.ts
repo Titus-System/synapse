@@ -20,7 +20,6 @@ function preencherFormularioValido() {
   formulario.formulario.marca = '10'
   formulario.formulario.cargo = '100'
   formulario.formulario.percentual = '2,5'
-  formulario.formulario.competencia = '2025-11'
   formulario.formulario.orcamento = '485.000,00'
   return formulario
 }
@@ -46,7 +45,6 @@ describe('useFormularioRegra', () => {
 
     expect(criarJob).toHaveBeenCalledWith({
       origem: 'formulario',
-      competencias: ['2025-11'],
       orcamento: 485000,
       conteudo: {
         nucleo: {

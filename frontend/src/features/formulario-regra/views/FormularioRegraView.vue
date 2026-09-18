@@ -13,7 +13,7 @@ const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
 const quantidadeArquivadas = ref(0)
 const quantidadeSalvas = ref(0)
 const {
-  competenciasDisponiveis,
+  opcoesDeVigencia,
   enviando,
   enviarFormulario,
   erros,
@@ -149,7 +149,7 @@ onMounted(() => {
                 id="vigencia-inicio"
                 v-model:valor="formulario.vigenciaInicio"
                 rotulo="Início da vigência"
-                :opcoes="competenciasDisponiveis"
+                :opcoes="opcoesDeVigencia"
                 :erro="erros.vigenciaInicio"
                 compacto
               />
@@ -160,7 +160,7 @@ onMounted(() => {
                 id="vigencia-fim"
                 v-model:valor="formulario.vigenciaFim"
                 rotulo="Fim da vigência"
-                :opcoes="competenciasDisponiveis"
+                :opcoes="opcoesDeVigencia"
                 :erro="erros.vigenciaFim"
                 compacto
               />
@@ -210,17 +210,6 @@ onMounted(() => {
                 placeholder="Ex.: 2,5"
                 sufixo="%"
                 :erro="erros.percentual"
-                compacto
-              />
-            </div>
-            <div class="grid grid-cols-[minmax(0,1fr)_210px] items-center gap-4 px-5 py-[clamp(.25rem,1vh,.5rem)] transition hover:bg-[#fdf9f6]">
-              <span class="text-sm">Competência de referência</span>
-              <CampoDeSelecao
-                id="competencia"
-                v-model:valor="formulario.competencia"
-                rotulo="Competência de referência"
-                :opcoes="competenciasDisponiveis"
-                :erro="erros.competencia"
                 compacto
               />
             </div>

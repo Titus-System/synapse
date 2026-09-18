@@ -1,4 +1,4 @@
-export interface OpcaoDeCompetencia {
+export interface OpcaoDeVigencia {
   valor: string
   rotulo: string
 }
@@ -10,7 +10,6 @@ export interface FormularioDeRegra {
   marca: string
   cargo: string
   percentual: string
-  competencia: string
   orcamento: string
 }
 

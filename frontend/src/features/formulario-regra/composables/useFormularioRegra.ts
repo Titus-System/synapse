@@ -2,9 +2,9 @@ import { reactive, ref } from 'vue'
 import { apiClient } from '@/services/api'
 import { HttpError } from '@/services/http'
 import type { CriarJobRequisicao, Job } from '@/types/api'
-import type { CampoDoFormulario, FormularioDeRegra, OpcaoDeCompetencia } from '../types'
+import type { CampoDoFormulario, FormularioDeRegra, OpcaoDeVigencia } from '../types'
 
-const competenciasDisponiveis: readonly OpcaoDeCompetencia[] = [
+const opcoesDeVigencia: readonly OpcaoDeVigencia[] = [
   { valor: '2025-07', rotulo: 'Julho de 2025' },
   { valor: '2025-08', rotulo: 'Agosto de 2025' },
   { valor: '2025-09', rotulo: 'Setembro de 2025' },
@@ -21,7 +21,6 @@ const nomesDeCampo: Record<string, CampoDoFormulario[]> = {
   Marca: ['marca'],
   Cargo: ['cargo'],
   'Percentual de comissionamento': ['percentual'],
-  Competências: ['competencia'],
   Orçamento: ['orcamento'],
 }
 
@@ -33,7 +32,6 @@ function criarFormularioVazio(): FormularioDeRegra {
     marca: '',
     cargo: '',
     percentual: '',
-    competencia: '',
     orcamento: '',
   }
 }
@@ -46,7 +44,6 @@ function criarErrosVazios(): Record<CampoDoFormulario, string> {
     marca: '',
     cargo: '',
     percentual: '',
-    competencia: '',
     orcamento: '',
   }
 }
@@ -107,7 +104,6 @@ export function useFormularioRegra() {
       { campo: 'marca', mensagem: 'Informe ao menos um código de marca.' },
       { campo: 'cargo', mensagem: 'Informe ao menos um código de cargo.' },
       { campo: 'percentual', mensagem: 'Informe o percentual de comissão.' },
-      { campo: 'competencia', mensagem: 'Escolha a competência para a simulação.' },
       { campo: 'orcamento', mensagem: 'Informe o orçamento disponível.' },
     ]
 
@@ -133,7 +129,6 @@ export function useFormularioRegra() {
 
     return {
       origem: 'formulario',
-      competencias: [formulario.competencia],
       orcamento,
       conteudo: {
         nucleo: {
@@ -187,7 +182,7 @@ export function useFormularioRegra() {
   }
 
   return {
-    competenciasDisponiveis,
+    opcoesDeVigencia,
     enviando,
     enviarFormulario,
     erros,
