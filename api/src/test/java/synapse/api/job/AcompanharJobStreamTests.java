@@ -81,8 +81,8 @@ class AcompanharJobStreamTests {
 					"--app.postgres.owner.user=" + postgres.getUsername(),
 					"--app.postgres.owner.password=" + postgres.getPassword(), "--app.postgres.user=" + USUARIO_API,
 					"--app.postgres.password=" + SENHA, "--spring.rabbitmq.dynamic=false",
-					"--management.health.rabbit.enabled=false", "--management.health.db.enabled=false",
-					"--app.sse.heartbeat=200ms");
+					"--spring.rabbitmq.listener.simple.auto-startup=false", "--management.health.rabbit.enabled=false",
+					"--management.health.db.enabled=false", "--app.sse.heartbeat=200ms");
 
 		porta = Integer.parseInt(Objects.requireNonNull(contexto.getEnvironment().getProperty("local.server.port")));
 		emissoresSse = contexto.getBean(EmissoresSse.class);

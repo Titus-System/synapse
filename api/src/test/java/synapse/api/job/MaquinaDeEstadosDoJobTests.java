@@ -102,6 +102,21 @@ class MaquinaDeEstadosDoJobTests {
 				"simulando->aguardando_decisao_usuario", "aguardando_decisao_usuario->liberado");
 	}
 
+	/**
+	 * {@code transicionar} devolve o status de **origem**, não o de destino - é o que o
+	 * evento SSE {@code estado} precisa em {@code status_anterior} sem uma segunda
+	 * consulta fora da trava (T-045).
+	 */
+	@Test
+	void transicionarDevolveOStatusDeOrigem() throws SQLException {
+		UUID jobId = criarJob();
+		maquina.registrarCriacao(jobId, "sistema");
+
+		JobStatus origem = maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "sistema", null);
+
+		assertThat(origem).isEqualTo(JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS);
+	}
+
 	@Test
 	void cadaTransicaoGravaUmaLinhaComTimestamp() throws SQLException {
 		UUID jobId = criarJob();

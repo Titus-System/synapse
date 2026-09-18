@@ -32,6 +32,28 @@ exatamente o que o outbox existe para evitar (`AGENTS.md`, seção Segurança).
 `EventoOutbox` é o vocabulário fechado dos eventos que a api publica; um evento novo exige
 um valor novo ali, ligado à fila declarada em `RabbitTopologyConfig`.
 
+## O payload
+
+O DTO do evento mora na fatia que o publica (`RegraSubmetidaDto` em `synapse.api.job`,
+package-private), nunca em `core` — é regra de negócio de quem grava o job, não
+infraestrutura. Componentes em snake_case, sem naming strategy: `Outbox.registrar`
+serializa com um `JsonMapper` puro, então o nome do componente é o nome no fio.
+
+**Sempre um DTO apartado do de resposta HTTP**, mesmo quando os campos coincidem hoje. São
+dois contratos distintos — fila de saída × HTTP de entrada/saída — e é a separação que
+impede um campo novo de um vazar sozinho para o outro (mesma razão de `EventoEtapaDto`
+existir apartado de `EtapaAlteradaDto`).
+
+Campo opcional do schema do evento (`submissao_id`, `regra_id`, conforme a origem) é
+`@Nullable` no DTO e leva `@JsonInclude(Include.NON_NULL)` na classe: o schema recusa
+`null` explícito (`type: "string"` não aceita `null`), então ausência tem que virar
+ausência no JSON, nunca `"campo": null`.
+
+A conformidade contra `contracts/events/<evento>.schema.json` — inclusive os `if/then`
+condicionais — é verificada em teste, com `com.networknt:json-schema-validator`
+(`ContratoDeEvento`, em `synapse.api.job`), nunca por asserção campo a campo: é a única
+forma de pegar uma condição do schema que uma lista de campos não capturaria.
+
 ## O poller
 
 `PublicadorOutbox.publicarPendentes()`, agendado por `OutboxConfig` a cada
