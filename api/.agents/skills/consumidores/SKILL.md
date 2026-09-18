@@ -52,8 +52,22 @@ evento é puramente informativo (repassa progresso ao SSE, nunca escreve estado)
 `etapa-alterada` nem carrega `message_id` - o codegen só o define para `no-concluido`
 (`producers.py`). Reemitir a mesma etapa duas vezes ao mesmo cliente é inofensivo.
 
-Um consumidor que **escreve** estado (T-045, T-046) precisa deduplicar antes de gravar -
-por `evento_id` quando a mensagem carrega um, como `no-concluido` já prevê.
+Um consumidor que **escreve** estado precisa deduplicar antes de gravar, de uma de duas
+formas:
+
+- **Por `evento_id`**, quando a mensagem carrega um - `no-concluido` prevê isso com um
+  índice único em `trilhas_auditoria.evento_id`.
+- **Pela própria máquina de estados**, quando não há `evento_id` - `simulacao-concluida`
+  (`SimulacaoConcluidaConsumidor`, T-045) é o caso: uma redelivery ou um evento fora de
+  ordem encontram o job já fora do estado de origem esperado, `transicionar` lança
+  `TransicaoDeStatusInvalidaException` e a transação inteira desfaz. Isso só deduplica
+  porque o job nunca tem aresta de volta a um estado por onde já passou - não é um recurso
+  geral, é uma propriedade do grafo (`JobStatus`) que só se aplica quando o evento em
+  questão é o único a produzir aquela transição.
+
+Nos dois casos, capture só a exceção de negócio (`TransicaoDeStatusInvalidaException`, uma
+constraint única violada). Uma falha de banco não é isso - ela deve propagar e virar
+redelivery de verdade, que é a garantia que a seção seguinte documenta.
 
 ## Por que `default-requeue-rejected` continua `true`
 

@@ -4,3 +4,4 @@ deploy/.env
 *.dbdiagram
 __pycache__/
 .digital-ocean
+.claude
