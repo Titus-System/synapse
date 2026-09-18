@@ -90,6 +90,18 @@ class ExemplosDeContratoTests {
 		ContratoDeEvento.validar("regra-submetida", Files.readString(exemplo("events/regra-submetida-voz.json")));
 	}
 
+	@Test
+	void desserializaOEventoDeSimulacaoConcluida() throws IOException {
+		SimulacaoConcluidaDto evento = desserializar("events/simulacao-concluida.json", SimulacaoConcluidaDto.class);
+
+		assertThat(evento.job_id()).isEqualTo(UUID.fromString("3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"));
+		assertThat(evento.resultado_id()).isEqualTo(UUID.fromString("b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"));
+		assertThat(evento.status()).isEqualTo("sucesso");
+		assertThat(evento.veredito()).isEqualTo("inviavel");
+
+		ContratoDeEvento.validar("simulacao-concluida", Files.readString(exemplo("events/simulacao-concluida.json")));
+	}
+
 	private <T> T desserializar(String caminhoRelativo, Class<T> tipo) throws IOException {
 		return this.objectMapper.readerFor(tipo)
 			.with(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES,
