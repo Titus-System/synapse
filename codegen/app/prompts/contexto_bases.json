@@ -1,0 +1,595 @@
+{
+  "comissoes": {
+    "amostra": [
+      {
+        "cod_cargo": 100,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "descr_cargo": "VENDEDOR LOJA",
+        "descr_marca": "PRETO",
+        "percentual_comissao": 0.025
+      },
+      {
+        "cod_cargo": 150,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "descr_cargo": "GERENTE DE LOJA",
+        "descr_marca": "PRETO",
+        "percentual_comissao": 0.01
+      },
+      {
+        "cod_cargo": 200,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "descr_cargo": "VENDEDOR BALCAO",
+        "descr_marca": "PRETO",
+        "percentual_comissao": 0.02
+      },
+      {
+        "cod_cargo": 300,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "descr_cargo": "ASSISTENTE DE VENDAS",
+        "descr_marca": "PRETO",
+        "percentual_comissao": 0.015
+      },
+      {
+        "cod_cargo": 100,
+        "cod_marca": 20,
+        "competencia": "2025-08",
+        "descr_cargo": "VENDEDOR LOJA",
+        "descr_marca": "BRANCO",
+        "percentual_comissao": 0.03
+      },
+      {
+        "cod_cargo": 150,
+        "cod_marca": 20,
+        "competencia": "2025-08",
+        "descr_cargo": "GERENTE DE LOJA",
+        "descr_marca": "BRANCO",
+        "percentual_comissao": 0.015
+      },
+      {
+        "cod_cargo": 100,
+        "cod_marca": 30,
+        "competencia": "2025-08",
+        "descr_cargo": "VENDEDOR LOJA",
+        "descr_marca": "AZUL",
+        "percentual_comissao": 0.02
+      },
+      {
+        "cod_cargo": 100,
+        "cod_marca": 40,
+        "competencia": "2025-08",
+        "descr_cargo": "VENDEDOR LOJA",
+        "descr_marca": "VERMELHO",
+        "percentual_comissao": 0.035
+      },
+      {
+        "cod_cargo": 100,
+        "cod_marca": 50,
+        "competencia": "2025-08",
+        "descr_cargo": "VENDEDOR LOJA",
+        "descr_marca": "AMARELO",
+        "percentual_comissao": 0.025
+      },
+      {
+        "cod_cargo": 100,
+        "cod_marca": 60,
+        "competencia": "2025-08",
+        "descr_cargo": "VENDEDOR LOJA",
+        "descr_marca": "CINZA",
+        "percentual_comissao": 0.03
+      }
+    ],
+    "esquema": {
+      "fields": [
+        {
+          "format": "YYYY-MM",
+          "name": "competencia",
+          "nullable": false,
+          "semantics": "Explicit source manifest competency.",
+          "source": null,
+          "type": "string"
+        },
+        {
+          "name": "cod_marca",
+          "nullable": false,
+          "semantics": "Brand code.",
+          "source": "Cod_Marca",
+          "type": "integer"
+        },
+        {
+          "name": "descr_marca",
+          "nullable": false,
+          "semantics": "Brand description.",
+          "source": "Descr_Marca",
+          "type": "string"
+        },
+        {
+          "name": "cod_cargo",
+          "nullable": false,
+          "semantics": "Role code.",
+          "source": "Cod_Cargo",
+          "type": "integer"
+        },
+        {
+          "name": "descr_cargo",
+          "nullable": false,
+          "semantics": "Role description.",
+          "source": "Descri_Cargo",
+          "type": "string"
+        },
+        {
+          "name": "percentual_comissao",
+          "nullable": false,
+          "semantics": "Fração decimal; 0.025 representa 2,5%.",
+          "source": "%_Comiss",
+          "type": "number"
+        }
+      ],
+      "file": "comissoes.jsonl",
+      "manager_rate": {
+        "cod_cargo": 150,
+        "decision_id": "CANONICAL_MANAGER_RATE",
+        "rh_descriptions": [
+          "GERENTE DE LOJA",
+          "GERENTE QUIOSQUE"
+        ],
+        "semantics": "Use the store manager rate of the corresponding brand for both descriptions. descr_cargo is descriptive, not a join field.",
+        "source_description": "GERENTE DE LOJA"
+      },
+      "primary_key": [
+        "competencia",
+        "cod_marca",
+        "cod_cargo"
+      ],
+      "unique_by": [
+        "competencia",
+        "cod_marca",
+        "cod_cargo"
+      ]
+    }
+  },
+  "rh": {
+    "amostra": [
+      {
+        "cod_cargo": 200,
+        "cod_loja": 75,
+        "cod_marca": 20,
+        "competencia": "2025-08",
+        "data_admiss": "2025-05-05",
+        "data_demiss": null,
+        "data_ref": "2025-08-01",
+        "descr_cargo": "VENDEDOR BALCAO",
+        "descr_loja": "LOJA-75",
+        "descr_marca": "BRANCO",
+        "matricula": "MATRIC-1"
+      },
+      {
+        "cod_cargo": 150,
+        "cod_loja": 35,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "data_admiss": "2013-08-08",
+        "data_demiss": null,
+        "data_ref": "2025-08-01",
+        "descr_cargo": "GERENTE QUIOSQUE",
+        "descr_loja": "LOJA-35",
+        "descr_marca": "PRETO",
+        "matricula": "MATRIC-10"
+      },
+      {
+        "cod_cargo": 200,
+        "cod_loja": 49,
+        "cod_marca": 20,
+        "competencia": "2025-08",
+        "data_admiss": "2023-09-01",
+        "data_demiss": null,
+        "data_ref": "2025-08-01",
+        "descr_cargo": "VENDEDOR BALCAO",
+        "descr_loja": "LOJA-49",
+        "descr_marca": "BRANCO",
+        "matricula": "MATRIC-101"
+      },
+      {
+        "cod_cargo": 100,
+        "cod_loja": 29,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "data_admiss": "2024-10-14",
+        "data_demiss": null,
+        "data_ref": "2025-08-01",
+        "descr_cargo": "VENDEDOR LOJA",
+        "descr_loja": "LOJA-29",
+        "descr_marca": "PRETO",
+        "matricula": "MATRIC-102"
+      },
+      {
+        "cod_cargo": 150,
+        "cod_loja": 51,
+        "cod_marca": 20,
+        "competencia": "2025-08",
+        "data_admiss": "2023-12-01",
+        "data_demiss": null,
+        "data_ref": "2025-08-01",
+        "descr_cargo": "GERENTE DE LOJA",
+        "descr_loja": "LOJA-51",
+        "descr_marca": "BRANCO",
+        "matricula": "MATRIC-103"
+      },
+      {
+        "cod_cargo": 100,
+        "cod_loja": 16,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "data_admiss": "2025-08-04",
+        "data_demiss": null,
+        "data_ref": "2025-08-01",
+        "descr_cargo": "VENDEDOR LOJA",
+        "descr_loja": "LOJA-16",
+        "descr_marca": "PRETO",
+        "matricula": "MATRIC-105"
+      },
+      {
+        "cod_cargo": 100,
+        "cod_loja": 31,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "data_admiss": "2023-11-08",
+        "data_demiss": "2025-07-15",
+        "data_ref": "2025-08-01",
+        "descr_cargo": "VENDEDOR LOJA",
+        "descr_loja": "LOJA-31",
+        "descr_marca": "PRETO",
+        "matricula": "MATRIC-106"
+      },
+      {
+        "cod_cargo": 100,
+        "cod_loja": 7,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "data_admiss": "2023-09-04",
+        "data_demiss": null,
+        "data_ref": "2025-08-01",
+        "descr_cargo": "VENDEDOR LOJA",
+        "descr_loja": "LOJA-7",
+        "descr_marca": "PRETO",
+        "matricula": "MATRIC-107"
+      },
+      {
+        "cod_cargo": 200,
+        "cod_loja": 79,
+        "cod_marca": 20,
+        "competencia": "2025-08",
+        "data_admiss": "2025-05-12",
+        "data_demiss": null,
+        "data_ref": "2025-08-01",
+        "descr_cargo": "VENDEDOR BALCAO",
+        "descr_loja": "LOJA-79",
+        "descr_marca": "BRANCO",
+        "matricula": "MATRIC-108"
+      },
+      {
+        "cod_cargo": 300,
+        "cod_loja": 21,
+        "cod_marca": 30,
+        "competencia": "2025-08",
+        "data_admiss": "2024-12-09",
+        "data_demiss": null,
+        "data_ref": "2025-08-01",
+        "descr_cargo": "ASSISTENTE DE VENDAS",
+        "descr_loja": "LOJA-21",
+        "descr_marca": "AZUL",
+        "matricula": "MATRIC-130"
+      }
+    ],
+    "esquema": {
+      "commission_join": {
+        "cardinality": "exactly_one",
+        "descr_cargo_participates": false,
+        "fields": [
+          "competencia",
+          "cod_marca",
+          "cod_cargo"
+        ],
+        "table": "comissoes"
+      },
+      "continuity": {
+        "eligibility": "admission <= month end; termination absent or >= month start",
+        "evidence": "latest previous observed RH, otherwise nearest next observed RH",
+        "post_termination": "retain observed; never synthesize after termination month",
+        "synthetic_evidence": false
+      },
+      "fields": [
+        {
+          "format": "YYYY-MM",
+          "name": "competencia",
+          "nullable": false,
+          "semantics": "Explicit source manifest competency.",
+          "source": null,
+          "type": "string"
+        },
+        {
+          "format": "YYYY-MM-DD",
+          "name": "data_ref",
+          "nullable": false,
+          "semantics": "RH source reference date; target month day one for reconstructed rows.",
+          "source": "Data_Ref",
+          "type": "string"
+        },
+        {
+          "name": "cod_marca",
+          "nullable": false,
+          "semantics": "Brand code.",
+          "source": "Cod_Marca",
+          "type": "integer"
+        },
+        {
+          "name": "descr_marca",
+          "nullable": false,
+          "semantics": "Brand description.",
+          "source": "Descri_Marca",
+          "type": "string"
+        },
+        {
+          "name": "cod_loja",
+          "nullable": false,
+          "semantics": "RH assignment in this competency; may differ from sale location.",
+          "source": "Cod_Loja",
+          "type": "integer"
+        },
+        {
+          "name": "descr_loja",
+          "nullable": false,
+          "semantics": "Store description.",
+          "source": "Descr_Loja",
+          "type": "string"
+        },
+        {
+          "name": "matricula",
+          "nullable": false,
+          "semantics": "Employee identifier preserved as text.",
+          "source": "Matricula",
+          "type": "string"
+        },
+        {
+          "format": "YYYY-MM-DD",
+          "name": "data_admiss",
+          "nullable": false,
+          "semantics": "Minimum admission date across all six RH sources, including July; applied to every published record, including earlier competencies.",
+          "source": "Data_Admiss",
+          "type": "string"
+        },
+        {
+          "format": "YYYY-MM-DD",
+          "name": "data_demiss",
+          "nullable": true,
+          "semantics": "Earliest known termination is terminal and propagated to subsequent RH. A date before the competency starts makes the employee ineligible for commission in that competency. Observed RH remains; post-termination sales are discarded.",
+          "source": "Data_Demiss",
+          "type": "string"
+        },
+        {
+          "name": "cod_cargo",
+          "nullable": false,
+          "semantics": "Role code.",
+          "source": "Cod_Cargo",
+          "type": "integer"
+        },
+        {
+          "name": "descr_cargo",
+          "nullable": false,
+          "semantics": "Role description.",
+          "source": "Descri_Cargo",
+          "type": "string"
+        }
+      ],
+      "file": "rh.jsonl",
+      "primary_key": [
+        "competencia",
+        "matricula"
+      ],
+      "reference_month_constraint": "data_ref[:7] == competencia",
+      "unique_by": [
+        "competencia",
+        "matricula"
+      ]
+    }
+  },
+  "vendas": {
+    "amostra": [
+      {
+        "cod_loja": 68,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "data_ref": "2025-08-01",
+        "data_venda": null,
+        "descr_loja": "LOJA-68",
+        "descr_marca": "PRETO",
+        "matricula": "MATRIC-56",
+        "vlr_venda": 10
+      },
+      {
+        "cod_loja": 77,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "data_ref": "2025-08-01",
+        "data_venda": null,
+        "descr_loja": "LOJA-77",
+        "descr_marca": "PRETO",
+        "matricula": "MATRIC-186",
+        "vlr_venda": 10
+      },
+      {
+        "cod_loja": 6,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "data_ref": "2025-08-01",
+        "data_venda": null,
+        "descr_loja": "LOJA-6",
+        "descr_marca": "PRETO",
+        "matricula": "MATRIC-229",
+        "vlr_venda": 10
+      },
+      {
+        "cod_loja": 68,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "data_ref": "2025-08-01",
+        "data_venda": null,
+        "descr_loja": "LOJA-68",
+        "descr_marca": "PRETO",
+        "matricula": "MATRIC-56",
+        "vlr_venda": 11
+      },
+      {
+        "cod_loja": 46,
+        "cod_marca": 30,
+        "competencia": "2025-08",
+        "data_ref": "2025-08-01",
+        "data_venda": null,
+        "descr_loja": "LOJA-46",
+        "descr_marca": "AZUL",
+        "matricula": "MATRIC-367",
+        "vlr_venda": 19.4
+      },
+      {
+        "cod_loja": 33,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "data_ref": "2025-08-01",
+        "data_venda": null,
+        "descr_loja": "LOJA-33",
+        "descr_marca": "PRETO",
+        "matricula": "MATRIC-68",
+        "vlr_venda": 20
+      },
+      {
+        "cod_loja": 72,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "data_ref": "2025-08-01",
+        "data_venda": null,
+        "descr_loja": "LOJA-72",
+        "descr_marca": "PRETO",
+        "matricula": "MATRIC-409",
+        "vlr_venda": 22.05
+      },
+      {
+        "cod_loja": 68,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "data_ref": "2025-08-01",
+        "data_venda": null,
+        "descr_loja": "LOJA-68",
+        "descr_marca": "PRETO",
+        "matricula": "MATRIC-56",
+        "vlr_venda": 29
+      },
+      {
+        "cod_loja": 77,
+        "cod_marca": 10,
+        "competencia": "2025-08",
+        "data_ref": "2025-08-01",
+        "data_venda": null,
+        "descr_loja": "LOJA-77",
+        "descr_marca": "PRETO",
+        "matricula": "MATRIC-186",
+        "vlr_venda": 30
+      },
+      {
+        "cod_loja": 77,
+        "cod_marca": 10,
+        "competencia": "2025-11",
+        "data_ref": "2025-11-24",
+        "data_venda": "2025-11-24",
+        "descr_loja": "LOJA-77",
+        "descr_marca": "PRETO",
+        "matricula": "MATRIC-243",
+        "vlr_venda": 25.3
+      }
+    ],
+    "esquema": {
+      "dimension_semantics": "Store and brand are the observed sale dimensions, preserved independently of RH assignment; sale store and brand are authoritative.",
+      "discard_policy": {
+        "dated_sale": "discard if data_venda > terminal termination date",
+        "financial_invariant": "source - discarded = canonical, exact Decimal",
+        "priority": [
+          "sale_after_terminal_termination",
+          "sale_without_reconstructable_rh"
+        ],
+        "undated_sale": "discard only if competencia > terminal termination month"
+      },
+      "fields": [
+        {
+          "format": "YYYY-MM",
+          "name": "competencia",
+          "nullable": false,
+          "semantics": "Competência explícita do registro. Deve ser usada para selecionar/agrupar competência e nunca deve ser inferida de data_ref.",
+          "source": null,
+          "type": "string"
+        },
+        {
+          "format": "YYYY-MM-DD",
+          "name": "data_ref",
+          "nullable": false,
+          "semantics": "Normalized Date_Ref value from the source.",
+          "source": "Date_Ref",
+          "type": "string"
+        },
+        {
+          "format": "YYYY-MM-DD",
+          "name": "data_venda",
+          "nullable": true,
+          "semantics": "Data real da venda quando disponibilizada pela fonte; null quando Date_Ref representa somente a referência mensal.",
+          "source": null,
+          "type": "string"
+        },
+        {
+          "name": "cod_marca",
+          "nullable": false,
+          "semantics": "Brand code.",
+          "source": "Cod_Marca",
+          "type": "integer"
+        },
+        {
+          "name": "descr_marca",
+          "nullable": false,
+          "semantics": "Brand description.",
+          "source": "Descr_Marca",
+          "type": "string"
+        },
+        {
+          "name": "cod_loja",
+          "nullable": false,
+          "semantics": "Store code.",
+          "source": "Cod_Loja",
+          "type": "integer"
+        },
+        {
+          "name": "descr_loja",
+          "nullable": false,
+          "semantics": "Store description.",
+          "source": "Descr_Loja",
+          "type": "string"
+        },
+        {
+          "name": "matricula",
+          "nullable": false,
+          "semantics": "Employee identifier preserved as text.",
+          "source": "Matricula",
+          "type": "string"
+        },
+        {
+          "name": "vlr_venda",
+          "nullable": false,
+          "semantics": "Source sale value preserved without two-decimal rounding.",
+          "source": "Vlr _Venda",
+          "type": "number"
+        }
+      ],
+      "file": "vendas.jsonl",
+      "reference_month_constraint": "data_ref[:7] == competencia"
+    }
+  }
+}

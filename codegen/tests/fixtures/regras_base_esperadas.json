@@ -1,0 +1,118 @@
+{
+  "manutencao": "Oráculo manual de domínio. Conferir nas fontes indicadas, relativas à raiz do repositório; não gerar nem atualizar a partir do prompt.",
+  "convencoes": {
+    "Date_Ref": {
+      "fontes": ["docs/ARCHITECTURE.md §1.4", "worker/sandbox/data/domrock/schema.json#/tables/vendas/fields"],
+      "fatos": {
+        "formato_origem": "serial do Excel",
+        "semanticas_origem": ["referência mensal", "data real de venda"],
+        "competencia_explicita": true,
+        "inferir_competencia_de_data_ref": false,
+        "formato_data_ref": "YYYY-MM-DD",
+        "data_ref_serial_excel": false,
+        "campo_data_real": "data_venda",
+        "ausencia_data_real": "null"
+      }
+    },
+    "%_Comiss": {
+      "fontes": ["worker/sandbox/data/domrock/schema.json#/tables/comissoes/fields"],
+      "fatos": {
+        "unidade": "fração decimal",
+        "exemplo_fracao": 0.025,
+        "exemplo_porcentagem": 2.5,
+        "dividir_por_100": false,
+        "campo_canonico": "percentual_comissao"
+      }
+    },
+    "Matricula": {
+      "fontes": ["worker/sandbox/data/domrock/schema.json#/tables/rh/fields", "docs/ARCHITECTURE.md §1.4"],
+      "fatos": {
+        "tipo": "textual",
+        "exemplo": "MATRIC-422",
+        "converter_para_inteiro": false,
+        "tipo_no_join": "texto"
+      }
+    },
+    "Cargo 150": {
+      "fontes": ["worker/sandbox/data/domrock/schema.json#/tables/comissoes/manager_rate", "docs/decisoes/dec-090.md#cargo-150"],
+      "fatos": {
+        "descricoes": ["GERENTE DE LOJA", "GERENTE QUIOSQUE"],
+        "decisao": "CANONICAL_MANAGER_RATE",
+        "taxa_para_ambas": "GERENTE DE LOJA",
+        "join": ["competencia", "cod_marca", "cod_cargo"],
+        "descr_cargo_no_join": false
+      }
+    }
+  },
+  "regras_base": {
+    "5a": {
+      "fontes": ["worker/app/sandbox/regras_base.py::_componentes_base", "worker/app/sandbox/regras_base.py::_taxas_comissao"],
+      "fatos": {
+        "agrupar_por": ["matrícula", "marca da venda"],
+        "cargo": "cargo do RH",
+        "aritmetica": "Decimal",
+        "taxa_ausente_ou_duplicada": "erro"
+      }
+    },
+    "5b": {
+      "fontes": ["docs/decisoes/dec-090.md#cargo-150", "worker/app/sandbox/regras_base.py::_componentes_base"],
+      "fatos": {
+        "cargo": 150,
+        "base": "venda total da loja",
+        "inclui_venda_propria": true,
+        "marca_da_taxa": "RH",
+        "rateio_entre_lojas": false
+      }
+    },
+    "5c": {
+      "fontes": ["worker/app/sandbox/regras_base.py::_fator_vinculo", "docs/ESCOPO-SIMULACAO.md §3.1"],
+      "fatos": {"formulas": ["(dias_mes - dia_admissao) / dias_mes"]}
+    },
+    "5d": {
+      "fontes": ["worker/app/sandbox/regras_base.py::_fator_vinculo", "docs/ESCOPO-SIMULACAO.md §3.1"],
+      "fatos": {
+        "formulas": ["dia_demissao / dias_mes", "(dia_demissao - dia_admissao) / dias_mes"],
+        "multiplicar_fatores_no_mesmo_mes": false
+      }
+    },
+    "5e_5f": {
+      "fontes": ["worker/app/sandbox/regras_base.py::_calcular_afastamento", "worker/app/sandbox/regras_base.py::apurar"],
+      "fatos": {
+        "limite_dias_remunerados": 15,
+        "contagem_limite": "início do evento",
+        "piso_brl": 3500,
+        "proporcionalizar_piso": false,
+        "limites_intervalo": "inclusivas",
+        "duplicar_sobreposicoes": false,
+        "formula_projecao": "(dias_trabalhados + dias_remunerados) / dias_trabalhados"
+      }
+    },
+    "5g": {
+      "fontes": ["docs/decisoes/dec-090.md#semântica-das-datas-dos-eventos-de-rh", "worker/app/sandbox/regras_base.py::apurar"],
+      "fatos": {
+        "inclui_inicio_e_fim": true,
+        "formulas": ["(dias_mes - dias_ferias) / dias_mes"],
+        "arredondamento": "ROUND_HALF_UP",
+        "ordem": ["vínculo", "férias", "afastamentos"]
+      }
+    },
+    "licenca_maternidade": {
+      "fontes": ["docs/decisoes/dec-090.md#licença-maternidade", "worker/app/sandbox/regras_base.py::_periodo_evento"],
+      "fatos": {
+        "tratamento": "afastamento comum",
+        "limite_dias_remunerados": 15,
+        "piso_brl": 3500,
+        "formula_propria": false,
+        "fim_alternativo": "detalhes.data_fim_estimada"
+      }
+    },
+    "elegibilidade": {
+      "fontes": ["docs/decisoes/dec-090.md#vendas-sem-rh-correspondente", "docs/decisoes/dec-090.md#correção-cadastral-de-demissão"],
+      "fatos": {
+        "vendas_orfas": "excluídas",
+        "aviso": "explícito",
+        "correcao_apenas_em_memoria": true
+      }
+    }
+  }
+}
