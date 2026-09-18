@@ -1,11 +1,64 @@
 ---
 name: graph
-description: How the LangGraph state graph is driven — resuming by id, astream vs invoke, the Postgres checkpointer, interrupt()/Command(resume=...) semantics and their re-execution caveat, and how progress is reported. Use whenever adding or changing a node, wiring the graph's entry point, or touching anything under app/graph/.
+description: How the LangGraph state graph is driven and organized — the core/nodes/prompts/tools module layout, where edges and routing live, the shared tool-execution node's return-routing rule, resuming by id, astream vs invoke, the Postgres checkpointer, interrupt()/Command(resume=...) semantics and their re-execution caveat, and how progress is reported. Use whenever adding or changing a node, a tool, a prompt, an edge, or the graph's entry point.
 ---
 
 # Graph
 
-This supersedes the RabbitMQ-based description of the graph in `docs/ARCHITECTURE.md` §3.3. That document is stale on transport and persistence; this skill is the current source of truth for how the graph itself is driven. The node-by-node responsibilities it lists (extraction, validation, confirmation, codegen, delegation, interpretation, decision, explanation) are still a reasonable reference for *what* a node does, not for *how* the graph is invoked or persisted.
+This supersedes the RabbitMQ-based description of the graph in `docs/ARCHITECTURE.md` §3.3. That document is stale on transport, persistence, and the node list itself — the actual set of nodes has not been finalized and will very likely not match the eight it names. Its per-node responsibility descriptions are still a reasonable *starting reference* for what a step does, nothing more.
+
+## Module layout
+
+Organized by technical layer, not by feature-per-folder — the nodes are stages of one pipeline, tightly coupled through shared state and centrally-owned edges, not independent bounded contexts. Feature identity is preserved as filenames within each layer instead:
+
+Everything lives inside `app/graph/`, not at the top level of `app/` — this is the graph subsystem, sitting alongside `app/main.py`, `app/config.py`, `app/core/` (the pre-existing, graph-unrelated `logger.py`/`metrics/`).
+
+```
+app/graph/
+  entrypoint.py      # public run(id, prompt) -> astream — the one file meant to be
+                     # imported from outside app/graph/
+  core/
+    engine.py        # StateGraph assembly: every edge and conditional-edge/routing function lives here
+    state.py          # the one shared state schema every node reads/writes
+    checkpointer.py    # AsyncPostgresSaver wiring
+    llm/               # named model registry — see below
+    tool_dispatch.py    # allowlist validation + the shared tool-execution node — see below
+  nodes/
+    parameter_extraction.py
+    code_generation.py
+    ...                # one file per node; a node graduates to its own folder only once
+                        # it accumulates enough of its own helpers to need one
+  prompts/
+    parameter_extraction.py
+    code_generation.py
+    ...                # one file per node that has a prompt; centralized rather than
+                        # colocated with its node, since prompts are a first-class audit
+                        # surface (AGENTS.md Security) and centralizing costs nothing —
+                        # each prompt is already 1:1 with the node that uses it
+  tools/
+    <tool_name>.py      # one file per tool (or tight group). Tools are a shared resource,
+                        # not a node's property — more than one node may call the same tool
+```
+
+Note the naming collision with the pre-existing `app/core/` (logger, metrics): that one is service-wide infrastructure unrelated to the graph. `app/graph/core/` is the graph's own engine layer. Don't merge them and don't move logger/metrics into `app/graph/core/`.
+
+`entrypoint.py` sits at `app/graph/`, not inside `core/` — it's the one function anything outside the graph subsystem is allowed to import (`app.main`, eventually). Everything in `core/` is internal to the graph and should never be imported from outside `app/graph/`; keeping the entrypoint one level up from `core/` makes that boundary visible in the import path itself, the same way `app/main.py` sits outside `app/core/` at the service level.
+
+**Rule: all edges and routing live in `app/graph/core/engine.py`, never inside a node's own file.** A node's position in the pipeline — what precedes it, what follows it, which branch a routing decision sends it down — is graph-topology knowledge, not something the node itself should encode. This keeps the full shape of the graph readable in one place and keeps a node's own file limited to its actual logic: building its input from state, calling its model/tools, parsing the result back into a state update.
+
+`app/graph/core/llm/` holds a **registry** of named models, not a single client — the system may use more than one LLM. A node asks the registry for the model it needs by name (e.g. `get_model("extraction")`); provider/config details for every model stay in one place.
+
+## The shared tool-execution node
+
+There is exactly **one** tool-execution node for the whole graph, not one per tool-using node. Executing a requested tool call ("look up the name and args, run the matching function, return the result") is generic — it doesn't vary by which node asked for it, so splitting it per node would just re-duplicate the thing centralizing `app/graph/tools/` was meant to avoid. It lives in `app/graph/core/` (alongside `tool_dispatch.py`, since dispatch-and-validate and execute-and-return are one unit), not in `nodes/` — it has no feature name of its own; it's infrastructure every tool-using node shares.
+
+Before running anything, it validates the requested tool name and arguments against the **calling node's** declared allowlist (`app/graph/core/tool_dispatch.py`) — this is the one auditable chokepoint for the "the model's own output never decides, by itself, which tool executes" rule in `AGENTS.md`.
+
+**Rule for the conditional edge out of the tool node:** the edge leaving the tool-execution node must route back to whichever node issued the tool call, not to a fixed next step. Concretely:
+
+- The identity of the calling node must be recoverable from state at the point the tool node runs — e.g. carried as a field on state, or derivable from which node's output produced the pending tool call. Decide this representation once, in `app/graph/core/state.py`; don't let each node invent its own way of marking "return here."
+- The conditional edge function that reads this and picks the destination is a `app/graph/core/engine.py` routing function, same as every other edge — it does not belong to the tool node itself and does not belong to any individual node file.
+- A node that expects to loop (call a tool, see the result, possibly call another tool) reaches this same conditional edge again after the tool node returns to it — don't special-case "second call" vs "first call" in the routing function; the destination logic is just "go back to whoever is recorded as the caller," repeatable any number of times.
 
 ## No RabbitMQ
 
@@ -60,9 +113,9 @@ Use this for the pause points the graph actually needs: user confirmation of ext
 
 ## Naming
 
-Everything under `app/graph/` — node names, module names, the values that appear in `stream_mode="updates"` output — is in English. (The older Portuguese node-naming convention in `docs/ARCHITECTURE.md` no longer applies.)
+Node names, tool names, module/file names, the values that appear in `stream_mode="updates"` output — all English. (The older Portuguese node-naming convention in `docs/ARCHITECTURE.md` no longer applies.)
 
 ## References
 
-- Superseded description of node responsibilities and the old RabbitMQ-driven entry point: `docs/ARCHITECTURE.md` §3.3 (transport and persistence sections are stale, the per-node responsibility list is not).
-- Implementation: `app/graph/` (`state.py`, `builder.py`, `agent.py`, `nodes/`, `tools/`).
+- Superseded description of node responsibilities, the node list, and the old RabbitMQ-driven entry point: `docs/ARCHITECTURE.md` §3.3 (transport, persistence, and the specific node list are stale; treat the general shape of "what a step does" as a loose starting point only).
+- Implementation: `app/graph/core/`, `app/graph/nodes/`, `app/graph/prompts/`, `app/graph/tools/`.

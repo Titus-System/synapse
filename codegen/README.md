@@ -106,11 +106,26 @@ app/
   config.py            Settings
   core/logger.py       structured JSON logging
   core/metrics/        Prometheus registry and shared metrics
-  graph/               the LangGraph state graph — state, builder, entry point, nodes, tools
+  graph/               the graph subsystem — see .agents/skills/graph/SKILL.md
+    entrypoint.py       public run(id, prompt) -> astream — the only file meant to be
+                        imported from outside app/graph/
+    core/
+      engine.py           StateGraph assembly — every edge and routing function
+      state.py             the one shared state schema every node reads/writes
+      checkpointer.py       AsyncPostgresSaver wiring
+      llm/                    named model registry
+      tool_dispatch.py         allowlist validation + the shared tool-execution node
+    nodes/               one file per graph node (a node graduates to its own folder
+                         only once it needs helpers of its own)
+    prompts/             one file per node that has a prompt, centralized rather than
+                         colocated with its node
+    tools/               one file per tool (or tight group) — shared across nodes
 tests/                 mirrors app/
 alloy/config.alloy     collector pipelines: logs, metrics, traces
 docs/                  design sketches that are not yet code
 ```
+
+Note `app/core/` (logger, metrics — service-wide) and `app/graph/core/` (the graph's own engine layer) are different, same-named folders at different nesting levels — don't confuse them.
 
 ## Conventions
 
