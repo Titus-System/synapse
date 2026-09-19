@@ -41,10 +41,12 @@ class ExemplosDeContratoTests {
 	@Test
 	void desserializaOResultadoDaSimulacao() throws IOException {
 		ResultadoSimulacaoDto resultado = desserializar("domain/resultado-simulacao.json", ResultadoSimulacaoDto.class);
+		TotaisSimulacaoDto totais = Objects.requireNonNull(resultado.totais());
+		DecomposicaoResultadoDto decomposicao = Objects.requireNonNull(resultado.decomposicao());
 
-		assertThat(resultado.totais().orcamento()).isEqualTo(new BigDecimal("485000.0"));
+		assertThat(totais.orcamento()).isEqualTo(new BigDecimal("485000.0"));
 		assertThat(resultado.assercoes()).hasSize(3);
-		assertThat(resultado.decomposicao().competencia()).containsEntry("2025-08", BigDecimal.ZERO);
+		assertThat(decomposicao.competencia()).containsEntry("2025-08", BigDecimal.ZERO);
 	}
 
 	@Test

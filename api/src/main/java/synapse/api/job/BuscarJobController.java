@@ -7,14 +7,16 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 class BuscarJobController {
-    private final BuscarJobService service;
-    BuscarJobController(BuscarJobService service) {
-        this.service = service;
-    }
 
-    @GetMapping(path = "/jobs/{id}", produces = "application/json")
-    JobDetalhadoDto buscar(@PathVariable UUID id) {
-        return this.service.buscar(id);
-    }
-    
+	private final BuscarJobService service;
+
+	BuscarJobController(BuscarJobService service) {
+		this.service = service;
+	}
+
+	@GetMapping(path = "/jobs/{id}", produces = "application/json")
+	JobDetalhadoDto buscar(@PathVariable UUID id) {
+		return this.service.buscar(id);
+	}
+
 }
