@@ -55,24 +55,29 @@ def prompt(entrada: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def test_prompt_contem_somente_as_tres_bases_com_dez_registros(prompt: dict[str, Any]) -> None:
+def test_prompt_contem_somente_as_quatro_bases_com_dez_registros(prompt: dict[str, Any]) -> None:
     bases = prompt["instrucoes_fixas_do_sistema"]["bases"]
 
-    assert set(bases) == {"rh", "vendas", "comissoes"}
+    assert set(bases) == {"rh", "vendas", "comissoes", "eventos_rh"}
     for base in bases.values():
         assert set(base) == {"esquema", "amostra"}
         assert len(base["amostra"]) == 10
 
 
-@pytest.mark.parametrize("base", ["rh", "vendas", "comissoes"])
+@pytest.mark.parametrize("base", ["rh", "vendas", "comissoes", "eventos_rh"])
 def test_esquema_preserva_colunas_tipos_e_todas_as_anotacoes_canonicas(
     prompt: dict[str, Any], base: str
 ) -> None:
     canonico = json.loads((CANONICO / "schema.json").read_text(encoding="utf-8"))
 
-    assert (
-        prompt["instrucoes_fixas_do_sistema"]["bases"][base]["esquema"] == canonico["tables"][base]
-    )
+    esperado = canonico["tables"][base]
+    if base == "comissoes":
+        del esperado["manager_rate"]["decision_id"]
+    if base == "eventos_rh":
+        del esperado["produced_by"]
+        esperado["semantics"] = "preservada: mesmas datas/IDs e intervalos fechados."
+        esperado["fields"][0]["semantics"] = "ID da fonte."
+    assert prompt["instrucoes_fixas_do_sistema"]["bases"][base]["esquema"] == esperado
 
 
 def test_amostras_demonstram_datas_reais_e_as_duas_descricoes_do_gerente(
@@ -91,17 +96,6 @@ def capturar(padrao: str, texto: str) -> str:
     encontrado = re.search(padrao, texto)
     assert encontrado is not None, f"Fato ausente ou formato inesperado: {padrao}"
     return encontrado.group(1)
-
-
-def formulas_mensais(texto: str) -> list[str]:
-    for expressao, variavel in {
-        "dias do mês": "dias_mes",
-        "dia da admissão": "dia_admissao",
-        "dia da demissão": "dia_demissao",
-        "dias de férias": "dias_ferias",
-    }.items():
-        texto = texto.replace(expressao, variavel)
-    return re.findall(r"(?:\([^()]+\)|dia_demissao) / dias_mes", texto)
 
 
 @pytest.mark.parametrize("convencao", FATOS_ESPERADOS["convencoes"])
@@ -142,8 +136,7 @@ def test_convencoes_conferem_com_oraculo_de_dominio(prompt: dict[str, Any], conv
     else:
         observado = {
             "descricoes": capturar(r"origem possui (.*?) para o cargo", texto).split(" e "),
-            "decisao": capturar(r"Conforme (\w+)", texto),
-            "taxa_para_ambas": capturar(r"ambas usam a taxa de (.*?) da marca", texto),
+            "taxa_para_ambas": capturar(r"Ambas usam a taxa de (.*?) da marca", texto),
             "join": re.split(r", | e ", capturar(r"O join usa (.*?);", texto)),
             "descr_cargo_no_join": capturar(r"e ((?:não )?)participa do join", texto).strip()
             != "não",
@@ -152,77 +145,83 @@ def test_convencoes_conferem_com_oraculo_de_dominio(prompt: dict[str, Any], conv
     assert observado == oraculo["fatos"], oraculo["fontes"]
 
 
-@pytest.mark.parametrize("regra", FATOS_ESPERADOS["regras_base"])
-def test_regras_base_conferem_com_oraculo_de_dominio(prompt: dict[str, Any], regra: str) -> None:
-    texto = prompt["instrucoes_fixas_do_sistema"]["regras_base"][regra]
-    oraculo = FATOS_ESPERADOS["regras_base"][regra]
-
-    if regra == "5a":
-        observado = {
-            "agrupar_por": capturar(r"vendas por (.*?), multiplicar", texto).split(" e "),
-            "cargo": capturar(r"e do (.*?) e somar", texto),
-            "aritmetica": capturar(r"Usar (\w+) sem arredondar", texto),
-            "taxa_ausente_ou_duplicada": capturar(r"Taxa ausente ou duplicada é (\w+)", texto),
-        }
-    elif regra == "5b":
-        observado = {
-            "cargo": int(capturar(r"cargo (\d+)", texto)),
-            "base": capturar(r"a base é a (.*?) de lotação", texto),
-            "inclui_venda_propria": capturar(r", (\w+) as vendas do próprio gerente", texto)
-            == "incluindo",
-            "marca_da_taxa": capturar(r"taxa da marca do (\w+)", texto),
-            "rateio_entre_lojas": capturar(r"\. ((?:Não )?)há rateio", texto).strip() != "Não",
-        }
-    elif regra == "5c":
-        observado = {"formulas": formulas_mensais(texto)}
-    elif regra == "5d":
-        observado = {
-            "formulas": formulas_mensais(texto),
-            "multiplicar_fatores_no_mesmo_mes": capturar(
-                r", ((?:não )?)o produto dos fatores", texto
-            ).strip()
-            != "não",
-        }
-    elif regra == "5e_5f":
-        limites = {int(n) for n in re.findall(r"(?:até|mais de|primeiros) (\d+)", texto)}
-        assert limites == {oraculo["fatos"]["limite_dias_remunerados"]}, oraculo["fontes"]
-        observado = {
-            "limite_dias_remunerados": int(capturar(r"evento de até (\d+) dias", texto)),
-            "contagem_limite": capturar(r"dias desde o (.*?), inclusive", texto),
-            "piso_brl": int(capturar(r"piso de R\$ ([\d.]+),", texto).replace(".", "")),
-            "proporcionalizar_piso": capturar(r", (\w+) proporcionalizar o piso", texto) != "sem",
-            "limites_intervalo": capturar(r"data_inicio e data_fim (\w+)", texto),
-            "duplicar_sobreposicoes": capturar(r", (\w+) duplicar sobreposições", texto) != "sem",
-            "formula_projecao": capturar(r"pela projeção (.*?)\.", texto)
-            .replace("dias trabalhados", "dias_trabalhados")
-            .replace("dias remunerados", "dias_remunerados"),
-        }
-    elif regra == "5g":
-        observado = {
-            "inclui_inicio_e_fim": capturar(r", (\w+) início e fim", texto) == "incluindo",
-            "formulas": formulas_mensais(texto),
-            "arredondamento": capturar(r"centavos com (\w+)", texto),
-            "ordem": re.split(
-                r", | e ", capturar(r"fator de (.*?);", texto).replace(" (admissão/demissão)", "")
-            ),
-        }
-    elif regra == "licenca_maternidade":
-        observado = {
-            "tratamento": capturar(r"segue (.*?),", texto),
-            "limite_dias_remunerados": int(capturar(r"limite de (\d+) dias", texto)),
-            "piso_brl": int(capturar(r"piso de R\$ ([\d.]+);", texto).replace(".", "")),
-            "formula_propria": capturar(r"; (.*?)possui fórmula própria", texto).strip() != "não",
-            "fim_alternativo": capturar(r"usar ([\w.]+) do evento", texto),
-        }
-    else:
-        observado = {
-            "vendas_orfas": capturar(r"sem RH correspondente são (\w+)", texto),
-            "aviso": capturar(r"com aviso (\w+)", texto),
-            "correcao_apenas_em_memoria": capturar(r"aplicados (\w+) em memória", texto)
-            == "somente",
-        }
+def test_regras_base_sao_contexto_materializado_sem_ensinar_recalculo(
+    prompt: dict[str, Any],
+) -> None:
+    texto = prompt["instrucoes_fixas_do_sistema"]["regras_base"]
+    oraculo = FATOS_ESPERADOS["regras_base"]
+    observado = {
+        "apuracao_base_ja_calculada": capturar(
+            r"apuracao_base (.*?)contém o baseline", texto
+        ).strip()
+        == "já",
+        "recalcular_regras_base": capturar(r"código gerado (.*?)deve recalcular", texto).strip()
+        != "não",
+        "modo_aplicacao": capturar(r"nova regra como (\w+)", texto),
+        "origem_delta": capturar(r"sobre esse (\w+)", texto),
+    }
 
     assert observado == oraculo["fatos"], oraculo["fontes"]
+    for conceito in oraculo["conceitos"]:
+        assert conceito in texto
+    for formula in oraculo["formulas_ausentes"]:
+        assert formula not in texto
+
+
+def test_regrafn_confere_com_oraculo_independente(prompt: dict[str, Any]) -> None:
+    texto = prompt["instrucoes_fixas_do_sistema"]["contrato_regrafn"]
+    compacto = " ".join(texto.split())
+    esperado = FATOS_ESPERADOS["regrafn"]["fatos"]
+    assinatura = re.search(r"def (\w+)\((.*?)\)", texto)
+    assert assinatura is not None
+    bases = capturar(r"exatamente quatro chaves, sempre presentes: (.*?)\.", compacto)
+    retorno = capturar(r"seção \"A assinatura\": (.*?)\.", compacto)
+    bibliotecas = capturar(r"permitido\.\*\* Só (.*?) \(seção", compacto).replace("`", "")
+    observado = {
+        "nome_funcao": assinatura.group(1),
+        "parametros": assinatura.group(2).split(", "),
+        "tipo": capturar(r"type RegraFn = (.*?) ```", compacto)
+        .replace(", ]", "]")
+        .replace("[ ", "["),
+        "bases": re.findall(r'"(\w+)"', bases),
+        "quantidade_bases": len(re.findall(r'"(\w+)"', bases)),
+        "retorno": re.findall(r"`(\w+)`", retorno),
+        "colunas_contribuicoes": re.findall(r"`(\w+)`", capturar(r"Colunas: (.*?)\.", compacto)),
+        "bibliotecas_permitidas": bibliotecas.split(" e a "),
+        "restricoes": re.findall(r"^- \*\*(.*?)\*\*", texto, re.MULTILINE),
+    }
+
+    assert observado == esperado, FATOS_ESPERADOS["regrafn"]["fontes"]
+
+
+def test_regrafn_preserva_secao_canonica_exceto_rastreabilidade(prompt: dict[str, Any]) -> None:
+    documento = (CONTRATOS.parent / "harness" / "README.md").read_text(encoding="utf-8")
+    secao = documento.split("## A assinatura\n", 1)[1].split("### Exemplo mínimo,", 1)[0]
+    esperado = "## A assinatura\n" + secao
+    for referencia in (" (T-032)", " (T-054/T-055)", " (T-028/T-029)", " - T-064", " (T-065)"):
+        esperado = esperado.replace(referencia, "")
+
+    assert prompt["instrucoes_fixas_do_sistema"]["contrato_regrafn"] == esperado.rstrip() + "\n"
+
+
+def test_prompt_nao_envia_rastreabilidade_opaca(entrada: dict[str, Any]) -> None:
+    texto = montar_prompt_geracao(RepresentacaoRegra.model_validate(entrada))
+
+    assert re.findall(r"\b(?:T-\d+|DEC-\d+|CANONICAL_MANAGER_RATE)\b", texto) == []
+
+
+def test_eventos_amostrados_cobrem_tipos_e_nulidades_canonicas(prompt: dict[str, Any]) -> None:
+    amostra = prompt["instrucoes_fixas_do_sistema"]["bases"]["eventos_rh"]["amostra"]
+    fonte = [
+        json.loads(linha)
+        for linha in (CANONICO / "eventos_rh.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+    for campo in ("tipo", "data_fim", "detalhes"):
+        if campo == "tipo":
+            assert {r[campo] for r in amostra} == {r[campo] for r in fonte}
+        else:
+            assert {r[campo] is None for r in amostra} == {r[campo] is None for r in fonte}
 
 
 def test_bundle_preserva_schemas_inteiros_descriptions_e_referencias_resolvidas(

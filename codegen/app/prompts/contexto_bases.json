@@ -131,7 +131,6 @@
       "file": "comissoes.jsonl",
       "manager_rate": {
         "cod_cargo": 150,
-        "decision_id": "CANONICAL_MANAGER_RATE",
         "rh_descriptions": [
           "GERENTE DE LOJA",
           "GERENTE QUIOSQUE"
@@ -149,6 +148,164 @@
         "cod_marca",
         "cod_cargo"
       ]
+    }
+  },
+  "eventos_rh": {
+    "amostra": [
+      {
+        "competencia_origem": "2025-07",
+        "data_fim": "2025-07-25",
+        "data_inicio": "2025-07-21",
+        "detalhes": null,
+        "id": "01a087c0-b810-75fe-8c9d-e326d88ccc71",
+        "matricula": "MATRIC-124",
+        "tipo": "afastamento"
+      },
+      {
+        "competencia_origem": "2025-07",
+        "data_fim": "2025-07-25",
+        "data_inicio": "2025-07-10",
+        "detalhes": null,
+        "id": "01a087c9-6d20-776a-9717-297ec9541a4b",
+        "matricula": "MATRIC-183",
+        "tipo": "ferias"
+      },
+      {
+        "competencia_origem": "2025-07",
+        "data_fim": "2025-07-17",
+        "data_inicio": "2025-07-15",
+        "detalhes": null,
+        "id": "01a087c2-f9d7-743f-8c04-a8e1b5b41891",
+        "matricula": "MATRIC-400",
+        "tipo": "afastamento"
+      },
+      {
+        "competencia_origem": "2025-07",
+        "data_fim": "2025-07-29",
+        "data_inicio": "2025-07-10",
+        "detalhes": null,
+        "id": "01a087c3-f26b-7348-b01c-a3a7e9f8489b",
+        "matricula": "MATRIC-485",
+        "tipo": "afastamento"
+      },
+      {
+        "competencia_origem": "2025-07",
+        "data_fim": "2025-07-25",
+        "data_inicio": "2025-07-10",
+        "detalhes": null,
+        "id": "01a087c6-ac7f-74ce-8ac1-4ec47ac19d26",
+        "matricula": "MATRIC-549",
+        "tipo": "ferias"
+      },
+      {
+        "competencia_origem": "2025-07",
+        "data_fim": "2025-07-25",
+        "data_inicio": "2025-07-10",
+        "detalhes": null,
+        "id": "01a087b0-fff7-71a9-bf06-f5d5d3e2c7b7",
+        "matricula": "MATRIC-58",
+        "tipo": "afastamento"
+      },
+      {
+        "competencia_origem": "2025-08",
+        "data_fim": "2025-08-17",
+        "data_inicio": "2025-08-04",
+        "detalhes": null,
+        "id": "01a087d2-461a-70af-9273-fc15a2868229",
+        "matricula": "MATRIC-103",
+        "tipo": "ferias"
+      },
+      {
+        "competencia_origem": "2025-08",
+        "data_fim": "2025-08-11",
+        "data_inicio": "2025-08-04",
+        "detalhes": null,
+        "id": "01a087cc-d772-76af-9cef-2e68fc1e28b0",
+        "matricula": "MATRIC-113",
+        "tipo": "afastamento"
+      },
+      {
+        "competencia_origem": "2025-09",
+        "data_fim": null,
+        "data_inicio": "2025-09-15",
+        "detalhes": null,
+        "id": "01a08955-307e-728b-a9ec-363e8d12f1a6",
+        "matricula": "MATRIC-62",
+        "tipo": "demissao"
+      },
+      {
+        "competencia_origem": "2025-10",
+        "data_fim": null,
+        "data_inicio": "2025-10-01",
+        "detalhes": {
+          "data_fim_estimada": "2026-01-29",
+          "duracao_legal_dias": 120
+        },
+        "id": "01a0895e-43ef-70a7-b013-e3fda4b67a66",
+        "matricula": "MATRIC-71",
+        "tipo": "licenca_maternidade"
+      }
+    ],
+    "esquema": {
+      "fields": [
+        {
+          "name": "id",
+          "nullable": false,
+          "semantics": "ID da fonte.",
+          "source": null,
+          "type": "string"
+        },
+        {
+          "name": "tipo",
+          "nullable": false,
+          "semantics": "Tipo do evento.",
+          "source": null,
+          "type": "string"
+        },
+        {
+          "name": "matricula",
+          "nullable": false,
+          "semantics": "Pessoa afetada.",
+          "source": null,
+          "type": "string"
+        },
+        {
+          "format": "YYYY-MM",
+          "name": "competencia_origem",
+          "nullable": false,
+          "semantics": "Mês do registro.",
+          "source": null,
+          "type": "string"
+        },
+        {
+          "format": "YYYY-MM-DD",
+          "name": "data_inicio",
+          "nullable": true,
+          "semantics": "Início inclusivo.",
+          "source": null,
+          "type": "string"
+        },
+        {
+          "format": "YYYY-MM-DD",
+          "name": "data_fim",
+          "nullable": true,
+          "semantics": "Fim inclusivo.",
+          "source": null,
+          "type": "string"
+        },
+        {
+          "name": "detalhes",
+          "nullable": true,
+          "semantics": "Metadados originais, inclusive estimativas.",
+          "source": null,
+          "type": "object"
+        }
+      ],
+      "file": "eventos_rh.jsonl",
+      "primary_key": [
+        "id"
+      ],
+      "semantics": "preservada: mesmas datas/IDs e intervalos fechados."
     }
   },
   "rh": {
