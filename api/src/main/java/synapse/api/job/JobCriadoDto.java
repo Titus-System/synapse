@@ -13,10 +13,11 @@ record JobCriadoDto(UUID id, String status, String origem, List<String> competen
 record RegraCriadaDto(UUID id, int versao, String origem, RepresentacaoRegraDto representacao, Instant criada_em) {
 }
 
-record SimulacaoDto(
-        UUID id, Instant criado_em, @Nullable String status, @Nullable String veredito, boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado) {
+record SimulacaoDto(UUID id, Instant criado_em, @Nullable String status, @Nullable String veredito,
+		boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado) {
 }
 
-record JobDetalhadoDto(
-        UUID id, String status, String origem, List<String> competencias, BigDecimal orcamento, Instant criado_em, @Nullable Instant iniciado_em, @Nullable Instant finalizado_em, UUID submissao_id, RegraCriadaDto regra, @Nullable SimulacaoDto simulacao) {
+record JobDetalhadoDto(UUID id, String status, String origem, List<String> competencias, BigDecimal orcamento,
+		Instant criado_em, @Nullable Instant iniciado_em, @Nullable Instant finalizado_em, UUID submissao_id,
+		RegraCriadaDto regra, @Nullable SimulacaoDto simulacao) {
 }
