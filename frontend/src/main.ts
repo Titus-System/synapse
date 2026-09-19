@@ -4,6 +4,7 @@ import { library } from '@fortawesome/fontawesome-svg-core'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faCircleXmark } from '@fortawesome/free-regular-svg-icons'
 import { faCircleCheck } from '@fortawesome/free-regular-svg-icons'
+import { faCircleExclamation } from '@fortawesome/free-solid-svg-icons'
 
 import App from './App.vue'
 import roteador from './router'
@@ -13,6 +14,7 @@ import './assets/main.css'
 
 library.add(faCircleXmark)
 library.add(faCircleCheck)
+library.add(faCircleExclamation)
 
 const aplicacao = createApp(App)
 

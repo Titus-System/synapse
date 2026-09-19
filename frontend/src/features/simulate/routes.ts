@@ -2,7 +2,7 @@ import type { RouteRecordRaw } from 'vue-router'
 
 export default [
   {
-    path: '/simulacao',
+    path: '/jobs/:id',
     name: 'simulacao',
     component: () => import('./views/SimulateView.vue'),
     meta: { layout: 'default' },
