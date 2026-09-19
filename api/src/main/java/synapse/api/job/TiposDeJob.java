@@ -97,9 +97,9 @@ record DecomposicaoResultadoDto(
 
 record ResultadoSimulacaoDto(
 
-		TotaisSimulacaoDto totais,
+		@Nullable TotaisSimulacaoDto totais,
 
 		List<ResultadoAssercaoDto> assercoes,
 
-		DecomposicaoResultadoDto decomposicao) {
+		@Nullable DecomposicaoResultadoDto decomposicao) {
 }
