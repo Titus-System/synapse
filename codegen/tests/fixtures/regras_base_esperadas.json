@@ -1,0 +1,199 @@
+{
+  "manutencao": "Oráculo manual de domínio. Conferir nas fontes indicadas, relativas à raiz do repositório; não gerar nem atualizar a partir do prompt.",
+  "convencoes": {
+    "Date_Ref": {
+      "fontes": [
+        "docs/ARCHITECTURE.md §1.4",
+        "worker/sandbox/data/domrock/schema.json#/tables/vendas/fields"
+      ],
+      "fatos": {
+        "formato_origem": "serial do Excel",
+        "semanticas_origem": [
+          "referência mensal",
+          "data real de venda"
+        ],
+        "competencia_explicita": true,
+        "inferir_competencia_de_data_ref": false,
+        "formato_data_ref": "YYYY-MM-DD",
+        "data_ref_serial_excel": false,
+        "campo_data_real": "data_venda",
+        "ausencia_data_real": "null"
+      }
+    },
+    "%_Comiss": {
+      "fontes": [
+        "worker/sandbox/data/domrock/schema.json#/tables/comissoes/fields"
+      ],
+      "fatos": {
+        "unidade": "fração decimal",
+        "exemplo_fracao": 0.025,
+        "exemplo_porcentagem": 2.5,
+        "dividir_por_100": false,
+        "campo_canonico": "percentual_comissao"
+      }
+    },
+    "Matricula": {
+      "fontes": [
+        "worker/sandbox/data/domrock/schema.json#/tables/rh/fields",
+        "docs/ARCHITECTURE.md §1.4"
+      ],
+      "fatos": {
+        "tipo": "textual",
+        "exemplo": "MATRIC-422",
+        "converter_para_inteiro": false,
+        "tipo_no_join": "texto"
+      }
+    },
+    "Cargo 150": {
+      "fontes": [
+        "worker/sandbox/data/domrock/schema.json#/tables/comissoes/manager_rate",
+        "docs/decisoes/dec-090.md#cargo-150"
+      ],
+      "fatos": {
+        "descricoes": [
+          "GERENTE DE LOJA",
+          "GERENTE QUIOSQUE"
+        ],
+        "taxa_para_ambas": "GERENTE DE LOJA",
+        "join": [
+          "competencia",
+          "cod_marca",
+          "cod_cargo"
+        ],
+        "descr_cargo_no_join": false
+      },
+      "decisao": "CANONICAL_MANAGER_RATE"
+    }
+  },
+  "regras_base": {
+    "fontes": [
+      "contracts/harness/README.md#regrafn-o-contrato-de-entrada-e-saida",
+      "docs/decisoes/dec-092.md"
+    ],
+    "fatos": {
+      "apuracao_base_ja_calculada": true,
+      "recalcular_regras_base": false,
+      "modo_aplicacao": "delta",
+      "origem_delta": "baseline"
+    },
+    "conceitos": [
+      "comissão por marca/cargo",
+      "gerente",
+      "admissão",
+      "demissão",
+      "afastamentos",
+      "férias",
+      "licença-maternidade"
+    ],
+    "formulas_ausentes": [
+      "dias do mês -",
+      "dia da demissão /",
+      "dias trabalhados +",
+      "R$ 3.500",
+      "ROUND_HALF_UP"
+    ]
+  },
+  "regrafn": {
+    "fontes": [
+      "contracts/harness/README.md",
+      "docs/decisoes/dec-092.md"
+    ],
+    "fatos": {
+      "nome_funcao": "aplicar_regra",
+      "parametros": [
+        "bases",
+        "apuracao_base",
+        "competencias"
+      ],
+      "tipo": "Callable[[dict[str, pandas.DataFrame], pandas.DataFrame, list[str]], dict[str, pandas.DataFrame]]",
+      "bases": [
+        "rh",
+        "vendas",
+        "comissoes",
+        "eventos_rh"
+      ],
+      "quantidade_bases": 4,
+      "retorno": [
+        "apuracao_simulada",
+        "contribuicoes"
+      ],
+      "colunas_contribuicoes": [
+        "matricula",
+        "cod_loja",
+        "cod_marca",
+        "cod_cargo",
+        "competencia",
+        "elemento_ref",
+        "delta"
+      ],
+      "bibliotecas_permitidas": [
+        "pandas",
+        "biblioteca padrão do Python"
+      ],
+      "restricoes": [
+        "Sem I/O.",
+        "Sem import além do permitido.",
+        "Sem estado entre chamadas.",
+        "Determinística.",
+        "Não muta as entradas."
+      ]
+    }
+  },
+  "contrato_secoes": {
+    "fontes": [
+      "contracts/harness/README.md",
+      "docs/decisoes/dec-092.md: a seção RegraFn é citada verbatim no prompt"
+    ],
+    "titulos": [
+      "## A assinatura",
+      "## `RegraFn`: o contrato de entrada e saída",
+      "## Regras da entrada",
+      "## Convenção de tipos das colunas",
+      "## Como o código declara o elemento que implementa",
+      "## Bibliotecas permitidas no sandbox"
+    ],
+    "subsecoes_regrafn": [
+      "### O que a função recebe",
+      "### O que a função devolve",
+      "### O que \"pura\" significa aqui",
+      "### O que acontece quando a função falha",
+      "### Exemplo mínimo, com duas competências"
+    ],
+    "ponteiros_proibidos": [
+      "exemplo/regra.py",
+      "validar-saida.py",
+      "testar-contrato.py",
+      "ARCHITECTURE.md",
+      "worker/",
+      "contracts/harness"
+    ]
+  },
+  "tipagem": {
+    "fontes": [
+      "contracts/harness/README.md#convenção-de-tipos-das-colunas"
+    ],
+    "fatos": {
+      "tabelas_tipadas": [
+        "rh",
+        "vendas",
+        "comissoes",
+        "eventos_rh",
+        "apuracao_base"
+      ],
+      "codigos_no_dataset": "inteiros",
+      "codigos_na_representacao": "strings",
+      "pandas": ">=2.2,<3.0"
+    }
+  },
+  "elemento_ref": {
+    "fontes": [
+      "contracts/harness/README.md#como-o-código-declara-o-elemento-que-implementa",
+      "contracts/domain/comum.schema.json#/$defs/elemento_ref"
+    ],
+    "fatos": {
+      "nucleo": "nucleo.<campo>",
+      "especificacao": "elem.<n>",
+      "declarado_em": "contribuicoes"
+    }
+  }
+}
