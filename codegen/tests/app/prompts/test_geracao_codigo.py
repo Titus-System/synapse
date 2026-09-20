@@ -168,6 +168,66 @@ def test_regras_base_sao_contexto_materializado_sem_ensinar_recalculo(
         assert formula not in texto
 
 
+# O que a regra gerada precisa saber sobre onde roda e o contrato da T-034 não diz. Cada
+# fragmento é um fato que a imagem do sandbox garante, e o motivo é o que a regra evitaria
+# escrever se soubesse.
+FATOS_DO_AMBIENTE = [
+    ("não há arquivo, só o nome fictício", "regra.py"),
+    ("o módulo nunca é o principal", "__main__"),
+    ("nenhum diretório é gravável", "tempfile"),
+    ("saída padrão não é canal de resultado", "print()"),
+    ("a agregação aceita um centavo de diferença", "um centavo"),
+    ("o orçamento não existe no container", "orçamento"),
+]
+
+
+def _bibliotecas_pedidas_pelo_contrato() -> set[str]:
+    linhas = (CONTRATOS.parent / "harness" / "requirements.txt").read_text(encoding="utf-8")
+    return {
+        re.split(r"[<>=!~ ]", linha.strip())[0]
+        for linha in linhas.splitlines()
+        if linha.strip() and not linha.startswith("#")
+    }
+
+
+def _pins_da_imagem() -> dict[str, str]:
+    caminho = COMPONENTE.parent / "worker" / "sandbox" / "requirements.txt"
+    return dict(
+        linha.strip().split("==")
+        for linha in caminho.read_text(encoding="utf-8").splitlines()
+        if linha.strip() and not linha.startswith("#")
+    )
+
+
+def test_ambiente_de_execucao_confere_com_o_que_a_imagem_do_sandbox_garante(
+    prompt: dict[str, Any],
+) -> None:
+    texto = prompt["instrucoes_fixas_do_sistema"]["ambiente_de_execucao"]
+    esquema = json.loads((CANONICO / "schema.json").read_text(encoding="utf-8"))
+    publicadas = esquema["published_competencias"]
+    assercoes = json.loads(
+        (CONTRATOS / "resultado-assercoes.schema.json").read_text(encoding="utf-8")
+    )
+    nomes_de_assercoes = {a["nome"] for a in assercoes["examples"][0]}
+
+    assert f"{publicadas[0]} a {publicadas[-1]}" in texto
+    assert _bibliotecas_pedidas_pelo_contrato() == {"pandas"}
+    assert f"pandas {_pins_da_imagem()['pandas'].split('.')[0]}.x" in texto
+    assert "sem_comissao_negativa" in nomes_de_assercoes
+    assert "sem_comissao_negativa" in texto
+
+
+@pytest.mark.parametrize(
+    ("motivo", "fragmento"), FATOS_DO_AMBIENTE, ids=[m for m, _ in FATOS_DO_AMBIENTE]
+)
+def test_ambiente_de_execucao_declara_o_fato(
+    prompt: dict[str, Any], motivo: str, fragmento: str
+) -> None:
+    texto = prompt["instrucoes_fixas_do_sistema"]["ambiente_de_execucao"]
+
+    assert fragmento in texto, motivo
+
+
 def test_regrafn_confere_com_oraculo_independente(prompt: dict[str, Any]) -> None:
     texto = prompt["instrucoes_fixas_do_sistema"]["contrato_regrafn"]
     compacto = " ".join(texto.split())
