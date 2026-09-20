@@ -64,6 +64,22 @@ class Settings(BaseSettings):
             f"{self.POSTGRES_PORT}/postgres"
         )
 
+    @property
+    def checkpointer_database_url(self) -> str:
+        """Same Postgres server as `database_url`, but for `AsyncPostgresSaver`.
+
+        The LangGraph checkpointer uses `psycopg` (v3), not `asyncpg`.
+        See `.agents/skills/graph/SKILL.md`.
+        """
+        return (
+            f"postgresql://{self.POSTGRES_USER}:"
+            f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:"
+            f"{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        )
+
+    # Graph / LLM
+    GOOGLE_API_KEY: str | None = None
+
     model_config = SettingsConfigDict(extra="allow", env_file=".env", env_file_encoding="utf-8")
 
 
