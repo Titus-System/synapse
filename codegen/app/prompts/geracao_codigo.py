@@ -53,6 +53,30 @@ _REGRAS_BASE = (
 )
 
 
+# regrafn.md é gerado de contracts/harness/README.md e não se edita à mão. O que a imagem do
+# sandbox garante e o contrato da T-034 não diz fica aqui, e um teste confere cada afirmação
+# contra a imagem, para o prompt não prometer ao modelo um ambiente que não existe.
+_AMBIENTE_DE_EXECUCAO = (
+    "O código gerado é compilado a partir de uma string e executado em memória, uma vez por "
+    "job, dentro de um container efêmero sem rede e com o sistema de arquivos somente leitura. "
+    "Não existe arquivo de verdade: __file__ é só o nome fictício regra.py, __name__ nunca é "
+    '"__main__" e import relativo não funciona. Não há diretório gravável: open(..., "w"), '
+    "to_csv, tempfile e qualquer outra escrita em disco falham, e o job falha junto. Tudo o que "
+    "a função precisa chega pelos três parâmetros; não leia arquivos nem variáveis de ambiente. "
+    "print() e qualquer outra saída no stdout não chegam ao resultado e não são canal de nada. "
+    "As competências embutidas no container são 2025-08 a 2025-12, e as do job são um "
+    "subconjunto delas; nunca gere lógica que dependa de outro mês. "
+    "Só a invariante sem_comissao_negativa é verificada sobre apuracao_simulada: comissão "
+    "negativa, ou que não seja um número finito, invalida o número e derruba o job, sem "
+    "resultado parcial. Toda diferença entre apuracao_simulada e apuracao_base numa matrícula "
+    "e competência precisa estar declarada em contribuicoes, e a soma dos delta declarados "
+    "precisa ser essa diferença, com tolerância de um centavo: diferença sem elemento que a "
+    "assuma, ou elementos que não somam, derrubam o job. "
+    "O orçamento não existe dentro do container: não o compare, não o estime e não faça juízo "
+    "de viabilidade. As bibliotecas são só pandas 2.x e a biblioteca padrão."
+)
+
+
 def montar_prompt_geracao(regra: RepresentacaoRegra) -> str:
     """Monta contexto local e regra em compartimentos JSON, sem executar a regra."""
     sistema = {
@@ -80,6 +104,7 @@ def montar_prompt_geracao(regra: RepresentacaoRegra) -> str:
         "bases": simplejson.loads(_RECURSO.read_text(encoding="utf-8"), use_decimal=True),
         "convencoes": _CONVENCOES,
         "regras_base": _REGRAS_BASE,
+        "ambiente_de_execucao": _AMBIENTE_DE_EXECUCAO,
         "contrato_regrafn": Path(__file__).with_name("regrafn.md").read_text(encoding="utf-8"),
         "regra_schema_bundle": simplejson.loads(
             _SCHEMAS_REGRA.read_text(encoding="utf-8"), use_decimal=True

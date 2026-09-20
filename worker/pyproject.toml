@@ -38,6 +38,7 @@ python-dotenv = "^1.0"
 pre-commit = "^4.6.2"
 openpyxl = "^3.1.5"
 jsonschema = "4.25.1"
+pandas = ">=2.2,<3.0"
 
 [build-system]
 requires = ["poetry-core>=1.8.0"]
@@ -110,6 +111,14 @@ ignore_errors = true
 # O docker-py tem type hints inline, mas não publica o marcador py.typed.
 [[tool.mypy.overrides]]
 module = ["docker.*"]
+ignore_missing_imports = true
+
+# O pandas não publica py.typed. pandas-stubs sob strict + warn_return_any exigiria cast
+# em quase toda expressão de DataFrame e o ruído esconderia erro real. Só carga.py e
+# harness.py importam pandas, e o que importa neles é o dtype em runtime, que os testes
+# conferem; resultado.py e assercoes.py trabalham em registros e seguem estritamente tipados.
+[[tool.mypy.overrides]]
+module = ["pandas.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]
