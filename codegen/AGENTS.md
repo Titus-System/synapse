@@ -30,6 +30,7 @@ make lint          # Ruff + Bandit
 make format        # Auto-format
 make typecheck     # mypy strict mode
 make test          # pytest
+make test-cov      # pytest + coverage report (see the testing skill)
 make pre-commit    # the gate: lint + format + typecheck + tests
 ```
 

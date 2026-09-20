@@ -35,6 +35,9 @@ typecheck:
 test:
 	poetry run pytest
 
+test-cov:
+	poetry run pytest --cov=app --cov-report=term-missing
+
 test-e2e:
 	poetry run pytest tests/app/e2e/
 

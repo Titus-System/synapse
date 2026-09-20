@@ -85,7 +85,8 @@ Every variable is optional and falls back to the default below; see `.env.exampl
 ## Tests
 
 ```bash
-make test
+make test        # run the suite
+make test-cov    # run it with a per-file coverage report
 ```
 
 `tests/` mirrors `app/`, so `app/core/logger.py` is covered by `tests/app/core/test_logger.py`. Fixtures live in `tests/conftest.py`: `settings`, `api` (the FastAPI app) and `client` (an `AsyncClient` speaking to the app in-process, no socket). The environment is loaded from `.env.test` before anything under `app` is imported.
