@@ -138,5 +138,62 @@
         "Não muta as entradas."
       ]
     }
+  },
+  "contrato_secoes": {
+    "fontes": [
+      "contracts/harness/README.md",
+      "docs/decisoes/dec-092.md: a seção RegraFn é citada verbatim no prompt"
+    ],
+    "titulos": [
+      "## A assinatura",
+      "## `RegraFn`: o contrato de entrada e saída",
+      "## Regras da entrada",
+      "## Convenção de tipos das colunas",
+      "## Como o código declara o elemento que implementa",
+      "## Bibliotecas permitidas no sandbox"
+    ],
+    "subsecoes_regrafn": [
+      "### O que a função recebe",
+      "### O que a função devolve",
+      "### O que \"pura\" significa aqui",
+      "### O que acontece quando a função falha",
+      "### Exemplo mínimo, com duas competências"
+    ],
+    "ponteiros_proibidos": [
+      "exemplo/regra.py",
+      "validar-saida.py",
+      "testar-contrato.py",
+      "ARCHITECTURE.md",
+      "worker/",
+      "contracts/harness"
+    ]
+  },
+  "tipagem": {
+    "fontes": [
+      "contracts/harness/README.md#convenção-de-tipos-das-colunas"
+    ],
+    "fatos": {
+      "tabelas_tipadas": [
+        "rh",
+        "vendas",
+        "comissoes",
+        "eventos_rh",
+        "apuracao_base"
+      ],
+      "codigos_no_dataset": "inteiros",
+      "codigos_na_representacao": "strings",
+      "pandas": ">=2.2,<3.0"
+    }
+  },
+  "elemento_ref": {
+    "fontes": [
+      "contracts/harness/README.md#como-o-código-declara-o-elemento-que-implementa",
+      "contracts/domain/comum.schema.json#/$defs/elemento_ref"
+    ],
+    "fatos": {
+      "nucleo": "nucleo.<campo>",
+      "especificacao": "elem.<n>",
+      "declarado_em": "contribuicoes"
+    }
   }
 }

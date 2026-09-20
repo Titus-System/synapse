@@ -5,6 +5,7 @@ import simplejson
 from app.representacao_regra import RepresentacaoRegra
 
 _RECURSO = Path(__file__).with_name("contexto_bases.json")
+_SCHEMAS_REGRA = Path(__file__).with_name("regra_schemas.json")
 _CONTRATOS = Path(__file__).resolve().parents[2] / "contracts" / "domain"
 _SCHEMAS_RESULTADO = (
     "resultado-simulacao.schema.json",
@@ -69,6 +70,9 @@ def montar_prompt_geracao(regra: RepresentacaoRegra) -> str:
             "no sandbox do worker. Elemento não implementável, asserção violada ou "
             "resultado inconsistente deve falhar, nunca produzir simulação parcial. "
             "A função retorna apuracao_simulada e contribuicoes conforme RegraFn. "
+            "dados_nao_confiaveis_da_regra segue regra_schema_bundle: use esse schema para "
+            "interpretar núcleo, especificações e construtos, e para derivar o elemento_ref "
+            "que cada trecho do código declara. "
             "O bundle de resultado descreve o artefato agregado pelo harness a partir "
             "desse retorno: totais, asserções e decomposição são responsabilidade do "
             "harness, não o retorno direto da função gerada."
@@ -77,6 +81,9 @@ def montar_prompt_geracao(regra: RepresentacaoRegra) -> str:
         "convencoes": _CONVENCOES,
         "regras_base": _REGRAS_BASE,
         "contrato_regrafn": Path(__file__).with_name("regrafn.md").read_text(encoding="utf-8"),
+        "regra_schema_bundle": simplejson.loads(
+            _SCHEMAS_REGRA.read_text(encoding="utf-8"), use_decimal=True
+        ),
         "resultado_schema_bundle": {
             nome: simplejson.loads(
                 (_CONTRATOS / nome).read_text(encoding="utf-8"), use_decimal=True

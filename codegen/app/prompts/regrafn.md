@@ -68,9 +68,7 @@ aplica.
 depreender de `data_ref` (que tem semântica dupla - seção "Regras da entrada").
 **Os parâmetros específicos da regra proposta (percentual, marca, cargo, vigência,
 faixas, exclusões etc.) não chegam por aqui.** Eles são traduzidos para o corpo do
-código gerado como constantes/lógica Python - exatamente como no exemplo
-(`contracts/harness/exemplo/regra.py`), onde `_MARCA_ALVO`, `_CARGO_ALVO` e
-`_PERCENTUAL` são valores fixos escritos pelo agente, não parâmetros da função. Uma
+código gerado como constantes/lógica Python: valores fixos escritos pelo agente, não parâmetros da função. Uma
 regra com vigência de só um dos meses do período decide isso internamente, comparando
 a `competencia` de cada linha com o que a regra propõe (ex.: `if competencia ==
 "2025-11":`).
@@ -124,7 +122,100 @@ A função pode levantar qualquer exceção Python (ex.: `KeyError` por coluna a
 `ZeroDivisionError`). O harness não a captura silenciosamente: uma exceção não tratada
 propaga e o worker classifica a execução como `erro_codigo` - o job para, não
 devolve número parcial. O mesmo vale para um retorno que não seja um `dict` com as
-duas chaves esperadas, ou cujos DataFrames não tenham as colunas exigidas: o validador
-de saída (`validar-saida.py`) rejeita antes de o resultado ser aceito, e essa rejeição
-também vira `erro_codigo`. Não existe "resultado parcial aceito" - ver ARCHITECTURE.md
-§1.5, "a regra é simulada por inteiro".
+duas chaves esperadas, ou cujos DataFrames não tenham as colunas exigidas: o validador de saída rejeita antes de o resultado ser aceito, e essa rejeição
+também vira `erro_codigo`. Não existe "resultado parcial aceito".
+
+### Exemplo mínimo, com duas competências
+
+```python
+def aplicar_regra(bases, apuracao_base, competencias):
+    vendas = bases["vendas"]
+    vendas_periodo = vendas[vendas["competencia"].isin(competencias)]
+    vendas_por_matricula_competencia = vendas_periodo.groupby(
+        ["matricula", "competencia"], as_index=False
+    )["vlr_venda"].sum()
+
+    # merge, não .map() por tupla: mais legível e preserva a ordem das linhas
+    # de apuracao_base sem exigir index composto.
+    simulada = apuracao_base.merge(
+        vendas_por_matricula_competencia, on=["matricula", "competencia"], how="left"
+    )
+    simulada["vlr_venda"] = simulada["vlr_venda"].fillna(0.0)
+    no_alvo = (simulada["cod_marca"] == 10) & (simulada["competencia"] == "2025-11")
+
+    nova_comissao = simulada["comissao"].where(~no_alvo, simulada["vlr_venda"] * 0.01)
+    delta = nova_comissao - simulada["comissao"]
+    simulada["comissao"] = nova_comissao
+    simulada = simulada.drop(columns="vlr_venda")
+
+    contribuicoes = apuracao_base[
+        ["matricula", "cod_loja", "cod_marca", "cod_cargo", "competencia"]
+    ].copy()
+    contribuicoes["elemento_ref"] = "elem.1"
+    contribuicoes["delta"] = delta.to_numpy()
+    contribuicoes = contribuicoes[contribuicoes["delta"] != 0.0].reset_index(drop=True)
+
+    return {"apuracao_simulada": simulada.reset_index(drop=True), "contribuicoes": contribuicoes}
+```
+
+Chamado com `competencias=["2025-09", "2025-10", "2025-11"]`, esse exemplo (acréscimo
+de 1% em novembro na marca 10) devolve `apuracao_simulada` com linhas para os três
+meses, mas só altera `comissao` nas linhas de novembro/marca 10; `contribuicoes` só
+tem linhas de novembro. Setembro e outubro aparecem em `decomposicao.competencia` com
+valor zero - simulados e sem efeito, não ausentes (ver `resultado-decomposicao.schema.json`).
+
+## Regras da entrada
+
+- **Cópias.** O harness passa cópias dos DataFrames. Uma função que fizer
+  `inplace=True` altera só a própria cópia, não o que o harness vê.
+- **Sem caminho de arquivo.** Nenhum caminho é passado à função; tudo que ela precisa
+  já chega como DataFrame.
+- **Competências por parâmetro.** A função recebe a lista de competências e não a
+  deduz de `data_ref`, que tem semântica dupla: a maioria das linhas traz o
+  dia 1º do mês, mas as vendas de 24 a 28/11 trazem a data real da venda.
+- **Orçamento fica fora.** O orçamento não é parâmetro da função. Ele é o que julga o
+  resultado, e quem produz o número não deve alcançar o parâmetro que vai julgá-lo
+  (mesmo princípio).
+
+## Convenção de tipos das colunas
+
+As colunas seguem o dataset canônico.
+Atenção a um ponto: no dataset os códigos são inteiros, mas na representação da regra
+e nas chaves da decomposição eles são strings (`comum.schema.json`). O código gerado
+compara usando o tipo do DataFrame; ao montar as chaves da decomposição, o harness
+converte para string.
+
+| Tabela | Colunas (tipo) |
+| --- | --- |
+| `rh` | `competencia` str, `data_ref` str, `cod_marca` int, `cod_loja` int, `matricula` str, `data_admiss` str, `data_demiss` str\|nulo, `cod_cargo` int, descrições str |
+| `vendas` | `competencia` str, `data_ref` str, `data_venda` str\|nulo, `cod_marca` int, `cod_loja` int, `matricula` str, `vlr_venda` float |
+| `comissoes` | `competencia` str, `cod_marca` int, `cod_cargo` int, `percentual_comissao` float (fração; `0.025` são 2,5%) |
+| `eventos_rh` | `id` str, `tipo` str (`afastamento` \| `ferias` \| `licenca_maternidade` \| `demissao` \| `correcao_cadastral`), `matricula` str, `competencia_origem` str, `data_inicio` str, `data_fim` str\|nulo, `detalhes` objeto\|nulo. Não filtrada por `competencias` - ver "O que a função recebe". |
+| `apuracao_base` | `matricula` str, `cod_loja` int, `cod_marca` int, `cod_cargo` int, `competencia` str, `comissao` float |
+
+`data_fim` em `eventos_rh` pode ser nulo mesmo quando o evento tem duração conhecida
+(licença-maternidade sem retorno registrado usa `detalhes.data_fim_estimada`).
+
+## Como o código declara o elemento que implementa
+
+Cada parte da regra tem um identificador estável no espaço único de
+`comum.schema.json#/$defs/elemento_ref`: campo do núcleo é `nucleo.<campo>` (ex.:
+`nucleo.percentual`), item de `especificacoes` é `elem.<n>` (ex.: `elem.1`).
+
+O código gerado declara o que cada trecho implementa preenchendo `elemento_ref` em
+`contribuicoes`, e esses mesmos identificadores viram as chaves de
+`decomposicao.elemento`. É essa correspondência que permite conferir a cobertura: elemento da representação sem chave na decomposição é erro de geração, e o
+job falha em vez de devolver um número que parece completo.
+
+## Bibliotecas permitidas no sandbox
+
+A lista é curta porque cada biblioteca é superfície de ataque num container feito para
+rodar código não confiável.
+
+| Biblioteca | Justificativa |
+| --- | --- |
+| `pandas` (`>=2.2,<3.0`) | O contrato é baseado em DataFrame; é o que a função gerada usa para apurar. Trancado na major `2.x` porque é a API mais representada no material de treino dos modelos disponíveis hoje - `pandas 3.x` muda o dtype textual padrão e liga copy-on-write por padrão, o que produziria código plausível e sutilmente errado. |
+| Biblioteca padrão do Python | Operações básicas (datas, matemática, coleções). |
+
+Qualquer biblioteca além dessas precisa de justificativa e de revisão de segurança do
+worker antes de entrar na imagem.

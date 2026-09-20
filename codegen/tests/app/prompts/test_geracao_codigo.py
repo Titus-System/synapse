@@ -188,20 +188,131 @@ def test_regrafn_confere_com_oraculo_independente(prompt: dict[str, Any]) -> Non
         "retorno": re.findall(r"`(\w+)`", retorno),
         "colunas_contribuicoes": re.findall(r"`(\w+)`", capturar(r"Colunas: (.*?)\.", compacto)),
         "bibliotecas_permitidas": bibliotecas.split(" e a "),
-        "restricoes": re.findall(r"^- \*\*(.*?)\*\*", texto, re.MULTILINE),
+        "restricoes": re.findall(
+            r"^- \*\*(.*?)\*\*", secao_do_contrato(texto, 'O que "pura" significa aqui'), re.M
+        ),
     }
 
     assert observado == esperado, FATOS_ESPERADOS["regrafn"]["fontes"]
 
 
-def test_regrafn_preserva_secao_canonica_exceto_rastreabilidade(prompt: dict[str, Any]) -> None:
-    documento = (CONTRATOS.parent / "harness" / "README.md").read_text(encoding="utf-8")
-    secao = documento.split("## A assinatura\n", 1)[1].split("### Exemplo mínimo,", 1)[0]
-    esperado = "## A assinatura\n" + secao
-    for referencia in (" (T-032)", " (T-054/T-055)", " (T-028/T-029)", " - T-064", " (T-065)"):
-        esperado = esperado.replace(referencia, "")
+def secao_do_contrato(documento: str, titulo: str) -> str:
+    inicio = re.search(rf"^#+ {re.escape(titulo)}$", documento, re.MULTILINE)
+    assert inicio is not None, f"Seção ausente: {titulo}"
+    resto = documento[inicio.end() :]
+    fim = re.search(r"^#+ ", resto, re.MULTILINE)
+    return resto if fim is None else resto[: fim.start()]
 
-    assert prompt["instrucoes_fixas_do_sistema"]["contrato_regrafn"] == esperado.rstrip() + "\n"
+
+def linhas_estruturais(texto: str) -> list[str]:
+    linhas, dentro_do_codigo = [], False
+    for linha in texto.splitlines():
+        if linha.startswith("```"):
+            dentro_do_codigo = not dentro_do_codigo
+        elif (dentro_do_codigo or linha.startswith("|")) and linha.strip():
+            linhas.append(linha)
+    return linhas
+
+
+def test_contrato_traz_as_secoes_canonicas_com_codigo_e_tabelas_verbatim(
+    prompt: dict[str, Any],
+) -> None:
+    documento = (CONTRATOS.parent / "harness" / "README.md").read_text(encoding="utf-8")
+    texto = prompt["instrucoes_fixas_do_sistema"]["contrato_regrafn"]
+    oraculo = FATOS_ESPERADOS["contrato_secoes"]
+
+    for titulo in oraculo["titulos"] + oraculo["subsecoes_regrafn"]:
+        assert titulo in texto, oraculo["fontes"]
+    # Prosa pode ser reescrita ao remover ponteiros internos; código e tabelas, não.
+    for titulo in oraculo["titulos"]:
+        for linha in linhas_estruturais(secao_do_contrato(documento, titulo.lstrip("# "))):
+            assert linha in texto, f"{titulo}: linha perdida no recorte -> {linha}"
+
+
+def test_contrato_nao_aponta_para_arquivo_que_nao_acompanha_o_prompt(
+    entrada: dict[str, Any],
+) -> None:
+    texto = montar_prompt_geracao(RepresentacaoRegra.model_validate(entrada))
+
+    for ponteiro in FATOS_ESPERADOS["contrato_secoes"]["ponteiros_proibidos"]:
+        assert ponteiro not in texto, f"Ponteiro sem referente no prompt: {ponteiro}"
+
+
+def test_contrato_declara_tipagem_das_colunas_e_versao_do_pandas(prompt: dict[str, Any]) -> None:
+    texto = prompt["instrucoes_fixas_do_sistema"]["contrato_regrafn"]
+    tabela = secao_do_contrato(texto, "Convenção de tipos das colunas")
+    oraculo = FATOS_ESPERADOS["tipagem"]
+    observado = {
+        "tabelas_tipadas": re.findall(r"^\| `(\w+)` \|", tabela, re.MULTILINE),
+        "codigos_no_dataset": capturar(r"no dataset os códigos são (\w+)", tabela),
+        "codigos_na_representacao": capturar(
+            r"na representação da regra\s+e nas chaves da decomposição eles são (\w+)", tabela
+        ),
+        "pandas": capturar(r"`pandas` \(`(.*?)`\)", texto),
+    }
+
+    assert observado == oraculo["fatos"], oraculo["fontes"]
+
+
+def test_contrato_explica_como_declarar_o_elemento_implementado(prompt: dict[str, Any]) -> None:
+    texto = prompt["instrucoes_fixas_do_sistema"]["contrato_regrafn"]
+    secao = secao_do_contrato(texto, "Como o código declara o elemento que implementa")
+    oraculo = FATOS_ESPERADOS["elemento_ref"]
+    observado = {
+        "nucleo": capturar(r"campo do núcleo é `(.*?)`", secao),
+        "especificacao": capturar(r"item de `especificacoes` é `(.*?)`", secao),
+        "declarado_em": capturar(r"preenchendo `elemento_ref` em\s+`(\w+)`", secao),
+    }
+
+    assert observado == oraculo["fatos"], oraculo["fontes"]
+
+
+def test_regra_schema_bundle_descreve_a_entrada_com_referencias_resolviveis(
+    prompt: dict[str, Any],
+) -> None:
+    sistema = prompt["instrucoes_fixas_do_sistema"]
+    bundle = sistema["regra_schema_bundle"]
+
+    assert set(bundle) == {
+        "representacao-regra.schema.json",
+        "regra-nucleo.schema.json",
+        "regra-especificacoes.schema.json",
+    }
+    registro = Registry().with_resources(
+        (schema["$id"], Resource.from_contents(schema))
+        for schema in list(bundle.values()) + list(sistema["resultado_schema_bundle"].values())
+    )
+    for schema in bundle.values():
+        resolver = registro.resolver(schema["$id"])
+        pendentes: list[Any] = [schema]
+        while pendentes:
+            item = pendentes.pop()
+            if isinstance(item, dict):
+                if "$ref" in item:
+                    assert resolver.lookup(item["$ref"]).contents
+                pendentes.extend(item.values())
+            elif isinstance(item, list):
+                pendentes.extend(item)
+
+
+def test_regra_schema_bundle_cobre_os_campos_da_regra_recebida(
+    entrada: dict[str, Any], prompt: dict[str, Any]
+) -> None:
+    bundle = prompt["instrucoes_fixas_do_sistema"]["regra_schema_bundle"]
+    dados = prompt["dados_nao_confiaveis_da_regra"]
+
+    raiz = bundle["representacao-regra.schema.json"]
+    assert set(dados) <= set(raiz["properties"])
+    nucleo = bundle["regra-nucleo.schema.json"]["properties"]
+    assert set(dados["nucleo"]) <= set(nucleo)
+    Draft202012Validator(
+        bundle["regra-especificacoes.schema.json"],
+        registry=Registry().with_resources(
+            (schema["$id"], Resource.from_contents(schema))
+            for schema in list(bundle.values())
+            + list(prompt["instrucoes_fixas_do_sistema"]["resultado_schema_bundle"].values())
+        ),
+    ).validate(dados["especificacoes"])
 
 
 def test_prompt_nao_envia_rastreabilidade_opaca(entrada: dict[str, Any]) -> None:

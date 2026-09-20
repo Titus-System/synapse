@@ -6,7 +6,11 @@ import simplejson
 
 from app.prompts import geracao_codigo
 from app.representacao_regra import RepresentacaoRegra
-from scripts.preparar_contexto_prompt import preparar_contexto_prompt, preparar_contrato_regrafn
+from scripts.preparar_contexto_prompt import (
+    preparar_contexto_prompt,
+    preparar_contrato_regrafn,
+    preparar_schemas_regra,
+)
 
 COMPONENTE = Path(__file__).resolve().parents[2]
 CANONICO = COMPONENTE.parent / "worker" / "sandbox" / "data" / "domrock"
@@ -100,3 +104,34 @@ def test_preparacao_regrafn_reproduz_recurso_da_fonte_canonica(tmp_path: Path) -
         == segundo.read_bytes()
         == (COMPONENTE / "app" / "prompts" / "regrafn.md").read_bytes()
     )
+
+
+def test_preparacao_schemas_regra_reproduz_recurso_da_fonte_canonica(tmp_path: Path) -> None:
+    fonte = COMPONENTE.parent / "contracts" / "domain"
+    primeiro, segundo = tmp_path / "primeiro.json", tmp_path / "segundo.json"
+
+    preparar_schemas_regra(fonte, primeiro)
+    preparar_schemas_regra(fonte, segundo)
+
+    assert (
+        primeiro.read_bytes()
+        == segundo.read_bytes()
+        == (COMPONENTE / "app" / "prompts" / "regra_schemas.json").read_bytes()
+    )
+
+
+def test_recorte_do_contrato_falha_quando_a_fonte_perde_uma_secao(tmp_path: Path) -> None:
+    fonte = COMPONENTE.parent / "contracts" / "harness" / "README.md"
+    mutilada = tmp_path / "README.md"
+    mutilada.write_text(
+        fonte.read_text(encoding="utf-8").replace(
+            "## Convenção de tipos das colunas", "## Outra coisa"
+        ),
+        encoding="utf-8",
+    )
+    destino = tmp_path / "regrafn.md"
+
+    with pytest.raises(ValueError, match="Convenção de tipos das colunas"):
+        preparar_contrato_regrafn(mutilada, destino)
+
+    assert not destino.exists()
