@@ -75,10 +75,9 @@ Preencha em `deploy/.env`:
 - `DOCKER_GID`, com o GID do grupo `docker` **deste droplet** (`getent group docker | cut -d: -f3`) - ver `docs/instalacao.md` §2.1 para o porquê.
 - `GATEWAY_APP_DOMAIN`, `GATEWAY_API_DOMAIN`, `GATEWAY_CODEGEN_DOMAIN`, `GATEWAY_WORKER_DOMAIN`, com os quatro domínios reais apontados no passo 2.1 - sem eles o gateway sobe respondendo em `*.localhost`, sem certificado válido.
 - `VITE_API_BASE_URL`, com a URL completa do domínio da api (ex.: `https://api.exemplo.com`) - com subdomínio próprio por serviço, um caminho relativo (`/api`) não atravessa origem.
+- `CORS_ALLOWED_ORIGINS`, com a URL do frontend (ex.: `https://app.exemplo.com`) - `app.<domínio>` e `api.<domínio>` são origens diferentes, então o navegador bloqueia toda chamada do frontend que não venha de uma origem liberada aqui. Só esquema + host (+ porta), sem caminho nem barra final; mais de uma origem, separadas por vírgula.
 
 Esse arquivo é `.gitignore`d e fica só no droplet; o CD não o sobrescreve (só adiciona/atualiza a linha `TAG=`, usada para etiquetar a imagem pelo SHA do commit implantado).
-
-> **Pendência conhecida - CORS na `api`:** com `app.<domínio>` e `api.<domínio>` como origens diferentes, o navegador passa a fazer requisição cross-origin do frontend pra api. A configuração de CORS da `api` (Spring Boot) ainda não foi revisada pra liberar `GATEWAY_APP_DOMAIN` como origem permitida - sem isso, as chamadas do frontend serão bloqueadas pelo navegador mesmo com o gateway funcionando. Fica como tarefa separada no componente `api`, fora do escopo deste guia de deploy.
 
 ### 3.4. Subida inicial manual
 
