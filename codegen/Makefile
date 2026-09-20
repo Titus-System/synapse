@@ -38,6 +38,9 @@ test:
 test-cov:
 	poetry run pytest --cov=app --cov-report=term-missing
 
+graph:
+	poetry run python -m app.graph.diagram
+
 test-e2e:
 	poetry run pytest tests/app/e2e/
 
