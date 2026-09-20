@@ -117,7 +117,7 @@ def montar_resultado(
             diferenca_pct=float(diferenca / baseline) if baseline else 0.0,
         ),
         assercoes=list(assercoes),
-        decomposicao=_decompor(base, delta_por_linha, contribuicoes, periodo, diferenca),
+        decomposicao=_decompor(base, delta_por_linha, contribuicoes, periodo),
     )
 
 
@@ -267,7 +267,6 @@ def _decompor(
     delta_por_linha: Mapping[Chave, Decimal],
     contribuicoes: Mapping[Chave, Mapping[str, Decimal]],
     periodo: tuple[str, ...],
-    diferenca: Decimal,
 ) -> Decomposicao:
     por_loja: dict[str, Decimal] = {}
     por_marca: dict[str, Decimal] = {}
@@ -285,7 +284,7 @@ def _decompor(
         por_competencia[chave[1]] += delta
 
     return Decomposicao(
-        elemento=_por_elemento(contribuicoes, diferenca),
+        elemento=_por_elemento(contribuicoes, delta_por_linha),
         loja=_serializar(por_loja, _ordem_codigo),
         marca=_serializar(por_marca, _ordem_codigo),
         cargo=_serializar(por_cargo, _ordem_codigo),
@@ -299,7 +298,8 @@ def _decompor(
 
 
 def _por_elemento(
-    contribuicoes: Mapping[Chave, Mapping[str, Decimal]], diferenca: Decimal
+    contribuicoes: Mapping[Chave, Mapping[str, Decimal]],
+    delta_por_linha: Mapping[Chave, Decimal],
 ) -> dict[str, float]:
     """Quebra por elemento da regra, fechando exatamente na diferença total.
 
@@ -307,22 +307,21 @@ def _por_elemento(
     e o efeito foi nulo, o que é informação. Omiti-lo diria que ele não foi
     implementado, que é outro caso (a conferência de cobertura é da T-056).
     """
-    acumulado: dict[str, Decimal] = {}
-    for declaradas in contribuicoes.values():
-        for elemento, delta in declaradas.items():
-            acumulado[elemento] = acumulado.get(elemento, Decimal(0)) + delta
-    if not acumulado:
-        return {}
-
-    baldes = {elemento: _centavos(valor) for elemento, valor in acumulado.items()}
-    # A diferença é arredondada por linha e os baldes por elemento, então as duas
-    # somas podem ficar a centavos uma da outra. O resíduo vai para o balde de
-    # maior valor absoluto, com empate pelo menor identificador: a quebra fecha
-    # exatamente e o ajuste é reprodutível.
-    residuo = diferenca - _somar(baldes.values())
-    if residuo:
-        alvo = min(baldes, key=lambda elemento: (-abs(baldes[elemento]), elemento))
-        baldes[alvo] += residuo
+    baldes: dict[str, Decimal] = {}
+    for chave, declaradas in contribuicoes.items():
+        parcelas = {elemento: _centavos(valor) for elemento, valor in declaradas.items()}
+        # A comissão é arredondada por linha e a contribuição por elemento, e
+        # ROUND_HALF_UP arredonda meio centavo para longe do zero, então as duas
+        # podem divergir em um centavo na mesma linha. A sobra fica DENTRO da linha
+        # que a produziu, no elemento de maior valor absoluto (empate pelo menor
+        # identificador): assim o valor de um elemento nunca depende das linhas de
+        # outro, e a soma dos baldes é a soma dos deltas por linha, sem resíduo.
+        residuo = delta_por_linha[chave] - _somar(parcelas.values())
+        if residuo:
+            alvo = min(parcelas, key=lambda elemento: (-abs(parcelas[elemento]), elemento))
+            parcelas[alvo] += residuo
+        for elemento, valor in parcelas.items():
+            baldes[elemento] = baldes.get(elemento, Decimal(0)) + valor
     return _serializar(baldes, _ordem_elemento)
 
 

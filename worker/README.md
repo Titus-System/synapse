@@ -190,3 +190,7 @@ Os cinco baselines de agosto a dezembro de 2025 ficam em `sandbox/data/domrock/b
 ## Decomposição do resultado (T-035)
 
 `app/sandbox/resultado.py` agrega o retorno da função gerada (por matrícula) na saída do contrato da T-034: `totais`, `assercoes` e a `decomposicao` da **diferença** em relação ao baseline, por elemento da regra, loja, marca, cargo e competência. Somar qualquer quebra dá `totais.diferenca_abs`, e zero é preservado — elemento que se cancela, competência simulada sem efeito e loja não afetada aparecem com `0.0`, porque ausência diria outra coisa. `totais` sai **sem `orcamento`**: quem o acrescenta, junto do veredito, é o worker fora do container (T-066). Veja [quebras, arredondamento, erros e limites](docs/t035-decomposicao.md).
+
+## Imagem do sandbox (T-033)
+
+`sandbox/Dockerfile` constrói a imagem onde o código gerado roda: sem rede, somente-leitura, usuário não-root, com pandas, as bases, os eventos de RH e os baselines congelados embutidos. O código chega pelo stdin como JSON e o resultado decomposto volta pelo stdout, num envelope de uma linha; **o orçamento nunca entra**. `app/sandbox/executor.py` é o ponto de entrada, `harness.py` o único módulo que executa código gerado (o processo do worker nunca o importa) e `carga.py` monta as bases com tipos explícitos. Build da raiz do monorepo: `docker build -f worker/sandbox/Dockerfile -t synapse-sandbox:local .`. Veja [o que entra na imagem, o envelope, as defesas e as pendências para a T-064](docs/t033-imagem-sandbox.md).
