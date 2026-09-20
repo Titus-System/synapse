@@ -13,7 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Único ponto do código autorizado a escrever {@code jobs.status}. Toda transição,
  * inclusive a inicial, é gravada em {@code job_transicoes} com timestamp na mesma
- * transação que atualiza o job.
+ * transação que atualiza o job. Uma transição para status terminal também grava
+ * {@code jobs.finalizado_em} com o mesmo instante.
  *
  * <p>
  * Quem dispara cada transição - eventos consumidos do RabbitMQ ou ações do usuário - é
@@ -39,18 +40,22 @@ public class MaquinaDeEstadosDoJob {
 	}
 
 	/**
-	 * Move o job do status atual para {@code destino}. Lança
+	 * Move o job do status atual para {@code destino} e devolve o status de origem, do
+	 * qual a máquina já tinha a trava (ver {@link #statusAtual}) - quem chama precisa
+	 * dele para anunciar a transição (evento SSE {@code estado}) sem uma segunda consulta
+	 * fora da trava, que correria com outra transição concorrente. Lança
 	 * {@link TransicaoDeStatusInvalidaException} quando a transição não está no grafo
 	 * declarado em {@link JobStatus}, incluindo qualquer tentativa a partir de um status
 	 * terminal.
 	 */
 	@Transactional
-	public void transicionar(UUID jobId, JobStatus destino, String ator, @Nullable String motivo) {
+	public JobStatus transicionar(UUID jobId, JobStatus destino, String ator, @Nullable String motivo) {
 		JobStatus origem = statusAtual(jobId);
 		if (!origem.permiteTransicaoPara(destino)) {
 			throw new TransicaoDeStatusInvalidaException(origem, destino);
 		}
 		registrarTransicao(jobId, origem, destino, ator, motivo);
+		return origem;
 	}
 
 	/**
@@ -66,12 +71,18 @@ public class MaquinaDeEstadosDoJob {
 
 	private void registrarTransicao(UUID jobId, @Nullable JobStatus origem, JobStatus destino, String ator,
 			@Nullable String motivo) {
-		this.jdbcTemplate.update("UPDATE jobs SET status = ? WHERE id = ?", destino.paraColuna(), jobId);
+		Timestamp agora = Timestamp.from(Instant.now());
+		if (destino.terminal()) {
+			this.jdbcTemplate.update("UPDATE jobs SET status = ?, finalizado_em = ? WHERE id = ?", destino.paraColuna(),
+					agora, jobId);
+		}
+		else {
+			this.jdbcTemplate.update("UPDATE jobs SET status = ? WHERE id = ?", destino.paraColuna(), jobId);
+		}
 		this.jdbcTemplate.update("""
 				INSERT INTO job_transicoes (job_id, status_anterior, status_novo, ocorrido_em, ator, motivo)
 				VALUES (?, ?, ?, ?, ?, ?)
-				""", jobId, (origem != null) ? origem.paraColuna() : null, destino.paraColuna(),
-				Timestamp.from(Instant.now()), ator, motivo);
+				""", jobId, (origem != null) ? origem.paraColuna() : null, destino.paraColuna(), agora, ator, motivo);
 	}
 
 }

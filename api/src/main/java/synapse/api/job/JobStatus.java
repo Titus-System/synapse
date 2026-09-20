@@ -1,5 +1,6 @@
 package synapse.api.job;
 
+import java.util.EnumSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -43,6 +44,21 @@ public enum JobStatus {
 
 	public boolean terminal() {
 		return TRANSICOES_PERMITIDAS.getOrDefault(this, Set.of()).isEmpty();
+	}
+
+	/**
+	 * Os estados de origem a partir dos quais {@code destino} é alcançável - o inverso do
+	 * grafo declarado acima. Usado para nomear, na recusa de uma ação inválida, qual
+	 * estado a permitiria.
+	 */
+	public static Set<JobStatus> origensPermitidasPara(JobStatus destino) {
+		Set<JobStatus> origens = EnumSet.noneOf(JobStatus.class);
+		for (JobStatus origem : values()) {
+			if (origem.permiteTransicaoPara(destino)) {
+				origens.add(origem);
+			}
+		}
+		return origens;
 	}
 
 	public String paraColuna() {
