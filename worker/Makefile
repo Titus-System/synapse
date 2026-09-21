@@ -22,20 +22,20 @@ dev:
 	poetry run uvicorn app.main:create_app --factory --reload
 
 lint:
-	poetry run ruff check app/
+	poetry run ruff check app/ scripts/ tests/
 	poetry run bandit -r app/
 
 format:
-	poetry run ruff format app/
+	poetry run ruff format app/ scripts/ tests/
 
 typecheck:
-	poetry run mypy app/
+	poetry run mypy app/ scripts/ tests/scripts/
 
 test:
 	poetry run pytest
 
 pre-commit:
-	poetry run ruff check --fix app/
-	poetry run ruff format app/
-	poetry run mypy app/
+	poetry run ruff check --fix app/ scripts/ tests/
+	poetry run ruff format app/ scripts/ tests/
+	poetry run mypy app/ scripts/ tests/scripts/
 	poetry run pytest

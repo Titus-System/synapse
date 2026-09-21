@@ -1,0 +1,533 @@
+{
+  "regra-especificacoes.schema.json": {
+    "$defs": {
+      "bonus_fixo": {
+        "description": "Valor fixo concedido a um alvo. Lista de matrículas entra como dado do elemento, nunca como código gerado.",
+        "examples": [
+          {
+            "alvo": {
+              "tipo": "lista",
+              "valor": [
+                "MATRIC-1",
+                "MATRIC-2"
+              ]
+            },
+            "construto": "bonus_fixo",
+            "ref": "elem.4",
+            "valor": 500
+          },
+          {
+            "alvo": {
+              "tipo": "filtro",
+              "valor": {
+                "admitido_ate": "2025-10-10",
+                "cargo": "100"
+              }
+            },
+            "construto": "bonus_fixo",
+            "ref": "elem.5",
+            "valor": 1000
+          }
+        ],
+        "properties": {
+          "alvo": {
+            "description": "Quem recebe o bônus. É o único lugar da representação onde matrícula aparece, e ela entra como dado do elemento, nunca como campo do núcleo.",
+            "properties": {
+              "tipo": {
+                "description": "Como o alvo é declarado: lista nomeia as matrículas uma a uma; filtro descreve o critério cadastral que as seleciona na competência processada.",
+                "enum": [
+                  "lista",
+                  "filtro"
+                ],
+                "type": "string"
+              },
+              "valor": {
+                "description": "Array de matrículas quando o tipo é lista; objeto de critérios cadastrais quando é filtro.",
+                "oneOf": [
+                  {
+                    "items": {
+                      "$ref": "comum.schema.json#/$defs/matricula"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "tipo",
+              "valor"
+            ],
+            "type": "object"
+          },
+          "valor": {
+            "$ref": "comum.schema.json#/$defs/brl",
+            "description": "Quanto cada alvo recebe, em reais, uma vez por competência em que o elemento se aplica."
+          }
+        },
+        "required": [
+          "alvo",
+          "valor"
+        ]
+      },
+      "condicao_limiar": {
+        "description": "Condição sobre uma métrica agregada. Todos os campos são obrigatórios; escopo_agregacao ausente bloqueia o avanço, porque venda total da loja, da marca e da rede produzem números diferentes e nenhum deles falha.",
+        "examples": [
+          {
+            "construto": "condicao_limiar",
+            "escopo_agregacao": "loja",
+            "limiar": 50000,
+            "metrica": "venda_total",
+            "operador": ">=",
+            "ref": "elem.2"
+          }
+        ],
+        "properties": {
+          "escopo_agregacao": {
+            "description": "Sobre que conjunto a métrica é somada antes da comparação.",
+            "enum": [
+              "matricula",
+              "loja",
+              "marca",
+              "rede"
+            ],
+            "type": "string"
+          },
+          "limiar": {
+            "description": "Valor comparado com a métrica agregada. Reais quando a métrica é monetária.",
+            "examples": [
+              50000
+            ],
+            "type": "number"
+          },
+          "metrica": {
+            "description": "O que é medido.",
+            "examples": [
+              "venda_total"
+            ],
+            "type": "string"
+          },
+          "operador": {
+            "description": "Comparação aplicada entre a métrica e o limiar.",
+            "enum": [
+              ">=",
+              ">",
+              "<=",
+              "<",
+              "=="
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "metrica",
+          "escopo_agregacao",
+          "operador",
+          "limiar"
+        ]
+      },
+      "elemento": {
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "construto": {
+                  "const": "faixa_valor"
+                }
+              },
+              "required": [
+                "construto"
+              ]
+            },
+            "then": {
+              "$ref": "#/$defs/faixa_valor"
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "construto": {
+                  "const": "condicao_limiar"
+                }
+              },
+              "required": [
+                "construto"
+              ]
+            },
+            "then": {
+              "$ref": "#/$defs/condicao_limiar"
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "construto": {
+                  "const": "janela_datas"
+                }
+              },
+              "required": [
+                "construto"
+              ]
+            },
+            "then": {
+              "$ref": "#/$defs/janela_datas"
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "construto": {
+                  "const": "exclusao"
+                }
+              },
+              "required": [
+                "construto"
+              ]
+            },
+            "then": {
+              "$ref": "#/$defs/exclusao"
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "construto": {
+                  "const": "bonus_fixo"
+                }
+              },
+              "required": [
+                "construto"
+              ]
+            },
+            "then": {
+              "$ref": "#/$defs/bonus_fixo"
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "construto": {
+                  "const": "generico"
+                }
+              },
+              "required": [
+                "construto"
+              ]
+            },
+            "then": {
+              "$ref": "#/$defs/generico"
+            }
+          }
+        ],
+        "description": "Um elemento da regra. Sempre tem ref e construto; os demais campos dependem do construto.",
+        "properties": {
+          "construto": {
+            "description": "Forma reconhecida do elemento. É o construto que diz quais campos são obrigatórios e como validar. Elemento que não corresponde a nenhuma forma conhecida é generico, e vale exatamente como os demais. Vocabulário aberto a valores novos, sempre de forma aditiva.",
+            "enum": [
+              "faixa_valor",
+              "condicao_limiar",
+              "janela_datas",
+              "exclusao",
+              "bonus_fixo",
+              "generico"
+            ],
+            "type": "string"
+          },
+          "ref": {
+            "description": "Identificador estável do elemento dentro da versão, sequencial. Não carrega o construto: reclassificar um elemento não pode trocar seu id.",
+            "examples": [
+              "elem.1"
+            ],
+            "pattern": "^elem\\.[0-9]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "construto"
+        ],
+        "type": "object"
+      },
+      "exclusao": {
+        "description": "Retira do alcance da regra os valores listados de uma dimensão.",
+        "examples": [
+          {
+            "construto": "exclusao",
+            "dimensao": "cargo",
+            "ref": "elem.3",
+            "valores": [
+              "150"
+            ]
+          }
+        ],
+        "properties": {
+          "dimensao": {
+            "description": "Vocabulário.",
+            "enum": [
+              "loja",
+              "marca",
+              "cargo"
+            ],
+            "type": "string"
+          },
+          "valores": {
+            "description": "Códigos retirados do alcance da regra, na dimensão indicada. Exclusão sem valor não exclui nada, por isso a lista tem pelo menos um item.",
+            "examples": [
+              [
+                "150"
+              ]
+            ],
+            "items": {
+              "$ref": "comum.schema.json#/$defs/codigo"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "dimensao",
+          "valores"
+        ]
+      },
+      "faixa_valor": {
+        "description": "Faixa de valor com efeito próprio. Faixas múltiplas são itens múltiplos, nunca intervalos dentro de um item.",
+        "examples": [
+          {
+            "construto": "faixa_valor",
+            "efeito": {
+              "tipo": "bonus_fixo",
+              "valor": 3500
+            },
+            "limite_inferior": 40000,
+            "limite_superior": 50000,
+            "ref": "elem.1"
+          }
+        ],
+        "properties": {
+          "efeito": {
+            "$ref": "comum.schema.json#/$defs/efeito",
+            "description": "O que a faixa provoca no comissionamento de quem cai nela."
+          },
+          "limite_inferior": {
+            "description": "Valor a partir do qual a faixa vale, incluído nela.",
+            "examples": [
+              40000
+            ],
+            "type": "number"
+          },
+          "limite_superior": {
+            "description": "Valor até o qual a faixa vale. A faixa mais alta de uma escada aberta usa um limite acima de qualquer valor possível, porque o campo é obrigatório.",
+            "examples": [
+              50000
+            ],
+            "type": "number"
+          }
+        },
+        "required": [
+          "limite_inferior",
+          "limite_superior",
+          "efeito"
+        ]
+      },
+      "generico": {
+        "description": "Elemento que não corresponde a nenhuma forma reconhecida. Aparece na confirmação, entra no código gerado e é verificado no resultado como qualquer outro.",
+        "examples": [
+          {
+            "campos": {
+              "evento": "aniversario_loja"
+            },
+            "construto": "generico",
+            "descricao": "dobrar a comissão no aniversário da loja",
+            "ref": "elem.6"
+          }
+        ],
+        "properties": {
+          "campos": {
+            "description": "Pares livres extraídos do enunciado.",
+            "type": "object"
+          },
+          "descricao": {
+            "description": "Paráfrase do elemento como o usuário o especificou.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "descricao"
+        ]
+      },
+      "janela_datas": {
+        "description": "Recorte por data com efeito próprio. Único construto que usa dia, porque a base de vendas de novembro carrega data real por causa da Black Friday.",
+        "examples": [
+          {
+            "construto": "janela_datas",
+            "data_final": "2025-11-30",
+            "data_inicial": "2025-11-24",
+            "efeito": {
+              "tipo": "acrescimo_pct",
+              "valor": 0.01
+            },
+            "ref": "elem.2"
+          }
+        ],
+        "properties": {
+          "data_final": {
+            "description": "Último dia do recorte, incluído nele. Data completa, AAAA-MM-DD.",
+            "examples": [
+              "2025-11-30"
+            ],
+            "format": "date",
+            "type": "string"
+          },
+          "data_inicial": {
+            "description": "Primeiro dia do recorte, incluído nele. Data completa, AAAA-MM-DD.",
+            "examples": [
+              "2025-11-24"
+            ],
+            "format": "date",
+            "type": "string"
+          },
+          "efeito": {
+            "$ref": "comum.schema.json#/$defs/efeito",
+            "description": "O que o recorte provoca no comissionamento das vendas feitas dentro dele."
+          }
+        },
+        "required": [
+          "data_inicial",
+          "data_final",
+          "efeito"
+        ]
+      }
+    },
+    "$id": "https://synapse.local/contracts/domain/regra-especificacoes.schema.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Coluna regras.especificacoes. Os elementos que a regra tem além do núcleo. Array vazio quando a regra é só o núcleo. A ordem dos itens é a ordem de exibição na tela de confirmação.",
+    "items": {
+      "$ref": "#/$defs/elemento"
+    },
+    "title": "Especificações da regra",
+    "type": "array"
+  },
+  "regra-nucleo.schema.json": {
+    "$id": "https://synapse.local/contracts/domain/regra-nucleo.schema.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Coluna regras.nucleo. Os campos que toda regra de comissionamento tem, no vocabulário canônico, já depois da confirmação do usuário. Matrícula não é campo do núcleo: ela identifica pessoa, e uma lista de pessoas congelada numa regra imutável estaria desatualizada na competência seguinte. Para mirar indivíduos, use o alvo do construto bonus_fixo em regra-especificacoes.",
+    "examples": [
+      {
+        "cargo": [
+          "100",
+          "300"
+        ],
+        "loja": [
+          "13"
+        ],
+        "marca": [
+          "10",
+          "20"
+        ],
+        "percentual": 0.025,
+        "vigencia": {
+          "fim": "2025-11",
+          "inicio": "2025-11"
+        }
+      }
+    ],
+    "properties": {
+      "cargo": {
+        "description": "Cod_Cargo. Filtro de escopo. Ausente ou vazio significa todos. Corresponde ao termo equipe ou funções do backlog.",
+        "examples": [
+          [
+            "100",
+            "300"
+          ]
+        ],
+        "items": {
+          "$ref": "comum.schema.json#/$defs/codigo"
+        },
+        "type": "array"
+      },
+      "loja": {
+        "description": "Cod_Loja. Filtro de escopo: a regra só se aplica a estas lojas. Ausente ou vazio significa todas. Corresponde ao termo canal do backlog.",
+        "examples": [
+          [
+            "13"
+          ]
+        ],
+        "items": {
+          "$ref": "comum.schema.json#/$defs/codigo"
+        },
+        "type": "array"
+      },
+      "marca": {
+        "description": "Cod_Marca. Filtro de escopo. Ausente ou vazio significa todas. Corresponde ao termo produto do backlog; não há granularidade de item ou SKU.",
+        "examples": [
+          [
+            "10",
+            "20"
+          ]
+        ],
+        "items": {
+          "$ref": "comum.schema.json#/$defs/codigo"
+        },
+        "type": "array"
+      },
+      "percentual": {
+        "$ref": "comum.schema.json#/$defs/fracao",
+        "description": "%_Comiss proposto, em fração. 0.025 são 2,5%."
+      },
+      "vigencia": {
+        "$ref": "comum.schema.json#/$defs/vigencia",
+        "description": "Período em que a regra proposta vale. Ausente significa que ela vale para todas as competências do job. Competência do job fora da vigência é simulada pelas regras do baseline, entrando no total sem o efeito da regra."
+      }
+    },
+    "required": [],
+    "title": "Núcleo da regra",
+    "type": "object"
+  },
+  "representacao-regra.schema.json": {
+    "$id": "https://synapse.local/contracts/domain/representacao-regra.schema.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "A regra de comissionamento em forma estruturada: o que o usuário confirma antes da simulação e o que o código gerado implementa. Não se confirma código, confirma-se esta estrutura. Reúne as duas colunas da tabela regras, que só dizem a regra inteira quando lidas juntas: o núcleo, que toda regra tem, e as especificações, que enumeram o resto do que o usuário disse. Cada parte carrega identificador próprio, no espaço único de comum.schema.json#/$defs/elemento_ref, e é por ele que o código gerado declara o que implementa e que a decomposição do resultado se amarra.",
+    "examples": [
+      {
+        "especificacoes": [],
+        "nucleo": {
+          "cargo": [
+            "100",
+            "300"
+          ],
+          "loja": [
+            "13"
+          ],
+          "marca": [
+            "10",
+            "20"
+          ],
+          "percentual": 0.025,
+          "vigencia": {
+            "fim": "2025-11",
+            "inicio": "2025-11"
+          }
+        }
+      }
+    ],
+    "properties": {
+      "especificacoes": {
+        "$ref": "regra-especificacoes.schema.json",
+        "description": "Os elementos que a regra tem além do núcleo: faixas, condições por limiar, janelas de datas, exclusões, bônus fixos e o que não couber em nenhum construto reconhecido, que entra como generico. Array vazio quando a regra é só o núcleo. Quando existem, valem exatamente como o núcleo: aparecem na confirmação, entram no código gerado e são verificados no resultado. Elemento sem ref é recusado, porque um elemento sem identificador não pode ser amarrado à implementação nem à decomposição."
+      },
+      "nucleo": {
+        "$ref": "regra-nucleo.schema.json",
+        "description": "Os campos que toda regra tem, no vocabulário canônico: vigência, loja, marca, cargo e percentual. A seção é obrigatória; quais campos dela precisam estar preenchidos é completude, verificada sobre a representação antes da geração de código, e não forma. Campo ausente tem significado definido em regra-nucleo.schema.json."
+      }
+    },
+    "required": [
+      "nucleo",
+      "especificacoes"
+    ],
+    "title": "Representação da regra",
+    "type": "object"
+  }
+}

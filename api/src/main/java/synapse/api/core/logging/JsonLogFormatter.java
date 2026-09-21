@@ -6,7 +6,6 @@ import java.time.format.DateTimeFormatterBuilder;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 
 import ch.qos.logback.classic.pattern.ThrowableProxyConverter;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -63,16 +62,13 @@ public class JsonLogFormatter extends JsonWriterStructuredLogFormatter<ILoggingE
 		members.add("level", (event) -> event.getLevel().toString());
 		members.add("message", ILoggingEvent::getFormattedMessage);
 
-		members.add("service", properties.service().name()).whenHasLength();
+		members.add("service.name", properties.service().name()).whenHasLength();
 		members.add("environment", properties.environment()).whenHasLength();
-		members.add("version", properties.service().version()).whenHasLength();
-		members.add("host", properties.observability().host()).whenHasLength();
+		members.add("service.version", properties.service().version()).whenHasLength();
+		members.add("host.name", properties.observability().host()).whenHasLength();
 
 		members.add("logger", ILoggingEvent::getLoggerName);
-		members.add("module", (event) -> callerData(event, (caller) -> ClassUtils.getShortName(caller.getClassName())))
-			.whenHasLength();
-		members.add("function", (event) -> callerData(event, StackTraceElement::getMethodName)).whenHasLength();
-		members.add("line", (event) -> callerData(event, StackTraceElement::getLineNumber)).whenNotNull();
+		members.add("code", JsonLogFormatter::codigo).whenNotEmpty();
 
 		members.add("trace_id", (event) -> event.getMDCPropertyMap().get(TRACE_ID_MDC_KEY)).whenHasLength();
 		members.add("span_id", (event) -> event.getMDCPropertyMap().get(SPAN_ID_MDC_KEY)).whenHasLength();
@@ -82,6 +78,16 @@ public class JsonLogFormatter extends JsonWriterStructuredLogFormatter<ILoggingE
 
 		members.add("extra", JsonLogFormatter::extra).whenNotEmpty();
 		members.add("exception", stackTrace::extract).whenHasLength();
+	}
+
+	private static Map<String, Object> codigo(ILoggingEvent event) {
+		StackTraceElement[] dadosChamador = event.getCallerData();
+		if (dadosChamador == null || dadosChamador.length == 0) {
+			return Map.of();
+		}
+		StackTraceElement chamador = dadosChamador[0];
+		return Map.of("module", ClassUtils.getShortName(chamador.getClassName()), "function", chamador.getMethodName(),
+				"line", chamador.getLineNumber());
 	}
 
 	/** Dado estruturado de uma chamada, vindo do {@code addKeyValue} do SLF4J. */
@@ -95,12 +101,6 @@ public class JsonLogFormatter extends JsonWriterStructuredLogFormatter<ILoggingE
 			extra.put(pair.key, pair.value);
 		}
 		return extra;
-	}
-
-	/** Vem vazio sem o {@code includeCallerData} do {@code logback-spring.xml}. */
-	private static <T> @Nullable T callerData(ILoggingEvent event, Function<StackTraceElement, T> extractor) {
-		StackTraceElement[] callerData = event.getCallerData();
-		return (callerData != null && callerData.length > 0) ? extractor.apply(callerData[0]) : null;
 	}
 
 	/** O {@code Extractor} equivalente do Boot é package-private. */

@@ -57,9 +57,14 @@ O repositorio contem o esqueleto operacional do servico, incluindo:
 - configuracao por variaveis de ambiente;
 - logs estruturados e metricas Prometheus;
 - imagem Docker multi-stage;
-- verificacoes de lint, tipos e testes.
+- verificacoes de lint, tipos e testes;
+- conexao com o RabbitMQ e declaracao da fila `executar-codigo`, duravel e com `prefetch` 1;
+- verificacao do acesso ao daemon do Docker na subida do processo;
+- loop consumidor de `executar-codigo`: le o codigo pela referencia do comando no Postgres (usuario com `SELECT` apenas) e prepara o payload de execucao, retendo o orcamento fora dele.
 
-O consumidor RabbitMQ, a execucao Docker do codigo gerado e a persistencia/publicacao do resultado sao as proximas partes do fluxo de negocio a implementar.
+A subida do container efemero e a persistencia/publicacao do resultado sao as proximas partes do fluxo de negocio a implementar.
+
+O acesso ao daemon e verificado na subida: se o socket do Docker nao estiver acessivel, o processo falha imediatamente com mensagem explicita em vez de subir e quebrar so na primeira execucao. O pre-requisito de ambiente esta em [docs/instalacao.md](../docs/instalacao.md) secao 2.1.
 
 ## Requisitos
 
@@ -109,16 +114,15 @@ GET /metrics
 
 ## Docker Compose
 
-O Compose inicia a aplicacao e o Grafana Alloy:
+O Compose deste diretório cobre apenas a instrumentação do serviço com o Grafana Alloy, e espera que os destinos externos de Loki, Prometheus e Tempo estejam configurados em `LOKI_URL`, `PROMETHEUS_URL` e `TEMPO_URL`.
+
+Ele **não** sobe o RabbitMQ nem concede acesso ao daemon do Docker, que o worker exige na subida. Para rodar o serviço de fato, use o Compose da raíz:
 
 ```bash
-cp .env.example .env
-docker compose up --build
+docker compose -f ../deploy/docker-compose.yml up -d worker
 ```
 
-O endpoint de health fica disponivel em `http://localhost:8000/health` e a interface do Alloy em `http://localhost:12345`.
-
-O Compose espera que os destinos externos de Loki, Prometheus e Tempo estejam configurados nas variaveis `LOKI_URL`, `PROMETHEUS_URL` e `TEMPO_URL`.
+O health fica em `http://localhost:8002/health`. O pré-requisito de acesso ao Docker está em [docs/instalacao.md](../docs/instalacao.md) secao 2.1.
 
 ## Qualidade e testes
 
@@ -151,6 +155,8 @@ Erros do codigo gerado, violacoes de assercoes invariantes, timeouts e falhas de
 worker/
 ├── app/
 │   ├── core/              # logging e metricas
+│   ├── mensageria/        # conexao com o RabbitMQ e fila de execucao
+│   ├── sandbox/           # acesso ao daemon do Docker
 │   ├── config.py          # configuracao por ambiente
 │   └── main.py            # health, readiness e metricas
 ├── tests/                 # testes automatizados
@@ -166,3 +172,21 @@ worker/
 - [Arquitetura do Synapse](../docs/ARCHITECTURE.md)
 - [Secao do Worker na arquitetura](../docs/ARCHITECTURE.md#34-worker-de-execucao)
 - [Sandbox de execucao](../docs/ARCHITECTURE.md#7-sandbox-de-execucao)
+
+## Regras base de comissionamento
+
+A apuração determinística das regras 5a a 5g da Dom Rock está em `app/sandbox/regras_base.py`. A função `apurar` consome somente as tabelas canônicas (`rh`, `vendas`, `comissionamento` e `eventos_rh`) e não lê planilhas de origem. O resultado é ordenado por matrícula e inclui referências às linhas de entrada, eventos e chaves de percentual usados no cálculo. Para cargo 150, `linhas_vendas` referencia todas as vendas da loja que compõem a base do gerente; para os demais cargos, referencia somente as vendas da própria matrícula. As janelas `data_inicio`/`data_fim` de afastamentos e férias são consumidas como intervalos fechados, conforme a semântica da T-028.
+
+As premissas de cargo 150, vendas órfãs, licença-maternidade e o caso de gerente rateado entre lojas estão registradas em [`DEC-090`](../docs/decisoes/dec-090.md).
+
+## Asserções invariantes (T-031)
+
+Toda chamada a `apurar` finaliza com as três asserções internas, sem baseline nem orçamento. Uma violação interrompe a apuração com `AssercaoVioladaError` e desfecho estruturado; não é um veredito de inviabilidade. A interface de tabela da T-030 permanece compatível. Consulte [integração, saída e testes](docs/t031-assercoes.md), incluindo o ponto de integração para o futuro executor de containers.
+
+## Baselines congelados (T-032)
+
+Os cinco baselines de agosto a dezembro de 2025 ficam em `sandbox/data/domrock/baselines/`, com total, lojas, matrículas e asserções no próprio JSONL de cada mês. **Baseline não é gabarito.** A preparação inclui as regras históricas de todos os meses e preserva os eventos da T-028. Confira os bytes com `poetry run python -m scripts.build_baselines --check`. Veja [totais, formato, premissas e reprodução](docs/t032-baselines.md).
+
+## Decomposição do resultado (T-035)
+
+`app/sandbox/resultado.py` agrega o retorno da função gerada (por matrícula) na saída do contrato da T-034: `totais`, `assercoes` e a `decomposicao` da **diferença** em relação ao baseline, por elemento da regra, loja, marca, cargo e competência. Somar qualquer quebra dá `totais.diferenca_abs`, e zero é preservado — elemento que se cancela, competência simulada sem efeito e loja não afetada aparecem com `0.0`, porque ausência diria outra coisa. `totais` sai **sem `orcamento`**: quem o acrescenta, junto do veredito, é o worker fora do container (T-066). Veja [quebras, arredondamento, erros e limites](docs/t035-decomposicao.md).

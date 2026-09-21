@@ -8,6 +8,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class CorrelationContextTests {
 
+	private final CorrelationContext contextoCorrelacao = new CorrelationContext();
+
 	@AfterEach
 	void clearMdc() {
 		MDC.clear();
@@ -15,7 +17,7 @@ class CorrelationContextTests {
 
 	@Test
 	void opensAndClosesAScope() {
-		try (var scope = CorrelationContext.open("job-42", "user-7")) {
+		try (var escopo = this.contextoCorrelacao.abrir("job-42", "user-7")) {
 			assertThat(MDC.get(CorrelationContext.JOB_ID_KEY)).isEqualTo("job-42");
 			assertThat(MDC.get(CorrelationContext.USER_ID_KEY)).isEqualTo("user-7");
 		}
@@ -25,8 +27,8 @@ class CorrelationContextTests {
 
 	@Test
 	void restoresTheEnclosingScopeOnClose() {
-		try (var outer = CorrelationContext.open("job-1", "user-1")) {
-			try (var inner = CorrelationContext.open("job-2", "user-2")) {
+		try (var escopoExterno = this.contextoCorrelacao.abrir("job-1", "user-1")) {
+			try (var escopoInterno = this.contextoCorrelacao.abrir("job-2", "user-2")) {
 				assertThat(MDC.get(CorrelationContext.JOB_ID_KEY)).isEqualTo("job-2");
 			}
 			assertThat(MDC.get(CorrelationContext.JOB_ID_KEY)).isEqualTo("job-1");
@@ -36,7 +38,7 @@ class CorrelationContextTests {
 
 	@Test
 	void ignoresEmptyValuesInsteadOfWritingBlanks() {
-		try (var scope = CorrelationContext.open("job-42", null)) {
+		try (var escopo = this.contextoCorrelacao.abrir("job-42", null)) {
 			assertThat(MDC.get(CorrelationContext.JOB_ID_KEY)).isEqualTo("job-42");
 			assertThat(MDC.get(CorrelationContext.USER_ID_KEY)).isNull();
 		}
@@ -45,9 +47,9 @@ class CorrelationContextTests {
 	@Test
 	void clearLeavesTracingFieldsAlone() {
 		MDC.put("traceId", "99816320ef13842d20d2ae5b108e6d37");
-		CorrelationContext.open("job-42", "user-7");
+		this.contextoCorrelacao.abrir("job-42", "user-7");
 
-		CorrelationContext.clear();
+		this.contextoCorrelacao.limpar();
 
 		assertThat(MDC.get(CorrelationContext.JOB_ID_KEY)).isNull();
 		assertThat(MDC.get(CorrelationContext.USER_ID_KEY)).isNull();

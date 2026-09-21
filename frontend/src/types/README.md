@@ -4,27 +4,13 @@ Two files, two different roles.
 
 ## `api.ts`
 
-Transport types shared by every feature: the pagination envelope (`Paginated<T>`), the error shape (`ApiError`).
+Types shared by the REST transport live here. They mirror the shapes used by `contracts/http/openapi.yaml` and the domain schemas referenced by it: request bodies, jobs, simulation results and the standard API error body.
 
-```ts
-// ✅ belongs in api.ts — transport infrastructure, not domain
-export interface Paginated<T> {
-  items: T[]
-  page: number
-  pageSize: number
-  total: number
-}
-```
+The types are written by hand. They are transport declarations only; they do not calculate values or reproduce backend business rules.
 
-```ts
-// ❌ doesn't belong in api.ts — this is a domain type, born in the feature's types.ts
-export interface BusinessRule {
-  id: string
-  statement: string
-}
-```
+When a contract field is optional, the TypeScript field is optional as well. Existing contract examples are deserialized in `api.contract.spec.ts` so changes that stop matching the shared examples fail in the frontend gate.
 
-**Hot file**: all three workstreams depend on it. Changes go in their own small PR, flagged to the team, never bundled with a feature.
+**Hot file**: all workstreams can depend on it. Changes go in their own small PR, flagged to the team, never bundled with a feature.
 
 ## `router.d.ts`
 

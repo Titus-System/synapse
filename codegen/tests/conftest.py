@@ -11,29 +11,31 @@ from httpx import ASGITransport, AsyncClient
 if TYPE_CHECKING:
     from app.config import Settings
 
-# get_settings is cached at first import, so the environment has to be set before any app import.
+# get_settings usa cache após a primeira importação; por isso, o ambiente é definido antes dela.
 load_dotenv(Path(__file__).resolve().parents[1] / ".env.test", override=True)
 os.environ.setdefault("ENVIRONMENT", "testing")
 os.environ.setdefault("LOG_LEVEL", "CRITICAL")
 
 
 @pytest.fixture(scope="session")
-def settings() -> "Settings":
+def configuracoes() -> "Settings":
     from app.config import get_settings
 
     return get_settings()
 
 
 @pytest.fixture(scope="session")
-def api() -> FastAPI:
-    """Named ``api`` so it does not shadow the ``app`` package inside test modules."""
-    from app.main import create_app
+def aplicacao() -> FastAPI:
+    """Evita sombrear o pacote ``app`` dentro dos módulos de teste."""
+    from app.main import criar_aplicacao
 
-    return create_app()
+    return criar_aplicacao()
 
 
 @pytest.fixture
-async def client(api: FastAPI) -> AsyncGenerator[AsyncClient, None]:
-    """Driving the lifespan per test would stop the logging listener for the whole session."""
-    async with AsyncClient(transport=ASGITransport(app=api), base_url="http://test") as http_client:
-        yield http_client
+async def cliente(aplicacao: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+    """O ciclo de vida é compartilhado para não encerrar o ouvinte de logs entre testes."""
+    async with AsyncClient(
+        transport=ASGITransport(app=aplicacao), base_url="http://test"
+    ) as cliente_http:
+        yield cliente_http

@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
@@ -10,6 +12,9 @@ from fastapi.responses import JSONResponse
 from app.config import get_settings
 from app.core.logger import get_logger, stop_logger
 from app.core.metrics.prometheus import prometheus
+from app.mensageria.broker import conectar, desconectar
+from app.mensageria.consumidor import consumir_fila_execucao
+from app.sandbox.daemon import verificar_acesso
 
 settings = get_settings()
 
@@ -61,9 +66,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
     logger.info(f"Starting Application {settings.SERVICE_NAME}...")
 
+    await verificar_acesso()
+    broker = await conectar()
+    tarefa_consumidor = asyncio.create_task(consumir_fila_execucao(broker))
+
     try:
         yield
     finally:
+        tarefa_consumidor.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await tarefa_consumidor
+        await desconectar(broker)
         logger.info("Shutting down application...")
         stop_logger()
 

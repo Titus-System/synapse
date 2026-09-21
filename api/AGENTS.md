@@ -11,6 +11,10 @@ Toda convenção deste repositório é um skill. Leia o que cobre o que você va
 | [`metrics`](.agents/skills/metrics/SKILL.md) | Declarar uma métrica, adicionar uma tag, ou nomear qualquer uma das duas. |
 | [`code-quality`](.agents/skills/code-quality/SKILL.md) | Commitar, escrever um método que pode não ter resposta, ou escrever um comentário. |
 | [`architecture`](.agents/skills/architecture/SKILL.md) | Criar um domínio, decidir onde uma classe mora, ou fazer uma fatia enxergar outra. |
+| [`migrations`](.agents/skills/migrations/SKILL.md) | Criar ou alterar uma migration, acrescentar tabela ou coluna, ou investigar por que um changeset não rodou. |
+| [`sse`](.agents/skills/sse/SKILL.md) | Emitir progresso para o stream SSE do job, ou mexer no stream em si. |
+| [`outbox`](.agents/skills/outbox/SKILL.md) | Publicar um evento novo pela api, ou mexer no outbox transacional em si. |
+| [`consumidores`](.agents/skills/consumidores/SKILL.md) | Escrever um `@RabbitListener` novo, ou investigar por que uma mensagem some ou volta em loop. |
 
 O envelope de log é contrato entre serviços e está especificado no repositório `agents`, em `.agents/skills/observability/SKILL.md`. Mudar um campo de topo aqui exige mudar os outros serviços junto.
 
@@ -35,7 +39,7 @@ make run       # sobe a aplicação
 ## Segurança
 
 - **Job e evento de outbox, sempre na mesma transação.** Toda escrita que produz um evento de outbox ocorre dentro do mesmo `@Transactional` que grava a entidade de job/estado que o originou. Publicar o evento num listener `AFTER_COMMIT`, num `@Async` sem propagação de transação, ou em qualquer caminho que possa confirmar um sem o outro, é rejeitado em revisão.
-- **Nenhuma escrita em tabela de outro serviço.** A api nunca faz `INSERT`/`UPDATE`/`DELETE` em tabela cujo schema pertence a `codegen` ou `worker` (artefato gerado, resultado de simulação, dataset). Quando precisa do dado, lê pela referência publicada no evento; nunca grava direto no schema alheio.
+- **Nenhuma escrita em tabela de artefato de outro serviço.** A api nunca faz `INSERT`/`UPDATE`/`DELETE` em tabela que armazena artefatos produzidos por `codegen` ou `worker` (código gerado, resultado de simulação). Quando precisa do dado, lê pela referência publicada no evento; nunca grava direto na tabela alheia.
 - **Migration só nasce aqui.** Toda migration do banco do Synapse é adicionada em `api/`. Se `codegen` ou `worker` precisam de tabela ou coluna nova, a migration inclui o `GRANT` de permissão mínima para aquele serviço; nenhum outro componente cria ou altera schema.
 - **Evite herança para reaproveitar comportamento.** Uma superclasse abstrata para compartilhar lógica entre fatias (`commissioning`, `sales`, `approval`) ou entre camadas da mesma fatia é rejeitada em revisão, a menos que justificada explicitamente; prefira composição ou um método de apoio dentro do próprio pacote.
 - **Consumidor de fila é idempotente.** Uma redelivery do RabbitMQ (a mesma mensagem entregue de novo) nunca cria um segundo job nem duplica efeito financeiro; o consumidor deduplica pelo identificador da mensagem/evento antes de processar.

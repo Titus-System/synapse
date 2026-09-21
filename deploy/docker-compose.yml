@@ -1,6 +1,8 @@
 name: synapse-infra
 
-services:  
+services:
+  # Só compila o SPA e copia o resultado pro volume que o gateway serve -
+  # não fica de pé (restart: "no") e não expõe porta nem participa da rede.
   frontend:
     build:
       context: ..
@@ -8,40 +10,193 @@ services:
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
     image: synapse-frontend:${TAG:-local}
+    command: npm run dev -- --host 0.0.0.0
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+    networks:
+      - synapse-net
+    restart: unless-stopped
+
+  # Único ponto de entrada do droplet: termina TLS e roteia por subdomínio
+  # pra frontend/api/codegen/worker. Ver deploy/gateway/Caddyfile.
+  gateway:
+    image: caddy:2-alpine
+    container_name: synapse-gateway
     restart: unless-stopped
     environment:
-      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      GATEWAY_APP_DOMAIN: ${GATEWAY_APP_DOMAIN:-app.localhost}
+      GATEWAY_API_DOMAIN: ${GATEWAY_API_DOMAIN:-api.localhost}
+      GATEWAY_CODEGEN_DOMAIN: ${GATEWAY_CODEGEN_DOMAIN:-codegen.localhost}
+      GATEWAY_WORKER_DOMAIN: ${GATEWAY_WORKER_DOMAIN:-worker.localhost}
     ports:
       - '${HTTP_PORT:-80}:80'
       - '${HTTPS_PORT:-443}:443'
     volumes:
+      - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+      - frontend-dist:/srv/app:ro
       - caddy_data:/data
       - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+      codegen:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
     healthcheck:
       test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:8080/healthz']
       interval: 30s
       timeout: 3s
       retries: 3
+    networks:
+      - synapse-net
+
+  codegen:
+    build:
+      context: ..
+      dockerfile: codegen/Dockerfile
+    image: synapse-codegen:${TAG:-local}
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: synapse-codegen
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-synapse_db}
+      SYNAPSE_CODEGEN_DB_USER: ${SYNAPSE_CODEGEN_DB_USER:-synapse_codegen}
+      SYNAPSE_CODEGEN_DB_PASSWORD: ${SYNAPSE_CODEGEN_DB_PASSWORD:?defina em deploy/.env}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-guest}
+    ports:
+      - '${CODEGEN_PORT:-8001}:8000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://localhost:8000/health']
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    networks:
+      - synapse-net
+
+  worker:
+    build:
+      context: ..
+      dockerfile: worker/Dockerfile
+    image: synapse-worker:${TAG:-local}
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: synapse-worker
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-synapse_db}
+      SYNAPSE_WORKER_DB_USER: ${SYNAPSE_WORKER_DB_USER:-synapse_worker}
+      SYNAPSE_WORKER_DB_PASSWORD: ${SYNAPSE_WORKER_DB_PASSWORD:?defina em deploy/.env}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-guest}
+    ports:
+      - '${WORKER_PORT:-8002}:8000'
+    volumes:
+      # O worker sobe o container efêmero do sandbox pelo daemon do host.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # O container roda como appuser (uid 1000); sem o grupo docker do host ele não
+    # alcança o socket montado acima. O GID varia por máquina - ver docs/instalacao.md.
+    group_add:
+      - '${DOCKER_GID:?defina em deploy/.env; ver docs/instalacao.md}'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://localhost:8000/health']
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    networks:
+      - synapse-net
 
   postgres:
     image: postgres:18-alpine
     container_name: synapse-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-api_db}
+      POSTGRES_DB: ${POSTGRES_DB:-synapse_db}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       PGDATA: /var/lib/postgresql/data/pgdata
+      # Consumidos pelo script de initdb, que cria um usuário por serviço.
+      SYNAPSE_API_DB_USER: ${SYNAPSE_API_DB_USER:-synapse_api}
+      SYNAPSE_API_DB_PASSWORD: ${SYNAPSE_API_DB_PASSWORD:?defina em deploy/.env}
+      SYNAPSE_CODEGEN_DB_USER: ${SYNAPSE_CODEGEN_DB_USER:-synapse_codegen}
+      SYNAPSE_CODEGEN_DB_PASSWORD: ${SYNAPSE_CODEGEN_DB_PASSWORD:?defina em deploy/.env}
+      SYNAPSE_WORKER_DB_USER: ${SYNAPSE_WORKER_DB_USER:-synapse_worker}
+      SYNAPSE_WORKER_DB_PASSWORD: ${SYNAPSE_WORKER_DB_PASSWORD:?defina em deploy/.env}
     ports:
       - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # Roda só na primeira subida, com o volume vazio. Ver docs/instalacao.md.
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 5
       start_period: 10s
+    networks:
+      - synapse-net
+
+  api:
+    build:
+      context: ..
+      dockerfile: api/Dockerfile
+    image: synapse-api:${TAG:-local}
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: synapse-api
+      # Origens de navegador liberadas pelo CORS da api. Com um subdomínio por
+      # serviço, a origem do frontend é https://${GATEWAY_APP_DOMAIN}.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-synapse_db}
+      # Com o que a api opera.
+      SYNAPSE_API_DB_USER: ${SYNAPSE_API_DB_USER:-synapse_api}
+      SYNAPSE_API_DB_PASSWORD: ${SYNAPSE_API_DB_PASSWORD:?defina em deploy/.env}
+      # usado para aplicação das migrations
+      POSTGRES_OWNER_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_OWNER_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      # Nomes usados nos GRANT dos changesets; têm que bater com os do initdb.
+      SYNAPSE_CODEGEN_DB_USER: ${SYNAPSE_CODEGEN_DB_USER:-synapse_codegen}
+      SYNAPSE_WORKER_DB_USER: ${SYNAPSE_WORKER_DB_USER:-synapse_worker}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-guest}
+    ports:
+      - '${API_PORT:-8080}:8080'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://localhost:8080/actuator/health']
+      interval: 30s
+      timeout: 3s
+      retries: 3
     networks:
       - synapse-net
 
@@ -58,7 +213,7 @@ services:
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -66,13 +221,34 @@ services:
     networks:
       - synapse-net
 
+  alloy:
+    image: grafana/alloy:latest
+    container_name: synapse-alloy
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    env_file:
+      - .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./observability/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+    networks:
+      - synapse-net
+    restart: unless-stopped
+
 volumes:
+  frontend-dist:
+    name: synapse-frontend-dist
   caddy_data:
   caddy_config:
   postgres-data:
     name: synapse-postgres-data
   rabbitmq-data:
     name: synapse-rabbitmq-data
+  alloy-data:
 
 networks:
   synapse-net:

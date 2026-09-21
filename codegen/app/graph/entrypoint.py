@@ -14,18 +14,18 @@ from app.graph.core.engine import build_graph
 from app.graph.core.state import AgentState
 
 
-async def run(id: str, prompt: str) -> AsyncIterator[Any]:
-    """Run the graph for `id`, streaming progress as it goes.
+async def run(job_id: str, prompt: str) -> AsyncIterator[Any]:
+    """Run the graph for `job_id`, streaming progress as it goes.
     This is an async generator.
 
-    `id` is used as the LangGraph `thread_id` which will be used to track the conversation.
-    If a checkpoint already exists for `id`, the graph will resume from that point.
+    `job_id` is used as the LangGraph `thread_id` which will be used to track the conversation.
+    If a checkpoint already exists for `job_id`, the graph will resume from that point.
     In this case, `prompt` is appended to the accumulated message history.
-    If a checkpoint does not exist for `id`, the graph will start fresh.
+    If a checkpoint does not exist for `job_id`, the graph will start fresh.
 
     See `.agents/skills/graph/SKILL.md`.
     """
-    config: RunnableConfig = {"configurable": {"thread_id": id}}
+    config: RunnableConfig = {"configurable": {"thread_id": job_id}}
     inputs: AgentState = {"messages": [HumanMessage(content=prompt)]}
 
     async with get_checkpointer() as checkpointer:

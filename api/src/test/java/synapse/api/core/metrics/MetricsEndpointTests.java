@@ -5,12 +5,14 @@ import org.junit.jupiter.api.Test;
 
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Um erro de configuração devolveria os endpoints ao /actuator sem falhar o boot. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ActiveProfiles("test")
 class MetricsEndpointTests {
 
 	@LocalServerPort
@@ -36,9 +38,9 @@ class MetricsEndpointTests {
 	}
 
 	@Test
-	void servesHealthAtTheRootPathToo() {
+	void servesHealthAtTheActuatorPath() {
 		this.client.get()
-			.uri("/health")
+			.uri("/actuator/health")
 			.exchange()
 			.expectStatus()
 			.isOk()
@@ -47,8 +49,8 @@ class MetricsEndpointTests {
 	}
 
 	@Test
-	void noLongerServesTheActuatorBasePath() {
-		this.client.get().uri("/actuator/prometheus").exchange().expectStatus().isNotFound();
+	void doesNotExposeHealthAtTheRootPath() {
+		this.client.get().uri("/health").exchange().expectStatus().isNotFound();
 	}
 
 }

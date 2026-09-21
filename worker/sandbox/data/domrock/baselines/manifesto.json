@@ -1,0 +1,146 @@
+{
+  "aviso": "Baseline não é gabarito: é nossa apuração da regra vigente, não o valor pago pela empresa.",
+  "baselines": {
+    "2025-08": {
+      "arquivo": "baselines/baseline-2025-08.jsonl",
+      "assercoes": [
+        {
+          "detalhe": null,
+          "nome": "sem_comissao_negativa",
+          "resultado": "ok"
+        },
+        {
+          "detalhe": null,
+          "nome": "sem_comissao_sem_venda",
+          "resultado": "ok"
+        },
+        {
+          "detalhe": null,
+          "nome": "soma_loja_igual_soma_matricula",
+          "resultado": "ok"
+        }
+      ],
+      "matriculas": 497,
+      "sha256": "e7f5d6b34cad07da259cc58f1fbd126248eab99bd84e647be7087d53d14f5c0e",
+      "total": 363021.46
+    },
+    "2025-09": {
+      "arquivo": "baselines/baseline-2025-09.jsonl",
+      "assercoes": [
+        {
+          "detalhe": null,
+          "nome": "sem_comissao_negativa",
+          "resultado": "ok"
+        },
+        {
+          "detalhe": null,
+          "nome": "sem_comissao_sem_venda",
+          "resultado": "ok"
+        },
+        {
+          "detalhe": null,
+          "nome": "soma_loja_igual_soma_matricula",
+          "resultado": "ok"
+        }
+      ],
+      "matriculas": 530,
+      "sha256": "dc01eb30e6642d75ff04b5b8a50df8700da45e93bc12d90a1b1b82afa7e8fb60",
+      "total": 424628.68
+    },
+    "2025-10": {
+      "arquivo": "baselines/baseline-2025-10.jsonl",
+      "assercoes": [
+        {
+          "detalhe": null,
+          "nome": "sem_comissao_negativa",
+          "resultado": "ok"
+        },
+        {
+          "detalhe": null,
+          "nome": "sem_comissao_sem_venda",
+          "resultado": "ok"
+        },
+        {
+          "detalhe": null,
+          "nome": "soma_loja_igual_soma_matricula",
+          "resultado": "ok"
+        }
+      ],
+      "matriculas": 537,
+      "sha256": "0cba95648dba483cd6624f3fde6df710f58bda75cb12afafb0a06996c4643142",
+      "total": 698465.53
+    },
+    "2025-11": {
+      "arquivo": "baselines/baseline-2025-11.jsonl",
+      "assercoes": [
+        {
+          "detalhe": null,
+          "nome": "sem_comissao_negativa",
+          "resultado": "ok"
+        },
+        {
+          "detalhe": null,
+          "nome": "sem_comissao_sem_venda",
+          "resultado": "ok"
+        },
+        {
+          "detalhe": null,
+          "nome": "soma_loja_igual_soma_matricula",
+          "resultado": "ok"
+        }
+      ],
+      "matriculas": 546,
+      "sha256": "a30bb28e319dddd9d7d99a6fd7de174c6e5c4c31a28a84ef135974a873eccc49",
+      "total": 508382.32
+    },
+    "2025-12": {
+      "arquivo": "baselines/baseline-2025-12.jsonl",
+      "assercoes": [
+        {
+          "detalhe": null,
+          "nome": "sem_comissao_negativa",
+          "resultado": "ok"
+        },
+        {
+          "detalhe": null,
+          "nome": "sem_comissao_sem_venda",
+          "resultado": "ok"
+        },
+        {
+          "detalhe": null,
+          "nome": "soma_loja_igual_soma_matricula",
+          "resultado": "ok"
+        }
+      ],
+      "matriculas": 562,
+      "sha256": "af5b95234a8c810cce5c5c2b304ce150e510d9a8db534fb1401ee6a7b6282639",
+      "total": 1305396.25
+    }
+  },
+  "competencias": [
+    "2025-08",
+    "2025-09",
+    "2025-10",
+    "2025-11",
+    "2025-12"
+  ],
+  "congelamento": "2026-09-17",
+  "fontes_sha256": {
+    "comissoes.jsonl": "602601c76c51fefd1a022c60a29c5c963d1b7996232f5030f454b7e8b10ba3ec",
+    "eventos_rh.jsonl": "ba3fac163ef6fe98c18a74847dda0b9061fb3fbf8c4610c683d2f64e41af595b",
+    "eventos_rh_fonte": "2dc3f1fc0fb7c891660e9adff0d8975e863df0adfeb48c0733897abd0ffc5e63",
+    "normalization_report.json": "8fe8972eb3cbc381e8237e3834567888e356f813f0cbd23630d9755b205fb716",
+    "regras_competencia.jsonl": "e8d5a18d0d2d0513e18d318cd0b215804595aa49191e82f73fa63ba9b976631f",
+    "rh.jsonl": "c52c5955e534e95664239e68ced2e1ca8c649fec8c57a96f4f5195cb112046b9",
+    "schema.json": "9b7bc3e7a32723f8f286ac696c7364319198ace8ac0a5d69a194167bbccfc37a",
+    "vendas.jsonl": "1a77fb4fd30315cd2acb63a5b09703f0ba74c358efe1a705f685f4f8617fd39a"
+  },
+  "motor_sha256": {
+    "app/sandbox/ajustes_competencia.py": "cda0e1176d9ba546ecd81d25e3b70b23fd19f6bead78ae2e356450939152f726",
+    "app/sandbox/assercoes.py": "9d502cbdd542284f290f749f0b70e4557a1fdeb07f2a65355b504899d14eae33",
+    "app/sandbox/regras_base.py": "a0d7bdb768a1101e578375ecb23939a1bb5c5a4412b082393937a86c582c451a",
+    "app/sandbox/regras_competencia.py": "db92d1407de2209a8d0b115f9def6cab1dc8130dd8ecd499f65e9d6e2e613863",
+    "scripts/build_baselines.py": "ae94552376bfc0f8cd7ff96280b5ba9bdb6a70e54d701e0a19181849c2c1a4b6"
+  },
+  "versao": 1
+}

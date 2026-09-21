@@ -1,0 +1,13 @@
+{
+  "nucleo": {
+    "vigencia": {
+      "inicio": "2025-11",
+      "fim": "2025-11"
+    },
+    "loja": ["13"],
+    "marca": ["10"],
+    "cargo": ["100"],
+    "percentual": 0.03
+  },
+  "texto_livre": "Conceder bônus fixo de R$ 500 para as matrículas MATRIC-422 e MATRIC-517 na competência de novembro de 2025."
+}
