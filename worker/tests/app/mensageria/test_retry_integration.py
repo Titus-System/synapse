@@ -1,63 +1,15 @@
 """Retry/DLQ no RabbitMQ do deploy, em vhost isolado e sem banco ou API."""
 
-import asyncio
-import subprocess
-from collections.abc import AsyncIterator
-from pathlib import Path
 from unittest.mock import AsyncMock
-from uuid import uuid4
 
 import pytest
 from aio_pika import DeliveryMode, Message
 
-from app.config import Settings
-from app.mensageria import broker as modulo_broker
 from app.mensageria import consumidor
-from app.mensageria.broker import ConexaoBroker, conectar, desconectar
+from app.mensageria.broker import ConexaoBroker
 from tests.app.mensageria.test_consumidor import _corpo_comando, _SessionmakerFalso
 
 pytestmark = pytest.mark.rabbitmq
-COMPOSE = Path(__file__).resolve().parents[4] / "deploy" / "docker-compose.yml"
-
-
-def _rabbitmqctl(*argumentos: str) -> None:
-    subprocess.run(
-        [
-            "docker",
-            "compose",
-            "-f",
-            str(COMPOSE),
-            "exec",
-            "-T",
-            "rabbitmq",
-            "rabbitmqctl",
-            *argumentos,
-        ],
-        check=True,
-        capture_output=True,
-        timeout=30,
-    )
-
-
-@pytest.fixture
-async def broker_real(
-    monkeypatch: pytest.MonkeyPatch, settings: Settings
-) -> AsyncIterator[ConexaoBroker]:
-    vhost = f"t049-worker-{uuid4().hex}"
-    config = settings.model_copy(update={"RABBITMQ_VHOST": vhost})
-    await asyncio.to_thread(_rabbitmqctl, "add_vhost", vhost)
-    try:
-        await asyncio.to_thread(
-            _rabbitmqctl, "set_permissions", "-p", vhost, config.RABBITMQ_USER, ".*", ".*", ".*"
-        )
-        monkeypatch.setattr(modulo_broker, "get_settings", lambda: config)
-        broker = await conectar()
-        try:
-            yield broker
-        finally:
-            await desconectar(broker)
-    finally:
-        await asyncio.to_thread(_rabbitmqctl, "delete_vhost", vhost)
 
 
 @pytest.mark.parametrize(

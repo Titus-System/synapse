@@ -72,6 +72,12 @@ def test_dockerfile_nao_copia_diretorio_inteiro() -> None:
         assert not fonte.endswith("/") and Path(fonte).suffix, fonte
 
 
+def test_dockerfile_nao_copia_o_que_julga_o_resultado() -> None:
+    """O veredito, a conferência do baseline, a classificação e o executor do container são do
+    processo do worker (T-064 a T-066): dentro da imagem, o código gerado os alcançaria."""
+    assert not any(fonte.startswith("worker/app/execucao") for fonte in fontes_copiadas())
+
+
 def test_dockerfile_deixa_de_fora_o_que_nao_deve_estar_na_imagem() -> None:
     fontes = fontes_copiadas()
 

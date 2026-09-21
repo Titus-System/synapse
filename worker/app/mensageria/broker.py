@@ -1,12 +1,21 @@
 from dataclasses import dataclass
 
-from aio_pika import connect_robust
-from aio_pika.abc import AbstractChannel, AbstractQueue, AbstractRobustConnection
+from aio_pika import ExchangeType, connect_robust
+from aio_pika.abc import (
+    AbstractChannel,
+    AbstractExchange,
+    AbstractQueue,
+    AbstractRobustConnection,
+)
 
 from app.config import get_settings
 from app.core.logger import get_logger
 
 logger = get_logger("app.mensageria.broker")
+
+# DEC-089: a exchange fanout leva o nome da mensagem. Cada consumidor (api, codegen) declara a
+# sua fila e a liga a ela; o worker declara só a exchange, que é o lado dele.
+EXCHANGE_SIMULACAO_CONCLUIDA = "simulacao-concluida"
 
 
 @dataclass(frozen=True)
@@ -16,6 +25,7 @@ class ConexaoBroker:
     conexao: AbstractRobustConnection
     canal: AbstractChannel
     fila: AbstractQueue
+    exchange: AbstractExchange
 
 
 async def conectar() -> ConexaoBroker:
@@ -32,6 +42,12 @@ async def conectar() -> ConexaoBroker:
         auto_delete=False,
     )
 
+    # Idempotente e sem argumentos `x-*`: uma declaração divergente da que api e codegen fazem
+    # seria rejeitada com 406 (DEC-089), e não perderia mensagem em silêncio.
+    exchange = await canal.declare_exchange(
+        EXCHANGE_SIMULACAO_CONCLUIDA, ExchangeType.FANOUT, durable=True
+    )
+
     logger.info(
         "fila de execução declarada",
         extra={
@@ -42,7 +58,7 @@ async def conectar() -> ConexaoBroker:
         },
     )
 
-    return ConexaoBroker(conexao=conexao, canal=canal, fila=fila)
+    return ConexaoBroker(conexao=conexao, canal=canal, fila=fila, exchange=exchange)
 
 
 async def desconectar(broker: ConexaoBroker) -> None:

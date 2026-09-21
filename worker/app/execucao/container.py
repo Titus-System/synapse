@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import socket
+import threading
 import time
 import uuid
 from collections.abc import Iterator
@@ -64,6 +65,18 @@ class SandboxInfraError(RuntimeError):
     É falha nossa ou do daemon, nunca do código gerado: quem recebe isto classifica
     como ``erro_infra`` (T-065), que é repetível, em vez de culpar a regra.
     """
+
+
+class SandboxCanceladoError(Exception):
+    """A execução foi cancelada de fora (o worker está encerrando): o container em curso foi
+    morto e removido, e não houve desfecho. Não é falha do código gerado nem da infraestrutura, e
+    por isso não é `SandboxInfraError`: o comando não deve ser classificado nem repetido por ela.
+    """
+
+
+# De quanto em quanto tempo a espera olha o pedido de cancelamento. É o tempo máximo que um
+# encerramento espera até o SIGKILL sair, e tem de caber no prazo do `docker stop` (10 s).
+PASSO_DA_ESPERA_S = 0.5
 
 
 @dataclass(frozen=True)
@@ -178,12 +191,19 @@ def opcoes_de_isolamento(nome: str, rotulos: dict[str, str], limites: Limites) -
 
 
 def executar_no_sandbox(
-    payload: PayloadContainer, *, imagem: str | None = None, limites: Limites = LIMITES
+    payload: PayloadContainer,
+    *,
+    imagem: str | None = None,
+    limites: Limites = LIMITES,
+    cancelar: threading.Event | None = None,
 ) -> SaidaBruta:
     """Sobe um container efêmero, entrega o código, espera e devolve a saída bruta.
 
     Síncrono de ponta a ponta: quem chama de dentro do loop assíncrono entra por
-    ``asyncio.to_thread``, como ``app/sandbox/daemon.py`` faz.
+    ``asyncio.to_thread``, como ``app/sandbox/daemon.py`` faz. Uma thread não se interrompe
+    de fora, então o cancelamento é cooperativo: quem quiser encerrar antes do prazo (o
+    desligamento do worker) marca ``cancelar``; a espera o vê em até ``PASSO_DA_ESPERA_S``, a
+    remoção forçada mata o container e o remove, e a chamada levanta ``SandboxCanceladoError``.
     """
     imagem = imagem or get_settings().SANDBOX_IMAGE
     nome = f"{PREFIXO_NOME}{str(payload.job_id)[:8]}-{uuid.uuid4().hex[:8]}"
@@ -193,7 +213,7 @@ def executar_no_sandbox(
     try:
         opcoes = opcoes_de_isolamento(nome, rotulos, limites)
         with container_efemero(cliente, imagem, opcoes) as (container, soquete):
-            saida = conduzir(container, soquete, serializar_payload(payload), limites)
+            saida = conduzir(container, soquete, serializar_payload(payload), limites, cancelar)
     finally:
         cliente.close()
 
@@ -244,7 +264,11 @@ def container_efemero(
 
 
 def conduzir(
-    container: Container, soquete: SoqueteDeAnexo, payload: bytes, limites: Limites
+    container: Container,
+    soquete: SoqueteDeAnexo,
+    payload: bytes,
+    limites: Limites,
+    cancelar: threading.Event | None = None,
 ) -> SaidaBruta:
     """Inicia, entrega o payload, espera o prazo e coleta. Não remove: quem remove é
     ``container_efemero``."""
@@ -255,7 +279,9 @@ def conduzir(
         raise SandboxInfraError("não foi possível iniciar o container do sandbox") from erro
 
     _entregar(soquete, payload)
-    estourou_timeout = not _esperar(container, limites.timeout_s, inicio)
+    # Cancelado, nada é lido nem classificado: a exceção sobe, e o `finally` de
+    # ``container_efemero`` mata (SIGKILL) e remove numa chamada só, com ``remove(force=True)``.
+    estourou_timeout = not _esperar(container, limites.timeout_s, inicio, cancelar)
     if estourou_timeout:
         _matar(container, limites)
     duracao = time.monotonic() - inicio
@@ -302,25 +328,35 @@ def _entregar(soquete: SoqueteDeAnexo, payload: bytes) -> None:
         logger.warning("o sandbox não recebeu o payload inteiro")
 
 
-def _esperar(container: Container, timeout_s: float, inicio: float) -> bool:
-    """Espera o container terminar dentro do prazo. Falso quando o prazo estourou.
+def _esperar(
+    container: Container,
+    timeout_s: float,
+    inicio: float,
+    cancelar: threading.Event | None = None,
+) -> bool:
+    """Espera o container terminar dentro do prazo. Falso quando o prazo estourou;
+    ``SandboxCanceladoError`` quando ``cancelar`` foi marcado antes.
 
     As exceções do cliente HTTP do SDK descendem de ``OSError``, então não é preciso
     importar ``requests`` para capturá-las; e quem decide se houve timeout é o relógio
-    monotônico, não o tipo da exceção.
+    monotônico, não o tipo da exceção. Com ``cancelar``, a espera é em passos curtos, e o
+    timeout de leitura de cada passo é o caminho normal, e não um erro.
     """
     restante = timeout_s
     while restante > 0:
+        if cancelar is not None and cancelar.is_set():
+            raise SandboxCanceladoError
+        espera = restante if cancelar is None else min(restante, PASSO_DA_ESPERA_S)
+        tentativa = time.monotonic()
         try:
-            container.wait(timeout=restante)
+            container.wait(timeout=espera)
             return True
         except OSError:
-            restante = timeout_s - (time.monotonic() - inicio)
             # Um erro de conexão volta na hora, e sem esta pausa o laço giraria em falso
             # consumindo CPU até o fim do prazo. O timeout de leitura já gastou o tempo.
-            if restante > 0:
-                time.sleep(min(0.2, restante))
-                restante = timeout_s - (time.monotonic() - inicio)
+            if time.monotonic() - tentativa < 0.1:
+                time.sleep(min(0.2, max(restante - 0.1, 0)))
+        restante = timeout_s - (time.monotonic() - inicio)
     return False
 
 

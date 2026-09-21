@@ -107,6 +107,22 @@ cliente HTTP do SDK descendem de `OSError`, então o `except` não precisa do `r
 Tudo é síncrono. Quem chamar de dentro do loop assíncrono entra por `asyncio.to_thread`,
 como `app/sandbox/daemon.py` já faz, para não travar o heartbeat do RabbitMQ.
 
+## Cancelamento: o encerramento do worker no meio de uma execução
+
+Uma thread não se interrompe de fora, e o uvicorn reemite o SIGTERM depois do desligamento gracioso,
+então o processo sai sem esperar threads. Para o container não ficar rodando sem quem lhe imponha o
+prazo, a execução é **cooperativa**: `executar_no_sandbox(..., cancelar=threading.Event())`. A
+espera olha o `Event` a cada `PASSO_DA_ESPERA_S` (0,5 s), e marcado ele levanta
+`SandboxCanceladoError`; o `finally` de `container_efemero` mata (SIGKILL) e remove o container com
+`remove(force=True)`, e nada é lido nem classificado. O consumidor (`_executar_no_container`), ao ser
+cancelado, marca o `Event` e **espera a thread terminar** antes de deixar o cancelamento seguir, então
+a limpeza acontece durante o desligamento, dentro dos 10 s do `docker stop`.
+
+`SandboxCanceladoError` **não** é `SandboxInfraError`: um encerramento não é falha de infraestrutura, e
+o comando não vai para o retry nem para o esgotamento (DEC-094). Ele não é confirmado nem rejeitado; o
+broker o devolve quando a conexão fecha, e o próximo worker o executa. Um `SIGKILL` do worker, ao
+contrário, não roda código nenhum, e o container do job fica órfão até o watchdog (T-068).
+
 ## O que `SaidaBruta` afirma
 
 | Campo | Significa |
@@ -150,16 +166,21 @@ controle que roda a mesma sonda de escrita sem `read_only` e exige que ela grave
 
 ## Limite desta entrega
 
-**Nada em produção chama isto ainda.** `app/mensageria/consumidor.py` continua terminando
-em `preparar_execucao` e fazendo `ack`. A fiação é da T-065, que lê e classifica a saída, e
-a persistência e o veredito são da T-066.
+`app/mensageria/consumidor.py` chama `executar_no_sandbox` (numa thread, via
+`asyncio.to_thread`), classifica o desfecho (T-065, `docs/t065-coleta-e-classificacao.md`) e faz
+`ack`; `SandboxInfraError` entra em `repetir_erro_infra`, e o desfecho do código gerado
+(asserção, erro, timeout, OOM) não é repetido. A classe vai ao log, mas o resultado ainda não sai
+do worker: o veredito é da T-066, e a gravação e a publicação são da T-067. Até lá, um comando
+executado com sucesso não deixa resultado para o codegen.
 
 Pendências registradas:
 
-- **quem constrói `synapse-sandbox` no deploy**: hoje ninguém. Nem `deploy/docker-compose.yml`
-  nem `.github/workflows/cd-worker.yml` constroem a imagem do sandbox, e o worker a procura
-  no daemon do host por `SANDBOX_IMAGE` (padrão `synapse-sandbox:local`). Sem isso, a
-  primeira execução real falha com `SandboxInfraError`;
+- **quem constrói `synapse-sandbox` no deploy**: o serviço `sandbox` de
+  `deploy/docker-compose.yml` (perfil `build`, só constrói) e o passo de build de
+  `.github/workflows/cd-worker.yml`, que roda antes do build do worker. O worker recebe
+  `SANDBOX_IMAGE: synapse-sandbox:${TAG:-local}`, a mesma tag do build. Fora do CD, quem sobe o
+  compose constrói à mão (`docs/instalacao.md`, seção 3); sem a imagem, a primeira execução
+  falha com `SandboxInfraError`;
 - **envelope junto com timeout**: uma regra pode deixar uma thread não-daemon viva depois
   de o envelope ser escrito, e o processo só morre pelo nosso kill. `SaidaBruta` reporta os
   dois fatos; quem decide é a T-065;

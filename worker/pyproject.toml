@@ -26,6 +26,7 @@ opentelemetry-exporter-otlp = {extras = ["http", "proto"], version = "^1.44.0"}
 prometheus-client = "^0.26.0"
 aio-pika = "^9.5"
 docker = "^7.1"
+jsonschema = "4.25.1"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.8.0"
@@ -37,7 +38,7 @@ httpx = "^0.28.0"
 python-dotenv = "^1.0"
 pre-commit = "^4.6.2"
 openpyxl = "^3.1.5"
-jsonschema = "4.25.1"
+types-jsonschema = "^4.26.0.20260518"
 pandas = ">=2.2,<3.0"
 
 [build-system]
@@ -140,11 +141,14 @@ pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--import-mode=importlib"
+# Os e2e do ciclo de vida do worker ficam fora do pytest padrão: pedem Postgres, RabbitMQ, Docker
+# e alguns minutos. `make e2e` os roda; a opção -m da linha de comando substitui esta.
+addopts = "--import-mode=importlib -m 'not e2e'"
 markers = [
     "docker: testes de integração que exigem acesso a um daemon Docker real",
     "postgres: testes de integração que exigem um Postgres real com o schema da api aplicado",
     "rabbitmq: testes de integração que exigem acesso a um RabbitMQ real",
+    "e2e: ciclo de vida do worker como processo real, com RabbitMQ, Postgres, Docker e a imagem do sandbox (make e2e)",
 ]
 
 

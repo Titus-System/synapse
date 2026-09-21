@@ -1,7 +1,10 @@
 """As flags, os limites e o payload da execução isolada (T-064), sem subir container."""
 
 import json
+import threading
+import time
 from typing import Any
+from unittest.mock import MagicMock
 from uuid import UUID
 
 import pytest
@@ -9,16 +12,22 @@ import pytest
 from app.config import get_settings
 from app.execucao.container import (
     LIMITES,
+    PASSO_DA_ESPERA_S,
     PREFIXO_NOME,
     ROTULO_JOB,
     ROTULO_SANDBOX,
     Limites,
+    SandboxCanceladoError,
     SandboxInfraError,
+    _esperar,
+    conduzir,
     executar_no_sandbox,
     opcoes_de_isolamento,
     serializar_payload,
 )
-from app.execucao.preparo import PayloadContainer
+from app.execucao.preparo import PayloadContainer, preparar_execucao
+from app.mensageria.contracts import ExecutarCodigo
+from app.repositorio.codigos_gerados import CodigoGerado
 from app.sandbox.envelope import CAMPOS_PAYLOAD
 from app.sandbox.executor import ler_payload
 
@@ -147,6 +156,31 @@ def test_o_payload_preserva_acento_da_fonte_em_utf8() -> None:
     assert ler_payload(bruto).fonte == fonte
 
 
+ORCAMENTO_SENTINELA = 487123.45
+FORMAS_DO_ORCAMENTO = ("487123.45", "48712345", "487123,45", "487123.4", "4.8712345e+05")
+
+
+def test_o_orcamento_nao_aparece_no_payload_nem_nas_opcoes_do_container() -> None:
+    """A execução preparada retém o orçamento fora do payload; o que vai para o stdin, e o que
+    configura o container, não o contém em forma nenhuma."""
+    comando = ExecutarCodigo(
+        job_id=JOB_ID,
+        codigo_gerado_id=CODIGO_ID,
+        competencias=["2025-11"],
+        orcamento=ORCAMENTO_SENTINELA,
+    )
+    codigo = CodigoGerado(id=CODIGO_ID, job_id=JOB_ID, linguagem="python", fonte=FONTE)
+
+    execucao = preparar_execucao(comando, codigo)
+    superficie = (
+        serializar_payload(execucao.payload).decode() + repr(opcoes()) + repr(execucao.payload)
+    )
+
+    assert execucao.orcamento == ORCAMENTO_SENTINELA
+    for forma in FORMAS_DO_ORCAMENTO:
+        assert forma not in superficie
+
+
 @pytest.mark.parametrize("campo", sorted(CAMPOS_PAYLOAD))
 def test_nenhum_campo_do_contrato_fica_de_fora(campo: str) -> None:
     assert campo in json.loads(serializar_payload(payload()))
@@ -166,3 +200,89 @@ def test_daemon_inalcancavel_vira_erro_de_infraestrutura(monkeypatch: pytest.Mon
             executar_no_sandbox(payload(), imagem="synapse-sandbox:qualquer")
     finally:
         get_settings.cache_clear()
+
+
+# ---- o cancelamento (o encerramento do worker no meio de uma execução) ----
+
+
+class ContainerFalso:
+    """Um container que só termina quando `kill` é chamado. `wait` estoura o timeout de leitura
+    do cliente HTTP (um `OSError`), como o SDK faz, quando nada acontece no prazo."""
+
+    id = "c" * 64
+
+    def __init__(self, ja_terminado: bool = False) -> None:
+        self.terminou = threading.Event()
+        if ja_terminado:
+            self.terminou.set()
+        self.esperas: list[float] = []
+        self.mortes = 0
+
+    def start(self) -> None:
+        return None
+
+    def wait(self, timeout: float) -> dict[str, int]:
+        self.esperas.append(timeout)
+        if self.terminou.wait(timeout):
+            return {"StatusCode": 137}
+        raise OSError("read timeout")
+
+    def kill(self) -> None:
+        self.mortes += 1
+        self.terminou.set()
+
+
+def test_sem_cancelamento_a_espera_e_uma_chamada_so_com_o_prazo_inteiro() -> None:
+    """O caminho de produção sem `cancelar` continua um único `wait` longo, sem passos."""
+    container = ContainerFalso(ja_terminado=True)
+
+    assert _esperar(container, 60.0, time.monotonic()) is True  # type: ignore[arg-type]
+    assert container.esperas == [60.0]
+
+
+def test_a_espera_ve_o_cancelamento_em_um_passo_e_nao_no_fim_do_prazo() -> None:
+    """O prazo é de 60 s; o cancelamento tem de ser visto em uma fração disso, senão o
+    encerramento esperaria o `docker stop` perder a paciência."""
+    container = ContainerFalso()
+    cancelar = threading.Event()
+    threading.Timer(0.3, cancelar.set).start()
+    inicio = time.monotonic()
+
+    with pytest.raises(SandboxCanceladoError):
+        _esperar(container, 60.0, inicio, cancelar)  # type: ignore[arg-type]
+
+    assert time.monotonic() - inicio < 2.0
+    assert max(container.esperas) <= PASSO_DA_ESPERA_S
+
+
+def test_cancelamento_ja_marcado_nao_espera_nada() -> None:
+    container = ContainerFalso()
+    cancelar = threading.Event()
+    cancelar.set()
+
+    with pytest.raises(SandboxCanceladoError):
+        _esperar(container, 60.0, time.monotonic(), cancelar)  # type: ignore[arg-type]
+
+    assert container.esperas == []
+
+
+def test_cancelar_nao_le_a_saida_nem_classifica() -> None:
+    """Não há desfecho: a exceção sobe antes de qualquer leitura, e o container é morto e removido
+    pelo `remove(force=True)` do `finally` de `container_efemero` (testado com Docker real)."""
+    container = MagicMock()
+    soquete = MagicMock()
+    cancelar = threading.Event()
+    cancelar.set()
+
+    with pytest.raises(SandboxCanceladoError):
+        conduzir(container, soquete, b"{}", Limites(timeout_s=60.0), cancelar)
+
+    container.start.assert_called_once()
+    soquete._sock.sendall.assert_called_once_with(b"{}")
+    container.reload.assert_not_called()
+    container.logs.assert_not_called()
+
+
+def test_o_cancelamento_nao_e_erro_de_infraestrutura() -> None:
+    """Se fosse, o comando entraria no retry e no esgotamento (DEC-094) por um encerramento."""
+    assert not issubclass(SandboxCanceladoError, SandboxInfraError)

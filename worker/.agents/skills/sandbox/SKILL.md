@@ -16,7 +16,9 @@ por prompt injection vindo do texto da regra. A hipótese de trabalho não é "o
 | Contrato (T-034, **congelado**) | assinatura `aplicar_regra(bases, apuracao_base, competencias)`, tipos das colunas, o que a regra pode usar | `contracts/harness/README.md` |
 | Imagem (T-033) | o que **existe dentro**: dados, motor, bibliotecas, usuário não-root | `sandbox/Dockerfile`, `app/sandbox/*` |
 | Execução (T-064) | **como** o container roda: rede, sistema de arquivos, limites, prazo, remoção | `app/execucao/container.py` |
-| Coleta e veredito (T-065, T-066) | classificar a saída, acrescentar orçamento, persistir, publicar | ainda não implementados |
+| Coleta (T-065) | classificar a saída em `sucesso`, `assercao_violada`, `erro_codigo` ou `erro_infra`, e validar o resultado pelo schema | `app/execucao/coleta.py`, `app/execucao/schema.py` |
+| Veredito (T-066) | conferir o total contra o baseline do worker, acrescentar o orçamento e julgar, fora do container | `app/execucao/veredito.py`, `app/execucao/baseline.py` |
+| Gravação e publicação (T-067) | persistir `resultados_simulacao` e publicar `simulacao-concluida` | `app/repositorio/resultados.py`, `app/execucao/registro.py`, `app/mensageria/publicador.py` |
 
 Mudar o contrato exige autorização explícita: ele está congelado e o `codegen` gera código
 contra ele.
@@ -49,6 +51,10 @@ Código de saída só é veredito do código gerado quando `estourou_timeout` e 
 falsos. `0` **sem** envelope também é erro: um `os._exit(0)` na regra sai limpo e não escreve
 nada.
 
+O worker **não** trata a saída `1` como falha do harness: a regra roda no mesmo processo e
+forja isso com `os._exit(1)`. Qualquer saída sem envelope válido é `erro_codigo`, e o único
+`erro_infra` é `SandboxInfraError` (`docs/t065-coleta-e-classificacao.md`).
+
 ## O orçamento nunca entra no container
 
 Quem produz o número não alcança o critério que vai julgá-lo. `preparar_execucao` retém o
@@ -56,6 +62,21 @@ orçamento em `ExecucaoPreparada` e só o `payload` viaja; o executor recusa o c
 aparecer; e um teste varre a imagem atrás de qualquer valor de orçamento. O veredito é
 calculado pelo worker, fora do container (T-066). Não "simplifique" isso passando o
 orçamento adiante.
+
+O veredito (`app/execucao/veredito.py`) é a única coisa que lê o orçamento: `viavel` até o
+orçamento, **igualdade incluída** (DEC-093), `inviavel` acima, sobre o total absoluto simulado, e
+`indeterminado` para todo desfecho que não é `sucesso` (o contrato o publica nulo). Antes disso
+confere `totais.baseline` contra o baseline que o **worker** leu (`app/execucao/baseline.py`): a
+regra divide o processo com o harness e infla o baseline privado dele por `gc.get_objects()`, e
+sem a conferência a economia inventada seguiria como número confiável. Ao mexer nisso, cada
+critério precisa de teste que caia quando removido, e `app/execucao/` nunca pode entrar na imagem
+do sandbox.
+
+Depois do veredito o worker **grava antes de publicar** (T-067): a linha em `resultados_simulacao`
+(só `INSERT`) confirma a transação, e só então `simulacao-concluida` sai, `mandatory` e confirmada.
+Um comando que já tem resultado gravado **não executa de novo**: republica o evento da linha. O
+`indeterminado` interno nunca é gravado nem publicado (o contrato o declara nulo fora de `sucesso`).
+O evento não leva a decomposição nem as asserções: ficam na linha (claim-check).
 
 ## Rodar o container
 
@@ -67,6 +88,13 @@ saida = executar_no_sandbox(payload)          # síncrono: no loop async, use as
 `SaidaBruta` traz fatos, não veredito: `codigo_saida`, `oom_killed`, `estourou_timeout`,
 `stdout`, `stderr`, `*_truncado`, `duracao_s`. `SandboxInfraError` é falha nossa ou do
 daemon (criar, iniciar, inspecionar, ler) - repetível, e **nunca** culpa da regra.
+
+Quem transforma os fatos numa classe é `classificar(saida, payload, orcamento)`
+(`app/execucao/coleta.py`): a primeira regra da tabela do doc da T-065 que casa vence, e
+timeout, memória e saída cortada vêm antes de qualquer leitura do envelope. O resultado de
+sucesso segue **como veio**: o schema exige `totais.orcamento`, então a validação vê uma cópia
+com o orçamento do comando, e o objeto adiante não o tem. Ao mexer nisso, cada regra da tabela
+precisa de um teste que a derrube quando removida, e nada do que veio do container vai a log.
 
 `stdout` e `stderr` são **dados não confiáveis**: texto para o usuário, nunca instrução para
 um agente, e nunca em log.
@@ -102,6 +130,10 @@ um agente, e nunca em log.
 - Remoção do container num `finally`, sempre; os rótulos `synapse.sandbox` e `synapse.job_id`
   existem para o watchdog achar órfão (T-068).
 - Leitura de stdout/stderr tem teto: código não confiável pode despejar gigabytes.
+- **A execução é cancelável** (`cancelar=Event`): o desligamento do worker mata e remove o container
+  em curso antes de o processo sair (o uvicorn reemite o SIGTERM e não espera threads). Quem chama
+  o container numa thread tem de repassar o `Event` e esperar a thread; `SandboxCanceladoError` não é
+  erro de infraestrutura e não vai ao retry.
 
 ## O processo do worker nunca executa código gerado
 

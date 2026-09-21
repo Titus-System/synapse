@@ -12,11 +12,27 @@ HEADER_RETRY = "synapse_retry_count"
 MAX_REPUBLICACOES = 2
 
 
+def _contador(mensagem: AbstractIncomingMessage) -> int | None:
+    """O contador de republicações, ou `None` se a metadata é inválida."""
+    contador = mensagem.headers.get(HEADER_RETRY, 0)
+    if type(contador) is not int or contador < 0:
+        return None
+    return contador
+
+
+def ultima_tentativa(mensagem: AbstractIncomingMessage) -> bool:
+    """Verdadeiro quando um `erro_infra` agora vai para a DLQ em vez de ser repetido.
+
+    Metadata inválida não pode reiniciar o limite de tentativas, então conta como esgotada.
+    """
+    contador = _contador(mensagem)
+    return contador is None or contador >= MAX_REPUBLICACOES
+
+
 async def repetir_erro_infra(mensagem: AbstractIncomingMessage, broker: ConexaoBroker) -> None:
     """Recebe apenas falhas já classificadas como infraestrutura pelo chamador."""
-    contador = mensagem.headers.get(HEADER_RETRY, 0)
-    # Metadata inválida não pode reiniciar o limite de tentativas.
-    if type(contador) is not int or contador < 0 or contador >= MAX_REPUBLICACOES:
+    contador = _contador(mensagem)
+    if contador is None or contador >= MAX_REPUBLICACOES:
         await enviar_dlq(mensagem, broker)
         return
     await _republicar(mensagem, broker, broker.fila.name, contador + 1)

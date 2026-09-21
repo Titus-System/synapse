@@ -3189,6 +3189,20 @@ files = [
 ]
 
 [[package]]
+name = "types-jsonschema"
+version = "4.26.0.20260518"
+description = "Typing stubs for jsonschema"
+optional = false
+python-versions = ">=3.10"
+files = [
+    {file = "types_jsonschema-4.26.0.20260518-py3-none-any.whl", hash = "sha256:30b30a518c7fe335df85c919fcbcc631b69c03d4a4b5b632fa916bea03065307"},
+    {file = "types_jsonschema-4.26.0.20260518.tar.gz", hash = "sha256:e1dd53dc97a64f5eccdd6fa9839666e09bb500a8ebba2db6fdaf1789faea81a6"},
+]
+
+[package.dependencies]
+referencing = "*"
+
+[[package]]
 name = "types-passlib"
 version = "1.7.7.20260211"
 description = "Typing stubs for passlib"
@@ -3867,4 +3881,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "1f2c706a0896c11ccf24a59258e6ef0dedc7be90a7f76471834dac9267c8b9cd"
+content-hash = "af40b560d0815fddb10243afc82e15a9a057bf58bfd06ea37309bcb3eec79072"

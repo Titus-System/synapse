@@ -10,21 +10,20 @@ import pytest
 
 from app.config import Settings
 from app.core.logger import ContextQueueHandler, JsonFormatter, job_id_ctx, user_id_ctx
+from tests.app.esquemas import erros_do_log
 
-# Other services parse this envelope. Changing the set means changing them too.
+# The envelope of contracts/observability/log.schema.json, as the other services emit it.
 CONTRACT_FIELDS = frozenset(
     {
         "timestamp",
         "level",
         "message",
-        "service",
+        "service.name",
         "environment",
-        "version",
-        "host",
+        "service.version",
+        "host.name",
         "logger",
-        "module",
-        "function",
-        "line",
+        "code",
     }
 )
 
@@ -86,10 +85,10 @@ def test_top_level_fields_are_exactly_the_contract(envelope: Envelope) -> None:
 def test_identity_fields_come_from_settings(envelope: Envelope, settings: Settings) -> None:
     payload = envelope()
 
-    assert payload["service"] == settings.SERVICE_NAME
+    assert payload["service.name"] == settings.SERVICE_NAME
     assert payload["environment"] == settings.ENVIRONMENT
-    assert payload["version"] == settings.VERSION
-    assert payload["host"] == settings.hostname
+    assert payload["service.version"] == settings.VERSION
+    assert payload["host.name"] == settings.hostname
 
 
 def test_timestamp_is_utc_iso8601(envelope: Envelope) -> None:
@@ -117,9 +116,7 @@ def test_source_location_identifies_the_call_site(envelope: Envelope) -> None:
     payload = envelope()
 
     assert payload["logger"] == "app.worker.consumer"
-    assert payload["module"] == "consumer"
-    assert payload["function"] == "handle_message"
-    assert payload["line"] == 42
+    assert payload["code"] == {"module": "consumer", "function": "handle_message", "line": 42}
 
 
 def test_extra_is_namespaced_under_extra(envelope: Envelope) -> None:
@@ -165,6 +162,30 @@ def test_a_record_serializes_to_one_line(emit_line: EmitLine) -> None:
 
 def test_non_ascii_is_not_escaped(emit_line: EmitLine) -> None:
     assert "execução finalizada" in emit_line("execução finalizada")
+
+
+def test_the_service_name_is_one_the_schema_knows(envelope: Envelope) -> None:
+    """The schema enumerates the four services: a renamed worker would be a fifth, unknown one."""
+    assert envelope()["service.name"] == "synapse-worker"
+
+
+def test_every_envelope_validates_against_the_monorepo_log_schema(envelope: Envelope) -> None:
+    """The same file the api, the codegen and the frontend are held to."""
+    job_id_ctx.set("3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021")
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        com_excecao = envelope("falhou", level=logging.ERROR, exc_info=sys.exc_info())
+
+    envelopes = [
+        envelope(),
+        envelope(extra={"exit_code": 0, "duration_ms": 1432}),
+        envelope(level=logging.WARNING),
+        envelope(level=logging.CRITICAL),
+        com_excecao,
+    ]
+
+    assert [erros_do_log(e) for e in envelopes] == [[]] * len(envelopes)
 
 
 def test_stdout_defaults_to_json_for_the_collector() -> None:
