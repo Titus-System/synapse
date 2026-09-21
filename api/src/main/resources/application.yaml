@@ -50,6 +50,8 @@ app:
     description: ${SERVICE_DESCRIPTION:}
     public-url: ${SERVICE_PUBLIC_URL:http://localhost:8080}
     version: ${VERSION:0.0.1-SNAPSHOT}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
   observability:
     log-level: ${LOG_LEVEL:INFO}
     trace-sample-rate: ${TRACE_SAMPLE_RATE:1.0}

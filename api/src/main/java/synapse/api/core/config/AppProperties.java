@@ -3,6 +3,7 @@ package synapse.api.core.config;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.time.Duration;
+import java.util.List;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
@@ -21,6 +22,7 @@ import org.springframework.validation.annotation.Validated;
  *
  * @param environment ambiente de execução; define o perfil ativo
  * @param service identidade do serviço
+ * @param cors origens de navegador autorizadas a chamar a api
  * @param observability logs e traces
  * @param postgres banco de dados
  * @param rabbitmq broker de mensageria
@@ -29,7 +31,7 @@ import org.springframework.validation.annotation.Validated;
  */
 @ConfigurationProperties("app")
 @Validated
-public record AppProperties(@NotBlank String environment, @NotNull @Valid Service service,
+public record AppProperties(@NotBlank String environment, @NotNull @Valid Service service, @NotNull @Valid Cors cors,
 		@NotNull @Valid Observability observability, @NotNull @Valid Postgres postgres,
 		@NotNull @Valid Rabbitmq rabbitmq, @NotNull @Valid Sse sse, @NotNull @Valid Outbox outbox) {
 
@@ -43,6 +45,16 @@ public record AppProperties(@NotBlank String environment, @NotNull @Valid Servic
 	 */
 	public record Service(@NotBlank String name, String description, @NotBlank String publicUrl,
 			@NotBlank String version) {
+	}
+
+	/**
+	 * Configura a política de CORS aplicada pela api.
+	 *
+	 * @param allowedOrigins origens de navegador autorizadas a chamar a api, separadas
+	 * por vírgula. Cada item é esquema + host + porta, sem caminho nem barra final; a
+	 * lista vazia não libera origem nenhuma
+	 */
+	public record Cors(@NotNull List<@NotBlank String> allowedOrigins) {
 	}
 
 	/**

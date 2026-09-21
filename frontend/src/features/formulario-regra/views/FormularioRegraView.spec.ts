@@ -36,9 +36,20 @@ vi.mock('vue-router', () => ({
   }),
 }))
 
+const opcoesDeMontagem = {
+  global: {
+    stubs: {
+      RouterLink: {
+        props: ['to'],
+        template: '<a :href="to"><slot /></a>',
+      },
+    },
+  },
+}
+
 describe('FormularioRegraView', () => {
   it('carrega as regras recentes pela API', async () => {
-    const conteiner = mount(FormularioRegraView)
+    const conteiner = mount(FormularioRegraView, opcoesDeMontagem)
 
     await vi.waitFor(() => {
       expect(conteiner.text()).toContain('Regra · 17/09/2026')
@@ -48,7 +59,7 @@ describe('FormularioRegraView', () => {
   })
 
   it('mostra a pendência no próprio campo ao tentar enviar dados vazios', async () => {
-    const conteiner = mount(FormularioRegraView)
+    const conteiner = mount(FormularioRegraView, opcoesDeMontagem)
 
     await conteiner.get('form').trigger('submit')
 

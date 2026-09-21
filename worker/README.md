@@ -186,3 +186,7 @@ Toda chamada a `apurar` finaliza com as três asserções internas, sem baseline
 ## Baselines congelados (T-032)
 
 Os cinco baselines de agosto a dezembro de 2025 ficam em `sandbox/data/domrock/baselines/`, com total, lojas, matrículas e asserções no próprio JSONL de cada mês. **Baseline não é gabarito.** A preparação inclui as regras históricas de todos os meses e preserva os eventos da T-028. Confira os bytes com `poetry run python -m scripts.build_baselines --check`. Veja [totais, formato, premissas e reprodução](docs/t032-baselines.md).
+
+## Decomposição do resultado (T-035)
+
+`app/sandbox/resultado.py` agrega o retorno da função gerada (por matrícula) na saída do contrato da T-034: `totais`, `assercoes` e a `decomposicao` da **diferença** em relação ao baseline, por elemento da regra, loja, marca, cargo e competência. Somar qualquer quebra dá `totais.diferenca_abs`, e zero é preservado — elemento que se cancela, competência simulada sem efeito e loja não afetada aparecem com `0.0`, porque ausência diria outra coisa. `totais` sai **sem `orcamento`**: quem o acrescenta, junto do veredito, é o worker fora do container (T-066). Veja [quebras, arredondamento, erros e limites](docs/t035-decomposicao.md).

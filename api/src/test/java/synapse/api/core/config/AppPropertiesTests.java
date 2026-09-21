@@ -30,6 +30,12 @@ class AppPropertiesTests {
 		assertThat(this.properties.service().publicUrl()).isEqualTo("http://localhost:8080");
 	}
 
+	/** Uma origem só, no default: a lista é separada por vírgula, não um valor único. */
+	@Test
+	void carriesTheCorsAllowedOrigins() {
+		assertThat(this.properties.cors().allowedOrigins()).containsExactly("http://localhost:5173");
+	}
+
 	@Test
 	void carriesTheObservabilitySettings() {
 		AppProperties.Observability observability = this.properties.observability();
