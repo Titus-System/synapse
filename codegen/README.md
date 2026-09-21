@@ -1,8 +1,26 @@
 # codegen
 
-Processo Python responsável pela geração assistida do Synapse. A comunicação de negócio
-com os outros serviços ocorre somente pelo RabbitMQ; a aplicação FastAPI existe para
-observabilidade operacional, não como API de negócio.
+Processo Python responsável pela geração assistida do Synapse. A lógica de negócio roda
+como um grafo LangGraph; a comunicação com os outros serviços ocorre pelo RabbitMQ. A
+aplicação FastAPI existe para observabilidade operacional, não como API de negócio.
+
+## Stack
+
+| | |
+| --- | --- |
+| Runtime | Python 3.12 |
+| Web | FastAPI, Uvicorn |
+| Agentes | LangGraph (`astream`, checkpointer `AsyncPostgresSaver`) |
+| Settings | Pydantic Settings, lido de `.env` |
+| Banco | PostgreSQL via SQLAlchemy 2 (async, asyncpg) e Alembic; o checkpointer do LangGraph usa uma conexão `psycopg` 3 separada no mesmo servidor, pois essa biblioteca não suporta `asyncpg` |
+| Mensageria | RabbitMQ via `aio-pika` |
+| Telemetria | Logs JSON estruturados, `prometheus-client`, OpenTelemetry SDK |
+| Empacotamento | Poetry, com `requirements*.txt` exportado para pip |
+| Qualidade | Ruff, mypy (strict), Bandit, pytest |
+| Container | Build multi-estágio Docker, Compose com Grafana Alloy |
+
+As tabelas de checkpoint do LangGraph (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`,
+`checkpoint_migrations`) são criadas por `AsyncPostgresSaver.setup()`, não pelo Alembic.
 
 ## Endpoints
 
@@ -126,8 +144,17 @@ somente no stdout, com `service.name` igual a `synapse-codegen`.
 ```text
 app/
   main.py          casca FastAPI operacional
-  mensageria/      integração RabbitMQ das tarefas futuras
-  nos/             nós LangGraph das tarefas futuras
+  config.py        Settings
+  mensageria/      integração RabbitMQ
+  graph/           subsistema do grafo — veja .agents/skills/graph/SKILL.md
+    entrypoint.py    única fronteira pública de app/graph/
+    core/            engine, state, checkpointer, registry de modelos, tool dispatch
+    nodes/           um arquivo por nó do grafo
+    prompts/         um arquivo por nó que tem prompt, centralizado
+    tools/           um arquivo por ferramenta (ou grupo coeso), compartilhado entre nós
   core/            logs e métricas transversais
-tests/             verificações da casca e da observabilidade
+tests/             espelha app/
 ```
+
+`app/core/` (logger, métricas — nível do serviço) e `app/graph/core/` (camada de engine do grafo)
+são pastas de mesmo nome em níveis distintos — não confundir.
