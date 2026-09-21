@@ -276,7 +276,7 @@ function formatarMoeda(valor: number): string {
 }
 
 function formatarMetrica(valor: string): string {
-  return valor.replaceAll('_', ' ')
+  return valor.split('_').join(' ')
 }
 
 function formatarValorLimiar(valor: number): string {
