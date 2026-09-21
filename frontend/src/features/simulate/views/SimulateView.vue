@@ -13,13 +13,7 @@ const {
   job,
   carregando,
   erro,
-  erroStatus,
-  erroCodigo,
   erroEspecifico,
-  etapaAtual,
-  aguardandoConfirmacao,
-  simulacaoInviavel,
-  resultadoDisponivel,
   iniciar,
 } = useJobSimulacao(jobId.value)
 

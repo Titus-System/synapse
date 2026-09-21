@@ -1,20 +1,11 @@
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { apiClient } from '@/services/api'
 import { HttpError } from '@/services/http'
 import type {
   EventoEtapa,
-  EventoEstado,
-  EventoResultado,
   Job,
   CodigoErro,
 } from '@/types/api'
-
-const ESTADOS_TERMINAIS = new Set([
-  'liberado',
-  'cancelado',
-  'arquivado',
-  'erro',
-])
 
 export function useJobSimulacao(jobId: string) {
   const job = ref<Job | null>(null)
@@ -24,9 +15,6 @@ export function useJobSimulacao(jobId: string) {
   const erroCodigo = ref<CodigoErro | null>(null)
   const erroEspecifico = ref(false)
   const etapaAtual = ref<EventoEtapa | null>(null)
-
-  const eventos: EventSource | null = null
-  const reconectando = false
 
   const status = computed(() => job.value?.status ?? null)
 
