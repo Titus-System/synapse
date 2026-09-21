@@ -374,7 +374,7 @@ def _diferenca_esperada_do_exemplo(competencia: str) -> Decimal:
             )
     total = Decimal(0)
     for r in ler_jsonl(RAIZ_DADOS / "baselines" / f"baseline-{competencia}.jsonl"):
-        if r["nivel"] != "matricula" or marcas[str(r["matricula"])] != 10 or r["cargo"] != 100:
+        if marcas[str(r["matricula"])] != 10 or r["cod_cargo"] != 100:
             continue
         nova = (vendido.get(str(r["matricula"]), Decimal(0)) * Decimal("0.025")).quantize(
             centavo, rounding=ROUND_HALF_UP

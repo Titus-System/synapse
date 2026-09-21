@@ -28,7 +28,14 @@ def test_cinco_baselines_versionados_reproduzem_exatamente_os_bytes(
     artefatos: dict[str, bytes],
 ) -> None:
     nomes = [nome for nome in artefatos if nome.endswith(".jsonl") and "baseline-" in nome]
-    assert nomes == [f"baselines/baseline-{c}.jsonl" for c in COMPETENCIAS]
+    assert nomes == [
+        item
+        for competencia in COMPETENCIAS
+        for item in (
+            f"baselines/baseline-{competencia}.jsonl",
+            f"baselines/auditoria/baseline-{competencia}.jsonl",
+        )
+    ]
     for nome, conteudo in artefatos.items():
         assert (DATA_DIR / nome).read_bytes() == conteudo, nome
     manifesto = json.loads(artefatos["baselines/manifesto.json"])
@@ -40,17 +47,29 @@ def test_total_lojas_e_matriculas_conciliam_em_centavos_e_tres_assercoes_passam(
     competencia: str,
     artefatos: dict[str, bytes],
 ) -> None:
-    registros = [
+    baseline = [
         json.loads(linha, parse_float=Decimal)
         for linha in artefatos[f"baselines/baseline-{competencia}.jsonl"].splitlines()
+    ]
+    registros = [
+        json.loads(linha, parse_float=Decimal)
+        for linha in artefatos[f"baselines/auditoria/baseline-{competencia}.jsonl"].splitlines()
     ]
     totais = [r for r in registros if r["nivel"] == "total"]
     lojas = [r for r in registros if r["nivel"] == "loja"]
     matriculas = [r for r in registros if r["nivel"] == "matricula"]
+    assert len(baseline) == len(matriculas)
+    assert {tuple(r) for r in baseline} == {
+        ("cod_cargo", "cod_loja", "cod_marca", "comissao", "competencia", "matricula")
+    }
     assert len(totais) == 1
     assert {r["competencia"] for r in registros} == {competencia}
     assert len({r["matricula"] for r in matriculas}) == len(matriculas)
     total = totais[0]["comissao"]
+    assert sum((r["comissao"] for r in baseline), Decimal(0)) == total
+    assert {r["matricula"]: r["comissao"] for r in baseline} == {
+        r["matricula"]: r["comissao"] for r in matriculas
+    }
     assert sum((r["comissao"] for r in lojas), Decimal(0)) == total
     assert sum((r["comissao"] for r in matriculas), Decimal(0)) == total
     por_loja: dict[int, Decimal] = defaultdict(Decimal)
@@ -70,7 +89,8 @@ def test_novembro_tem_black_friday_e_adicional_gerente_rastreaveis(
     artefatos: dict[str, bytes],
 ) -> None:
     linhas = [
-        json.loads(linha) for linha in artefatos["baselines/baseline-2025-11.jsonl"].splitlines()
+        json.loads(linha)
+        for linha in artefatos["baselines/auditoria/baseline-2025-11.jsonl"].splitlines()
     ]
     afetados: dict[str, list[dict[str, object]]] = {"NOV-5f": [], "NOV-5g": []}
     for linha in linhas:
@@ -183,9 +203,73 @@ def test_falha_do_motor_nao_grava_nenhum_baseline(tmp_path: Path) -> None:
     assert not saida.exists()
 
 
+def test_multiplas_marcas_na_mesma_matricula_falham_antes_do_congelamento() -> None:
+    from scripts.build_baselines import _marca_unica_da_rastreabilidade
+
+    linha = {
+        "matricula": "MATRIC-X",
+        "rastreabilidade": {"chaves_comissao": [{"cod_marca": 10}, {"cod_marca": 20}]},
+    }
+    with pytest.raises(ValueError, match="exatamente uma cod_marca"):
+        _marca_unica_da_rastreabilidade(linha, "2025-11")
+
+
+@pytest.mark.parametrize(
+    ("marcas", "mensagem"),
+    [((10, 20), "exatamente uma cod_marca"), ((20,), "difere do RH")],
+)
+def test_build_recusa_marca_ambigua_ou_divergente_sem_gravar_artefatos(
+    tmp_path: Path, marcas: tuple[int, ...], mensagem: str
+) -> None:
+    entrada, saida = tmp_path / "entrada", tmp_path / "saida"
+    entrada.mkdir()
+    for nome in ("schema.json", "normalization_report.json"):
+        (entrada / nome).write_bytes((DATA_DIR / nome).read_bytes())
+    pessoa = {
+        "competencia": "2025-08",
+        "matricula": "MATRIC-TESTE",
+        "cod_loja": 1,
+        "descr_loja": "LOJA-1",
+        "cod_marca": 10,
+        "cod_cargo": 100,
+        "data_admiss": "2020-01-01",
+        "data_demiss": None,
+    }
+    vendas = [
+        {
+            "competencia": "2025-08",
+            "data_ref": "2025-08-01",
+            "matricula": "MATRIC-TESTE",
+            "cod_loja": 1,
+            "cod_marca": marca,
+            "vlr_venda": 1000.0,
+        }
+        for marca in marcas
+    ]
+    (entrada / "rh.jsonl").write_text(json.dumps(pessoa) + "\n", encoding="utf-8")
+    (entrada / "vendas.jsonl").write_text(
+        "\n".join(json.dumps(venda) for venda in vendas) + "\n", encoding="utf-8"
+    )
+    (entrada / "comissoes.jsonl").write_bytes((DATA_DIR / "comissoes.jsonl").read_bytes())
+    (entrada / "regras_competencia.jsonl").write_bytes(
+        (DATA_DIR / "regras_competencia.jsonl").read_bytes()
+    )
+    eventos = entrada / "eventos_fonte.jsonl"
+    eventos.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=mensagem):
+        build_baselines(data_dir=entrada, eventos_fonte=eventos, output_dir=saida)
+
+    assert not saida.exists()
+
+
 def test_schema_anota_os_mesmos_campos_do_baseline(artefatos: dict[str, bytes]) -> None:
     schema = json.loads((DATA_DIR / "schema.json").read_bytes())
-    colunas = {campo["name"] for campo in schema["tables"]["baseline"]["fields"]}
-    for competencia in COMPETENCIAS:
-        for linha in artefatos[f"baselines/baseline-{competencia}.jsonl"].splitlines():
-            assert set(json.loads(linha)) == colunas
+    for tabela, caminho in (
+        ("baseline", "baselines/baseline-{competencia}.jsonl"),
+        ("baseline_auditoria", "baselines/auditoria/baseline-{competencia}.jsonl"),
+    ):
+        colunas = {campo["name"] for campo in schema["tables"][tabela]["fields"]}
+        for competencia in COMPETENCIAS:
+            for linha in artefatos[caminho.format(competencia=competencia)].splitlines():
+                assert set(json.loads(linha)) == colunas

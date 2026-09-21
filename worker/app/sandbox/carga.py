@@ -7,7 +7,7 @@ produziria ``float64`` onde o contrato manda ``int64``, e o código gerado, escr
 contra o contrato, erraria em silêncio.
 
 Não abre rede, não recalcula o baseline e não executa código gerado. O baseline é
-dado congelado (T-032); este módulo só o converte para a forma de ``apuracao_base``.
+dado congelado (T-032), já na forma de ``apuracao_base``; este módulo valida e tipa a carga.
 """
 
 from __future__ import annotations
@@ -100,8 +100,7 @@ COLUNAS: Mapping[str, Mapping[str, Tipo]] = {
         "data_fim": Tipo.TEXTO_OPCIONAL,
         "detalhes": Tipo.OBJETO_OPCIONAL,
     },
-    # A forma de ``apuracao_base`` no contrato. Não existe no schema.json: o baseline
-    # em disco tem três níveis e outra nomenclatura, e a conversão é feita aqui.
+    # A forma de ``apuracao_base`` no contrato é também o formato do baseline T-032 em disco.
     "apuracao_base": {
         "matricula": Tipo.TEXTO,
         "cod_loja": Tipo.INTEIRO,
@@ -259,13 +258,11 @@ def _linhas_apuracao_base(
     periodo: tuple[str, ...],
     rh: Sequence[tuple[int, Mapping[str, object]]],
 ) -> list[dict[str, object]]:
-    """Converte os baselines congelados para a forma de ``apuracao_base`` do contrato.
+    """Lê os baselines T-032 já publicados na forma de ``apuracao_base``.
 
-    O baseline em disco tem três níveis (total, loja, matrícula), chama o cargo de
-    ``cargo`` e não tem ``cod_marca``. A marca sai de ``rastreabilidade.chaves_comissao``
-    e é conferida contra o RH: se a T-032 for recongelada e a invariante deixar de valer,
-    a carga falha aqui, com mensagem explícita, em vez de entregar marca errada à
-    decomposição, que usa as dimensões do baseline.
+    Não há adaptação de nível, rename nem reconstrução de marca: o artefato congelado
+    é o próprio contrato. A carga apenas valida competência, unicidade, dimensões contra
+    o RH e a conciliação com o manifesto.
     """
     pessoas = _indexar_rh(rh)
     manifesto = json.loads((raiz / "baselines" / "manifesto.json").read_text(encoding="utf-8"))
@@ -297,10 +294,18 @@ def _linhas_do_mes(
 ) -> list[dict[str, object]]:
     linhas: list[dict[str, object]] = []
     vistas: set[str] = set()
+    colunas = set(COLUNAS["apuracao_base"])
     for numero, linha in enumerate(ler_jsonl(caminho), start=1):
-        if linha.get("nivel") != "matricula":
-            continue
         origem = f"{caminho.name}, linha {numero}"
+        extras = linha.keys() - colunas
+        ausentes = colunas - linha.keys()
+        if extras:
+            raise BaseInconsistenteError(f"{origem}: colunas fora do contrato: {sorted(extras)}")
+        if ausentes:
+            raise BaseInconsistenteError(
+                f"{origem}: faltam colunas do contrato: {sorted(ausentes)}"
+            )
+
         matricula = _texto_da_base(linha, "matricula", origem)
         if linha.get("competencia") != competencia:
             raise BaseInconsistenteError(f"{origem}: competência diferente de {competencia}")
@@ -309,8 +314,8 @@ def _linhas_do_mes(
         vistas.add(matricula)
 
         cod_loja = _inteiro_da_base(linha, "cod_loja", origem)
-        cod_cargo = _inteiro_da_base(linha, "cargo", origem)
-        cod_marca = _marca_unica(linha, origem)
+        cod_marca = _inteiro_da_base(linha, "cod_marca", origem)
+        cod_cargo = _inteiro_da_base(linha, "cod_cargo", origem)
         pessoa = pessoas.get((competencia, matricula))
         if pessoa is None:
             raise BaseInconsistenteError(f"{origem}: {matricula} não existe no rh de {competencia}")
@@ -323,33 +328,8 @@ def _linhas_do_mes(
                 raise BaseInconsistenteError(
                     f"{origem}: {campo} do baseline ({do_baseline}) difere do rh ({pessoa[campo]})"
                 )
-        linhas.append(
-            {
-                "matricula": matricula,
-                "cod_loja": cod_loja,
-                "cod_marca": cod_marca,
-                "cod_cargo": cod_cargo,
-                "competencia": competencia,
-                "comissao": linha.get("comissao"),
-            }
-        )
+        linhas.append(dict(linha))
     return linhas
-
-
-def _marca_unica(linha: Mapping[str, object], origem: str) -> int:
-    rastreabilidade = linha.get("rastreabilidade")
-    chaves = rastreabilidade.get("chaves_comissao") if isinstance(rastreabilidade, dict) else None
-    if not isinstance(chaves, list) or not chaves:
-        raise BaseInconsistenteError(f"{origem}: rastreabilidade.chaves_comissao ausente ou vazia")
-    marcas = {chave.get("cod_marca") for chave in chaves if isinstance(chave, dict)}
-    if len(marcas) != 1:
-        raise BaseInconsistenteError(
-            f"{origem}: marca não é única em chaves_comissao ({len(marcas)})"
-        )
-    (marca,) = marcas
-    if not isinstance(marca, int) or isinstance(marca, bool):
-        raise BaseInconsistenteError(f"{origem}: cod_marca em chaves_comissao não é inteiro")
-    return marca
 
 
 def _texto_da_base(linha: Mapping[str, object], campo: str, origem: str) -> str:
