@@ -41,6 +41,12 @@ typecheck:
 test: contracts
 	poetry run pytest
 
+test-cov:
+	poetry run pytest --cov=app --cov-report=term-missing
+
+graph:
+	poetry run python -m app.graph.diagram
+
 test-e2e:
 	poetry run pytest tests/app/e2e/
 
@@ -57,7 +63,7 @@ makemigration:
 	poetry run alembic revision --autogenerate -m "$(m)"
 
 pre-commit: contracts
-	poetry run ruff check --fix app/
-	poetry run ruff format app/
+	poetry run ruff check --fix app/ tests/
+	poetry run ruff format app/ tests/
 	poetry run mypy app/
 	poetry run pytest

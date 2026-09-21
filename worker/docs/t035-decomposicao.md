@@ -53,12 +53,23 @@ exatamente como a T-032 faz ao congelar o baseline. Com as parcelas em centavos,
 o delta de cada linha é múltiplo exato de centavo e as quebras por loja, marca,
 cargo e competência somam a diferença total sem resíduo, por construção.
 
-As contribuições são somadas **sem arredondar** e cada balde de elemento é
-arredondado uma vez, no fim. Como a diferença é arredondada por linha e os baldes
-por elemento, as duas somas podem ficar a centavos uma da outra; o resíduo é
-somado ao balde de maior valor absoluto, com empate pelo menor identificador.
-É o único ajuste do módulo, ele é determinístico e existe para a quebra fechar
-exatamente com o total exibido.
+Cada contribuição é arredondada **na própria linha**, e o resíduo daquela linha
+fica nela. `ROUND_HALF_UP` arredonda meio centavo para longe do zero, então o delta
+quantizado de uma matrícula e a contribuição quantizada dela podem divergir em um
+centavo (`1270,125` contra base `1270,13`: delta `0,00`, contribuição `-0,01`). A
+sobra da linha vai para o elemento de maior valor absoluto **daquela linha**, com
+empate pelo menor identificador. É o único ajuste do módulo; é determinístico, e
+como as dimensões usam os mesmos deltas por linha, a quebra por elemento fecha
+exatamente com `totais.diferenca_abs`.
+
+Esta é a segunda política tentada. A primeira somava as contribuições cruas,
+arredondava cada balde no fim e lançava a sobra global no maior balde. Sobre as cinco
+competências com a regra de exemplo do contrato, o resíduo era de R$ 0,70: 28 linhas
+de meio centavo, todo o valor caindo num único elemento. O resíduo crescia com o
+número de linhas afetadas (no máximo meio centavo por linha), então num período maior
+chegava a reais, e o valor de um elemento passava a depender das linhas de outro.
+Alocar por linha zera o resíduo e mantém cada elemento igual à soma dos seus próprios
+deltas.
 
 A conferência da atribuição tolera **um centavo por matrícula e competência**: o
 delta vem de pontas arredondadas e o atribuído não, então um centavo é
@@ -97,10 +108,9 @@ biblioteca padrão. Validar fora do container, na T-065, resolve as duas coisas;
 se a T-064 quiser validar dentro, terá de tratar o schema parcial. Fica
 registrado como pendência da fiação.
 
-O módulo ainda não tem chamador: quem o liga ao fluxo é o harness de produção
-(T-033), que carrega as bases e o baseline e chama a função gerada. T-035 não
-sobe container, não lê baseline do disco, não roda invariante (recebe o desfecho
-pronto) e não decide viabilidade.
+Quem o chama é o harness do sandbox (`harness.agregar`, T-033), dentro do container, com
+o baseline que só o harness guarda. T-035 não sobe container, não lê baseline do disco, não
+roda invariante (recebe o desfecho pronto) e não decide viabilidade.
 
 Quando a T-066 reconferir a apuração base fora do container, deve comparar **em
 centavos**: aqui as parcelas são quantizadas por linha, e somar float cru do

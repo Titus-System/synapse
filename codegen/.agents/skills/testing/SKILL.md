@@ -100,6 +100,15 @@ def test_extra_is_namespaced_under_extra(envelope: Envelope) -> None:
 
 Run `make test` while working, `make pre-commit` before committing.
 
+Tests run with pytest, and coverage comes from `pytest-cov` (branch coverage, measured over `app/`, configured in `[tool.coverage.run]` in `pyproject.toml`):
+
+```bash
+make test        # pytest
+make test-cov    # pytest + per-file coverage, with the uncovered line numbers listed
+```
+
+Read the `Missing` column, not the total: a file at 100% still proves nothing if its assertions are loose. Coverage finds the code no test reaches; whether a test can fail is settled by the rule above. It is a diagnostic, not a gate, so `make pre-commit` does not run it and no minimum percentage is enforced.
+
 ## Shared state
 
 State that outlives a test will eventually decide whether another one passes, and the order dependency is found weeks later. Reset it in an autouse fixture — `tests/app/core/test_logger.py` does this for `job_id_ctx` and `user_id_ctx`.
