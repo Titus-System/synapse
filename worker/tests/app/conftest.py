@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-RAIZ_MONOREPO = Path(__file__).resolve().parents[4]
+RAIZ_MONOREPO = Path(__file__).resolve().parents[3]
 DOCKERFILE = "worker/sandbox/Dockerfile"
 TAG_PADRAO = "synapse-sandbox:test"
 

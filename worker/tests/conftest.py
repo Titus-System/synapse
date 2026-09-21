@@ -1,9 +1,9 @@
 import hashlib
 import json
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -142,3 +142,27 @@ async def codigo_gerado_seed(settings: "Settings") -> AsyncGenerator[dict[str, o
         await conexao.execute("DELETE FROM usuarios WHERE id = $1", usuario_id)
     finally:
         await conexao.close()
+
+
+def exige_docker(ambiente: Mapping[str, str] | None = None) -> bool:
+    """Em CI, teste marcado `docker` não pode ser pulado.
+
+    São eles que provam o isolamento do sandbox (T-033, T-064). Pulados em silêncio, o
+    gate de segurança do componente passa verde sem nunca ter rodado — o risco que a
+    T-014 registra. Na máquina do desenvolvedor sem daemon o pulo continua valendo;
+    `EXIGIR_DOCKER=1` reproduz localmente o comportamento do CI.
+    """
+    ambiente = os.environ if ambiente is None else ambiente
+    return ambiente.get("CI") == "true" or ambiente.get("EXIGIR_DOCKER") == "1"
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> Any:
+    desfecho = yield
+    relatorio = desfecho.get_result()
+    if relatorio.skipped and exige_docker() and item.get_closest_marker("docker") is not None:
+        relatorio.outcome = "failed"
+        relatorio.longrepr = (
+            f"{item.nodeid} foi pulado, e em CI um teste marcado 'docker' pulado é falha: "
+            "sem ele o isolamento do sandbox não foi verificado."
+        )

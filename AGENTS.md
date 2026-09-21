@@ -129,7 +129,7 @@ Abra a [arquitetura](docs/ARCHITECTURE.md) inteira apenas quando a tarefa exigir
 
 ## Instruções locais e contratos
 
-- [`frontend/AGENTS.md`](frontend/AGENTS.md), [`api/AGENTS.md`](api/AGENTS.md), [`codegen/AGENTS.md`](codegen/AGENTS.md) e [`worker/`](worker/): regras específicas de cada componente. O `worker/` ainda não possui um `AGENTS.md`; siga este guia e a arquitetura até que suas instruções locais sejam criadas.
+- [`frontend/AGENTS.md`](frontend/AGENTS.md), [`api/AGENTS.md`](api/AGENTS.md), [`codegen/AGENTS.md`](codegen/AGENTS.md) e [`worker/AGENTS.md`](worker/AGENTS.md): regras específicas de cada componente.
 - [`contracts/`](contracts/): contratos entre componentes; alterações exigem validar todos os consumidores relevantes.
 - [`docs/database/`](docs/database/): o esquema do banco. O `.dbml` é canônico para tabelas, colunas, tipos, nulidade, chaves e índices; o `.md` registra as decisões de modelagem e explica com exemplos os campos mais propensos a confusão. O formato de cada coluna `jsonb` é definido pelos schemas em [`contracts/domain/`](contracts/domain/), que prevalecem sobre a nota da coluna e sobre os exemplos.
 - [`docs/adrs/`](docs/adrs/): decisões arquiteturais registradas.
