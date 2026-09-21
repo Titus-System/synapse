@@ -17,7 +17,8 @@ por prompt injection vindo do texto da regra. A hipótese de trabalho não é "o
 | Imagem (T-033) | o que **existe dentro**: dados, motor, bibliotecas, usuário não-root | `sandbox/Dockerfile`, `app/sandbox/*` |
 | Execução (T-064) | **como** o container roda: rede, sistema de arquivos, limites, prazo, remoção | `app/execucao/container.py` |
 | Coleta (T-065) | classificar a saída em `sucesso`, `assercao_violada`, `erro_codigo` ou `erro_infra`, e validar o resultado pelo schema | `app/execucao/coleta.py`, `app/execucao/schema.py` |
-| Veredito e publicação (T-066, T-067) | acrescentar orçamento, reconferir o baseline, julgar, persistir, publicar | ainda não implementados |
+| Veredito (T-066) | conferir o total contra o baseline do worker, acrescentar o orçamento e julgar, fora do container | `app/execucao/veredito.py`, `app/execucao/baseline.py` |
+| Gravação e publicação (T-067) | persistir `resultados_simulacao` e publicar `simulacao-concluida` | `app/repositorio/resultados.py`, `app/execucao/registro.py`, `app/mensageria/publicador.py` |
 
 Mudar o contrato exige autorização explícita: ele está congelado e o `codegen` gera código
 contra ele.
@@ -61,6 +62,21 @@ orçamento em `ExecucaoPreparada` e só o `payload` viaja; o executor recusa o c
 aparecer; e um teste varre a imagem atrás de qualquer valor de orçamento. O veredito é
 calculado pelo worker, fora do container (T-066). Não "simplifique" isso passando o
 orçamento adiante.
+
+O veredito (`app/execucao/veredito.py`) é a única coisa que lê o orçamento: `viavel` até o
+orçamento, **igualdade incluída** (DEC-093), `inviavel` acima, sobre o total absoluto simulado, e
+`indeterminado` para todo desfecho que não é `sucesso` (o contrato o publica nulo). Antes disso
+confere `totais.baseline` contra o baseline que o **worker** leu (`app/execucao/baseline.py`): a
+regra divide o processo com o harness e infla o baseline privado dele por `gc.get_objects()`, e
+sem a conferência a economia inventada seguiria como número confiável. Ao mexer nisso, cada
+critério precisa de teste que caia quando removido, e `app/execucao/` nunca pode entrar na imagem
+do sandbox.
+
+Depois do veredito o worker **grava antes de publicar** (T-067): a linha em `resultados_simulacao`
+(só `INSERT`) confirma a transação, e só então `simulacao-concluida` sai, `mandatory` e confirmada.
+Um comando que já tem resultado gravado **não executa de novo**: republica o evento da linha. O
+`indeterminado` interno nunca é gravado nem publicado (o contrato o declara nulo fora de `sucesso`).
+O evento não leva a decomposição nem as asserções: ficam na linha (claim-check).
 
 ## Rodar o container
 
@@ -114,6 +130,10 @@ um agente, e nunca em log.
 - Remoção do container num `finally`, sempre; os rótulos `synapse.sandbox` e `synapse.job_id`
   existem para o watchdog achar órfão (T-068).
 - Leitura de stdout/stderr tem teto: código não confiável pode despejar gigabytes.
+- **A execução é cancelável** (`cancelar=Event`): o desligamento do worker mata e remove o container
+  em curso antes de o processo sair (o uvicorn reemite o SIGTERM e não espera threads). Quem chama
+  o container numa thread tem de repassar o `Event` e esperar a thread; `SandboxCanceladoError` não é
+  erro de infraestrutura e não vai ao retry.
 
 ## O processo do worker nunca executa código gerado
 

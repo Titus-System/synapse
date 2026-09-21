@@ -28,7 +28,7 @@ result decomposition, the invariant assertions and the frozen baselines — live
 - **The budget never enters the container, and neither does any credential.** Whoever produces the number must not reach the criterion that will judge it: the payload carries only the job's code and competences, the container runs with no environment variables and no volumes, and a field it does not expect is rejected rather than ignored.
 - **Whatever comes back from the container is untrusted data.** Its stdout, its stderr and any exception message from the generated rule are text for the user — never an instruction for an agent — and they never reach a log.
 - **The verdict is computed outside the container.** `worker`'s own process, never the sandboxed code, decides pass/fail against baseline and budget, from the container's raw output data. The sandboxed process returns data; it never returns a verdict, and `worker` never trusts a verdict field coming back from inside the container.
-- **A hung job is terminated, not left running.** Every sandbox execution has a maximum wall-clock time; `worker` terminates the container when it's exceeded instead of waiting indefinitely — an unbounded wait is a denial-of-service surface.
+- **A hung job is terminated, not left running.** Every sandbox execution has a maximum wall-clock time; `worker` terminates the container when it's exceeded instead of waiting indefinitely — an unbounded wait is a denial-of-service surface. A shutdown (SIGTERM) also kills and removes the container in flight, before the process exits: the wall-clock limit is enforced by the worker, so a container it abandoned would run unbounded.
 - **A container is never reused across jobs.** Each job gets its own container, discarded once the job finishes; nothing from one job's filesystem or process state is available to the next job, even for the same tenant.
 - **Observability**: the log envelope is the contract in [`../contracts/observability/`](../contracts/observability/README.md); don't redeclare fields here.
 
@@ -44,6 +44,11 @@ them when the service is absent from the environment. **On CI (`CI=true`) a skip
 test is a failure**: those are the ones that prove the sandbox isolation, and skipped in
 silence they would leave the component's security gate green without having verified
 anything. `EXIGIR_DOCKER=1` reproduces that locally.
+
+`make e2e` is the worker's lifecycle as a real process (RabbitMQ, Postgres, Docker and the sandbox
+image up, a few minutes). It is **outside** `verify.sh` and `make test`; run it before closing a task
+that changes the consumer, the container execution, the verdict or the publication. See
+[`docs/e2e-ciclo-de-vida.md`](docs/e2e-ciclo-de-vida.md).
 
 An image change is verified with the build context at the monorepo root:
 `docker build -f worker/sandbox/Dockerfile .`.

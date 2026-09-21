@@ -46,6 +46,9 @@ type Motivo = Literal[
     "envelope_de_outra_execucao",
     "codigo_de_saida_divergente",
     "resultado_fora_do_schema",
+    # Atribuído no julgamento (T-066): o total do baseline que saiu do container não é o que o
+    # worker tem congelado, ou os totais não fecham entre si.
+    "baseline_divergente",
     "infra",
 ]
 

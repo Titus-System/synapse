@@ -7,13 +7,18 @@ código que faz aquilo mesmo.
 """
 
 import json
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
 
+from app.execucao.baseline import carregar_baselines
 from app.execucao.coleta import DesfechoClassificado, classificar, classificar_falha_de_infra
 from app.execucao.container import Limites, SaidaBruta, SandboxInfraError, executar_no_sandbox
-from app.execucao.preparo import PayloadContainer
+from app.execucao.preparo import PayloadContainer, preparar_execucao
+from app.execucao.veredito import julgar
+from app.mensageria.contracts import ExecutarCodigo
+from app.repositorio.codigos_gerados import CodigoGerado
 from tests.app.sandbox.test_harness import EXEMPLO
 
 pytestmark = pytest.mark.docker
@@ -153,3 +158,201 @@ def test_regra_que_forja_o_envelope_de_sucesso_nao_e_sucesso(imagem: str) -> Non
     assert desfecho.classe == "erro_codigo"
     assert desfecho.motivo in {"envelope_invalido", "resultado_fora_do_schema"}
     assert desfecho.resultado is None
+
+
+# ---- o julgamento (T-066) com o harness real ----
+
+
+def julgar_2025_11(desfecho: DesfechoClassificado, orcamento: float) -> Any:
+    return julgar(desfecho, ["2025-11"], orcamento, carregar_baselines())
+
+
+def test_o_total_do_container_e_o_baseline_congelado_do_worker(imagem: str) -> None:
+    """A conferência precisa concordar com o harness real, centavo a centavo e fração a fração:
+    se divergisse por arredondamento, todo job legítimo viraria `baseline_divergente`."""
+    _, desfecho = executar_e_classificar(EXEMPLO, imagem)
+    assert desfecho.classe == "sucesso"
+
+    julgamento = julgar_2025_11(desfecho, 999999999.0)
+
+    assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == (
+        "sucesso",
+        "ok",
+        "viavel",
+    )
+    assert julgamento.totais is not None
+    assert julgamento.totais["baseline"] == BASELINE_2025_11
+
+
+def test_o_veredito_com_o_total_real_no_limite_do_orcamento(imagem: str) -> None:
+    """DEC-093 com o número que o harness produziu, e não um escolhido para o teste: orçamento
+    igual ao total simulado é viável, e um centavo abaixo dele, inviável."""
+    _, desfecho = executar_e_classificar(EXEMPLO, imagem)
+    assert desfecho.resultado is not None
+    simulado = desfecho.resultado["totais"]["simulado"]
+
+    assert julgar_2025_11(desfecho, simulado).veredito == "viavel"
+    assert julgar_2025_11(desfecho, round(simulado + 0.01, 2)).veredito == "viavel"
+    assert julgar_2025_11(desfecho, round(simulado - 0.01, 2)).veredito == "inviavel"
+
+
+def test_a_diferenca_do_container_e_a_do_baseline_do_worker(imagem: str) -> None:
+    _, desfecho = executar_e_classificar(EXEMPLO, imagem)
+
+    julgamento = julgar_2025_11(desfecho, 999999999.0)
+
+    assert julgamento.totais is not None
+    totais = julgamento.totais
+    assert round(totais["simulado"] - totais["baseline"], 2) == totais["diferenca_abs"]
+    assert totais["diferenca_pct"] == pytest.approx(totais["diferenca_abs"] / BASELINE_2025_11)
+
+
+# O harness guarda o baseline em registros Python que a regra nunca recebe (T-033). Mas a regra
+# roda no mesmo processo: o gc entrega esses registros, e ela infla o baseline em 10% sem tocar
+# em nada que recebeu. A diferença some para o outro lado (o simulado passa a ser 10% "menor"),
+# a decomposição reconcilia e nenhuma invariante é violada: uma economia inventada, com tudo em
+# ordem, que só a comparação com o baseline que o worker leu por conta própria denuncia.
+REGRA_QUE_INFLA_O_BASELINE_DO_HARNESS = """
+import gc
+def aplicar_regra(bases, apuracao_base, competencias):
+    alvo = None
+    for objeto in gc.get_objects():
+        if (isinstance(objeto, tuple) and len(objeto) == len(apuracao_base) and objeto
+                and isinstance(objeto[0], dict) and "comissao" in objeto[0]
+                and "cod_marca" in objeto[0]):
+            alvo = objeto
+            break
+    if alvo is None:
+        raise RuntimeError("baseline do harness não encontrado")
+    inflado = {}
+    for registro in alvo:
+        registro["comissao"] = round(registro["comissao"] * 1.10, 2)
+        inflado[(registro["matricula"], registro["competencia"])] = registro["comissao"]
+    contribuicoes = apuracao_base[
+        ["matricula", "cod_loja", "cod_marca", "cod_cargo", "competencia"]
+    ].copy()
+    contribuicoes["elemento_ref"] = "elem.1"
+    contribuicoes["delta"] = [
+        round(linha.comissao - inflado[(linha.matricula, linha.competencia)], 2)
+        for linha in apuracao_base.itertuples()
+    ]
+    return {"apuracao_simulada": apuracao_base.copy(), "contribuicoes": contribuicoes}
+"""
+
+
+def test_regra_que_infla_o_baseline_do_harness_e_denunciada_pelo_worker(imagem: str) -> None:
+    _, desfecho = executar_e_classificar(REGRA_QUE_INFLA_O_BASELINE_DO_HARNESS, imagem)
+
+    # Controle: para o harness e para a classificação isto é um sucesso. Sem a conferência do
+    # worker, a "economia" de 10% seguiria para o usuário como número confiável. Se o harness
+    # for endurecido e este assert cair, o ataque deixou de existir por este caminho: adapte
+    # o teste, não relaxe a conferência.
+    assert (desfecho.classe, desfecho.motivo) == ("sucesso", "ok")
+    assert desfecho.resultado is not None
+    assert desfecho.resultado["totais"]["baseline"] > BASELINE_2025_11
+    assert desfecho.resultado["totais"]["diferenca_abs"] < 0
+
+    julgamento = julgar_2025_11(desfecho, 999999999.0)
+
+    assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == (
+        "erro_codigo",
+        "baseline_divergente",
+        "indeterminado",
+    )
+    assert julgamento.resultado is None
+
+
+# ---- o container não recebe o orçamento, em forma nenhuma ----
+
+ORCAMENTO_SENTINELA = 487123.45
+
+# Procura o sentinela em todo o processo do container: ambiente, argumentos, linha de comando e
+# o conteúdo de todo objeto que o coletor de lixo conhece (o que o harness leu do stdin
+# inclusive), como float, Decimal, texto e bytes, em quatro grafias. As formas são montadas em
+# tempo de execução: uma constante `"487123.45"` na própria sonda se acharia a si mesma.
+SONDA_DE_ORCAMENTO = """
+import gc, json, os, sys
+from decimal import Decimal
+
+def aplicar_regra(bases, apuracao_base, competencias):
+    formas = ["".join(["487123", ".45"]), "".join(["48712", "345"]),
+              "".join(["487123", ",45"]), "".join(["487123", ".4"])]
+    numero = float("".join(["487123", ".45"]))
+    decimal = Decimal("".join(["487123", ".45"]))
+    proprios = {id(x) for x in formas} | {id(numero), id(decimal)}
+    achados = []
+
+    def confere(origem, valor):
+        if id(valor) in proprios:
+            return
+        if isinstance(valor, str) and any(f in valor for f in formas):
+            achados.append(origem)
+        elif isinstance(valor, bytes) and any(f.encode() in valor for f in formas):
+            achados.append(origem)
+        elif isinstance(valor, float) and valor == numero:
+            achados.append(origem)
+        elif isinstance(valor, Decimal) and valor == decimal:
+            achados.append(origem)
+
+    guardado = []
+    #PLANTAR
+    for chave, valor in os.environ.items():
+        confere("environ", chave)
+        confere("environ", valor)
+    for argumento in sys.argv:
+        confere("argv", argumento)
+    with open("/proc/self/cmdline", "rb") as arquivo:
+        confere("cmdline", arquivo.read())
+    for objeto in gc.get_objects():
+        if isinstance(objeto, dict):
+            itens = list(objeto.keys()) + list(objeto.values())
+        elif isinstance(objeto, (list, tuple, set, frozenset)):
+            itens = list(objeto)
+        else:
+            continue
+        for item in itens:
+            confere("objeto", item)
+    print("SONDA " + json.dumps(sorted(set(achados))), file=sys.stderr, flush=True)
+    raise RuntimeError("a sonda terminou")
+"""
+
+# O controle: o sentinela existe de propósito num objeto vivo do container, e a sonda tem de
+# achá-lo. Sem isso, uma sonda quebrada relataria "nada" e o teste passaria pelo motivo errado.
+PLANTA = 'guardado.append("".join(["487123", ".45"]))'
+
+
+def achados_da_sonda(saida: SaidaBruta) -> list[str]:
+    linhas = [t for t in saida.stderr.decode().splitlines() if t.startswith("SONDA ")]
+    assert len(linhas) == 1, f"a sonda não relatou: {saida.stderr[-500:]!r}"
+    return list(json.loads(linhas[0].removeprefix("SONDA ")))
+
+
+def execucao_com_orcamento(fonte: str) -> Any:
+    """O caminho do consumidor até o container: o comando com o orçamento, o código lido do
+    banco, e `preparar_execucao` separando os dois."""
+    job_id, codigo_id = uuid4(), uuid4()
+    comando = ExecutarCodigo(
+        job_id=job_id,
+        codigo_gerado_id=codigo_id,
+        competencias=["2025-11"],
+        orcamento=ORCAMENTO_SENTINELA,
+    )
+    codigo = CodigoGerado(id=codigo_id, job_id=job_id, linguagem="python", fonte=fonte)
+    return preparar_execucao(comando, codigo)
+
+
+def test_a_sonda_de_orcamento_enxerga_o_sentinela_quando_ele_existe(imagem: str) -> None:
+    execucao = execucao_com_orcamento(SONDA_DE_ORCAMENTO.replace("#PLANTAR", PLANTA))
+
+    saida = executar_no_sandbox(execucao.payload, imagem=imagem, limites=CURTO)
+
+    assert achados_da_sonda(saida) == ["objeto"]
+
+
+def test_o_container_nao_recebe_o_orcamento_em_nenhuma_forma(imagem: str) -> None:
+    execucao = execucao_com_orcamento(SONDA_DE_ORCAMENTO)
+    assert execucao.orcamento == ORCAMENTO_SENTINELA
+
+    saida = executar_no_sandbox(execucao.payload, imagem=imagem, limites=CURTO)
+
+    assert achados_da_sonda(saida) == []

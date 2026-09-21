@@ -118,13 +118,14 @@ caminhos que falharam no schema. O `repr` de `DesfechoClassificado` omite `resul
 
 ## Pendências
 
-- **T-066**: acrescentar `totais.orcamento` ao resultado, reconferir o `apuracao_base` em
-  centavos e calcular o veredito, a partir do `DesfechoClassificado`.
-- **T-067**: gravar `resultados_simulacao` e publicar `simulacao-concluida`. Hoje a classe só vai
-  ao log e o comando recebe `ack`, então o resultado ainda não sai do worker.
-- **Comando que esgota as três tentativas de `erro_infra`** vai para a DLQ, e a DLQ não publica
-  resultado (DEC-091): o job fica sem desfecho. A T-067 deve decidir se publica `erro_infra`
-  nesse momento; o evento e a tabela já têm essa classe.
+- **T-066** (feita, `docs/t066-veredito.md`): confere o total contra o baseline do worker,
+  acrescenta `totais.orcamento` e calcula o veredito a partir do `DesfechoClassificado`. Uma
+  divergência contra o baseline é `erro_codigo` (`baseline_divergente`), motivo que a T-066
+  acrescenta a esta tabela.
+- **T-067** (feita, `docs/t067-gravacao-e-publicacao.md`): grava `resultados_simulacao` e publica
+  `simulacao-concluida`.
+- **Comando que esgota as três tentativas de `erro_infra`**: resolvido pela T-067 (DEC-094), que
+  grava e publica `erro_infra` antes de enviar o comando à DLQ.
 
 ## Verificação
 

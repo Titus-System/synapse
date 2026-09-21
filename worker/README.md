@@ -60,9 +60,9 @@ O repositorio contem o esqueleto operacional do servico, incluindo:
 - verificacoes de lint, tipos e testes;
 - conexao com o RabbitMQ e declaracao da fila `executar-codigo`, duravel e com `prefetch` 1;
 - verificacao do acesso ao daemon do Docker na subida do processo;
-- loop consumidor de `executar-codigo`: le o codigo pela referencia do comando no Postgres (usuario com `SELECT` apenas), prepara o payload de execucao, retendo o orcamento fora dele, o executa no container efemero (numa thread, para nao travar o heartbeat do RabbitMQ) e classifica o desfecho em `sucesso`, `assercao_violada`, `erro_codigo` ou `erro_infra`. Falha de infraestrutura do sandbox entra no retry da DEC-091.
+- loop consumidor de `executar-codigo`: le o codigo pela referencia do comando no Postgres (usuario com `SELECT` apenas), prepara o payload de execucao, retendo o orcamento fora dele, o executa no container efemero (numa thread, para nao travar o heartbeat do RabbitMQ) classifica o desfecho em `sucesso`, `assercao_violada`, `erro_codigo` ou `erro_infra` o julga contra o baseline congelado e o orcamento do comando, fora do container, **grava** a linha em `resultados_simulacao` e **so depois** publica `simulacao-concluida` na exchange fanout (T-067). Falha de infraestrutura entra no retry da DEC-091.
 
-A imagem do sandbox (T-033) e a execucao isolada (T-064) estao ligadas ao consumidor e sao testadas contra a imagem real, e a saida do container e coletada e classificada (T-065), mas **o desfecho so vai ao log**: o comando recebe `ack` e o resultado ainda nao e julgado contra o orcamento, gravado nem publicado. O veredito (T-066) e a persistencia/publicacao (T-067) sao as proximas partes do fluxo de negocio a implementar.
+A imagem do sandbox (T-033) e a execucao isolada (T-064) estao ligadas ao consumidor e sao testadas contra a imagem real, e a saida do container e coletada, classificada (T-065), julgada (T-066), gravada e publicada (T-067): o fluxo de negocio do worker esta completo.
 
 O acesso ao daemon e verificado na subida: se o socket do Docker nao estiver acessivel, o processo falha imediatamente com mensagem explicita em vez de subir e quebrar so na primeira execucao. O pre-requisito de ambiente esta em [docs/instalacao.md](../docs/instalacao.md) secao 2.1.
 
@@ -202,3 +202,16 @@ Os cinco baselines de agosto a dezembro de 2025 ficam em `sandbox/data/domrock/b
 ### Coleta e classificacao do resultado (T-065)
 
 `app/execucao/coleta.py` le a saida bruta e decide a classe do desfecho, uma vez, para que a api e o codegen a consumam sem reimplementa-la. Timeout, estouro de memoria, saida cortada, ausencia de envelope e envelope invalido, de outra execucao ou incoerente sao `erro_codigo`; excecao na regra tambem; comissao negativa e `assercao_violada`, distinta das duas; so a falha ao subir o container e `erro_infra`, o unico que repete o comando (ate 3 tentativas, DEC-091). O resultado de sucesso e validado contra `resultado-simulacao.schema.json` (`app/execucao/schema.py`, com o orcamento do comando acrescentado a uma copia) e segue como veio do container. Veja [a ordem da classificacao, a relacao com o `retry_count` e o que ela nao garante](docs/t065-coleta-e-classificacao.md).
+
+### Conferencia contra o baseline e veredito de orcamento (T-066)
+
+`app/execucao/veredito.py` roda no processo do worker, fora do container, que nunca recebe o orcamento. Ele confere o `totais.baseline` que saiu do container contra o baseline congelado que o worker le por conta propria (`app/execucao/baseline.py`, cinco competencias conferidas contra o manifesto na subida) e que os totais fecham entre si; uma divergencia e `erro_codigo` (`baseline_divergente`). Com a conferencia, acrescenta `totais.orcamento` e emite o veredito sobre o **total absoluto** simulado: `viavel` ate o orcamento, **igualdade incluida** (DEC-093), `inviavel` acima. Todo desfecho que nao e `sucesso` sai `indeterminado`. Veja [a ordem do julgamento, o ataque que a conferencia denuncia e o que ela nao pega](docs/t066-veredito.md).
+
+### Gravacao e publicacao do resultado (T-067)
+
+O worker insere a linha em `resultados_simulacao` (usuario com `SELECT` e `INSERT` apenas: `UPDATE`, `DELETE` e qualquer outra tabela falham) e **so depois** publica `simulacao-concluida` na exchange fanout, da qual a api e o codegen consomem, cada um pela sua fila (`simulacao-concluida.api`, `simulacao-concluida.codegen`, DEC-089). A publicacao e `mandatory` e espera a confirmacao: um fanout sem fila ligada descartaria o evento em silencio. O evento leva a referencia, o status e, so em `sucesso`, o veredito e os agregados; a decomposicao e as assercoes ficam na linha. Um comando que volta e ja tem resultado nao executa de novo: o evento da linha existente e republicado. Um `erro_infra` que esgota as tentativas e gravado e publicado antes da DLQ (DEC-094). Veja [a ordem, as falhas e o que a tarefa nao resolve](docs/t067-gravacao-e-publicacao.md).
+
+### E2E do ciclo de vida (`make e2e`)
+
+Sobe o worker como processo real e o trata como caixa-preta: publica o comando no RabbitMQ (vhost isolado), espera o evento e confere banco, filas, containers e log, em todos os desfechos, na reentrega, com `kill -9` e SIGTERM no meio de um job, com `/health` durante a execucao e na falha de subida. Pede o compose de pe e leva alguns minutos, por isso fica fora do `verify.sh`. Veja [o que garante, como isola e as duas lacunas que encontrou e ja foram corrigidas](docs/e2e-ciclo-de-vida.md).
+

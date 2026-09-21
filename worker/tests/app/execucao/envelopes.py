@@ -6,9 +6,11 @@ qualquer byte no stdout), sem subir nenhum.
 
 import copy
 import json
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+from app.execucao.baseline import carregar_baselines
 from app.execucao.container import SaidaBruta
 from app.execucao.preparo import PayloadContainer
 from app.sandbox.envelope import SAIDA_SUCESSO, VERSAO
@@ -56,6 +58,22 @@ FALHA = {
     "mensagem": "'cod_loja'",
     "traceback": '  File "<regra>", line 3, in aplicar_regra\n',
 }
+
+
+def resultado_para(competencias: list[str], a_mais: str = "1000.00") -> dict[str, Any]:
+    """O resultado que o harness produziria para estas competências: o baseline é o congelado
+    que o worker confere, e o simulado é ele mais `a_mais`."""
+    baseline = carregar_baselines().total(competencias)
+    simulado = baseline + Decimal(a_mais)
+    diferenca = simulado - baseline
+    resultado = copy.deepcopy(RESULTADO)
+    resultado["totais"] = {
+        "baseline": float(baseline),
+        "simulado": float(simulado),
+        "diferenca_abs": float(diferenca),
+        "diferenca_pct": float(diferenca / baseline),
+    }
+    return resultado
 
 
 def envelope(status: str = "sucesso", **mudancas: Any) -> dict[str, Any]:

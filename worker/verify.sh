@@ -8,7 +8,7 @@ cd "$diretorio_do_script"
 poetry run ruff check app/ scripts/ tests/
 poetry run ruff format --check app/ scripts/ tests/
 poetry run mypy app/ scripts/ tests/scripts/ tests/contracts/
-poetry run pytest -m "not docker and not postgres and not rabbitmq"
+poetry run pytest -m "not docker and not postgres and not rabbitmq and not e2e"
 
 if poetry run python - <<'PY'
 import sys

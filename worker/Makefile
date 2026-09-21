@@ -34,6 +34,11 @@ typecheck:
 test:
 	poetry run pytest
 
+# Ciclo de vida do worker como processo real: pede o compose de pé (Postgres e RabbitMQ), o
+# daemon Docker e alguns minutos. Fora do verify.sh e do `make test`.
+e2e:
+	poetry run pytest -m e2e tests/e2e -v
+
 pre-commit:
 	poetry run ruff check --fix app/ scripts/ tests/
 	poetry run ruff format app/ scripts/ tests/

@@ -14,6 +14,7 @@ exige que ela grave.
 import json
 import re
 import textwrap
+import threading
 import time
 from collections.abc import Iterator
 from dataclasses import replace
@@ -30,6 +31,7 @@ from app.execucao.container import (
     ROTULO_SANDBOX,
     Limites,
     SaidaBruta,
+    SandboxCanceladoError,
     SandboxInfraError,
     conduzir,
     container_efemero,
@@ -520,3 +522,45 @@ def test_o_container_e_removido_mesmo_quando_o_prazo_estoura(
 
     assert saida.estourou_timeout and time.monotonic() - inicio < 60
     assert cliente.containers.list(all=True, filters={"id": saida.container_id}) == []
+
+
+# ---- o cancelamento: o encerramento do worker no meio de uma execução ----
+
+
+def test_cancelar_mata_o_container_em_curso_e_o_remove_muito_antes_do_prazo(imagem: str) -> None:
+    """A regra dorme 10 minutos e o prazo é de 20 s: o cancelamento marcado aos 3 s tem de matar o
+    container e removê-lo em poucos segundos (o `nenhum_container_sobra` confere a remoção)."""
+    fonte = (
+        "import time\n\n"
+        "def aplicar_regra(bases, apuracao_base, competencias):\n"
+        "    time.sleep(600)\n"
+    )
+    cancelar = threading.Event()
+    threading.Timer(3.0, cancelar.set).start()
+    inicio = time.monotonic()
+
+    with pytest.raises(SandboxCanceladoError):
+        executar_no_sandbox(payload(fonte), imagem=imagem, limites=CURTO, cancelar=cancelar)
+
+    assert time.monotonic() - inicio < 10.0
+
+
+def test_cancelar_que_nunca_e_marcado_nao_muda_o_desfecho(imagem: str) -> None:
+    saida = executar_no_sandbox(
+        payload(EXEMPLO), imagem=imagem, limites=CURTO, cancelar=threading.Event()
+    )
+
+    assert (saida.codigo_saida, saida.estourou_timeout) == (0, False)
+    assert json.loads(saida.stdout)["status"] == "sucesso"
+
+
+def test_o_prazo_continua_valendo_com_um_cancelamento_nunca_marcado(imagem: str) -> None:
+    saida = executar_no_sandbox(
+        payload(REGRA_QUE_NAO_TERMINA),
+        imagem=imagem,
+        limites=replace(LIMITES, timeout_s=5.0),
+        cancelar=threading.Event(),
+    )
+
+    assert saida.estourou_timeout is True
+    assert saida.codigo_saida == SAIDA_SIGKILL

@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from app.config import get_settings
 from app.core.logger import get_logger, stop_logger
 from app.core.metrics.prometheus import prometheus
+from app.execucao.baseline import carregar_baselines
 from app.execucao.schema import carregar_contratos
 from app.mensageria.broker import conectar, desconectar
 from app.mensageria.consumidor import consumir_fila_execucao
@@ -69,6 +70,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     await verificar_acesso()
     carregar_contratos()
+    carregar_baselines()
     broker = await conectar()
     tarefa_consumidor = asyncio.create_task(consumir_fila_execucao(broker))
 

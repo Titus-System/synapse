@@ -141,11 +141,14 @@ pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--import-mode=importlib"
+# Os e2e do ciclo de vida do worker ficam fora do pytest padrão: pedem Postgres, RabbitMQ, Docker
+# e alguns minutos. `make e2e` os roda; a opção -m da linha de comando substitui esta.
+addopts = "--import-mode=importlib -m 'not e2e'"
 markers = [
     "docker: testes de integração que exigem acesso a um daemon Docker real",
     "postgres: testes de integração que exigem um Postgres real com o schema da api aplicado",
     "rabbitmq: testes de integração que exigem acesso a um RabbitMQ real",
+    "e2e: ciclo de vida do worker como processo real, com RabbitMQ, Postgres, Docker e a imagem do sandbox (make e2e)",
 ]
 
 
