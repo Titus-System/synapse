@@ -3,6 +3,7 @@
   "baselines": {
     "2025-08": {
       "arquivo": "baselines/baseline-2025-08.jsonl",
+      "arquivo_auditoria": "baselines/auditoria/baseline-2025-08.jsonl",
       "assercoes": [
         {
           "detalhe": null,
@@ -21,11 +22,13 @@
         }
       ],
       "matriculas": 497,
-      "sha256": "e7f5d6b34cad07da259cc58f1fbd126248eab99bd84e647be7087d53d14f5c0e",
+      "sha256": "b0b6f7a6e1894fb3303e294277af2c35195de507ba48e5ef6448443466784d36",
+      "sha256_auditoria": "e7f5d6b34cad07da259cc58f1fbd126248eab99bd84e647be7087d53d14f5c0e",
       "total": 363021.46
     },
     "2025-09": {
       "arquivo": "baselines/baseline-2025-09.jsonl",
+      "arquivo_auditoria": "baselines/auditoria/baseline-2025-09.jsonl",
       "assercoes": [
         {
           "detalhe": null,
@@ -44,11 +47,13 @@
         }
       ],
       "matriculas": 530,
-      "sha256": "dc01eb30e6642d75ff04b5b8a50df8700da45e93bc12d90a1b1b82afa7e8fb60",
+      "sha256": "f0a6da6ba1393454cea47b9d7f456d95fad8db65282217c5037abf816f104f36",
+      "sha256_auditoria": "dc01eb30e6642d75ff04b5b8a50df8700da45e93bc12d90a1b1b82afa7e8fb60",
       "total": 424628.68
     },
     "2025-10": {
       "arquivo": "baselines/baseline-2025-10.jsonl",
+      "arquivo_auditoria": "baselines/auditoria/baseline-2025-10.jsonl",
       "assercoes": [
         {
           "detalhe": null,
@@ -67,11 +72,13 @@
         }
       ],
       "matriculas": 537,
-      "sha256": "0cba95648dba483cd6624f3fde6df710f58bda75cb12afafb0a06996c4643142",
+      "sha256": "ce040f196eddcbd5cde89e135f3a06a1250267c0ad81d6bbfe18be2d971f7ee6",
+      "sha256_auditoria": "0cba95648dba483cd6624f3fde6df710f58bda75cb12afafb0a06996c4643142",
       "total": 698465.53
     },
     "2025-11": {
       "arquivo": "baselines/baseline-2025-11.jsonl",
+      "arquivo_auditoria": "baselines/auditoria/baseline-2025-11.jsonl",
       "assercoes": [
         {
           "detalhe": null,
@@ -90,11 +97,13 @@
         }
       ],
       "matriculas": 546,
-      "sha256": "a30bb28e319dddd9d7d99a6fd7de174c6e5c4c31a28a84ef135974a873eccc49",
+      "sha256": "f8ca7380bd494a455453f847bdbae70f0be4b80034d6cd0430093a3193f7c848",
+      "sha256_auditoria": "a30bb28e319dddd9d7d99a6fd7de174c6e5c4c31a28a84ef135974a873eccc49",
       "total": 508382.32
     },
     "2025-12": {
       "arquivo": "baselines/baseline-2025-12.jsonl",
+      "arquivo_auditoria": "baselines/auditoria/baseline-2025-12.jsonl",
       "assercoes": [
         {
           "detalhe": null,
@@ -113,7 +122,8 @@
         }
       ],
       "matriculas": 562,
-      "sha256": "af5b95234a8c810cce5c5c2b304ce150e510d9a8db534fb1401ee6a7b6282639",
+      "sha256": "5c8b8e7035041f6a77f4088829a8c4ea1f760f0534040778ad5f9ae09fe03955",
+      "sha256_auditoria": "af5b95234a8c810cce5c5c2b304ce150e510d9a8db534fb1401ee6a7b6282639",
       "total": 1305396.25
     }
   },
@@ -132,7 +142,7 @@
     "normalization_report.json": "8fe8972eb3cbc381e8237e3834567888e356f813f0cbd23630d9755b205fb716",
     "regras_competencia.jsonl": "e8d5a18d0d2d0513e18d318cd0b215804595aa49191e82f73fa63ba9b976631f",
     "rh.jsonl": "c52c5955e534e95664239e68ced2e1ca8c649fec8c57a96f4f5195cb112046b9",
-    "schema.json": "9b7bc3e7a32723f8f286ac696c7364319198ace8ac0a5d69a194167bbccfc37a",
+    "schema.json": "6c31c734780066213e99d3026a4196ecf73e86a751e919999e522211fd4f19d1",
     "vendas.jsonl": "1a77fb4fd30315cd2acb63a5b09703f0ba74c358efe1a705f685f4f8617fd39a"
   },
   "motor_sha256": {
@@ -140,7 +150,7 @@
     "app/sandbox/assercoes.py": "9d502cbdd542284f290f749f0b70e4557a1fdeb07f2a65355b504899d14eae33",
     "app/sandbox/regras_base.py": "a0d7bdb768a1101e578375ecb23939a1bb5c5a4412b082393937a86c582c451a",
     "app/sandbox/regras_competencia.py": "db92d1407de2209a8d0b115f9def6cab1dc8130dd8ecd499f65e9d6e2e613863",
-    "scripts/build_baselines.py": "ae94552376bfc0f8cd7ff96280b5ba9bdb6a70e54d701e0a19181849c2c1a4b6"
+    "scripts/build_baselines.py": "9af6f0e6dd6c6922dc1434f569dd0dc75c41ac4158bff8480d043dcd4e17b172"
   },
-  "versao": 1
+  "versao": 2
 }

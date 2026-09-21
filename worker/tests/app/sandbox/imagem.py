@@ -40,6 +40,10 @@ DADOS_DA_IMAGEM = frozenset(
         "schema.json",
         "baselines/manifesto.json",
         *(f"baselines/baseline-{competencia}.jsonl" for competencia in competencias_publicadas()),
+        *(
+            f"baselines/auditoria/baseline-{competencia}.jsonl"
+            for competencia in competencias_publicadas()
+        ),
     }
 )
 

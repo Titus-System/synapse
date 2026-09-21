@@ -4,11 +4,19 @@ on:
   pull_request:
     paths:
       - 'contracts/**'
+      - 'worker/sandbox/data/domrock/**'
+      - 'worker/scripts/build_baselines.py'
+      - 'worker/scripts/build_canonical_dataset.py'
+      - '.github/workflows/validar-contratos.yml'
   push:
     branches:
       - develop
     paths:
       - 'contracts/**'
+      - 'worker/sandbox/data/domrock/**'
+      - 'worker/scripts/build_baselines.py'
+      - 'worker/scripts/build_canonical_dataset.py'
+      - '.github/workflows/validar-contratos.yml'
   workflow_dispatch:
 
 permissions:

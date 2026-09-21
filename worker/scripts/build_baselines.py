@@ -84,7 +84,7 @@ def _hash(conteudo: bytes) -> str:
     return hashlib.sha256(conteudo).hexdigest()
 
 
-def _linhas_baseline(tabela: TabelaApurada) -> list[dict[str, object]]:
+def _linhas_auditoria(tabela: TabelaApurada) -> list[dict[str, object]]:
     resultado = tabela.resultado_apuracao
     competencia = resultado["competencia"]
     lojas = resultado["por_loja"]
@@ -120,6 +120,91 @@ def _linhas_baseline(tabela: TabelaApurada) -> list[dict[str, object]]:
     return registros
 
 
+def _marca_unica_da_rastreabilidade(linha: Mapping[str, object], competencia: str) -> int:
+    rastreabilidade = linha.get("rastreabilidade")
+    chaves = rastreabilidade.get("chaves_comissao") if isinstance(rastreabilidade, dict) else None
+    if not isinstance(chaves, list) or not chaves:
+        raise ValueError(
+            f"{competencia}/{linha.get('matricula')}: "
+            "rastreabilidade.chaves_comissao ausente ou vazia"
+        )
+    marcas = {chave.get("cod_marca") for chave in chaves if isinstance(chave, dict)}
+    if len(marcas) != 1:
+        raise ValueError(
+            f"{competencia}/{linha.get('matricula')}: esperado exatamente uma cod_marca; "
+            f"rastreabilidade contém {len(marcas)} marcas"
+        )
+    (marca,) = marcas
+    if not isinstance(marca, int) or isinstance(marca, bool):
+        raise ValueError(
+            f"{competencia}/{linha.get('matricula')}: cod_marca da rastreabilidade não é inteiro"
+        )
+    return marca
+
+
+def _linhas_apuracao_base(
+    tabela: TabelaApurada, rh: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    """Publica o baseline exatamente na forma do contrato T-034.
+
+    ``cod_marca`` vem do RH por competência + matrícula. A rastreabilidade do cálculo
+    precisa apontar para exatamente a mesma marca; se um cálculo passar a envolver
+    múltiplas marcas para a mesma matrícula, o congelamento falha explicitamente em vez
+    de escolher uma delas em silêncio.
+    """
+    competencia = str(tabela.resultado_apuracao["competencia"])
+    pessoas: dict[str, Mapping[str, object]] = {}
+    for registro in rh:
+        if registro.get("competencia") != competencia:
+            continue
+        matricula = registro.get("matricula")
+        if not isinstance(matricula, str) or not matricula:
+            raise ValueError(f"{competencia}: matrícula inválida no RH")
+        if matricula in pessoas:
+            raise ValueError(f"{competencia}: matrícula repetida no RH: {matricula}")
+        pessoas[matricula] = registro
+
+    registros: list[dict[str, object]] = []
+    vistas: set[str] = set()
+    for linha in tabela:
+        matricula = linha.get("matricula")
+        if not isinstance(matricula, str) or not matricula:
+            raise ValueError(f"{competencia}: matrícula inválida na apuração")
+        if matricula in vistas:
+            raise ValueError(f"{competencia}: matrícula repetida na apuração: {matricula}")
+        vistas.add(matricula)
+        pessoa = pessoas.get(matricula)
+        if pessoa is None:
+            raise ValueError(f"{competencia}/{matricula}: matrícula ausente no RH")
+
+        cod_loja = pessoa.get("cod_loja")
+        cod_marca = pessoa.get("cod_marca")
+        cod_cargo = pessoa.get("cod_cargo")
+        if not all(
+            isinstance(v, int) and not isinstance(v, bool) for v in (cod_loja, cod_marca, cod_cargo)
+        ):
+            raise ValueError(f"{competencia}/{matricula}: dimensões do RH devem ser inteiras")
+        if linha.get("cod_loja") != cod_loja or linha.get("cargo") != cod_cargo:
+            raise ValueError(f"{competencia}/{matricula}: loja/cargo da apuração divergem do RH")
+        marca_rastreada = _marca_unica_da_rastreabilidade(linha, competencia)
+        if marca_rastreada != cod_marca:
+            raise ValueError(
+                f"{competencia}/{matricula}: cod_marca da rastreabilidade ({marca_rastreada}) "
+                f"difere do RH ({cod_marca})"
+            )
+        registros.append(
+            {
+                "matricula": matricula,
+                "cod_loja": cod_loja,
+                "cod_marca": cod_marca,
+                "cod_cargo": cod_cargo,
+                "competencia": competencia,
+                "comissao": linha.get("comissao"),
+            }
+        )
+    return registros
+
+
 def gerar_artefatos(
     data_dir: Path = DATA_DIR,
     eventos_fonte: Path = EVENTOS_FONTE,
@@ -145,11 +230,18 @@ def gerar_artefatos(
         if not isinstance(tabela, TabelaApurada):
             raise TypeError("preparação exige a tabela validada pela T-031")
         nome = f"baselines/baseline-{competencia}.jsonl"
-        conteudo = _jsonl(_linhas_baseline(tabela))
+        conteudo = _jsonl(_linhas_apuracao_base(tabela, rh))
         artefatos[nome] = conteudo
+
+        nome_auditoria = f"baselines/auditoria/baseline-{competencia}.jsonl"
+        conteudo_auditoria = _jsonl(_linhas_auditoria(tabela))
+        artefatos[nome_auditoria] = conteudo_auditoria
+
         resumos[competencia] = {
             "arquivo": nome,
             "sha256": _hash(conteudo),
+            "arquivo_auditoria": nome_auditoria,
+            "sha256_auditoria": _hash(conteudo_auditoria),
             "matriculas": len(tabela),
             "total": tabela.resultado_apuracao["total"],
             "assercoes": tabela.resultado_apuracao["assercoes"],
@@ -179,7 +271,7 @@ def gerar_artefatos(
     }
     artefatos["baselines/manifesto.json"] = _json(
         {
-            "versao": 1,
+            "versao": 2,
             "congelamento": "2026-09-17",
             "aviso": AVISO,
             "competencias": list(COMPETENCIAS),

@@ -124,14 +124,12 @@ inferir daria `float64` num período sem linhas, onde o contrato manda `int64`.
 mapa de tipos é conferido por teste contra o `schema.json`, para não haver duas fontes de
 verdade em silêncio.
 
-**`apuracao_base` na forma do contrato.** O baseline em disco (T-032) tem três níveis, chama o
-cargo de `cargo` e não tem `cod_marca`. A conversão filtra `nivel == "matricula"`, deriva a
-marca de `rastreabilidade.chaves_comissao` e a **confere contra o RH**, junto de `cod_loja` e
-`cod_cargo`, além de conferir contagem e total contra o `manifesto.json`. Se a T-032 for
-recongelada e qualquer invariante deixar de valer, a carga falha com mensagem explícita em vez
-de entregar marca errada à decomposição, que usa as dimensões do baseline. Nas 2.672 linhas dos
-cinco baselines, nenhuma diverge. Quando o baseline for recongelado no formato do contrato, a
-conversão passa a ser identidade.
+**`apuracao_base` na forma do contrato.** O baseline em disco (T-032) já tem exatamente as
+seis colunas declaradas pela T-034: `matricula`, `cod_loja`, `cod_marca`, `cod_cargo`,
+`competencia` e `comissao`. A carga não filtra nível, não renomeia cargo e não reconstrói marca;
+apenas valida competência, unicidade, dimensões contra o RH, contagem e total contra o
+`manifesto.json`. Os antigos níveis `total`, `loja` e `matricula` continuam disponíveis em
+`baselines/auditoria/`, mas não entram em `apuracao_base`.
 
 ## Asserções: só `sem_comissao_negativa`
 

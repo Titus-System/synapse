@@ -49,7 +49,7 @@ WORKDIR /app
 # percorrido: com 0444 o import falhava com ModuleNotFoundError e os dados ficavam
 # inalcançáveis. Já existentes, os diretórios mantêm 0755 e só os arquivos levam 0444.
 RUN useradd --create-home --uid 1000 appuser \
-    && mkdir -p /app/app/sandbox /app/sandbox/data/domrock/baselines
+    && mkdir -p /app/app/sandbox /app/sandbox/data/domrock/baselines/auditoria
 
 COPY --from=builder /opt/venv /opt/venv
 
@@ -96,6 +96,13 @@ COPY --chmod=0444 \
      worker/sandbox/data/domrock/baselines/baseline-2025-12.jsonl \
      worker/sandbox/data/domrock/baselines/manifesto.json \
      ./sandbox/data/domrock/baselines/
+COPY --chmod=0444 \
+     worker/sandbox/data/domrock/baselines/auditoria/baseline-2025-08.jsonl \
+     worker/sandbox/data/domrock/baselines/auditoria/baseline-2025-09.jsonl \
+     worker/sandbox/data/domrock/baselines/auditoria/baseline-2025-10.jsonl \
+     worker/sandbox/data/domrock/baselines/auditoria/baseline-2025-11.jsonl \
+     worker/sandbox/data/domrock/baselines/auditoria/baseline-2025-12.jsonl \
+     ./sandbox/data/domrock/baselines/auditoria/
 
 USER appuser
 
