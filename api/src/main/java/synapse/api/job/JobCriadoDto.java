@@ -19,5 +19,5 @@ record SimulacaoDto(UUID id, Instant criado_em, @Nullable String status, @Nullab
 
 record JobDetalhadoDto(UUID id, String status, String origem, List<String> competencias, BigDecimal orcamento,
 		Instant criado_em, @Nullable Instant iniciado_em, @Nullable Instant finalizado_em, UUID submissao_id,
-		RegraCriadaDto regra, @Nullable SimulacaoDto simulacao) {
+		List<RegraCriadaDto> regras, @Nullable SimulacaoDto simulacao) {
 }
