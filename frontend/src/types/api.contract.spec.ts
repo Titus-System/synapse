@@ -55,7 +55,8 @@ describe('tipos do contrato HTTP', () => {
       'domain/resultado-simulacao.json',
     )
 
-    expect(resultado.totais.orcamento).toBe(485000)
+    expect(resultado.totais).not.toBeNull()
+    expect(resultado.totais?.orcamento).toBe(485000)
     expect(resultado.assercoes).toHaveLength(3)
   })
 })
