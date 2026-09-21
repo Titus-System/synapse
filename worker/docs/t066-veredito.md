@@ -113,8 +113,10 @@ Três provas, cada uma com o controle que mostra a sonda funcionando:
 Os arquivos são os mesmos que abastecem a imagem do sandbox, e o worker os lê por conta
 própria (`sandbox/data/domrock/baselines`). Não pode usar `app/sandbox/carga.py`, que importa
 pandas. Na carga, para cada competência do manifesto: o sha256 do arquivo, a contagem de
-matrículas e o total precisam bater com o manifesto, cada comissão tem de ser exata em centavos
-e nenhuma matrícula pode repetir. Um baseline ausente ou adulterado derruba o worker na subida,
+matrículas e o total precisam bater com o manifesto, cada linha tem exatamente as colunas de
+`apuracao_base` (contrato T-034: sem `nivel`, `cargo` nem linhas agregadas; os três níveis vivem
+em `baselines/auditoria/` e não são lidos aqui), cada comissão tem de ser exata em centavos e
+nenhuma matrícula pode repetir. Um baseline ausente ou adulterado derruba o worker na subida,
 e não o primeiro job. São **cinco** competências (2025-08 a 2025-12); o texto da tarefa fala em
 seis.
 

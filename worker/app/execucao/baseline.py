@@ -25,6 +25,11 @@ from typing import Any
 
 CAMINHO_RELATIVO = Path("sandbox") / "data" / "domrock" / "baselines"
 CENTAVO = Decimal("0.01")
+# As colunas de ``apuracao_base`` (contracts/harness/README.md), que são também as do baseline
+# T-032 em disco. Repetidas aqui porque ``app/sandbox/carga.py`` importa pandas.
+COLUNAS_DO_CONTRATO = frozenset(
+    {"matricula", "cod_loja", "cod_marca", "cod_cargo", "competencia", "comissao"}
+)
 
 
 class BaselineIndisponivelError(RuntimeError):
@@ -121,16 +126,20 @@ def _comissoes_por_matricula(conteudo: bytes, competencia: str, nome: str) -> li
         if not texto.strip():
             continue
         linha = json.loads(texto)
-        if linha.get("nivel") != "matricula":
-            continue
         origem = f"{nome}, linha {numero}"
-        if linha.get("competencia") != competencia:
+        # Uma linha por matrícula, sem níveis agregados: uma coluna a mais ou a menos é o
+        # formato antigo (T-032 antes do contrato) e somaria a apuração mais de uma vez.
+        if not isinstance(linha, dict) or linha.keys() != COLUNAS_DO_CONTRATO:
+            raise BaselineIndisponivelError(f"{origem}: colunas diferentes das do contrato")
+        if linha["competencia"] != competencia:
             raise BaselineIndisponivelError(f"{origem}: competência diferente de {competencia}")
-        matricula = linha.get("matricula")
+        matricula = linha["matricula"]
+        if not isinstance(matricula, str) or not matricula:
+            raise BaselineIndisponivelError(f"{origem}: matrícula inválida")
         if matricula in vistas:
             raise BaselineIndisponivelError(f"{origem}: matrícula repetida")
         vistas.add(matricula)
-        comissoes.append(_decimal(linha.get("comissao"), f"{origem}: comissão"))
+        comissoes.append(_decimal(linha["comissao"], f"{origem}: comissão"))
     return comissoes
 
 

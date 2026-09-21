@@ -78,7 +78,7 @@ def _reescrever(copia: Path, competencia: str, alterar: Any) -> None:
 
 
 def _primeira_matricula(linhas: list[dict[str, Any]]) -> dict[str, Any]:
-    return next(linha for linha in linhas if linha["nivel"] == "matricula")
+    return linhas[0]
 
 
 def test_a_copia_sem_alteracao_carrega(copia: Path) -> None:
@@ -88,7 +88,11 @@ def test_a_copia_sem_alteracao_carrega(copia: Path) -> None:
 
 def test_arquivo_alterado_sem_atualizar_o_manifesto(copia: Path) -> None:
     arquivo = copia / "baseline-2025-11.jsonl"
-    arquivo.write_bytes(arquivo.read_bytes().replace(b"508382.32", b"508382.33", 1))
+    primeira, resto = arquivo.read_bytes().split(b"\n", 1)
+    comissao = str(json.loads(primeira)["comissao"]).encode()
+    adulterada = primeira.replace(b'"comissao":' + comissao, b'"comissao":999999.99')
+    assert adulterada != primeira
+    arquivo.write_bytes(adulterada + b"\n" + resto)
 
     with pytest.raises(BaselineIndisponivelError, match="sha256"):
         ler_baselines(copia)
@@ -96,8 +100,7 @@ def test_arquivo_alterado_sem_atualizar_o_manifesto(copia: Path) -> None:
 
 def test_matricula_a_menos(copia: Path) -> None:
     def sem_a_ultima(linhas: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        indice = max(i for i, linha in enumerate(linhas) if linha["nivel"] == "matricula")
-        return linhas[:indice] + linhas[indice + 1 :]
+        return linhas[:-1]
 
     _reescrever(copia, "2025-11", sem_a_ultima)
 
@@ -138,6 +141,41 @@ def test_comissao_que_nao_e_um_numero_finito(copia: Path, valor: object) -> None
     _reescrever(copia, "2025-11", invalida)
 
     with pytest.raises(BaselineIndisponivelError, match="numérica|finita"):
+        ler_baselines(copia)
+
+
+@pytest.mark.parametrize(
+    "alterar",
+    [
+        lambda linha: linha | {"nivel": "matricula"},
+        lambda linha: linha | {"cargo": linha["cod_cargo"]},
+        lambda linha: {k: v for k, v in linha.items() if k != "cod_marca"},
+    ],
+    ids=["coluna nivel", "coluna extra", "sem cod_marca"],
+)
+def test_linha_fora_do_formato_do_contrato(copia: Path, alterar: Any) -> None:
+    """O formato anterior à republicação da T-032 (níveis, ``cargo``, sem ``cod_marca``) é
+    recusado: ele triplicaria o total sem erro nenhum."""
+
+    def fora_do_contrato(linhas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        linhas[0] = alterar(linhas[0])
+        return linhas
+
+    _reescrever(copia, "2025-11", fora_do_contrato)
+
+    with pytest.raises(BaselineIndisponivelError, match="colunas diferentes"):
+        ler_baselines(copia)
+
+
+@pytest.mark.parametrize("matricula", [None, ""], ids=str)
+def test_matricula_ausente_ou_vazia(copia: Path, matricula: object) -> None:
+    def sem_matricula(linhas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        linhas[0]["matricula"] = matricula
+        return linhas
+
+    _reescrever(copia, "2025-11", sem_matricula)
+
+    with pytest.raises(BaselineIndisponivelError, match="matrícula inválida"):
         ler_baselines(copia)
 
 
