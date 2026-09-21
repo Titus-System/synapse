@@ -1,14 +1,18 @@
 package synapse.api.job;
 
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
-import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.json.JsonMapper;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
 
 @Service
 class BuscarJobService {
@@ -34,13 +38,7 @@ class BuscarJobService {
 					    j.iniciado_em,
 					    j.finalizado_em,
 					    j.submissao_id,
-
-					    r.id AS regra_id,
-					    r.versao AS regra_versao,
-					    r.origem AS regra_origem,
-					    r.nucleo AS regra_nucleo,
-					    r.especificacoes AS regra_especificacoes,
-					    r.criada_em AS regra_criada_em,
+					    regras.regras,
 
 					    sim.id AS simulacao_id,
 					    sim.criado_em AS simulacao_criada_em,
@@ -54,8 +52,27 @@ class BuscarJobService {
 
 					FROM jobs j
 					JOIN submissoes s ON s.id = j.submissao_id
-					JOIN regras r ON r.job_id = j.id
-					LEFT JOIN simulacoes sim ON sim.job_id = j.id
+					JOIN LATERAL (
+					    SELECT jsonb_agg(
+					        jsonb_build_object(
+					            'id', r.id,
+					            'versao', r.versao,
+					            'origem', r.origem,
+					            'nucleo', r.nucleo,
+					            'especificacoes', r.especificacoes,
+					            'criada_em', r.criada_em
+					        ) ORDER BY r.versao
+					    ) AS regras
+					    FROM regras r
+					    WHERE r.job_id = j.id
+					) regras ON regras.regras IS NOT NULL
+					LEFT JOIN LATERAL (
+					    SELECT simulacao.*
+					    FROM simulacoes simulacao
+					    WHERE simulacao.job_id = j.id
+					    ORDER BY simulacao.criado_em DESC, simulacao.id DESC
+					    LIMIT 1
+					) sim ON true
 					LEFT JOIN resultados_simulacao rs ON rs.id = sim.resultado_id
 					WHERE j.id = ?
 					""", (rs, rowNum) -> {
@@ -70,21 +87,8 @@ class BuscarJobService {
 				Instant finalizadoEm = rs.getTimestamp("finalizado_em") != null
 						? rs.getTimestamp("finalizado_em").toInstant() : null;
 				UUID submissaoId = rs.getObject("submissao_id", UUID.class);
-				UUID regraId = rs.getObject("regra_id", UUID.class);
-				int regraVersao = rs.getInt("regra_versao");
-				String regraOrigem = rs.getString("regra_origem");
-				Instant regraCriadaEm = rs.getTimestamp("regra_criada_em").toInstant();
 
-				NucleoRegraDto regraNucleo = this.json.readValue(rs.getString("regra_nucleo"), NucleoRegraDto.class);
-
-				List<EspecificacaoRegraDto> regraEspecificacoes = this.json
-					.readValue(rs.getString("regra_especificacoes"), new TypeReference<List<EspecificacaoRegraDto>>() {
-					});
-
-				RepresentacaoRegraDto representacaoRegra = new RepresentacaoRegraDto(regraNucleo, regraEspecificacoes);
-
-				RegraCriadaDto regra = new RegraCriadaDto(regraId, regraVersao, regraOrigem, representacaoRegra,
-						regraCriadaEm);
+				List<RegraCriadaDto> regras = regras(rs.getString("regras"));
 
 				UUID simulacaoId = rs.getObject("simulacao_id", UUID.class);
 
@@ -121,12 +125,27 @@ class BuscarJobService {
 				}
 
 				return new JobDetalhadoDto(id, status, origem, competencias, orcamento, criadoEm, iniciadoEm,
-						finalizadoEm, submissaoId, regra, simulacao);
+						finalizadoEm, submissaoId, regras, simulacao);
 			}, jobId);
 		}
 		catch (EmptyResultDataAccessException ex) {
 			throw new JobNaoEncontradoException(jobId);
 		}
+	}
+
+	private List<RegraCriadaDto> regras(String regrasJson) {
+		JsonNode raiz = this.json.readTree(regrasJson);
+		List<RegraCriadaDto> regras = new ArrayList<>();
+		for (JsonNode regra : raiz) {
+			NucleoRegraDto nucleo = this.json.readValue(regra.path("nucleo").toString(), NucleoRegraDto.class);
+			List<EspecificacaoRegraDto> especificacoes = this.json.readValue(regra.path("especificacoes").toString(),
+					new TypeReference<List<EspecificacaoRegraDto>>() {
+					});
+			RepresentacaoRegraDto representacao = new RepresentacaoRegraDto(nucleo, especificacoes);
+			regras.add(new RegraCriadaDto(UUID.fromString(regra.path("id").asString()), regra.path("versao").asInt(),
+					regra.path("origem").asString(), representacao, Instant.parse(regra.path("criada_em").asString())));
+		}
+		return List.copyOf(regras);
 	}
 
 }
