@@ -66,8 +66,9 @@ class ContextQueueHandler(QueueHandler):
 class JsonFormatter(logging.Formatter):
     """Structured JSON formatter shared by every microservice.
 
-    Emits a stable envelope: origin identity (service/environment/version/host),
-    correlation fields, source location, and any ``extra={...}`` payload.
+    Emits the envelope of ``contracts/observability/log.schema.json``: origin identity
+    (``service.name``, ``service.version``, ``host.name``, ``environment``), correlation
+    fields, source location under ``code``, and any ``extra={...}`` payload.
     """
 
     _DEFAULT_KEYS = frozenset(
@@ -88,14 +89,16 @@ class JsonFormatter(logging.Formatter):
             "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
             "level": severity_text(record.levelname),
             "message": record.getMessage(),
-            "service": self._service,
+            "service.name": self._service,
             "environment": self._environment,
-            "version": self._version,
-            "host": self._host,
+            "service.version": self._version,
+            "host.name": self._host,
             "logger": record.name,
-            "module": record.module,
-            "function": record.funcName,
-            "line": record.lineno,
+            "code": {
+                "module": record.module,
+                "function": record.funcName,
+                "line": record.lineno,
+            },
         }
 
         for field in ("trace_id", "span_id", "job_id", "user_id"):

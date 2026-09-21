@@ -240,11 +240,12 @@ paths:
     get:
       tags: [jobs]
       operationId: consultarJob
-      summary: Consulta o estado, a regra e o resultado de um job.
+      summary: Consulta o estado, as regras e o resultado de um job.
       description: |
-        Estado corrente do job e tudo que já existe dele. Os campos opcionais
-        aparecem conforme o job avança: `regra` depois que existe uma versão,
-        `simulacao` depois que a execução termina, `motivo` quando o job parou.
+        Estado corrente do job e tudo que já existe dele. `regras` contém todas as
+        versões formadas para o job, em ordem crescente de versão. Os demais campos
+        opcionais aparecem conforme o job avança: `simulacao` depois que a execução
+        termina, `motivo` quando o job parou.
 
         É a fonte dos números exibidos. Nenhum valor aqui deve ser recalculado ou
         derivado pelo cliente: a aritmética é determinística, roda sobre os dados
@@ -255,7 +256,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Job"
+                $ref: "#/components/schemas/JobDetalhado"
               examples:
                 simulacaoInviavel:
                   summary: Simulação concluída, acima do orçamento
@@ -269,19 +270,31 @@ paths:
                     iniciado_em: "2025-11-24T14:02:03Z"
                     finalizado_em: "2025-11-24T14:04:47Z"
                     submissao_id: "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"
-                    regra:
-                      id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
-                      versao: 1
-                      origem: confirmacao_usuario
-                      representacao:
-                        nucleo:
-                          vigencia: { inicio: "2025-11", fim: "2025-11" }
-                          loja: ["13"]
-                          marca: ["10", "20"]
-                          cargo: ["100", "300"]
-                          percentual: 0.025
-                        especificacoes: []
-                      criada_em: "2025-11-24T14:02:00Z"
+                    regras:
+                      - id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                        versao: 1
+                        origem: confirmacao_usuario
+                        representacao:
+                          nucleo:
+                            vigencia: { inicio: "2025-11", fim: "2025-11" }
+                            loja: ["13"]
+                            marca: ["10", "20"]
+                            cargo: ["100", "300"]
+                            percentual: 0.025
+                          especificacoes: []
+                        criada_em: "2025-11-24T14:02:00Z"
+                      - id: "1f2e3d4c-5b6a-4978-8d7c-6e5f4a3b2c1d"
+                        versao: 2
+                        origem: confirmacao_usuario
+                        representacao:
+                          nucleo:
+                            vigencia: { inicio: "2025-11", fim: "2025-11" }
+                            loja: ["13"]
+                            marca: ["10", "20"]
+                            cargo: ["100", "300"]
+                            percentual: 0.03
+                          especificacoes: []
+                        criada_em: "2025-11-24T14:03:10Z"
                     simulacao:
                       id: "d4e5f607-1234-4a5b-8c9d-0e1f2a3b4c5d"
                       criado_em: "2025-11-24T14:04:47Z"
@@ -329,8 +342,8 @@ paths:
         **O evento `estado` traz o status, nunca o conteúdo da regra.** Se o status
         recebido for `aguardando_confirmacao_parametros` - seja na conexão inicial ou
         numa reconexão -, o stream por si só não dá o que exibir na tela de
-        confirmação. O cliente busca a regra em `GET /jobs/{id}`, cujo campo `regra`
-        traz a representação estruturada a confirmar ou corrigir.
+        confirmação. O cliente busca as versões em `GET /jobs/{id}`, cujo campo
+        `regras` traz as representações estruturadas já formadas.
 
         **Depois vêm os eventos conforme acontecem**: `etapa` a cada passo iniciado,
         `estado` a cada transição do job e `resultado` quando a simulação termina. O
@@ -553,7 +566,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Job"
+                $ref: "#/components/schemas/JobDetalhado"
               examples:
                 liberado:
                   summary: Liberado após simulação viável
@@ -567,19 +580,19 @@ paths:
                     iniciado_em: "2025-11-20T09:15:30Z"
                     finalizado_em: "2025-11-20T09:22:18Z"
                     submissao_id: "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6a"
-                    regra:
-                      id: "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b"
-                      versao: 1
-                      origem: confirmacao_usuario
-                      representacao:
-                        nucleo:
-                          vigencia: { inicio: "2025-11", fim: "2025-11" }
-                          loja: ["13"]
-                          marca: ["10"]
-                          cargo: ["100"]
-                          percentual: 0.02
-                        especificacoes: []
-                      criada_em: "2025-11-20T09:15:00Z"
+                    regras:
+                      - id: "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b"
+                        versao: 1
+                        origem: confirmacao_usuario
+                        representacao:
+                          nucleo:
+                            vigencia: { inicio: "2025-11", fim: "2025-11" }
+                            loja: ["13"]
+                            marca: ["10"]
+                            cargo: ["100"]
+                            percentual: 0.02
+                          especificacoes: []
+                        criada_em: "2025-11-20T09:15:00Z"
                     simulacao:
                       id: "9f0a1b2c-3d4e-4f5a-8b6c-7d8e9f0a1b2c"
                       criado_em: "2025-11-20T09:22:10Z"
@@ -1106,6 +1119,68 @@ components:
         simulacao:
           $ref: "#/components/schemas/Simulacao"
           description: Simulação corrente do job. Ausente enquanto a execução não terminou.
+
+    JobDetalhado:
+      type: object
+      title: Job detalhado
+      description: |
+        Estado corrente do job com todas as versões de regra já formadas. `regras` é
+        ordenado por `versao`; `simulacao`, quando existe, representa a execução mais
+        recente do job.
+      required: [id, status, origem, competencias, orcamento, criado_em, regras]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador do job, e a chave de correlação em toda a observabilidade.
+        status:
+          $ref: "#/components/schemas/StatusJob"
+        origem:
+          $ref: "#/components/schemas/OrigemJob"
+        competencias:
+          $ref: "#/components/schemas/Competencias"
+        orcamento:
+          $ref: "../domain/comum.schema.json#/$defs/brl"
+          description: Orçamento do período aplicado a este job.
+        criado_em:
+          type: string
+          format: date-time
+        iniciado_em:
+          type: string
+          format: date-time
+          description: Ausente até o processamento começar.
+        finalizado_em:
+          type: string
+          format: date-time
+          description: Ausente até o job atingir estado terminal.
+        job_origem_id:
+          type: string
+          format: uuid
+          description: |
+            Job de que este nasceu por reprocessamento. Ausente no job original.
+            Exatamente uma das duas procedências existe: `submissao_id` quando o job
+            nasceu de gente, `job_origem_id` quando nasceu de outro job.
+        submissao_id:
+          type: string
+          format: uuid
+          description: Submissão que originou o job. Ausente quando a origem é reprocessamento.
+        motivo:
+          type: string
+          description: |
+            Razão localizada da parada, quando o job parou. Existe porque interrupção
+            sem motivo é inaceitável para o usuário leigo: regra fora do domínio,
+            elemento sem implementação correspondente, asserção violada, campo
+            obrigatório ausente e conflito entre elementos são casos distintos e
+            chegam aqui distinguidos. Ausente fora de paradas.
+        regras:
+          type: array
+          minItems: 1
+          description: Todas as versões da regra do job, ordenadas por versão crescente.
+          items:
+            $ref: "#/components/schemas/RegraVersionada"
+        simulacao:
+          $ref: "#/components/schemas/Simulacao"
+          description: Simulação mais recente do job. Ausente enquanto nenhuma execução existir.
 
     RegraVersionada:
       type: object

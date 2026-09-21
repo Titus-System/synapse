@@ -8,7 +8,7 @@ cd "$diretorio_do_script"
 poetry run ruff check app/ scripts/ tests/
 poetry run ruff format --check app/ scripts/ tests/
 poetry run mypy app/ scripts/ tests/scripts/ tests/contracts/
-poetry run pytest -m "not docker and not postgres and not rabbitmq"
+poetry run pytest -m "not docker and not postgres and not rabbitmq and not e2e"
 
 if poetry run python - <<'PY'
 import sys
@@ -31,6 +31,11 @@ PY
 then
     echo "Docker daemon disponível: executando testes marcados com 'docker'."
     poetry run pytest -m docker
+elif [ "${CI:-}" = "true" ] || [ "${EXIGIR_DOCKER:-}" = "1" ]; then
+    # Os testes marcados 'docker' são os que provam o isolamento do sandbox (T-033,
+    # T-064). Pulá-los aqui deixaria o gate de segurança verde sem ter verificado nada.
+    echo "ERRO: o daemon Docker não está disponível e os testes de isolamento do sandbox não podem ser pulados em CI." >&2
+    exit 1
 else
     echo "AVISO: testes marcados com 'docker' foram pulados porque o daemon Docker não está disponível."
 fi

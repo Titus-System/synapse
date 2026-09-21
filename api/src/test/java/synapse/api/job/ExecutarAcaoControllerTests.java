@@ -56,7 +56,7 @@ class ExecutarAcaoControllerTests {
 				new RepresentacaoRegraDto(nucleo, List.of()), Instant.parse("2026-09-16T15:00:00Z"));
 		return new JobDetalhadoDto(JOB_ID, status, "formulario", List.of("2025-11"), new BigDecimal("485000"),
 				Instant.parse("2026-09-16T15:00:00Z"), null, Instant.parse("2026-09-18T10:00:00Z"), UUID.randomUUID(),
-				regra, null);
+				List.of(regra), null);
 	}
 
 	@ParameterizedTest
@@ -70,7 +70,9 @@ class ExecutarAcaoControllerTests {
 			.perform(post("/jobs/{id}/actions", JOB_ID).contentType(MediaType.APPLICATION_JSON)
 				.content("{\"acao\":\"%s\"}".formatted(acao)))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.status").value(destino.paraColuna()));
+			.andExpect(jsonPath("$.status").value(destino.paraColuna()))
+			.andExpect(jsonPath("$.regras.length()").value(1))
+			.andExpect(jsonPath("$.regra").doesNotExist());
 
 		verify(this.emissores).emitir(eq(JOB_ID), argThat(EventoSse::ultimo));
 	}

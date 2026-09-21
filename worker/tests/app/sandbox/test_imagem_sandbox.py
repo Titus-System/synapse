@@ -313,6 +313,20 @@ def test_modulo_proibido_nao_e_importavel_na_imagem(imagem: str, modulo: str) ->
     assert f"No module named '{nome}'".encode() in processo.stderr
 
 
+@pytest.mark.parametrize(
+    "modulo",
+    ["app.execucao", "app.execucao.veredito", "app.execucao.baseline", "app.execucao.coleta"],
+)
+def test_o_que_julga_o_resultado_nao_existe_dentro_da_imagem(imagem: str, modulo: str) -> None:
+    """O veredito é calculado no processo do worker (T-066), que o código gerado não alcança.
+    Se estes módulos existissem no container, o orçamento e o critério estariam ao alcance de
+    quem deve ser julgado por eles."""
+    processo = rodar_python(imagem, f"import {modulo}")
+
+    assert processo.returncode != 0
+    assert b"No module named 'app.execucao'" in processo.stderr
+
+
 def test_a_imagem_contem_as_bases_os_eventos_e_os_baselines(imagem: str) -> None:
     programa = (
         "import json,pathlib;raiz=pathlib.Path('/app/sandbox/data/domrock');"

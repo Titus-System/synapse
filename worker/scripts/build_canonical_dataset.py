@@ -1620,8 +1620,32 @@ def build_schema() -> JsonObject:
             "baseline": {
                 "files": [f"baselines/baseline-{c}.jsonl" for c in PUBLISHED_COMPETENCIAS],
                 "produced_by": "python -m scripts.build_baselines (T-032, após T-026)",
+                "schema_version": 2,
+                "semantics": (
+                    "Baseline congelado no formato de apuracao_base do contrato T-034; "
+                    "uma linha por matrícula elegível e competência."
+                ),
+                "primary_key": ["competencia", "matricula"],
+                "aggregation": "Somar comissao diretamente; cada apuração aparece uma única vez.",
+                "fields": [
+                    field("matricula", None, "string", False, None, "Matrícula elegível."),
+                    field("cod_loja", None, "integer", False, None, "Lotação no RH."),
+                    field("cod_marca", None, "integer", False, None, "Marca no RH."),
+                    field("cod_cargo", None, "integer", False, None, "Cargo no RH."),
+                    field("competencia", None, "string", False, "YYYY-MM", "Competência apurada."),
+                    field("comissao", None, "number", False, None, "BRL, duas casas decimais."),
+                ],
+            },
+            "baseline_auditoria": {
+                "files": [
+                    f"baselines/auditoria/baseline-{c}.jsonl" for c in PUBLISHED_COMPETENCIAS
+                ],
+                "produced_by": "python -m scripts.build_baselines (T-032, após T-026)",
                 "schema_version": 1,
-                "semantics": "Baseline não é gabarito; apuração interna da regra vigente.",
+                "semantics": (
+                    "Artefato auditável da T-032 com os níveis total, loja e matrícula. "
+                    "Não é entrada de apuracao_base do harness."
+                ),
                 "levels": {
                     "total": "Uma linha por competência, com total e asserções.",
                     "loja": "Uma linha por competência/cod_loja; comissão pela lotação no RH.",

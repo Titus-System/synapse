@@ -110,9 +110,9 @@ export interface ResultadoAssercao {
 }
 
 export interface ResultadoSimulacao {
-  totais: TotaisSimulacao
+  totais: TotaisSimulacao | null
   assercoes: ResultadoAssercao[]
-  decomposicao: Record<string, Record<string, number>>
+  decomposicao: Record<string, Record<string, number>> | null
 }
 
 export interface RegraVersionada {
@@ -128,8 +128,8 @@ export interface Simulacao {
   criado_em: string
   status: StatusResultado
   flag_baixa_rastreabilidade: boolean
-  veredito?: Veredito
-  resultado?: ResultadoSimulacao
+  veredito?: Veredito | null
+  resultado?: ResultadoSimulacao | null
 }
 
 export interface Job {
@@ -190,3 +190,4 @@ export interface EventoResultado {
   status: StatusResultado
   veredito?: Veredito
 }
+

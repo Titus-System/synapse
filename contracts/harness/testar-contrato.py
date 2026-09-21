@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 import subprocess
 import sys
 import tempfile
 import unittest
+from decimal import Decimal
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -23,6 +25,20 @@ from pandas.testing import assert_frame_equal
 
 DIRETORIO_HARNESS = Path(__file__).resolve().parent
 VALIDADOR = DIRETORIO_HARNESS / "validar-saida.py"
+RAIZ_REPOSITORIO = DIRETORIO_HARNESS.parents[1]
+DIRETORIO_BASELINES = RAIZ_REPOSITORIO / "worker" / "sandbox" / "data" / "domrock" / "baselines"
+# Valores congelados antes da republicação: a mudança de formato não muda a apuração.
+BASELINES_ESPERADOS = {
+    "2025-08": (497, Decimal("363021.46")),
+    "2025-09": (530, Decimal("424628.68")),
+    "2025-10": (537, Decimal("698465.53")),
+    "2025-11": (546, Decimal("508382.32")),
+    "2025-12": (562, Decimal("1305396.25")),
+}
+
+
+def _ler_jsonl(caminho: Path) -> list[dict[str, Any]]:
+    return [json.loads(linha) for linha in caminho.read_text(encoding="utf-8").splitlines()]
 
 
 def _carregar_modulo(caminho: Path, nome: str) -> ModuleType:
@@ -116,6 +132,79 @@ def _apuracao_base_multi_competencia() -> pd.DataFrame:
             "comissao": [200.0, 150.0, 90.0],
         }
     )
+
+
+class TestarBaselineReal(unittest.TestCase):
+    def test_baseline_publicado_tem_exatamente_o_formato_de_apuracao_base(self) -> None:
+        rh = {
+            (linha["competencia"], linha["matricula"]): linha
+            for linha in _ler_jsonl(DIRETORIO_BASELINES.parent / "rh.jsonl")
+        }
+        esperadas = {
+            "matricula",
+            "cod_loja",
+            "cod_marca",
+            "cod_cargo",
+            "competencia",
+            "comissao",
+        }
+
+        for competencia, (quantidade, total) in BASELINES_ESPERADOS.items():
+            with self.subTest(competencia=competencia):
+                linhas = _ler_jsonl(DIRETORIO_BASELINES / f"baseline-{competencia}.jsonl")
+                self.assertEqual(len(linhas), quantidade)
+                self.assertEqual(len({linha["matricula"] for linha in linhas}), quantidade)
+                for linha in linhas:
+                    self.assertEqual(set(linha), esperadas)
+                    self.assertEqual(linha["competencia"], competencia)
+                    self.assertIsInstance(linha["matricula"], str)
+                    self.assertTrue(linha["matricula"])
+                    pessoa = rh[(competencia, linha["matricula"])]
+                    for campo in ("cod_loja", "cod_marca", "cod_cargo"):
+                        self.assertIs(type(linha[campo]), int)
+                        self.assertEqual(linha[campo], pessoa[campo])
+                    self.assertIs(type(linha["comissao"]), float)
+                    self.assertTrue(math.isfinite(linha["comissao"]))
+                    self.assertGreaterEqual(linha["comissao"], 0.0)
+                self.assertEqual(
+                    sum((Decimal(str(linha["comissao"])) for linha in linhas), Decimal(0)),
+                    total,
+                )
+
+    def test_exemplo_consumindo_baselines_reais_concatenados(self) -> None:
+        competencias = list(BASELINES_ESPERADOS)
+        # Lê diretamente os artefatos publicados, sem passar pelo adaptador do worker.
+        # Assim um filtro/rename na carga não consegue esconder uma regressão da T-032.
+        apuracao_base = pd.concat(
+            [
+                pd.DataFrame(_ler_jsonl(DIRETORIO_BASELINES / f"baseline-{c}.jsonl"))
+                for c in competencias
+            ],
+            ignore_index=True,
+        )
+        bases = {
+            nome: pd.DataFrame(_ler_jsonl(DIRETORIO_BASELINES.parent / f"{nome}.jsonl"))
+            for nome in ("rh", "vendas", "comissoes", "eventos_rh")
+        }
+        for nome in ("rh", "vendas", "comissoes"):
+            bases[nome] = bases[nome].loc[bases[nome]["competencia"].isin(competencias)].copy()
+
+        self.assertFalse(apuracao_base.duplicated(["matricula", "competencia"]).any())
+        saida = harness.chamar(regra.aplicar_regra, bases, apuracao_base, competencias)
+        resultado = harness.montar_resultado(saida, apuracao_base, competencias, orcamento=0.0)
+
+        self.assertEqual(len(saida["apuracao_simulada"]), len(apuracao_base))
+        total_esperado = sum((total for _, total in BASELINES_ESPERADOS.values()), Decimal(0))
+        self.assertAlmostEqual(resultado["totais"]["baseline"], float(total_esperado), places=6)
+        self.assertNotEqual(resultado["totais"]["diferenca_abs"], 0.0)
+        for dimensao in ("elemento", "loja", "marca", "cargo", "competencia"):
+            self.assertAlmostEqual(
+                sum(resultado["decomposicao"][dimensao].values()),
+                resultado["totais"]["diferenca_abs"],
+                places=6,
+            )
+        validador = _carregar_modulo(VALIDADOR, "validador_baseline_real")
+        self.assertEqual(validador.validar_saida(resultado), [])
 
 
 class TestarCopias(unittest.TestCase):

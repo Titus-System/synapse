@@ -1,7 +1,9 @@
 import asyncio
+import json
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
+from uuid import UUID, uuid4
 
 import pytest
 from aio_pika import DeliveryMode, Message
@@ -11,9 +13,12 @@ from pydantic import ValidationError
 from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
+from app.execucao.preparo import ExecucaoPreparada, PayloadContainer
 from app.mensageria import consumidor
 from app.mensageria.broker import ConexaoBroker
 from app.mensageria.contracts import ExecutarCodigo
+from app.repositorio.codigos_gerados import CodigoGerado
+from tests.app.mensageria.resultado_falso import ExchangeFalsa
 from tests.app.mensageria.test_consumidor import FilaFalsa, _corpo_comando, _SessionmakerFalso
 
 
@@ -62,10 +67,29 @@ def broker(mensagem: MagicMock, monkeypatch: pytest.MonkeyPatch) -> ConexaoBroke
     monkeypatch.setattr(consumidor, "get_sessionmaker", lambda: _SessionmakerFalso())
     monkeypatch.setattr(consumidor, "buscar_codigo", AsyncMock())
     monkeypatch.setattr(consumidor, "preparar_execucao", MagicMock())
-    return ConexaoBroker(conexao=AsyncMock(), canal=canal, fila=fila)  # type: ignore[arg-type]
+    return ConexaoBroker(  # type: ignore[arg-type]
+        conexao=AsyncMock(), canal=canal, fila=fila, exchange=ExchangeFalsa()
+    )
 
 
 async def test_sucesso_confirma_sem_republicar(broker: ConexaoBroker, mensagem: MagicMock) -> None:
+    """A execução preparada é real: o resultado do sandbox é classificado contra o payload e o
+    orçamento dela, e um `MagicMock` no lugar não montaria um envelope."""
+    job_id = UUID(json.loads(mensagem.body)["job_id"])
+    consumidor.buscar_codigo.return_value = CodigoGerado(
+        id=uuid4(), job_id=job_id, linguagem="python", fonte="def aplicar_regra(b, a, c): ..."
+    )
+    consumidor.preparar_execucao.return_value = ExecucaoPreparada(
+        payload=PayloadContainer(
+            job_id=job_id,
+            codigo_gerado_id=uuid4(),
+            linguagem="python",
+            fonte="def aplicar_regra(b, a, c): ...",
+            competencias=["2025-08"],
+        ),
+        orcamento=100000.0,
+    )
+
     await consumidor.consumir_fila_execucao(broker)
 
     mensagem.ack.assert_awaited_once_with()

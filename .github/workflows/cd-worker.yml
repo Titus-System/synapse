@@ -46,5 +46,8 @@ jobs:
               echo "TAG=${{ github.sha }}" >> deploy/.env
             fi
 
+            # A imagem do sandbox vem antes: o worker a instancia por job pelo daemon do
+            # host, e sem ela todo comando falha e acaba na DLQ.
+            docker compose -f deploy/docker-compose.yml --env-file deploy/.env --profile build build sandbox
             docker compose -f deploy/docker-compose.yml --env-file deploy/.env build worker
             docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d worker

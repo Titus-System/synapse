@@ -6,7 +6,8 @@ comprovação do que a empresa pagou e não foram validados contra um total exte
 
 São **cinco competências**, conforme T-026 e confirmação do Scrum Master em
 15/09/2026. Julho continua somente como evidência histórica e não foi reintroduzido.
-Congelamento inicial: **17/09/2026**, versão 1.
+Congelamento inicial: **17/09/2026**. Formato republicado como **versão 2** para alinhar
+o baseline ao contrato T-034, sem alterar as comissões individuais nem os totais congelados.
 
 | Competência | Matrículas elegíveis | Total de comissão |
 | --- | ---: | ---: |
@@ -18,8 +19,21 @@ Congelamento inicial: **17/09/2026**, versão 1.
 
 ## Arquivos e leitura
 
-`sandbox/data/domrock/baselines/baseline-YYYY-MM.jsonl` tem três níveis explícitos,
-todos no formato JSONL e anotados no `schema.json` da T-026:
+`sandbox/data/domrock/baselines/baseline-YYYY-MM.jsonl` é publicado diretamente no
+formato de `apuracao_base` do contrato T-034: uma linha por matrícula elegível e
+competência, com `matricula`, `cod_loja`, `cod_marca`, `cod_cargo`, `competencia` e
+`comissao`. O arquivo pode ser concatenado entre competências e somado diretamente,
+sem filtro por nível e sem adaptação de colunas.
+
+`cod_marca` é obtido do RH da própria competência por `competencia + matricula`. Durante
+o congelamento, a rastreabilidade calculada também precisa apontar para exatamente uma
+marca e essa marca precisa ser a mesma do RH. Se uma matrícula passar a ter componentes
+de comissão de marcas diferentes, o build falha explicitamente: nenhuma marca é escolhida
+em silêncio.
+
+Os detalhes auditáveis que antes coexistiam no mesmo JSONL foram preservados em
+`sandbox/data/domrock/baselines/auditoria/baseline-YYYY-MM.jsonl`. Esse artefato mantém
+os mesmos bytes dos antigos baselines, com os três níveis da apuração:
 
 | `nivel` | Conteúdo | Chave no mês |
 | --- | --- | --- |
@@ -27,27 +41,30 @@ todos no formato JSONL e anotados no `schema.json` da T-026:
 | `loja` | Comissão da loja | `cod_loja` |
 | `matricula` | Comissão, base ajustada, cargo, loja e rastreabilidade individual | `matricula` |
 
-**Filtrar `nivel` antes de somar.** Os três níveis representam os mesmos valores,
-não três parcelas diferentes. Isso mantém total e ambas as quebras no próprio
-arquivo de cada competência. Campos que não se aplicam ao nível são `null`.
+Nos arquivos de auditoria, os três níveis representam a mesma apuração; portanto é
+necessário filtrar `nivel` antes de somar. Eles não são entrada do harness.
 
-Exemplo de consumo como mais uma tabela dentro do sandbox:
+Exemplo de consumo do baseline contratual:
 
 ```python
 baseline = pandas.read_json(caminho, lines=True)
-por_matricula = baseline.loc[baseline["nivel"] == "matricula"]
-por_loja = baseline.loc[baseline["nivel"] == "loja"]
-total = baseline.loc[baseline["nivel"] == "total", "comissao"].iloc[0]
+total = float(baseline["comissao"].sum())
 ```
+
+O teste `contracts/harness/testar-contrato.py` lê os cinco arquivos reais diretamente,
+confere tipos, unicidade, dimensões do RH e os valores congelados, e executa o exemplo
+do contrato sobre os meses concatenados. O workflow `Validar contratos` também roda
+quando os dados ou seus geradores mudam, mesmo sem alteração em `contracts/`.
 
 O gerador não depende de pandas. Usa listas, Decimal e a biblioteca padrão.
 Valores publicados são BRL com duas casas; os cálculos não arredondam cada venda
 nem cada adicional. Arredondam uma vez por matrícula (`ROUND_HALF_UP`), depois
 somam essas parcelas com Decimal para produzir quebras e total exatamente iguais.
 
-`baselines/manifesto.json` registra competências, totais, quantidades, asserções e
-SHA-256 dos arquivos, entradas e código do cálculo. Não contém horário de execução,
-caminhos absolutos ou valores aleatórios.
+`baselines/manifesto.json` registra competências, totais, quantidades, asserções,
+SHA-256 do baseline contratual e SHA-256 do respectivo artefato de auditoria, além
+das entradas e do código do cálculo. Não contém horário de execução, caminhos
+absolutos ou valores aleatórios.
 
 `eventos_rh.jsonl` é uma conversão estrutural da fonte da T-028, com 32 eventos:
 remove comentários e transforma cada objeto em uma linha, preservando IDs,

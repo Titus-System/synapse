@@ -37,6 +37,9 @@ COPY worker/app ./app
 COPY worker/entrypoint.sh ./entrypoint.sh
 COPY worker/run.py ./run.py
 COPY contracts ./contracts
+# Só os baselines congelados e o manifesto, que o worker confere contra o total que sai do
+# container (T-066). As bases ficam só na imagem do sandbox: o worker não as lê.
+COPY worker/sandbox/data/domrock/baselines ./sandbox/data/domrock/baselines
 
 RUN mkdir -p /app/logs \
     && chmod +x /app/entrypoint.sh \

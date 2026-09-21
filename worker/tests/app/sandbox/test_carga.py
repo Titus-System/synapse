@@ -74,26 +74,17 @@ def linha_baseline(
     *,
     competencia: str = "2025-08",
     cod_loja: int = 1,
-    cargo: int = 100,
+    cod_marca: int = 10,
+    cod_cargo: int = 100,
     comissao: float = 100.0,
-    marcas: Sequence[int] = (10,),
 ) -> dict[str, object]:
     return {
-        "nivel": "matricula",
-        "competencia": competencia,
         "matricula": matricula,
         "cod_loja": cod_loja,
-        "loja": f"LOJA-{cod_loja}",
-        "cargo": cargo,
-        "base_calculo": 1000.0,
+        "cod_marca": cod_marca,
+        "cod_cargo": cod_cargo,
+        "competencia": competencia,
         "comissao": comissao,
-        "assercoes": None,
-        "rastreabilidade": {
-            "chaves_comissao": [
-                {"cod_cargo": cargo, "cod_marca": marca, "percentual_comissao": 0.025}
-                for marca in marcas
-            ]
-        },
     }
 
 
@@ -130,13 +121,12 @@ def escrever_dataset(
         linhas = list((baselines or {}).get(competencia, ()))
         arquivo = f"baselines/baseline-{competencia}.jsonl"
         escrever_jsonl(raiz / arquivo, linhas)
-        total = sum(
-            (Decimal(str(linha["comissao"])) for linha in linhas if linha["nivel"] == "matricula"),
-            Decimal(0),
-        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        total = sum((Decimal(str(linha["comissao"])) for linha in linhas), Decimal(0)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
         manifesto["baselines"][competencia] = {
             "arquivo": arquivo,
-            "matriculas": sum(linha["nivel"] == "matricula" for linha in linhas),
+            "matriculas": len(linhas),
             "total": float(total),
         }
     if editar_manifesto:
@@ -170,9 +160,10 @@ def _tipo_do_schema(campo: Mapping[str, Any]) -> Tipo:
     return Tipo.OBJETO_OPCIONAL
 
 
-@pytest.mark.parametrize("tabela", TABELAS)
+@pytest.mark.parametrize("tabela", [*TABELAS, "apuracao_base"])
 def test_mapa_de_tipos_cobre_exatamente_o_schema(tabela: str) -> None:
-    campos = {campo["name"]: campo for campo in SCHEMA["tables"][tabela]["fields"]}
+    tabela_schema = "baseline" if tabela == "apuracao_base" else tabela
+    campos = {campo["name"]: campo for campo in SCHEMA["tables"][tabela_schema]["fields"]}
 
     assert list(COLUNAS[tabela]) == list(campos)
     assert {nome: _tipo_do_schema(campo) for nome, campo in campos.items()} == dict(COLUNAS[tabela])
@@ -235,18 +226,15 @@ def test_venda_inteira_no_json_vira_float(novembro: Any) -> None:
 
 @pytest.mark.parametrize("competencia", COMPETENCIAS)
 def test_apuracao_base_reproduz_o_total_congelado_de_cada_competencia(competencia: str) -> None:
-    """O oráculo é a linha ``total`` do próprio arquivo de baseline, que a T-032 calculou
-    por um caminho diferente (o motor de regras), não a conversão que está sendo testada."""
-    congelado = next(
-        linha
-        for linha in ler_jsonl(RAIZ_DADOS / "baselines" / f"baseline-{competencia}.jsonl")
-        if linha["nivel"] == "total"
+    """O oráculo é o total congelado no manifesto, calculado pelo motor da T-032,
+    independentemente da carga que está sendo testada."""
+    manifesto = json.loads(
+        (RAIZ_DADOS / "baselines" / "manifesto.json").read_text(encoding="utf-8")
     )
-
     apuracao = carregar([competencia]).apuracao_base
 
     total = sum((Decimal(str(v)) for v in apuracao["comissao"]), Decimal(0))
-    assert total == Decimal(str(congelado["comissao"]))
+    assert total == Decimal(str(manifesto["baselines"][competencia]["total"]))
 
 
 def test_apuracao_base_de_novembro_tem_a_forma_e_o_total_do_contrato(novembro: Any) -> None:
@@ -408,13 +396,16 @@ def test_matricula_repetida_no_rh_da_competencia_e_recusada(tmp_path: Path) -> N
 @pytest.mark.parametrize(
     ("baseline", "trecho"),
     [
-        (linha_baseline(marcas=(20,)), "cod_marca do baseline"),
+        (linha_baseline(cod_marca=20), "cod_marca do baseline"),
         (linha_baseline(cod_loja=99), "cod_loja do baseline"),
-        (linha_baseline(cargo=300), "cod_cargo do baseline"),
-        (linha_baseline(marcas=()), "chaves_comissao ausente ou vazia"),
-        (linha_baseline(marcas=(10, 20)), "marca não é única"),
+        (linha_baseline(cod_cargo=300), "cod_cargo do baseline"),
         (linha_baseline("MATRIC-9"), "não existe no rh"),
         (linha_baseline(competencia="2025-09"), "competência diferente"),
+        (linha_baseline() | {"nivel": "matricula"}, "colunas fora do contrato"),
+        (
+            {campo: valor for campo, valor in linha_baseline().items() if campo != "cod_marca"},
+            "faltam colunas do contrato",
+        ),
     ],
 )
 def test_baseline_que_diverge_do_rh_falha_alto(

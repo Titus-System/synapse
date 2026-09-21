@@ -1,10 +1,7 @@
-import hashlib
-import json
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from dotenv import load_dotenv
@@ -61,11 +58,8 @@ async def _engine_de_banco_por_teste() -> AsyncGenerator[None, None]:
 
 
 @pytest.fixture
-async def codigo_gerado_seed(settings: "Settings") -> AsyncGenerator[dict[str, object], None]:
-    """Uma linha real de codigos_gerados, com a cadeia de FKs que ela exige
-    (usuario -> job -> regra -> prompt). O worker só tem SELECT nessa tabela, então a
-    escrita usa o dono do schema, como o script de seed de deploy/scripts/seed.py.
-    """
+async def conexao_dono(settings: "Settings") -> AsyncGenerator[Any, None]:
+    """Conexão com o dono do schema: lê o que o worker gravou, e limpa o que ele não pode apagar."""
     import asyncpg
 
     conexao = await asyncpg.connect(
@@ -76,69 +70,53 @@ async def codigo_gerado_seed(settings: "Settings") -> AsyncGenerator[dict[str, o
         password=os.environ.get("POSTGRES_OWNER_PASSWORD", "postgres"),
     )
     try:
-        usuario_id: UUID = await conexao.fetchval(
-            """
-            INSERT INTO usuarios (login, senha_hash, nome, papel, criado_em)
-            VALUES ($1, 'hash-de-teste', 'Usuário de teste', 'profissional_rh', now())
-            RETURNING id
-            """,
-            f"teste-worker-{uuid4()}@synapse.local",
-        )
-        job_id: UUID = await conexao.fetchval(
-            """
-            INSERT INTO jobs (status, usuario_id, competencias, orcamento, criado_em)
-            VALUES ('simulando', $1, $2, $3, now())
-            RETURNING id
-            """,
-            usuario_id,
-            ["2025-08"],
-            100000.0,
-        )
-        nucleo = {"vigencia": {"inicio": "2025-08", "fim": "2025-08"}}
-        regra_id: UUID = await conexao.fetchval(
-            """
-            INSERT INTO regras (job_id, versao, origem, nucleo, especificacoes, hash, criada_em)
-            VALUES ($1, 1, 'confirmacao_usuario', $2::jsonb, $3::jsonb, $4, now())
-            RETURNING id
-            """,
-            job_id,
-            json.dumps(nucleo),
-            json.dumps([]),
-            hashlib.sha256(json.dumps(nucleo).encode("utf-8")).hexdigest(),
-        )
-        prompt_id: UUID = await conexao.fetchval(
-            """
-            INSERT INTO prompts (job_id, no, conteudo, modelo, criado_em)
-            VALUES ($1, 'geracao_codigo', 'prompt de teste', $2::jsonb, now())
-            RETURNING id
-            """,
-            job_id,
-            json.dumps({"provedor": "teste", "modelo": "teste"}),
-        )
-        fonte = "def calcular(): return []"
-        codigo_gerado_id: UUID = await conexao.fetchval(
-            """
-            INSERT INTO codigos_gerados (job_id, regra_id, linguagem, fonte, prompt_id, criado_em)
-            VALUES ($1, $2, 'python', $3, $4, now())
-            RETURNING id
-            """,
-            job_id,
-            regra_id,
-            fonte,
-            prompt_id,
-        )
-
-        yield {
-            "id": codigo_gerado_id,
-            "job_id": job_id,
-            "linguagem": "python",
-            "fonte": fonte,
-        }
-
-        await conexao.execute("DELETE FROM codigos_gerados WHERE id = $1", codigo_gerado_id)
-        await conexao.execute("DELETE FROM prompts WHERE id = $1", prompt_id)
-        await conexao.execute("DELETE FROM regras WHERE id = $1", regra_id)
-        await conexao.execute("DELETE FROM jobs WHERE id = $1", job_id)
-        await conexao.execute("DELETE FROM usuarios WHERE id = $1", usuario_id)
+        yield conexao
     finally:
         await conexao.close()
+
+
+@pytest.fixture
+def fonte_do_codigo_seed() -> str:
+    """Um teste que precisa de uma regra executável sobrescreve esta fixture."""
+    return "def calcular(): return []"
+
+
+@pytest.fixture
+async def codigo_gerado_seed(
+    conexao_dono: Any, fonte_do_codigo_seed: str
+) -> AsyncGenerator[dict[str, object], None]:
+    """Uma linha real de codigos_gerados, com a cadeia de FKs que ela exige
+    (usuario -> job -> regra -> prompt). O worker só tem SELECT nessa tabela, então a
+    escrita usa o dono do schema (`tests/semente.py`).
+    """
+    from tests.semente import apagar_semente, semear_codigo
+
+    semente = await semear_codigo(conexao_dono, fonte=fonte_do_codigo_seed)
+    try:
+        yield {chave: semente[chave] for chave in ("id", "job_id", "linguagem", "fonte")}
+    finally:
+        await apagar_semente(conexao_dono, semente)
+
+
+def exige_docker(ambiente: Mapping[str, str] | None = None) -> bool:
+    """Em CI, teste marcado `docker` não pode ser pulado.
+
+    São eles que provam o isolamento do sandbox (T-033, T-064). Pulados em silêncio, o
+    gate de segurança do componente passa verde sem nunca ter rodado — o risco que a
+    T-014 registra. Na máquina do desenvolvedor sem daemon o pulo continua valendo;
+    `EXIGIR_DOCKER=1` reproduz localmente o comportamento do CI.
+    """
+    ambiente = os.environ if ambiente is None else ambiente
+    return ambiente.get("CI") == "true" or ambiente.get("EXIGIR_DOCKER") == "1"
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> Any:
+    desfecho = yield
+    relatorio = desfecho.get_result()
+    if relatorio.skipped and exige_docker() and item.get_closest_marker("docker") is not None:
+        relatorio.outcome = "failed"
+        relatorio.longrepr = (
+            f"{item.nodeid} foi pulado, e em CI um teste marcado 'docker' pulado é falha: "
+            "sem ele o isolamento do sandbox não foi verificado."
+        )
