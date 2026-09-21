@@ -260,6 +260,40 @@ def test_residuo_de_arredondamento_fecha_na_quebra_por_elemento() -> None:
     assert soma(resultado["decomposicao"]["elemento"]) == Decimal("30.01")
 
 
+def test_meio_centavo_nao_desloca_o_valor_de_outro_elemento() -> None:
+    """Meio centavo arredonda para longe do zero, então o delta quantizado de uma linha
+    e a contribuição quantizada dela divergem em um centavo. O resíduo precisa ficar
+    dentro da linha que o produziu: se fosse global, iria inteiro para o maior elemento
+    e o valor de um elemento passaria a depender das linhas de outro."""
+    base = [
+        linha_base("MATRIC-1", comissao=1270.13),
+        linha_base("MATRIC-2", comissao=1091.74),
+        linha_base("MATRIC-3", comissao=807.44),
+        linha_base("MATRIC-4", comissao=1000.0),
+        linha_base("MATRIC-5", comissao=200.0),
+    ]
+    simulada = [
+        com_comissao(base[0], 1270.125),
+        com_comissao(base[1], 1091.735),
+        com_comissao(base[2], 672.865),
+        com_comissao(base[3], 1500.0),
+        com_comissao(base[4], 250.0),
+    ]
+    contribuicoes = [
+        contribuicao("MATRIC-1", elemento_ref="elem.1", delta=-0.005),
+        contribuicao("MATRIC-2", elemento_ref="elem.1", delta=-0.005),
+        contribuicao("MATRIC-3", elemento_ref="elem.1", delta=-134.575),
+        contribuicao("MATRIC-4", elemento_ref="elem.2", delta=500.0),
+        contribuicao("MATRIC-5", elemento_ref="elem.2", delta=50.0),
+    ]
+
+    resultado = montar(base, simulada, contribuicoes)
+
+    # elem.1: 0,00 + 0,00 + (-134,57), cada parcela igual ao delta quantizado da linha.
+    assert resultado["decomposicao"]["elemento"] == {"elem.1": -134.57, "elem.2": 550.0}
+    assert resultado["totais"]["diferenca_abs"] == 415.43
+
+
 def test_ruido_de_um_centavo_na_atribuicao_nao_e_defeito() -> None:
     base = [linha_base("MATRIC-1", comissao=0.0)]
     simulada = [com_comissao(base[0], 30.00)]

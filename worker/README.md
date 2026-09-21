@@ -41,7 +41,7 @@ O codigo gerado e tratado como nao confiavel. Cada execucao deve usar um contain
 
 - rede desabilitada (`network none`);
 - usuario sem privilegios e sem acesso ao Docker socket;
-- sistema de arquivos somente leitura, com diretorio temporario de saida;
+- sistema de arquivos somente leitura, sem nenhum diretorio gravavel: a saida do container e o `stdout` (T-033/T-064);
 - limites de CPU e memoria;
 - timeout com encerramento forcado;
 - lista minima e explicita de bibliotecas Python permitidas;
@@ -62,7 +62,7 @@ O repositorio contem o esqueleto operacional do servico, incluindo:
 - verificacao do acesso ao daemon do Docker na subida do processo;
 - loop consumidor de `executar-codigo`: le o codigo pela referencia do comando no Postgres (usuario com `SELECT` apenas) e prepara o payload de execucao, retendo o orcamento fora dele.
 
-A subida do container efemero e a persistencia/publicacao do resultado sao as proximas partes do fluxo de negocio a implementar.
+A imagem do sandbox (T-033) e a execucao isolada (T-064) existem e sao testadas contra a imagem real, mas ainda nao estao ligadas ao consumidor: a coleta e classificacao do resultado (T-065) e a persistencia/publicacao com o veredito (T-066) sao as proximas partes do fluxo de negocio a implementar.
 
 O acesso ao daemon e verificado na subida: se o socket do Docker nao estiver acessivel, o processo falha imediatamente com mensagem explicita em vez de subir e quebrar so na primeira execucao. O pre-requisito de ambiente esta em [docs/instalacao.md](../docs/instalacao.md) secao 2.1.
 
@@ -190,3 +190,11 @@ Os cinco baselines de agosto a dezembro de 2025 ficam em `sandbox/data/domrock/b
 ## Decomposição do resultado (T-035)
 
 `app/sandbox/resultado.py` agrega o retorno da função gerada (por matrícula) na saída do contrato da T-034: `totais`, `assercoes` e a `decomposicao` da **diferença** em relação ao baseline, por elemento da regra, loja, marca, cargo e competência. Somar qualquer quebra dá `totais.diferenca_abs`, e zero é preservado — elemento que se cancela, competência simulada sem efeito e loja não afetada aparecem com `0.0`, porque ausência diria outra coisa. `totais` sai **sem `orcamento`**: quem o acrescenta, junto do veredito, é o worker fora do container (T-066). Veja [quebras, arredondamento, erros e limites](docs/t035-decomposicao.md).
+
+## Imagem do sandbox (T-033)
+
+`sandbox/Dockerfile` constrói a imagem onde o código gerado roda: sem rede, somente-leitura, usuário não-root, com pandas, as bases, os eventos de RH e os baselines congelados embutidos. O código chega pelo stdin como JSON e o resultado decomposto volta pelo stdout, num envelope de uma linha; **o orçamento nunca entra**. `app/sandbox/executor.py` é o ponto de entrada, `harness.py` o único módulo que executa código gerado (o processo do worker nunca o importa) e `carga.py` monta as bases com tipos explícitos. Build da raiz do monorepo: `docker build -f worker/sandbox/Dockerfile -t synapse-sandbox:local .`. Veja [o que entra na imagem, o envelope, as defesas e as pendências para a T-064](docs/t033-imagem-sandbox.md).
+
+## Execucao isolada (T-064)
+
+`app/execucao/container.py` sobe um container efemero por execucao a partir da imagem da T-033, entrega o codigo pelo stdin e devolve a saida bruta: codigo de saida, `OOMKilled`, se o prazo estourou e o stdout/stderr lidos com teto. Sem rede, sistema de arquivos somente leitura (nao ha diretorio de saida: a saida e o stdout), `/dev/shm` inexistente, nenhuma capability, sem novo privilegio, 256 MiB sem swap, 1 CPU, 64 PIDs e 60 s de prazo com SIGKILL. **As flags e os limites sao constantes do modulo, nao configuracao**; so `SANDBOX_IMAGE` vem do ambiente. Classificar a execucao e da T-065. Veja [as flags, os numeros medidos e as pendencias](docs/t064-execucao-isolada.md).

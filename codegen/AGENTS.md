@@ -6,6 +6,7 @@ Every convention in this repo is a skill. Read the one that covers what you are 
 
 | Skill | Read before |
 | --- | --- |
+| [`graph`](.agents/skills/graph/SKILL.md) | Adding or changing a node; wiring the graph's entry point, checkpointer or resume flow; anything under `app/graph/`. |
 | [`observability`](.agents/skills/observability/SKILL.md) | Choosing between a log, a metric and a trace; touching the log envelope; deciding what must be persisted rather than emitted. |
 | [`logging`](.agents/skills/logging/SKILL.md) | Writing or changing a `logger.*` call. |
 | [`metrics`](.agents/skills/metrics/SKILL.md) | Declaring a metric, adding a label, or naming either. |
@@ -29,6 +30,7 @@ make lint          # Ruff + Bandit
 make format        # Auto-format
 make typecheck     # mypy strict mode
 make test          # pytest
+make test-cov      # pytest + coverage report (see the testing skill)
 make pre-commit    # the gate: lint + format + typecheck + tests
 ```
 

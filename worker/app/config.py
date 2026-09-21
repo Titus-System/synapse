@@ -94,6 +94,11 @@ class Settings(BaseSettings):
     # Docker
     DOCKER_HOST: str = "unix:///var/run/docker.sock"
 
+    # Imagem do sandbox (T-033). É a única coisa configurável da execução isolada: as
+    # flags e os limites do container são constantes de app/execucao/container.py, para
+    # que nenhum ambiente possa afrouxá-los por conveniência.
+    SANDBOX_IMAGE: str = "synapse-sandbox:local"
+
     model_config = SettingsConfigDict(extra="allow", env_file=".env", env_file_encoding="utf-8")
 
 
