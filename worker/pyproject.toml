@@ -108,7 +108,12 @@ disallow_untyped_defs = false
 disallow_incomplete_defs = false
 ignore_errors = true
 
-# O docker-py tem type hints inline, mas não publica o marcador py.typed.
+# O docker-py não publica o marcador py.typed, e os métodos dos modelos são `**kwargs`
+# sem anotação (`Container.wait(self, **kwargs)`), então tudo que vem dele chega como Any.
+# `follow_untyped_imports` não resolve: medido, ele não acrescenta checagem nenhuma e ainda
+# exige suprimir `no-untyped-call` em cada construtor do SDK. As anotações com os tipos do
+# SDK (`DockerClient`, `Container`) em app/execucao/container.py são para quem lê; o que é
+# de fato verificado lá está no Protocol `SoqueteDeAnexo`.
 [[tool.mypy.overrides]]
 module = ["docker.*"]
 ignore_missing_imports = true
