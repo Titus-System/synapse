@@ -126,10 +126,16 @@ export function transformarRegra(
 export function transformarResultado(
   resultado: ResultadoSimulacao,
 ): string[] {
+  const { totais } = resultado
+
+  if (!totais) {
+    return []
+  }
+
   return [
-    `comissão = ${formatarMoeda(resultado.totais.simulado)}`,
+    `comissão = ${formatarMoeda(totais.simulado)}`,
     `orçamento = ${
-      resultado.totais.simulado <= resultado.totais.orcamento
+      totais.simulado <= totais.orcamento
         ? 'OK'
         : 'Ultrapassado'
     }`,

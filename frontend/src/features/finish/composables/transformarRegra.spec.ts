@@ -259,4 +259,14 @@ describe('transformarResultado', () => {
       'orçamento = Ultrapassado',
     ])
   })
+
+  it('retorna lista vazia quando a simulação não tem totais', () => {
+    const resultado: ResultadoSimulacao = {
+      totais: null,
+      assercoes: [],
+      decomposicao: null,
+    }
+
+    expect(transformarResultado(resultado)).toEqual([])
+  })
 })
