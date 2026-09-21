@@ -88,8 +88,8 @@ class Settings(BaseSettings):
         See `.agents/skills/graph/SKILL.md`.
         """
         return (
-            f"postgresql://{self.POSTGRES_USER}:"
-            f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:"
+            f"postgresql://{self.SYNAPSE_CODEGEN_DB_USER}:"
+            f"{self.SYNAPSE_CODEGEN_DB_PASSWORD}@{self.POSTGRES_HOST}:"
             f"{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 

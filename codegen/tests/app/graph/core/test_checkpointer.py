@@ -1,6 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -11,8 +11,8 @@ from app.graph.core import checkpointer as module
 class FakeSaver:
     """Stands in for `AsyncPostgresSaver`; Postgres is not owned by this test."""
 
-    opened_with: list[str] = []
-    closed = False
+    opened_with: ClassVar[list[str]] = []
+    closed: ClassVar[bool] = False
 
     @classmethod
     @asynccontextmanager
@@ -31,11 +31,11 @@ def fake_saver(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(module, "AsyncPostgresSaver", FakeSaver)
 
 
-async def test_get_checkpointer_opens_the_connection_from_settings(settings: Settings) -> None:
+async def test_get_checkpointer_opens_the_connection_from_settings(configuracoes: Settings) -> None:
     async with module.get_checkpointer() as saver:
         assert isinstance(saver, FakeSaver)
 
-    assert FakeSaver.opened_with == [settings.checkpointer_database_url]
+    assert FakeSaver.opened_with == [configuracoes.checkpointer_database_url]
 
 
 async def test_get_checkpointer_closes_the_connection_when_the_run_fails() -> None:
@@ -46,9 +46,11 @@ async def test_get_checkpointer_closes_the_connection_when_the_run_fails() -> No
     assert FakeSaver.closed is True
 
 
-def test_checkpointer_url_uses_the_psycopg_scheme_on_the_same_database(settings: Settings) -> None:
+def test_checkpointer_url_uses_the_psycopg_scheme_on_the_same_database(
+    configuracoes: Settings,
+) -> None:
     """The checkpointer speaks psycopg, which rejects SQLAlchemy's `+asyncpg` driver suffix."""
-    url: Any = settings.checkpointer_database_url
+    url: Any = configuracoes.checkpointer_database_url
 
-    assert url == settings.database_url.replace("+asyncpg", "")
+    assert url == configuracoes.database_url.replace("+asyncpg", "")
     assert url.startswith("postgresql://")

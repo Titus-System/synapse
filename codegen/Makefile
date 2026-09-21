@@ -63,7 +63,7 @@ makemigration:
 	poetry run alembic revision --autogenerate -m "$(m)"
 
 pre-commit: contracts
-	poetry run ruff check --fix app/
-	poetry run ruff format app/
+	poetry run ruff check --fix app/ tests/
+	poetry run ruff format app/ tests/
 	poetry run mypy app/
 	poetry run pytest

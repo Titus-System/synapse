@@ -24,7 +24,9 @@ class FakeChatModel(GenericFakeChatModel):
 
 
 @pytest.fixture
-def scripted_model(monkeypatch: pytest.MonkeyPatch) -> Callable[[Iterable[AIMessage]], FakeChatModel]:
+def scripted_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[Iterable[AIMessage]], FakeChatModel]:
     """Make the calculator node use a model that replies with `responses`, in order.
 
     Pass fresh message objects: `add_messages` stamps an id on each one, and a repeated

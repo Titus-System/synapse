@@ -20,7 +20,9 @@ async def test_calculator_node_returns_the_model_response_as_the_new_message(
     assert [m.content for m in update["messages"]] == ["the answer is 3"]
 
 
-async def test_calculator_node_binds_exactly_the_arithmetic_tools(scripted_model: ScriptedModel) -> None:
+async def test_calculator_node_binds_exactly_the_arithmetic_tools(
+    scripted_model: ScriptedModel,
+) -> None:
     model = scripted_model([AIMessage(content="ok")])
 
     await calculator_node({"messages": [HumanMessage(content="1 + 2?")]})
