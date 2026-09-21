@@ -10,15 +10,10 @@ services:
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
     image: synapse-frontend:${TAG:-local}
-    command: npm run dev -- --host 0.0.0.0
-    ports:
-      - "5173:5173"
+    restart: "no"
+    command: ['sh', '-c', 'rm -rf /dist/* && cp -r /app/dist/. /dist/']
     volumes:
-      - ../frontend:/app
-      - /app/node_modules
-    networks:
-      - synapse-net
-    restart: unless-stopped
+      - frontend-dist:/dist
 
   # Único ponto de entrada do droplet: termina TLS e roteia por subdomínio
   # pra frontend/api/codegen/worker. Ver deploy/gateway/Caddyfile.
