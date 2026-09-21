@@ -66,6 +66,14 @@ O compose não sobe sem essa variável: ela é declarada como obrigatória justa
 
 Todo o ambiente de infraestrutura sobe com um único comando, sem necessidade de configuração manual adicional:
 
+### Antes do primeiro `up`: a imagem do sandbox
+
+O `worker` executa cada job num container criado a partir da imagem `synapse-sandbox`, e essa imagem não sobe com o `up`: ela só é construída. Construa-a uma vez, e de novo quando `worker/sandbox/` mudar. Sem ela, o `worker` sobe normalmente, mas todo comando de execução falha e acaba na fila de DLQ.
+
+```bash
+docker compose -f deploy/docker-compose.yml --profile build build sandbox
+```
+
 ### Opção A: A partir da raiz do repositório
 
 ```bash

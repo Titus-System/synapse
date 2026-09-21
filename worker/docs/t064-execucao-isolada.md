@@ -150,16 +150,21 @@ controle que roda a mesma sonda de escrita sem `read_only` e exige que ela grave
 
 ## Limite desta entrega
 
-**Nada em produção chama isto ainda.** `app/mensageria/consumidor.py` continua terminando
-em `preparar_execucao` e fazendo `ack`. A fiação é da T-065, que lê e classifica a saída, e
-a persistência e o veredito são da T-066.
+`app/mensageria/consumidor.py` chama `executar_no_sandbox` (numa thread, via
+`asyncio.to_thread`), classifica o desfecho (T-065, `docs/t065-coleta-e-classificacao.md`) e faz
+`ack`; `SandboxInfraError` entra em `repetir_erro_infra`, e o desfecho do código gerado
+(asserção, erro, timeout, OOM) não é repetido. A classe vai ao log, mas o resultado ainda não sai
+do worker: o veredito é da T-066, e a gravação e a publicação são da T-067. Até lá, um comando
+executado com sucesso não deixa resultado para o codegen.
 
 Pendências registradas:
 
-- **quem constrói `synapse-sandbox` no deploy**: hoje ninguém. Nem `deploy/docker-compose.yml`
-  nem `.github/workflows/cd-worker.yml` constroem a imagem do sandbox, e o worker a procura
-  no daemon do host por `SANDBOX_IMAGE` (padrão `synapse-sandbox:local`). Sem isso, a
-  primeira execução real falha com `SandboxInfraError`;
+- **quem constrói `synapse-sandbox` no deploy**: o serviço `sandbox` de
+  `deploy/docker-compose.yml` (perfil `build`, só constrói) e o passo de build de
+  `.github/workflows/cd-worker.yml`, que roda antes do build do worker. O worker recebe
+  `SANDBOX_IMAGE: synapse-sandbox:${TAG:-local}`, a mesma tag do build. Fora do CD, quem sobe o
+  compose constrói à mão (`docs/instalacao.md`, seção 3); sem a imagem, a primeira execução
+  falha com `SandboxInfraError`;
 - **envelope junto com timeout**: uma regra pode deixar uma thread não-daemon viva depois
   de o envelope ser escrito, e o processo só morre pelo nosso kill. `SaidaBruta` reporta os
   dois fatos; quem decide é a T-065;

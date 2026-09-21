@@ -2,6 +2,7 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 from aio_pika import DeliveryMode, Message
@@ -11,6 +12,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
+from app.execucao.preparo import ExecucaoPreparada, PayloadContainer
 from app.mensageria import consumidor
 from app.mensageria.broker import ConexaoBroker
 from app.mensageria.contracts import ExecutarCodigo
@@ -66,6 +68,19 @@ def broker(mensagem: MagicMock, monkeypatch: pytest.MonkeyPatch) -> ConexaoBroke
 
 
 async def test_sucesso_confirma_sem_republicar(broker: ConexaoBroker, mensagem: MagicMock) -> None:
+    """A execução preparada é real: o resultado do sandbox é classificado contra o payload e o
+    orçamento dela, e um `MagicMock` no lugar não montaria um envelope."""
+    consumidor.preparar_execucao.return_value = ExecucaoPreparada(
+        payload=PayloadContainer(
+            job_id=uuid4(),
+            codigo_gerado_id=uuid4(),
+            linguagem="python",
+            fonte="def aplicar_regra(b, a, c): ...",
+            competencias=["2025-08"],
+        ),
+        orcamento=100000.0,
+    )
+
     await consumidor.consumir_fila_execucao(broker)
 
     mensagem.ack.assert_awaited_once_with()

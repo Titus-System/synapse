@@ -61,7 +61,15 @@ async def _engine_de_banco_por_teste() -> AsyncGenerator[None, None]:
 
 
 @pytest.fixture
-async def codigo_gerado_seed(settings: "Settings") -> AsyncGenerator[dict[str, object], None]:
+def fonte_do_codigo_seed() -> str:
+    """Um teste que precisa de uma regra executável sobrescreve esta fixture."""
+    return "def calcular(): return []"
+
+
+@pytest.fixture
+async def codigo_gerado_seed(
+    settings: "Settings", fonte_do_codigo_seed: str
+) -> AsyncGenerator[dict[str, object], None]:
     """Uma linha real de codigos_gerados, com a cadeia de FKs que ela exige
     (usuario -> job -> regra -> prompt). O worker só tem SELECT nessa tabela, então a
     escrita usa o dono do schema, como o script de seed de deploy/scripts/seed.py.
@@ -115,7 +123,7 @@ async def codigo_gerado_seed(settings: "Settings") -> AsyncGenerator[dict[str, o
             job_id,
             json.dumps({"provedor": "teste", "modelo": "teste"}),
         )
-        fonte = "def calcular(): return []"
+        fonte = fonte_do_codigo_seed
         codigo_gerado_id: UUID = await conexao.fetchval(
             """
             INSERT INTO codigos_gerados (job_id, regra_id, linguagem, fonte, prompt_id, criado_em)

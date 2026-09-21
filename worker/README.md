@@ -60,9 +60,9 @@ O repositorio contem o esqueleto operacional do servico, incluindo:
 - verificacoes de lint, tipos e testes;
 - conexao com o RabbitMQ e declaracao da fila `executar-codigo`, duravel e com `prefetch` 1;
 - verificacao do acesso ao daemon do Docker na subida do processo;
-- loop consumidor de `executar-codigo`: le o codigo pela referencia do comando no Postgres (usuario com `SELECT` apenas) e prepara o payload de execucao, retendo o orcamento fora dele.
+- loop consumidor de `executar-codigo`: le o codigo pela referencia do comando no Postgres (usuario com `SELECT` apenas), prepara o payload de execucao, retendo o orcamento fora dele, o executa no container efemero (numa thread, para nao travar o heartbeat do RabbitMQ) e classifica o desfecho em `sucesso`, `assercao_violada`, `erro_codigo` ou `erro_infra`. Falha de infraestrutura do sandbox entra no retry da DEC-091.
 
-A imagem do sandbox (T-033) e a execucao isolada (T-064) existem e sao testadas contra a imagem real, mas ainda nao estao ligadas ao consumidor: a coleta e classificacao do resultado (T-065) e a persistencia/publicacao com o veredito (T-066) sao as proximas partes do fluxo de negocio a implementar.
+A imagem do sandbox (T-033) e a execucao isolada (T-064) estao ligadas ao consumidor e sao testadas contra a imagem real, e a saida do container e coletada e classificada (T-065), mas **o desfecho so vai ao log**: o comando recebe `ack` e o resultado ainda nao e julgado contra o orcamento, gravado nem publicado. O veredito (T-066) e a persistencia/publicacao (T-067) sao as proximas partes do fluxo de negocio a implementar.
 
 O acesso ao daemon e verificado na subida: se o socket do Docker nao estiver acessivel, o processo falha imediatamente com mensagem explicita em vez de subir e quebrar so na primeira execucao. O pre-requisito de ambiente esta em [docs/instalacao.md](../docs/instalacao.md) secao 2.1.
 
@@ -197,4 +197,8 @@ Os cinco baselines de agosto a dezembro de 2025 ficam em `sandbox/data/domrock/b
 
 ## Execucao isolada (T-064)
 
-`app/execucao/container.py` sobe um container efemero por execucao a partir da imagem da T-033, entrega o codigo pelo stdin e devolve a saida bruta: codigo de saida, `OOMKilled`, se o prazo estourou e o stdout/stderr lidos com teto. Sem rede, sistema de arquivos somente leitura (nao ha diretorio de saida: a saida e o stdout), `/dev/shm` inexistente, nenhuma capability, sem novo privilegio, 256 MiB sem swap, 1 CPU, 64 PIDs e 60 s de prazo com SIGKILL. **As flags e os limites sao constantes do modulo, nao configuracao**; so `SANDBOX_IMAGE` vem do ambiente. Classificar a execucao e da T-065. Veja [as flags, os numeros medidos e as pendencias](docs/t064-execucao-isolada.md).
+`app/execucao/container.py` sobe um container efemero por execucao a partir da imagem da T-033, entrega o codigo pelo stdin e devolve a saida bruta: codigo de saida, `OOMKilled`, se o prazo estourou e o stdout/stderr lidos com teto. Sem rede, sistema de arquivos somente leitura (nao ha diretorio de saida: a saida e o stdout), `/dev/shm` inexistente, nenhuma capability, sem novo privilegio, 256 MiB sem swap, 1 CPU, 64 PIDs e 60 s de prazo com SIGKILL. **As flags e os limites sao constantes do modulo, nao configuracao**; so `SANDBOX_IMAGE` vem do ambiente. Veja [as flags, os numeros medidos e as pendencias](docs/t064-execucao-isolada.md).
+
+### Coleta e classificacao do resultado (T-065)
+
+`app/execucao/coleta.py` le a saida bruta e decide a classe do desfecho, uma vez, para que a api e o codegen a consumam sem reimplementa-la. Timeout, estouro de memoria, saida cortada, ausencia de envelope e envelope invalido, de outra execucao ou incoerente sao `erro_codigo`; excecao na regra tambem; comissao negativa e `assercao_violada`, distinta das duas; so a falha ao subir o container e `erro_infra`, o unico que repete o comando (ate 3 tentativas, DEC-091). O resultado de sucesso e validado contra `resultado-simulacao.schema.json` (`app/execucao/schema.py`, com o orcamento do comando acrescentado a uma copia) e segue como veio do container. Veja [a ordem da classificacao, a relacao com o `retry_count` e o que ela nao garante](docs/t065-coleta-e-classificacao.md).

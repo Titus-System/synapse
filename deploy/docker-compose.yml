@@ -105,6 +105,9 @@ services:
       RABBITMQ_PORT: 5672
       RABBITMQ_USER: ${RABBITMQ_DEFAULT_USER:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-guest}
+      # A imagem que o worker instancia por job. É construída pelo serviço `sandbox`
+      # abaixo, com a mesma TAG, e precisa existir no daemon do host antes do primeiro job.
+      SANDBOX_IMAGE: synapse-sandbox:${TAG:-local}
     ports:
       - '${WORKER_PORT:-8002}:8000'
     volumes:
@@ -126,6 +129,16 @@ services:
       retries: 3
     networks:
       - synapse-net
+
+  # Só constrói a imagem do sandbox: nunca sobe como serviço. Quem cria os containers
+  # dela, um por job e com as flags de isolamento, é o worker. O perfil `build` a deixa
+  # fora do `up`; construa com `docker compose --profile build build sandbox`.
+  sandbox:
+    build:
+      context: ..
+      dockerfile: worker/sandbox/Dockerfile
+    image: synapse-sandbox:${TAG:-local}
+    profiles: ['build']
 
   postgres:
     image: postgres:18-alpine

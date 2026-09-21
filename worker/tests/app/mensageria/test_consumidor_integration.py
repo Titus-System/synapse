@@ -2,6 +2,11 @@
 sessão falsas (`test_consumidor.py`) não alcançam: que `consumir_fila_execucao` de fato lê da
 fila declarada por `conectar` e que o `prefetch` 1 do canal real serializa o
 processamento de dois comandos publicados de uma vez.
+
+A fila é a de um vhost novo (`broker_real`). No vhost padrão, um worker do compose de pé é
+outro consumidor da mesma fila, e o RabbitMQ reparte as mensagens entre os dois: o teste
+receberia só metade. O `purge()` que havia aqui apagaria, além disso, os comandos pendentes
+desse ambiente.
 """
 
 import asyncio
@@ -14,7 +19,7 @@ import pytest
 from aio_pika import Message
 
 from app.mensageria import consumidor
-from app.mensageria.broker import conectar, desconectar
+from app.mensageria.broker import ConexaoBroker
 from app.repositorio.codigos_gerados import buscar_codigo as buscar_codigo_real
 
 if TYPE_CHECKING:
@@ -26,11 +31,10 @@ pytestmark = [pytest.mark.postgres, pytest.mark.rabbitmq]
 async def test_dois_comandos_reais_sao_processados_um_de_cada_vez(
     monkeypatch: pytest.MonkeyPatch,
     settings: "Settings",
+    broker_real: ConexaoBroker,
     codigo_gerado_seed: dict[str, object],
 ) -> None:
-    broker = await conectar()
-    await broker.fila.purge()
-
+    broker = broker_real
     ordem: list[str] = []
 
     async def buscar_codigo_instrumentado(sessao: object, codigo_gerado_id: object) -> object:
@@ -64,6 +68,5 @@ async def test_dois_comandos_reais_sao_processados_um_de_cada_vez(
         tarefa.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await tarefa
-        await desconectar(broker)
 
     assert ordem == ["entrou", "saiu", "entrou", "saiu"]
