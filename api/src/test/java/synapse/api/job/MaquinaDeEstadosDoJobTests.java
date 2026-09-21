@@ -139,6 +139,32 @@ class MaquinaDeEstadosDoJobTests {
 		}
 	}
 
+	// --- finalizado_em -----------------------------------------------------------------
+
+	@Test
+	void transicaoParaEstadoTerminalGravaFinalizadoEm() throws SQLException {
+		UUID jobId = criarJob();
+		Instant antes = Instant.now();
+		maquina.registrarCriacao(jobId, "sistema");
+
+		maquina.transicionar(jobId, JobStatus.CANCELADO, "rh", "usuário desistiu");
+
+		Instant depois = Instant.now();
+		Timestamp finalizadoEm = finalizadoEmPersistido(jobId);
+		assertThat(finalizadoEm).isNotNull();
+		assertThat(finalizadoEm.toInstant()).isBetween(antes, depois);
+	}
+
+	@Test
+	void transicaoIntermediariaDeixaFinalizadoEmNulo() throws SQLException {
+		UUID jobId = criarJob();
+		maquina.registrarCriacao(jobId, "sistema");
+
+		maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "sistema", null);
+
+		assertThat(finalizadoEmPersistido(jobId)).isNull();
+	}
+
 	// --- Recusas ----------------------------------------------------------------------
 
 	@Test
@@ -208,6 +234,16 @@ class MaquinaDeEstadosDoJobTests {
 				ResultSet rs = statement.executeQuery("SELECT status FROM jobs WHERE id = '%s'".formatted(jobId))) {
 			assertThat(rs.next()).isTrue();
 			return rs.getString("status");
+		}
+	}
+
+	private static Timestamp finalizadoEmPersistido(UUID jobId) throws SQLException {
+		try (Connection connection = comoDono();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement
+					.executeQuery("SELECT finalizado_em FROM jobs WHERE id = '%s'".formatted(jobId))) {
+			assertThat(rs.next()).isTrue();
+			return rs.getTimestamp("finalizado_em");
 		}
 	}
 
