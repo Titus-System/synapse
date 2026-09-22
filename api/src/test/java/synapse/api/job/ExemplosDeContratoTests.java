@@ -8,11 +8,15 @@ import java.util.Objects;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ExemplosDeContratoTests {
 
@@ -65,6 +69,7 @@ class ExemplosDeContratoTests {
 		assertThat(evento.job_id()).isEqualTo(UUID.fromString("3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"));
 		assertThat(evento.origem()).isEqualTo("formulario");
 		assertThat(evento.competencias()).containsExactly("2025-08", "2025-11");
+		assertThat(evento.orcamento()).isEqualByComparingTo("485000.0");
 		assertThat(evento.submissao_id()).isEqualTo(UUID.fromString("b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"));
 		assertThat(evento.regra_id()).isEqualTo(UUID.fromString("9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"));
 
@@ -88,6 +93,7 @@ class ExemplosDeContratoTests {
 		assertThat(evento.origem()).isEqualTo("voz");
 		assertThat(evento.submissao_id()).isEqualTo(UUID.fromString("d7e8f9a0-1b2c-4d3e-8f40-5a6b7c8d9e0f"));
 		assertThat(evento.regra_id()).isNull();
+		assertThat(evento.orcamento()).isNull();
 
 		ContratoDeEvento.validar("regra-submetida", Files.readString(exemplo("events/regra-submetida-voz.json")));
 	}
@@ -102,6 +108,41 @@ class ExemplosDeContratoTests {
 		assertThat(evento.veredito()).isEqualTo("inviavel");
 
 		ContratoDeEvento.validar("simulacao-concluida", Files.readString(exemplo("events/simulacao-concluida.json")));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "0", "485000.1234567890123456789" })
+	void schemaAceitaOrcamentoNaoNegativo(String valor) throws IOException {
+		ObjectNode payload = (ObjectNode) this.objectMapper
+			.readTree(Files.readString(exemplo("events/regra-submetida.json")));
+		payload.put("orcamento", new BigDecimal(valor));
+
+		ContratoDeEvento.validar("regra-submetida", payload.toString());
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "-0.01", "\"485000\"", "null", "true" })
+	void schemaRecusaOrcamentoInvalido(String valor) throws IOException {
+		ObjectNode payload = (ObjectNode) this.objectMapper
+			.readTree(Files.readString(exemplo("events/regra-submetida.json")));
+		payload.set("orcamento", this.objectMapper.readTree(valor));
+
+		assertThatThrownBy(() -> ContratoDeEvento.validar("regra-submetida", payload.toString()))
+			.isInstanceOf(AssertionError.class)
+			.hasMessageContaining("orcamento");
+	}
+
+	@Test
+	void orcamentoAusentePermaneceAusenteAoSerializar() throws IOException {
+		ObjectNode payload = (ObjectNode) this.objectMapper
+			.readTree(Files.readString(exemplo("events/regra-submetida.json")));
+		payload.remove("orcamento");
+		RegraSubmetidaDto evento = this.objectMapper.readValue(payload.toString(), RegraSubmetidaDto.class);
+
+		String serializado = this.objectMapper.writeValueAsString(evento);
+
+		assertThat(this.objectMapper.readTree(serializado).has("orcamento")).isFalse();
+		ContratoDeEvento.validar("regra-submetida", serializado);
 	}
 
 	private <T> T desserializar(String caminhoRelativo, Class<T> tipo) throws IOException {
