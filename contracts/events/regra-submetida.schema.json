@@ -38,15 +38,6 @@
         ]
       ]
     },
-    "orcamento": {
-      "allOf": [
-        {
-          "$ref": "../domain/comum.schema.json#/$defs/brl"
-        }
-      ],
-      "minimum": 0,
-      "description": "Orçamento do período, vindo de jobs.orcamento. Viaja como escalar porque o codegen não tem permissão em jobs. Opcional para compatibilidade com mensagens anteriores; ausência não significa zero."
-    },
     "submissao_id": {
       "type": "string",
       "format": "uuid",
@@ -108,7 +99,6 @@
         "2025-08",
         "2025-11"
       ],
-      "orcamento": 485000.0,
       "submissao_id": "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93",
       "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
     }

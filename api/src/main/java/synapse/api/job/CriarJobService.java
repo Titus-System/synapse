@@ -64,8 +64,8 @@ class CriarJobService {
 				VALUES (?, 1, 'confirmacao_usuario', ?::jsonb, '[]'::jsonb, ?, ?) RETURNING id
 				""", UUID.class, jobId, this.json.writeValueAsString(representacao.nucleo()), hash, timestamp));
 		RegraCriadaDto regra = new RegraCriadaDto(regraId, 1, "confirmacao_usuario", representacao, agora);
-		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, new RegraSubmetidaDto(jobId, requisicao.origem(),
-				requisicao.competencias(), requisicao.orcamento(), submissaoId, regraId));
+		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA,
+				new RegraSubmetidaDto(jobId, requisicao.origem(), requisicao.competencias(), submissaoId, regraId));
 		return new JobCriadoDto(jobId, status, requisicao.origem(), requisicao.competencias(), requisicao.orcamento(),
 				agora, submissaoId, regra);
 	}

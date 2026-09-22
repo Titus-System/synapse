@@ -22,7 +22,6 @@ import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.rabbitmq.RabbitMQContainer;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.amqp.core.Message;
@@ -58,9 +57,7 @@ class RegraSubmetidaPublicacaoTests {
 
 	private static final HttpClient HTTP = HttpClient.newHttpClient();
 
-	private static final JsonMapper JSON = JsonMapper.builder()
-		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
-		.build();
+	private static final JsonMapper JSON = new JsonMapper();
 
 	private static PostgreSQLContainer postgres;
 
@@ -153,8 +150,6 @@ class RegraSubmetidaPublicacaoTests {
 		String corpoPublicado = new String(mensagem.getBody(), StandardCharsets.UTF_8);
 		ContratoDeEvento.validar("regra-submetida", corpoPublicado);
 		JsonNode payload = JSON.readTree(corpoPublicado);
-		assertThat(payload.path("orcamento").isNumber()).isTrue();
-		assertThat(payload.path("orcamento").decimalValue()).isEqualByComparingTo("485000.1234567890123456789");
 		assertThat(payload.path("job_id").asString()).isEqualTo(jobId.toString());
 		assertThat(payload.path("origem").asString()).isEqualTo("formulario");
 		assertThat(payload.path("competencias").valueStream().map(JsonNode::asString).toList())

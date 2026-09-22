@@ -189,8 +189,6 @@ class CriarJobPersistenciaTests {
 		String payload = Objects.requireNonNull((String) evento.get("payload"));
 		ContratoDeEvento.validar("regra-submetida", payload);
 		var payloadNode = JSON.readTree(payload);
-		assertThat(payloadNode.path("orcamento").isNumber()).isTrue();
-		assertThat(payloadNode.path("orcamento").decimalValue()).isEqualByComparingTo("485000.1234567890123456789");
 		assertThat(payloadNode.path("job_id").asString()).isEqualTo(jobId.toString());
 		assertThat(payloadNode.path("origem").asString()).isEqualTo("formulario");
 		assertThat(payloadNode.path("competencias").valueStream().map(JsonNode::asString).toList())

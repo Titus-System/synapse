@@ -335,13 +335,11 @@ referencia (ARCHITECTURE.md §6.1 regra 2). Parametro escalar viaja, porque code
 worker nao tem permissao alguma em jobs - o job_id e chave de correlacao, nao ponteiro
 que o consumidor consiga dereferenciar.
 regra-submetida:        { "job_id": "<uuid>", "submissao_id": "<uuid>", "origem": "formulario",
-                          "competencias": ["2025-08", "2025-11"], "orcamento": 485000.0,
-                          "regra_id": "<uuid>" }
+                          "competencias": ["2025-08", "2025-11"], "regra_id": "<uuid>" }
 parametros-confirmados: { "job_id": "<uuid>", "regra_id": "<uuid>" }
 - origem: NAO existe como coluna de jobs. A API a resolve de submissoes.tipo, ou de
   "reprocessamento" quando jobs.submissao_id e null.
 - competencias: vem de jobs.competencias, pelo mesmo motivo.
-- orcamento: vem de jobs.orcamento; opcional para compatibilidade, ausencia nao significa zero.
 Espelha contracts/events/regra-submetida.schema.json e
 parametros-confirmados.schema.json (a criar). Sem additionalProperties: false;
 campos novos sempre opcionais (evolucao aditiva - ADR-002).
