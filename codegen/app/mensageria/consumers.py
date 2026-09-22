@@ -9,6 +9,7 @@ from app.contratos.mensagens import ParametrosConfirmados, RegraSubmetida, Simul
 from app.contratos.validacao import validar
 from app.core.logger import get_logger, job_id_ctx
 from app.mensageria.roteamento import JobDesconhecidoError, RoteadorGrafo
+from app.repositorio.regras import RegraInvalidaError
 
 logger = get_logger("app.mensageria.consumers")
 
@@ -67,6 +68,18 @@ class Consumer:
                     extra={
                         "tipo_mensagem": self.nome,
                         "causa": "job_desconhecido",
+                        "decisao": "reject_sem_requeue",
+                    },
+                )
+                await mensagem.reject(requeue=False)
+            except RegraInvalidaError:
+                # Regra inexistente ou inválida é uma condição permanente: reentregar não a
+                # torna válida, então esta rejeição não usa requeue.
+                logger.warning(
+                    "regra inexistente ou inválida",
+                    extra={
+                        "tipo_mensagem": self.nome,
+                        "causa": "regra_invalida",
                         "decisao": "reject_sem_requeue",
                     },
                 )
