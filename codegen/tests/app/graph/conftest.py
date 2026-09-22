@@ -36,7 +36,7 @@ def scripted_model(
     def install(responses: Iterable[AIMessage]) -> FakeChatModel:
         replies: Iterator[AIMessage] = iter(responses)
         model = FakeChatModel(messages=replies)
-        monkeypatch.setattr("app.graph.nodes.calculator.get_model", lambda name: model)
+        monkeypatch.setattr("app.graph.nodes.code_generation.get_model", lambda name: model)
         return model
 
     return install
