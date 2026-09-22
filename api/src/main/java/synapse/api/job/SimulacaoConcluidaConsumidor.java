@@ -78,6 +78,11 @@ class SimulacaoConcluidaConsumidor {
 				return;
 			}
 
+			if (aplicado.avancouDeGerandoRegra()) {
+				this.emissores.emitir(jobId, EventoSse.de("estado",
+						EventoEstadoDto.transicao(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO, null)));
+			}
+
 			// "resultado" sai antes de "estado" (skill sse): um "estado" terminal fecha
 			// o stream, e o que viesse depois se perderia.
 			UUID simulacaoId = aplicado.simulacaoId();

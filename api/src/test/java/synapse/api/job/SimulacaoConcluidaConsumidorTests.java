@@ -313,6 +313,33 @@ class SimulacaoConcluidaConsumidorTests {
 	}
 
 	/**
+	 * As filas de {@code etapa-alterada} e {@code simulacao-concluida} não têm ordem
+	 * entre si: o resultado pode chegar com o job ainda em {@code gerando_regra}. O job
+	 * passa por {@code simulando} e o stream anuncia as duas transições, na ordem.
+	 */
+	@Test
+	void resultadoQueChegaComOJobEmGerandoRegraPassaPorSimulando() throws Exception {
+		UUID jobId = criarJob(JobStatus.GERANDO_REGRA);
+		StreamCliente cliente = conectar(jobId);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
+		Simulacao simulacao = criarSimulacaoPendente(jobId);
+		UUID resultadoId = criarResultado(jobId, simulacao.codigoGeradoId(), "sucesso", "inviavel");
+
+		publicar(jobId, resultadoId, "sucesso", "inviavel");
+
+		cliente.aguardarBloco("\"status\":\"simulacao_inviavel\"", Duration.ofSeconds(10));
+		String conteudo = cliente.conteudo();
+		int paraSimulando = conteudo.indexOf("\"status\":\"simulando\"");
+		int resultado = conteudo.indexOf("event:resultado");
+		int paraInviavel = conteudo.indexOf("\"status\":\"simulacao_inviavel\"");
+		assertThat(paraSimulando).isPositive().isLessThan(resultado);
+		assertThat(resultado).isLessThan(paraInviavel);
+		List<Transicao> transicoes = transicoesRegistradas(jobId);
+		assertThat(transicoes).extracting(Transicao::destino).containsExactly("simulando", "simulacao_inviavel");
+		assertThat(transicoes.getFirst().motivo()).isEqualTo("simulacao_concluida_antecipada");
+	}
+
+	/**
 	 * O schema do evento HTTP {@code EventoResultado} declara {@code veredito} ausente
 	 * fora de {@code status: sucesso}. Um veredito presente por engano num status de erro
 	 * - dado não confiável, vindo do worker - não pode vazar para o SSE, mesmo quando há

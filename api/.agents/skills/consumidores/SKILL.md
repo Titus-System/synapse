@@ -6,7 +6,8 @@ description: Como consumir uma fila do RabbitMQ nesta api - o RabbitListenerConf
 # Consumidores
 
 `EtapaAlteradaConsumidor` (T-044) é o primeiro `@RabbitListener` do repositório e fixa o
-padrão para os que virão (`simulacao-concluida`, T-045; `no-concluido`, T-046).
+padrão para os que vieram depois: `SimulacaoConcluidaConsumidor` (T-045) e
+`NoConcluidoConsumidor` (T-046).
 
 ## O `MessageConverter`
 
@@ -44,30 +45,34 @@ JSON que não corresponde a nenhum record é `MessageConversionException`, e o
 rejeitada sem requeue, não some silenciosamente nem volta em loop. Não é preciso capturar
 nada para este caso - é o comportamento default do container.
 
-## Deduplicação: exceção, não regra
+## Deduplicação: sem tabela dedicada, cada consumidor com o próprio mecanismo
 
 `api/AGENTS.md` exige consumidor idempotente porque uma redelivery não pode duplicar efeito
-financeiro nem criar um segundo job. `EtapaAlteradaConsumidor` é a exceção deliberada: o
-evento é puramente informativo (repassa progresso ao SSE, nunca escreve estado), e
-`etapa-alterada` nem carrega `message_id` - o codegen só o define para `no-concluido`
-(`producers.py`). Reemitir a mesma etapa duas vezes ao mesmo cliente é inofensivo.
+financeiro nem criar um segundo job. Nenhum dos três usa uma tabela de deduplicação
+própria; cada um se apoia no que já tem:
 
-Um consumidor que **escreve** estado precisa deduplicar antes de gravar, de uma de duas
-formas:
-
-- **Por `evento_id`**, quando a mensagem carrega um - `no-concluido` prevê isso com um
-  índice único em `trilhas_auditoria.evento_id`.
+- **Por `evento_id`** - `no-concluido` (`NoConcluidoConsumidor`, T-046) é o único evento
+  que carrega um, e o índice único em `trilhas_auditoria.evento_id` rejeita a reentrega no
+  próprio `INSERT` (`ON CONFLICT (evento_id) DO NOTHING`).
 - **Pela própria máquina de estados**, quando não há `evento_id` - `simulacao-concluida`
-  (`SimulacaoConcluidaConsumidor`, T-045) é o caso: uma redelivery ou um evento fora de
-  ordem encontram o job já fora do estado de origem esperado, `transicionar` lança
-  `TransicaoDeStatusInvalidaException` e a transação inteira desfaz. Isso só deduplica
-  porque o job nunca tem aresta de volta a um estado por onde já passou - não é um recurso
-  geral, é uma propriedade do grafo (`JobStatus`) que só se aplica quando o evento em
-  questão é o único a produzir aquela transição.
+  (`SimulacaoConcluidaConsumidor`, T-045) e `etapa-alterada` (`EtapaAlteradaConsumidor`,
+  T-044) são o caso: `MaquinaDeEstadosDoJob.avancarSeEm` só age quando o job ainda está na
+  origem esperada, e devolve `false` sem exceção quando uma redelivery ou um evento fora de
+  ordem já o encontram adiante. `transicionar` (usado por `simulacao-concluida` para o
+  desfecho final, que não tolera fora de ordem) lança `TransicaoDeStatusInvalidaException`
+  no mesmo caso, e a transação inteira desfaz. Isso só deduplica porque o job nunca tem
+  aresta de volta a um estado por onde já passou - não é um recurso geral, é uma
+  propriedade do grafo (`JobStatus`) que só se aplica quando o evento em questão é o único
+  a produzir aquela transição.
+- **Idempotência de escrita** (`INSERT ... ON CONFLICT DO NOTHING`) para o que não é
+  transição de estado - `NoConcluidoService` grava `simulacoes` assim, porque a mesma linha
+  pode ser tentada de novo por uma redelivery do próprio `no-concluido` ou pela ordem
+  trocada com `simulacao-concluida`.
 
-Nos dois casos, capture só a exceção de negócio (`TransicaoDeStatusInvalidaException`, uma
-constraint única violada). Uma falha de banco não é isso - ela deve propagar e virar
-redelivery de verdade, que é a garantia que a seção seguinte documenta.
+Em todos os casos, capture só a exceção de negócio esperada (`TransicaoDeStatusInvalidaException`,
+uma constraint única violada) ou trate-a como não-exceção (`avancarSeEm`, `ON CONFLICT`).
+Uma falha de banco não é isso - ela deve propagar e virar redelivery de verdade, que é a
+garantia que a seção seguinte documenta.
 
 ## Por que `default-requeue-rejected` continua `true`
 
@@ -80,5 +85,6 @@ consumidor nunca lançar (acima).
 
 - Configuração do container: [`RabbitListenerConfig`](../../../src/main/java/synapse/api/core/messaging/RabbitListenerConfig.java)
 - Primeiro consumidor: [`EtapaAlteradaConsumidor`](../../../src/main/java/synapse/api/job/EtapaAlteradaConsumidor.java)
+- Deduplicação por `evento_id`: [`NoConcluidoConsumidor`](../../../src/main/java/synapse/api/job/NoConcluidoConsumidor.java)
 - Publicação: [`outbox`](../outbox/SKILL.md)
 - Catálogo de mensagens: `docs/ARCHITECTURE.md` §6.3

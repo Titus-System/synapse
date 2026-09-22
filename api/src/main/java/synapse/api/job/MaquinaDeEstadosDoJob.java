@@ -59,6 +59,25 @@ public class MaquinaDeEstadosDoJob {
 	}
 
 	/**
+	 * Como {@link #transicionar}, mas só age se o job ainda está em
+	 * {@code origemEsperada}: devolve {@code false}, sem transição, quando ele já saiu de
+	 * lá. É o que faz uma reentrega ou um evento fora de ordem virar no-op em vez de
+	 * exceção.
+	 */
+	@Transactional
+	public boolean avancarSeEm(UUID jobId, JobStatus origemEsperada, JobStatus destino, String ator,
+			@Nullable String motivo) {
+		if (statusAtual(jobId) != origemEsperada) {
+			return false;
+		}
+		if (!origemEsperada.permiteTransicaoPara(destino)) {
+			throw new TransicaoDeStatusInvalidaException(origemEsperada, destino);
+		}
+		registrarTransicao(jobId, origemEsperada, destino, ator, motivo);
+		return true;
+	}
+
+	/**
 	 * Trava a linha do job para a duração da transação: um evento fora de ordem e uma
 	 * ação do usuário disputando o mesmo job serializam em vez de correr sobre o mesmo
 	 * status atual.

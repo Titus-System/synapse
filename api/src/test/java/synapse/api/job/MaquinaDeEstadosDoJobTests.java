@@ -165,6 +165,47 @@ class MaquinaDeEstadosDoJobTests {
 		assertThat(finalizadoEmPersistido(jobId)).isNull();
 	}
 
+	// --- avancarSeEm -------------------------------------------------------------------
+
+	@Test
+	void avancarSeEmMoveOJobQuandoEleEstaNaOrigemEsperada() throws SQLException {
+		UUID jobId = criarJob();
+		maquina.registrarCriacao(jobId, "sistema");
+		maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "sistema", null);
+
+		boolean avancou = maquina.avancarSeEm(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO, "evento", null);
+
+		assertThat(avancou).isTrue();
+		assertThat(statusPersistido(jobId)).isEqualTo("simulando");
+		assertThat(transicoesRegistradas(jobId)).endsWith("gerando_regra->simulando");
+	}
+
+	@Test
+	void avancarSeEmNaoFazNadaQuandoOJobJaSaiuDaOrigemEsperada() throws SQLException {
+		UUID jobId = criarJob();
+		maquina.registrarCriacao(jobId, "sistema");
+		maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "sistema", null);
+		maquina.transicionar(jobId, JobStatus.SIMULANDO, "sistema", null);
+
+		boolean avancou = maquina.avancarSeEm(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO, "evento", null);
+
+		assertThat(avancou).isFalse();
+		assertThat(statusPersistido(jobId)).isEqualTo("simulando");
+		assertThat(transicoesRegistradas(jobId)).hasSize(3);
+	}
+
+	@Test
+	void avancarSeEmRecusaUmDestinoForaDoGrafoMesmoNaOrigemEsperada() throws SQLException {
+		UUID jobId = criarJob();
+		maquina.registrarCriacao(jobId, "sistema");
+		maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "sistema", null);
+
+		assertThatExceptionOfType(TransicaoDeStatusInvalidaException.class)
+			.isThrownBy(() -> maquina.avancarSeEm(jobId, JobStatus.GERANDO_REGRA, JobStatus.LIBERADO, "evento", null));
+
+		assertThat(statusPersistido(jobId)).isEqualTo("gerando_regra");
+	}
+
 	// --- Recusas ----------------------------------------------------------------------
 
 	@Test
