@@ -47,6 +47,15 @@
       "type": "string",
       "format": "uuid",
       "description": "Versão da regra em regras. Presente quando a regra já está formada na submissão, que é o caso do formulário, e quando o reprocessamento parte de uma versão existente. Ausente na origem voz, em que a regra só nasce depois da extração."
+    },
+    "orcamento": {
+      "allOf": [
+        {
+          "$ref": "../domain/comum.schema.json#/$defs/brl"
+        }
+      ],
+      "minimum": 0,
+      "description": "Critério de orçamento do período, vindo de jobs.orcamento. Ausente quando o job ainda não tem orçamento definido; o codegen carrega o valor no estado do grafo sem usá-lo para decidir viabilidade, que é apuração do worker sobre dados reais."
     }
   },
   "allOf": [
