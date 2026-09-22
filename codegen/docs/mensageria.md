@@ -66,6 +66,7 @@ da persistência e antes do ACK. T-049 não implementa nós nem checkpointer.
 | Falha de processamento | `nack(requeue=True)` |
 | JSON/DTO/schema inválido | `reject(requeue=False)` |
 | `JobDesconhecidoError` do roteador | `reject(requeue=False)` e log correlacionado |
+| `RegraInvalidaError` do roteador | `reject(requeue=False)` e log correlacionado |
 | Cancelamento | sem ACK; fechamento da conexão devolve mensagens não confirmadas |
 
 A rejeição de mensagens inválidas e jobs desconhecidos é a decisão mínima local
@@ -74,6 +75,13 @@ essas rejeições descartam a mensagem.** Ausência de roteador configurado não
 desconhecido: nesse caso nenhum consumer é iniciado e as mensagens ficam nas filas.
 Falhas transitórias usam a reentrega do broker, sem republicação/retry manual.
 Sem backoff configurado, uma falha persistente pode causar reentregas repetidas.
+
+`RegraInvalidaError` (`app/repositorio/regras.py`) sinaliza que a regra referenciada
+por `regra_id` não existe para o `job_id`, ou que falha o contrato de
+`RepresentacaoRegra`, dentro do nó `load_rule`. Reentregar não torna a regra válida,
+então essa falha é permanente como `JobDesconhecidoError`, e usa a mesma decisão:
+`reject(requeue=False)`, nunca `nack`. A exceção nunca carrega o conteúdo da regra,
+só a correlação do job.
 
 Para o comando de saída `executar-codigo`, a
 [DEC-091](../../docs/decisoes/dec-091.md) define retry gerenciado pela aplicação no

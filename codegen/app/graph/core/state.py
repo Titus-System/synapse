@@ -1,7 +1,7 @@
 """The one shared state schema every node in the graph reads and writes."""
 
 from collections.abc import Sequence
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
@@ -27,3 +27,16 @@ class AgentState(TypedDict, total=False):
     origem: str
     competencias: list[str]
     orcamento: str  # decimal text, never float - see `app/tipos_estado.py::Orcamento`
+
+    # T-096 (this task)
+    representacao_regra: dict[str, Any]
+    prompt_enviado: str
+    resposta_bruta: str
+    modelo: dict[str, Any]
+    consumo_tokens: dict[str, Any]
+
+    # T-097
+    prompt_id: str
+    resposta_id: str
+    codigo_fonte: str
+    codigo_gerado_id: str
