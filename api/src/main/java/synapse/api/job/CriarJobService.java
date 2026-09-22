@@ -52,13 +52,13 @@ class CriarJobService {
 				VALUES (?, ?, ?::jsonb, ?) RETURNING id
 				""", UUID.class, usuarioId, requisicao.origem(), this.json.writeValueAsString(requisicao.conteudo()),
 				timestamp));
-		String status = JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS.paraColuna();
+		String status = JobStatus.GERANDO_REGRA.paraColuna();
 		UUID jobId = Objects.requireNonNull(this.jdbc.queryForObject("""
 				INSERT INTO jobs (status, usuario_id, submissao_id, competencias, orcamento, criado_em)
 				VALUES (?, ?, ?, ?, ?, ?) RETURNING id
 				""", UUID.class, status, usuarioId, submissaoId,
 				new SqlArrayValue("text", requisicao.competencias().toArray()), requisicao.orcamento(), timestamp));
-		this.maquina.registrarCriacao(jobId, "usuario");
+		this.maquina.registrarCriacao(jobId, JobStatus.GERANDO_REGRA, "usuario");
 		UUID regraId = Objects.requireNonNull(this.jdbc.queryForObject("""
 				INSERT INTO regras (job_id, versao, origem, nucleo, especificacoes, hash, criada_em)
 				VALUES (?, 1, 'confirmacao_usuario', ?::jsonb, '[]'::jsonb, ?, ?) RETURNING id

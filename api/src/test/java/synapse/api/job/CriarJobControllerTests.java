@@ -53,7 +53,7 @@ class CriarJobControllerTests {
 		UUID jobId = UUID.randomUUID();
 		when(this.service.criar(any())).thenAnswer(invocacao -> {
 			CriarJobRequisicao requisicao = invocacao.getArgument(0);
-			return new JobCriadoDto(jobId, "aguardando_confirmacao_parametros", "formulario", requisicao.competencias(),
+			return new JobCriadoDto(jobId, "gerando_regra", "formulario", requisicao.competencias(),
 					requisicao.orcamento(), Instant.parse("2026-09-16T15:00:00Z"), UUID.randomUUID(),
 					new RegraCriadaDto(UUID.randomUUID(), 1, "confirmacao_usuario", requisicao.representacao(),
 							Instant.parse("2026-09-16T15:00:00Z")));
@@ -62,7 +62,7 @@ class CriarJobControllerTests {
 		String resposta = this.mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(FORMULARIO))
 			.andExpect(status().isCreated())
 			.andExpect(header().string("Location", "/api/jobs/" + jobId))
-			.andExpect(jsonPath("$.status").value("aguardando_confirmacao_parametros"))
+			.andExpect(jsonPath("$.status").value("gerando_regra"))
 			.andExpect(jsonPath("$.regra.versao").value(1))
 			.andExpect(jsonPath("$.regra.origem").value("confirmacao_usuario"))
 			.andExpect(jsonPath("$.regra.representacao.especificacoes").isEmpty())

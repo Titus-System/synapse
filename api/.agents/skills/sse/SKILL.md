@@ -30,12 +30,14 @@ emissores.emitir(jobId, EventoSse.de("etapa", new EventoEtapaDto(jobId, "geracao
 ## Ordem entre eventos de um mesmo fato
 
 Quando um único fato produz mais de um evento - a simulação concluída anuncia `resultado`
-e, na sequência, `estado` (`SimulacaoConcluidaConsumidor`, T-045) -, **emita nessa ordem, no
-mesmo método, antes de qualquer um deles poder fechar o stream**. Um evento `estado`
+e, na sequência, `estado` (`SimulacaoConcluidaConsumidor`, T-045); entrar em
+`delegacao_worker` ou receber `status: erro` anuncia `etapa` e, quando o job estava em
+`gerando_regra`, também `estado` (`EtapaAlteradaConsumidor`, T-044) -, **emita nessa ordem,
+no mesmo método, antes de qualquer um deles poder fechar o stream**. Um evento `estado`
 terminal (`JobStatus.terminal()`) faz `emitir` remover e completar todo emissor daquele job
-(ver `EmissoresSse.emitir`); emitir `estado` primeiro descartaria o `resultado` que viria
-depois - o cliente já teria se desconectado. Não há reordenação nem buffer no lado do
-transporte: quem produz os eventos é quem garante a ordem.
+(ver `EmissoresSse.emitir`); emitir `estado` primeiro descartaria o evento que viria depois
+- o cliente já teria se desconectado. Não há reordenação nem buffer no lado do transporte:
+quem produz os eventos é quem garante a ordem.
 
 ## `id` sequencial e heartbeat
 

@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '@/services/api'
 import { HttpError } from '@/services/http'
-import type { CriarJobRequisicao, Job } from '@/types/api'
+import { jobCriadoFixture } from '@/services/job.fixtures'
 import { useFormularioRegra } from './useFormularioRegra'
 
 vi.mock('@/services/api', () => ({
   apiClient: {
-    criarJob: vi.fn<(requisicao: CriarJobRequisicao, sinal?: AbortSignal) => Promise<Job>>(),
+    criarJob: vi.fn<typeof apiClient.criarJob>(),
   },
 }))
 
@@ -38,7 +38,7 @@ describe('useFormularioRegra', () => {
   })
 
   it('envia o núcleo no formato previsto pelo contrato', async () => {
-    criarJob.mockResolvedValue({ id: 'job-1' } as never)
+    criarJob.mockResolvedValue(jobCriadoFixture())
     const formulario = preencherFormularioValido()
 
     await formulario.enviarFormulario()
@@ -62,7 +62,9 @@ describe('useFormularioRegra', () => {
   it('destaca o campo apontado pela validação da API', async () => {
     criarJob.mockRejectedValue(
       new HttpError(422, 'Percentual de comissionamento: Informe um valor válido.', {
-        fieldErrors: [{ field: 'Percentual de comissionamento', message: 'Informe um valor válido.' }],
+        fieldErrors: [
+          { field: 'Percentual de comissionamento', message: 'Informe um valor válido.' },
+        ],
       }),
     )
     const formulario = preencherFormularioValido()
@@ -70,5 +72,33 @@ describe('useFormularioRegra', () => {
     await formulario.enviarFormulario()
 
     expect(formulario.erros.percentual).toBe('Informe um valor válido.')
+  })
+
+  it('devolve o job já em geração, sem etapa de confirmação', async () => {
+    const criado = jobCriadoFixture({ status: 'gerando_regra' })
+    criarJob.mockResolvedValue(criado)
+    const formulario = preencherFormularioValido()
+
+    const resposta = await formulario.enviarFormulario()
+
+    expect(resposta).toEqual(criado)
+    expect(criarJob).toHaveBeenCalledOnce()
+  })
+
+  it('bloqueia o duplo envio enquanto a criação está em curso', async () => {
+    let resolver!: (job: ReturnType<typeof jobCriadoFixture>) => void
+    criarJob.mockReturnValue(
+      new Promise((resolve) => {
+        resolver = resolve
+      }),
+    )
+    const formulario = preencherFormularioValido()
+
+    const primeiro = formulario.enviarFormulario()
+    expect(await formulario.enviarFormulario()).toBeUndefined()
+    resolver(jobCriadoFixture())
+    await primeiro
+
+    expect(criarJob).toHaveBeenCalledOnce()
   })
 })

@@ -22,7 +22,7 @@
     "status": {
       "type": "string",
       "minLength": 1,
-      "description": "Situação reportada pelo codegen para a etapa iniciada. A API a traduz para o estado do job, de que ela é dona, e repassa o progresso ao frontend. O vocabulário ainda não está fechado."
+      "description": "Situação reportada pelo codegen para a etapa iniciada. A API a traduz para o estado do job, de que ela é dona, e repassa o progresso ao frontend. Dois valores movem o job, ambos só enquanto ele está em gerando_regra: iniciada na etapa delegacao_worker o leva a simulando, e erro (em qualquer etapa) o leva a erro. Os demais valores só são repassados ao frontend. O vocabulário ainda não está fechado."
     }
   },
   "examples": [

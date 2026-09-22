@@ -1,7 +1,7 @@
 import { reactive, ref } from 'vue'
 import { apiClient } from '@/services/api'
 import { HttpError } from '@/services/http'
-import type { CriarJobRequisicao, Job } from '@/types/api'
+import type { CriarJobRequisicao, JobCriado } from '@/types/api'
 import type { CampoDoFormulario, FormularioDeRegra, OpcaoDeVigencia } from '../types'
 
 const opcoesDeVigencia: readonly OpcaoDeVigencia[] = [
@@ -155,7 +155,8 @@ export function useFormularioRegra() {
     formulario.orcamento = formatarOrcamento(formulario.orcamento)
   }
 
-  async function enviarFormulario(): Promise<Job | undefined> {
+  async function enviarFormulario(): Promise<JobCriado | undefined> {
+    if (enviando.value) return undefined
     mensagemDoFormulario.value = ''
     if (!validarFormulario()) {
       mensagemDoFormulario.value = 'Revise os campos destacados antes de continuar.'

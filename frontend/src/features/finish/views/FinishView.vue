@@ -1,185 +1,138 @@
 <script setup lang="ts">
-import {transformarRegra, transformarResultado} from '../composables/transformarRegra'
-import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { apiClient } from '@/services/api'
-import type { Job } from '@/types/api'
-import TheProcessHeader from '@/components/TheProcessHeader.vue'
-import TheSidebar from '@/components/TheSidebar.vue'
+import {
+  transformarRegra,
+  transformarResultado,
+} from "../composables/transformarRegra";
+import { computed, onUnmounted, ref, watch } from "vue";
+import { storeToRefs } from "pinia";
+import { useRoute, useRouter } from "vue-router";
+import { apiClient } from "@/services/api";
+import { HttpError } from "@/services/http";
+import { regraMaisRecente, simulacaoVisivel } from "@/services/job";
+import { usarStoreJobAtual } from "@/stores/currentJob";
+import TheProcessHeader from "@/components/TheProcessHeader.vue";
+import TheSidebar from "@/components/TheSidebar.vue";
 
-const rota = useRoute()
-const roteador = useRouter()
+const rota = useRoute();
+const roteador = useRouter();
+const store = usarStoreJobAtual();
+const { job, carregando } = storeToRefs(store);
+const jobId = computed(() => String(rota.params.id));
+const regra = computed(() => regraMaisRecente(job.value?.regras ?? []));
+const simulacao = computed(() => simulacaoVisivel(job.value));
+const erroCarregamento = computed(() => store.erro !== null);
+const acaoProcessando = ref<"salvar" | "arquivar" | null>(null);
+const alerta = ref<{ tipo: "sucesso" | "erro"; mensagem: string } | null>(null);
+const podeSalvar = computed(
+  () => job.value?.status === "aguardando_decisao_usuario",
+);
+const podeArquivar = computed(() =>
+  ["aguardando_decisao_usuario", "simulacao_inviavel"].includes(
+    job.value?.status ?? "",
+  ),
+);
+let temporizadorAlerta: ReturnType<typeof setTimeout> | null = null;
+let temporizadorNavegacao: ReturnType<typeof setTimeout> | null = null;
+let ciclo = 0;
 
-const job = ref<Job | null>(null)
+function limparTemporizadores() {
+  if (temporizadorAlerta) clearTimeout(temporizadorAlerta);
+  if (temporizadorNavegacao) clearTimeout(temporizadorNavegacao);
+}
 
-const jobId = computed(() => String(rota.params.id))
-
-const carregando = ref(true)
-const erroCarregamento = ref(false)
-
-const acaoProcessando = ref<'salvar' | 'arquivar' | null>(null)
-
-const alerta = ref<{
-  tipo: 'sucesso' | 'erro'
-  mensagem: string
-} | null>(null)
-
-let temporizadorAlerta: ReturnType<typeof setTimeout> | null = null
-
-function exibirAlerta(
-  tipo: 'sucesso' | 'erro',
-  mensagem: string,
-): void {
-  if (temporizadorAlerta) {
-    clearTimeout(temporizadorAlerta)
-  }
-
-  alerta.value = {
-    tipo,
-    mensagem,
-  }
-
+function exibirAlerta(tipo: "sucesso" | "erro", mensagem: string) {
+  if (temporizadorAlerta) clearTimeout(temporizadorAlerta);
+  alerta.value = { tipo, mensagem };
   temporizadorAlerta = setTimeout(() => {
-    alerta.value = null
-  }, 4000)
+    alerta.value = null;
+  }, 4000);
 }
 
-async function carregarJob(): Promise<void> {
-  carregando.value = true
-  erroCarregamento.value = false
-
+async function executarAcao(acao: "salvar" | "arquivar"): Promise<void> {
+  if (
+    !job.value ||
+    acaoProcessando.value ||
+    carregando.value ||
+    erroCarregamento.value
+  )
+    return;
+  if (acao === "salvar" ? !podeSalvar.value : !podeArquivar.value) return;
+  const atual = ciclo;
+  const id = job.value.id;
+  acaoProcessando.value = acao;
+  alerta.value = null;
   try {
-    job.value = await apiClient.consultarJob(jobId.value)
-  } catch (error) {
-    console.error('ERRO AO CARREGAR JOB:', error)
-    erroCarregamento.value = true
-  } finally {
-    carregando.value = false
-  }
-}
-
-async function executarAcao(
-  acao: 'salvar' | 'arquivar',
-): Promise<void> {
-  if (!job.value) {
-    return
-  }
-
-  acaoProcessando.value = acao
-  alerta.value = null
-
-  try {
-    await apiClient.executarAcao(
-      job.value.id,
-      { acao },
-    )
-
+    const atualizado = await apiClient.executarAcao(id, { acao });
+    if (atual !== ciclo) return;
+    store.aplicarJob(atualizado);
     exibirAlerta(
-      'sucesso',
-      acao === 'salvar'
-        ? 'Regra salva com sucesso!'
-        : 'Regra arquivada com sucesso!',
-    )
-
-    setTimeout(() => {
-      roteador.push('/nova-regra')
-    }, 1200)
-  } catch (error) {
+      "sucesso",
+      acao === "salvar"
+        ? "Regra salva com sucesso!"
+        : "Regra arquivada com sucesso!",
+    );
+    temporizadorNavegacao = setTimeout(() => {
+      if (atual === ciclo) void roteador.push("/nova-regra");
+    }, 1200);
+  } catch (falha) {
+    if (atual !== ciclo) return;
     exibirAlerta(
-      'erro',
-      error instanceof Error
-        ? error.message
-        : 'Não foi possível concluir a ação.',
-    )
+      "erro",
+      falha instanceof HttpError
+        ? falha.message
+        : "Não foi possível concluir a ação. Tente novamente.",
+    );
+    if (falha instanceof HttpError && falha.status === 409)
+      await store.consultarJob();
   } finally {
-    acaoProcessando.value = null
+    if (atual === ciclo) acaoProcessando.value = null;
   }
 }
 
-const dataRegra = computed(() => {
-  const valor = job.value?.regra?.criada_em
+const dataRegra = computed(() =>
+  regra.value
+    ? new Date(regra.value.criada_em).toLocaleString("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "",
+);
+const baixaRastreabilidade = computed(
+  () => simulacao.value?.flag_baixa_rastreabilidade === true,
+);
+const tituloRegra = computed(() =>
+  regra.value ? `Regra ${regra.value.id.slice(0, 6)}` : "Nova Regra",
+);
+const regraFormatada = computed(() =>
+  regra.value
+    ? transformarRegra(regra.value.representacao)
+    : { se: [], entao: [] },
+);
+const resultadoFormatado = computed(() =>
+  simulacao.value?.status === "sucesso" && simulacao.value.resultado
+    ? transformarResultado(simulacao.value.resultado)
+    : [],
+);
 
-  if (!valor) return ''
-
-  return new Date(valor).toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-})
-
-const baixaRastreabilidade = computed(() => {
-  return job.value?.simulacao?.flag_baixa_rastreabilidade === true
-})
-
-const tituloRegra = computed(() => {
-  const regra = job.value?.regra
-
-  if (!regra) return 'Nova Regra'
-
-  if (regra.id) {
-    return `Regra ${regra.id.slice(0, 6)}`
-  }
-
-  if (regra.criada_em) {
-    const data = new Date(regra.criada_em).toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    })
-
-    return `Regra ${data}`
-  }
-
-  return 'Nova Regra'
-})
-
-const regraFormatada = computed(() => {
-  const representacao = job.value?.regra?.representacao
-
-  if (!representacao) {
-    return {
-      se: [],
-      entao: [],
-    }
-  }
-
-  try {
-    const resultado = transformarRegra(representacao)
-
-    console.log('TRANSFORMAÇÃO DA REGRA:', resultado)
-
-    return resultado
-  } catch (error) {
-    console.error('ERRO EM transformarRegra:', error)
-    throw error
-  }
-})
-
-const resultadoFormatado = computed(() => {
-  const resultado = job.value?.simulacao?.resultado
-
-  if (!resultado) {
-    return []
-  }
-
-  try {
-    const transformado = transformarResultado(resultado)
-
-    console.log('TRANSFORMAÇÃO DO RESULTADO:', transformado)
-
-    return transformado
-  } catch (error) {
-    console.error('ERRO EM transformarResultado:', error)
-    throw error
-  }
-})
-
-onMounted(() => {
-  carregarJob()
-})
+watch(
+  jobId,
+  () => {
+    ciclo += 1;
+    limparTemporizadores();
+    acaoProcessando.value = null;
+    alerta.value = null;
+    void store.iniciarAcompanhamento(jobId.value);
+  },
+  { immediate: true },
+);
+onUnmounted(() => {
+  ciclo += 1;
+  limparTemporizadores();
+  store.pararAcompanhamento();
+});
 </script>
 
 <template>
@@ -250,8 +203,8 @@ onMounted(() => {
                 </div>
               </div>
         <div class="flex flex-row items-center gap-4 mb-14">
-            <button type="button" class="text-[#9D4400] px-9 py-3 rounded-lg border-2 border-[#9D4400] font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" :disabled="acaoProcessando !== null || carregando || erroCarregamento" @click="executarAcao('arquivar')">{{ acaoProcessando === 'arquivar' ? 'Processando...' : 'Arquivar' }}</button>
-            <button type="button" class="bg-[#F47521] text-white font-bold px-9 py-3 rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" :disabled="acaoProcessando !== null || carregando || erroCarregamento" @click="executarAcao('salvar')">{{ acaoProcessando === 'salvar' ? 'Processando...' : 'Salvar' }}</button>
+            <button type="button" class="text-[#9D4400] px-9 py-3 rounded-lg border-2 border-[#9D4400] font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" :disabled="acaoProcessando !== null || carregando || erroCarregamento || !podeArquivar" @click="executarAcao('arquivar')">{{ acaoProcessando === 'arquivar' ? 'Processando...' : 'Arquivar' }}</button>
+            <button type="button" class="bg-[#F47521] text-white font-bold px-9 py-3 rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" :disabled="acaoProcessando !== null || carregando || erroCarregamento || !podeSalvar" @click="executarAcao('salvar')">{{ acaoProcessando === 'salvar' ? 'Processando...' : 'Salvar' }}</button>
         </div>
     </div>
     </div>

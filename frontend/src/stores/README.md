@@ -40,12 +40,18 @@ Com a store instanciada, o chamador pode iniciar o acompanhamento chamando `stor
 const route = useRoute()
 const store = usarStoreJobAtual() // same singleton instance everywhere this is called
 
-onMounted(() => store.iniciarAcompanhamento(route.params.id as string))
+watch(() => route.params.id, (id) => {
+  void store.iniciarAcompanhamento(String(id))
+}, { immediate: true })
 onUnmounted(() => store.pararAcompanhamento()) // leaving without this keeps the SSE stream open
 
 ```
 
-Não chamar store.pararAcompanhamento() vai deixar a coneão SSE aberta.
+`iniciarAcompanhamento` abre o SSE e consulta a fotografia inicial por HTTP. Eventos de estado, resultado, conclusão de etapa e reconexão disparam nova consulta. A store ignora respostas de consultas anteriores e eventos de acompanhamentos encerrados.
+
+`aplicarJob` recebe respostas de ações; `aplicarConfirmacao` recebe a resposta com `regra` e invalida consultas anteriores. As views selecionam a maior `versao` de `regras` com `regraMaisRecente` e usam `simulacaoVisivel` para não exibir resultados anteriores durante uma nova execução.
+
+Não chamar `store.pararAcompanhamento()` deixa a conexão SSE aberta.
 
 
 ## Contributing

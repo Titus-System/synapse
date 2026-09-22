@@ -155,7 +155,7 @@ class CriarJobPersistenciaTests {
 		Map<String, Object> persistido = jdbc.queryForMap("SELECT * FROM jobs WHERE id = ?", jobId);
 		assertThat(persistido).containsEntry("usuario_id", USUARIO)
 			.containsEntry("submissao_id", submissaoId)
-			.containsEntry("status", "aguardando_confirmacao_parametros")
+			.containsEntry("status", "gerando_regra")
 			.containsEntry("tentativas", 0)
 			.containsEntry("iniciado_em", null)
 			.containsEntry("finalizado_em", null)

@@ -31,12 +31,20 @@ public class MaquinaDeEstadosDoJob {
 	}
 
 	/**
-	 * Registra na trilha a transição inicial do job recém-criado, cuja linha em
-	 * {@code jobs} já nasce com {@link JobStatus#AGUARDANDO_CONFIRMACAO_PARAMETROS}.
+	 * Registra na trilha a transição inicial do job recém-criado. O destino inicial é
+	 * explícito porque origens diferentes podem iniciar em etapas diferentes do grafo: o
+	 * formulário já entrega uma representação estruturada e começa diretamente em
+	 * {@code gerando_regra}, sem passar pela etapa intermediária de confirmação do
+	 * usuário; fluxos que ainda precisam dela podem usar a sobrecarga compatível abaixo.
 	 */
 	@Transactional
+	public void registrarCriacao(UUID jobId, JobStatus destino, String ator) {
+		registrarTransicao(jobId, null, destino, ator, null);
+	}
+
+	@Transactional
 	public void registrarCriacao(UUID jobId, String ator) {
-		registrarTransicao(jobId, null, JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS, ator, null);
+		registrarCriacao(jobId, JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS, ator);
 	}
 
 	/**
@@ -56,6 +64,25 @@ public class MaquinaDeEstadosDoJob {
 		}
 		registrarTransicao(jobId, origem, destino, ator, motivo);
 		return origem;
+	}
+
+	/**
+	 * Como {@link #transicionar}, mas só age se o job ainda está em
+	 * {@code origemEsperada}: devolve {@code false}, sem transição, quando ele já saiu de
+	 * lá. É o que faz uma reentrega ou um evento fora de ordem virar no-op em vez de
+	 * exceção.
+	 */
+	@Transactional
+	public boolean avancarSeEm(UUID jobId, JobStatus origemEsperada, JobStatus destino, String ator,
+			@Nullable String motivo) {
+		if (statusAtual(jobId) != origemEsperada) {
+			return false;
+		}
+		if (!origemEsperada.permiteTransicaoPara(destino)) {
+			throw new TransicaoDeStatusInvalidaException(origemEsperada, destino);
+		}
+		registrarTransicao(jobId, origemEsperada, destino, ator, motivo);
+		return true;
 	}
 
 	/**

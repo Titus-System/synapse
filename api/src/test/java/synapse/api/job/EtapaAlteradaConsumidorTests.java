@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -169,6 +170,81 @@ class EtapaAlteradaConsumidorTests {
 	}
 
 	@Test
+	void entrarEmDelegacaoWorkerLevaOJobDeGerandoRegraASimulandoEAnunciaOEstado() throws Exception {
+		UUID jobId = criarJob(JobStatus.GERANDO_REGRA);
+		StreamCliente cliente = conectar(jobId);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
+
+		publicar(jobId, "delegacao_worker", "iniciada");
+
+		String blocoEstado = cliente.aguardarBloco("\"status_anterior\":\"gerando_regra\"", Duration.ofSeconds(10));
+		assertThat(blocoEstado).contains("\"status\":\"simulando\"");
+		assertThat(statusPersistido(jobId)).isEqualTo("simulando");
+		assertThat(destinosDasTransicoes(jobId)).containsExactly("simulando");
+		assertThat(cliente.conteudo().indexOf("event:etapa"))
+			.isLessThan(cliente.conteudo().indexOf("\"status_anterior\""));
+	}
+
+	@Test
+	void aMesmaEtapaEntregueDuasVezesProduzUmaUnicaTransicao() throws Exception {
+		UUID jobId = criarJob(JobStatus.GERANDO_REGRA);
+
+		publicar(jobId, "delegacao_worker", "iniciada");
+		await().atMost(Duration.ofSeconds(10))
+			.untilAsserted(() -> assertThat(statusPersistido(jobId)).isEqualTo("simulando"));
+		publicar(jobId, "delegacao_worker", "iniciada");
+
+		await().atMost(Duration.ofSeconds(10))
+			.untilAsserted(() -> assertThat(infoDaFilaDeEtapaAlterada().getMessageCount()).isZero());
+		assertThat(destinosDasTransicoes(jobId)).containsExactly("simulando");
+	}
+
+	@Test
+	void statusErroLevaOJobDeGerandoRegraAErroFechaOStreamEGravaOMotivo() throws Exception {
+		UUID jobId = criarJob(JobStatus.GERANDO_REGRA);
+		StreamCliente cliente = conectar(jobId);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
+
+		publicar(jobId, "geracao_codigo", "erro");
+
+		String blocoEstado = cliente.aguardarBloco("\"status_anterior\":\"gerando_regra\"", Duration.ofSeconds(10));
+		assertThat(blocoEstado).contains("\"status\":\"erro\"").contains("\"motivo\"");
+		cliente.aguardarFimDoStream(Duration.ofSeconds(10));
+		assertThat(cliente.conteudo().indexOf("event:etapa"))
+			.isLessThan(cliente.conteudo().indexOf("\"status_anterior\""));
+		assertThat(statusPersistido(jobId)).isEqualTo("erro");
+		assertThat(motivoDaUltimaTransicao(jobId)).isEqualTo("erro_geracao_codigo");
+	}
+
+	@Test
+	void statusErroForaDeGerandoRegraSoRepassaAEtapa() throws Exception {
+		UUID jobId = criarJob(JobStatus.SIMULANDO);
+		StreamCliente cliente = conectar(jobId);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
+
+		publicar(jobId, "geracao_codigo", "erro");
+		cliente.aguardarBloco("event:etapa", Duration.ofSeconds(10));
+
+		assertThat(statusPersistido(jobId)).isEqualTo("simulando");
+		assertThat(contarTransicoes(jobId)).isZero();
+		assertThat(cliente.contarOcorrencias("event:estado")).isEqualTo(1);
+	}
+
+	@Test
+	void etapaDeJobDesconhecidoEDescartadaSemDerrubarOConsumidor() throws Exception {
+		publicar(UUID.randomUUID(), "delegacao_worker", "iniciada");
+
+		await().atMost(Duration.ofSeconds(10))
+			.untilAsserted(() -> assertThat(infoDaFilaDeEtapaAlterada().getMessageCount()).isZero());
+		assertThat(infoDaFilaDeEtapaAlterada().getConsumerCount()).isGreaterThan(0);
+
+		UUID jobId = criarJob(JobStatus.GERANDO_REGRA);
+		publicar(jobId, "delegacao_worker", "iniciada");
+		await().atMost(Duration.ofSeconds(10))
+			.untilAsserted(() -> assertThat(statusPersistido(jobId)).isEqualTo("simulando"));
+	}
+
+	@Test
 	void eventoDeJobSemClienteConectadoEConsumidoSemErro() throws Exception {
 		UUID jobId = criarJob(JobStatus.SIMULANDO);
 
@@ -270,6 +346,31 @@ class EtapaAlteradaConsumidorTests {
 					.executeQuery("SELECT count(*) FROM job_transicoes WHERE job_id = '%s'".formatted(jobId))) {
 			assertThat(rs.next()).isTrue();
 			return rs.getInt(1);
+		}
+	}
+
+	private static List<String> destinosDasTransicoes(UUID jobId) throws SQLException {
+		List<String> destinos = new ArrayList<>();
+		try (Connection connection = comoDono();
+				Statement statement = connection.createStatement();
+				var rs = statement
+					.executeQuery("SELECT status_novo FROM job_transicoes WHERE job_id = '%s' ORDER BY ocorrido_em"
+						.formatted(jobId))) {
+			while (rs.next()) {
+				destinos.add(Objects.requireNonNull(rs.getString("status_novo")));
+			}
+		}
+		return destinos;
+	}
+
+	private static @Nullable String motivoDaUltimaTransicao(UUID jobId) throws SQLException {
+		try (Connection connection = comoDono();
+				Statement statement = connection.createStatement();
+				var rs = statement.executeQuery(
+						"SELECT motivo FROM job_transicoes WHERE job_id = '%s' ORDER BY ocorrido_em DESC LIMIT 1"
+							.formatted(jobId))) {
+			assertThat(rs.next()).isTrue();
+			return rs.getString("motivo");
 		}
 	}
 
