@@ -61,3 +61,52 @@ def test_google_builder_takes_its_key_from_settings_and_the_id_from_the_caller(
     registry._google("some-model")
 
     assert received == {"model": "some-model", "google_api_key": "key-1"}
+
+
+def test_google_builder_forwards_extra_parameters_to_the_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received: dict[str, Any] = {}
+    monkeypatch.setattr(
+        registry, "ChatGoogleGenerativeAI", lambda **kw: received.update(kw) or object()
+    )
+    monkeypatch.setattr(registry, "get_settings", lambda: SimpleNamespace(GOOGLE_API_KEY="key-1"))
+
+    registry._google("some-model", temperature=0, timeout=45)
+
+    assert received == {
+        "model": "some-model",
+        "google_api_key": "key-1",
+        "temperature": 0,
+        "timeout": 45,
+    }
+
+
+def test_google_builder_raises_a_clear_error_when_the_key_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(registry, "get_settings", lambda: SimpleNamespace(GOOGLE_API_KEY=None))
+
+    with pytest.raises(ValueError, match="GOOGLE_API_KEY"):
+        registry._google("some-model")
+
+
+def test_code_generation_is_registered_with_its_metadata() -> None:
+    assert "code_generation" in registry._MODELS
+
+    metadata = registry.get_model_metadata("code_generation")
+
+    assert metadata["provedor"] == "google"
+    assert metadata["modelo"] == "gemini-3.1-flash-lite"
+
+
+def test_get_model_metadata_returns_a_copy_not_the_stored_dict() -> None:
+    metadata = registry.get_model_metadata("code_generation")
+    metadata["provedor"] = "adulterado"
+
+    assert registry.get_model_metadata("code_generation")["provedor"] == "google"
+
+
+def test_get_model_metadata_rejects_a_name_that_is_not_registered() -> None:
+    with pytest.raises(ValueError, match="'missing'"):
+        registry.get_model_metadata("missing")
