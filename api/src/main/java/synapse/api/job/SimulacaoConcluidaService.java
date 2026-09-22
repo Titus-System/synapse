@@ -31,19 +31,26 @@ class SimulacaoConcluidaService {
 	}
 
 	/**
-	 * {@code transicionar} vem primeiro porque é ele quem trava a linha do job
+	 * A máquina vem primeiro porque é ela quem trava a linha do job
 	 * (<code>SELECT ... FOR UPDATE</code>), e é essa trava que serializa uma redelivery
 	 * ou um evento fora de ordem contra esta mesma chamada: a segunda entrega encontra o
 	 * job já fora do estado de origem esperado e
 	 * {@link TransicaoDeStatusInvalidaException} desfaz a transação inteira, inclusive a
 	 * amarração abaixo - uma transição só por resultado, sem tabela de deduplicação
 	 * dedicada.
+	 *
+	 * <p>
+	 * O avanço de {@code gerando_regra} a {@code simulando} cobre o resultado que chega
+	 * antes do {@code etapa-alterada} que o anunciaria (as duas filas não têm ordem entre
+	 * si, e uma api de volta de uma queda drena as duas ao mesmo tempo).
 	 */
 	@Transactional
 	DesfechoAplicado aplicar(UUID jobId, UUID resultadoId, DesfechoDaSimulacao desfecho) {
+		boolean avancouDeGerandoRegra = this.maquina.avancarSeEm(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO,
+				"evento", "simulacao_concluida_antecipada");
 		JobStatus origem = this.maquina.transicionar(jobId, desfecho.destino(), "evento", desfecho.motivoDaTrilha());
 		UUID simulacaoId = amarrarResultado(jobId, resultadoId);
-		return new DesfechoAplicado(origem, simulacaoId);
+		return new DesfechoAplicado(origem, simulacaoId, avancouDeGerandoRegra);
 	}
 
 	/**
@@ -72,7 +79,7 @@ class SimulacaoConcluidaService {
 		return amarradas.getFirst();
 	}
 
-	record DesfechoAplicado(JobStatus origem, @Nullable UUID simulacaoId) {
+	record DesfechoAplicado(JobStatus origem, @Nullable UUID simulacaoId, boolean avancouDeGerandoRegra) {
 	}
 
 }
