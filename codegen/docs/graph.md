@@ -10,13 +10,12 @@ config:
 ---
 graph TD;
 	__start__([<p>__start__</p>]):::first
-	calculator(calculator)
-	tools(tools)
+	load_rule(load_rule)
+	code_generation(code_generation)
 	__end__([<p>__end__</p>]):::last
-	__start__ --> calculator;
-	calculator -. &nbsp;end&nbsp; .-> __end__;
-	calculator -. &nbsp;continue&nbsp; .-> tools;
-	tools --> calculator;
+	__start__ --> load_rule;
+	load_rule --> code_generation;
+	code_generation --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc
