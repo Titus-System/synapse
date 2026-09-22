@@ -56,9 +56,12 @@ class SimulacaoConcluidaService {
 	/**
 	 * Aponta {@code simulacoes.resultado_id} para a linha que o worker gravou, casando
 	 * pelo {@code codigo_gerado_id} que a simulação já registrou no momento em que o
-	 * código foi executado. Zero linhas casadas é o caso normal até a api passar a
-	 * inserir em {@code simulacoes} (evento {@code no-concluido}): a transição segue do
-	 * mesmo jeito, e o evento {@code resultado} do SSE simplesmente não sai.
+	 * código foi executado. Zero linhas casadas acontece quando {@code no-concluido} do
+	 * nó {@code geracao_codigo} ({@link NoConcluidoService}) ainda não criou a linha em
+	 * {@code simulacoes} - as duas filas não têm ordem entre si. Nesse caso a transição
+	 * segue do mesmo jeito, o evento {@code resultado} do SSE não sai, e é
+	 * {@link NoConcluidoService#aplicar} quem amarra o resultado ao chegar depois (o
+	 * subselect por {@code codigo_gerado_id} encontra o resultado já gravado). O
 	 * {@code resultado_id IS NULL} e o índice único {@code uq_simulacoes_resultado_id}
 	 * são a segunda barreira de idempotência, abaixo da que a máquina de estados já dá.
 	 */
