@@ -199,3 +199,26 @@ TypeScript não entende informação de tipos de imports `.vue` por padrão, ent
 ## Customizando a configuração
 
 Ver [Vite Configuration Reference](https://vite.dev/config/).
+
+
+## Integração dos jobs
+
+O envio do formulário cria o job e confirma a representação retornada pela API com
+`POST /jobs/{id}/parameters`. Se a confirmação falhar, uma nova tentativa na mesma
+tela consulta o ID já criado antes de reenviar; não cria outro job. Criação,
+confirmação e reprocessamento retornam `JobCriado` com `regra`; consulta e ações
+retornam `Job` com `regras[]`. As telas exibem a maior `versao` recebida.
+
+Simulação e finalização usam a store `currentJob` para HTTP e SSE. Aceitar a
+sugestão confirma sua representação e aguarda nova simulação. Cancelar, salvar e
+arquivar dependem da resposta da API. A chamada `apiClient.reprocessarJob` retorna
+o novo job com `job_origem_id`; o controle de reprocessamento deve usar esse novo
+ID e confirmar seus parâmetros antes de acompanhar a nova execução. Abrir um
+relatório existente não reprocessa nem confirma automaticamente um job.
+
+Para validar a integração, execute `sh ./verify.sh` e percorra no ambiente de
+entrega: enviar formulário, aguardar resultado sem recarregar, salvar, reabrir
+pelo histórico e cancelar um job que permita essa ação. Teste também a aceitação
+de sugestão e o reprocessamento quando os respectivos fluxos de backend estiverem
+disponíveis. Os testes `SimulateView.integration.spec.ts` exercitam cliente HTTP,
+store e SSE com respostas simuladas; não substituem essa validação no servidor.

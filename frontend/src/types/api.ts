@@ -126,26 +126,33 @@ export interface RegraVersionada {
 export interface Simulacao {
   id: string
   criado_em: string
-  status: StatusResultado
+  status: StatusResultado | null
   flag_baixa_rastreabilidade: boolean
   veredito?: Veredito | null
   resultado?: ResultadoSimulacao | null
 }
 
-export interface Job {
+interface JobBase {
   id: string
   status: StatusJob
   origem: OrigemJob
   competencias: string[]
   orcamento: number
   criado_em: string
-  iniciado_em?: string
-  finalizado_em?: string
-  job_origem_id?: string
-  submissao_id?: string
-  motivo?: string
-  regra?: RegraVersionada
-  simulacao?: Simulacao
+  iniciado_em?: string | null
+  finalizado_em?: string | null
+  job_origem_id?: string | null
+  submissao_id?: string | null
+  motivo?: string | null
+}
+
+export interface JobCriado extends JobBase {
+  regra: RegraVersionada
+}
+
+export interface Job extends JobBase {
+  regras: RegraVersionada[]
+  simulacao?: Simulacao | null
 }
 
 export interface JobResumo {
@@ -190,4 +197,3 @@ export interface EventoResultado {
   status: StatusResultado
   veredito?: Veredito
 }
-

@@ -31,12 +31,20 @@ public class MaquinaDeEstadosDoJob {
 	}
 
 	/**
-	 * Registra na trilha a transição inicial do job recém-criado, cuja linha em
-	 * {@code jobs} já nasce com {@link JobStatus#AGUARDANDO_CONFIRMACAO_PARAMETROS}.
+	 * Registra na trilha a transição inicial do job recém-criado. O destino inicial é
+	 * explícito porque origens diferentes podem iniciar em etapas diferentes do grafo: o
+	 * formulário já entrega uma representação estruturada e começa diretamente em
+	 * {@code gerando_regra}, sem passar pela etapa intermediária de confirmação do
+	 * usuário; fluxos que ainda precisam dela podem usar a sobrecarga compatível abaixo.
 	 */
 	@Transactional
+	public void registrarCriacao(UUID jobId, JobStatus destino, String ator) {
+		registrarTransicao(jobId, null, destino, ator, null);
+	}
+
+	@Transactional
 	public void registrarCriacao(UUID jobId, String ator) {
-		registrarTransicao(jobId, null, JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS, ator, null);
+		registrarCriacao(jobId, JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS, ator);
 	}
 
 	/**

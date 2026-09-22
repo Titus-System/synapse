@@ -1,21 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { abrirAcompanhamentoJob } from './jobEvents'
 import { apiClient } from './api'
-import type { Job, EventoEtapa, EventoEstado, EventoResultado } from '@/types/api'
+import type { EventoEtapa, EventoEstado, EventoResultado } from '@/types/api'
 
 vi.mock('./api', () => ({
   apiClient: {
     acompanharJob: vi.fn<(id: string) => string>((id) => `/api/jobs/${id}/events`),
-    consultarJob: vi.fn<(id: string) => Promise<Job>>(() =>
-      Promise.resolve({
-        id: 'job-123',
-        status: 'simulando',
-        origem: 'formulario',
-        competencias: [],
-        orcamento: 0,
-        criado_em: new Date().toISOString(),
-      }),
-    ),
   },
 }))
 
@@ -69,19 +59,7 @@ function novosHandlers() {
     onEstado: vi.fn<(evento: EventoEstado) => void>(),
     onEtapa: vi.fn<(evento: EventoEtapa) => void>(),
     onResultado: vi.fn<(evento: EventoResultado) => void>(),
-    onReconciliar: vi.fn<(job: Job) => void>(),
-  }
-}
-
-function jobFake(overrides: Partial<Job> = {}): Job {
-  return {
-    id: 'job-123',
-    status: 'simulando',
-    origem: 'formulario',
-    competencias: [],
-    orcamento: 0,
-    criado_em: new Date().toISOString(),
-    ...overrides,
+    onReconciliar: vi.fn<() => void>(),
   }
 }
 
@@ -117,7 +95,7 @@ describe('jobEvents', () => {
     abrirAcompanhamentoJob('job-123', handlers)
 
     expect(handlers.onStatusConexao).toHaveBeenCalledWith('conectando')
-    expect(apiClient.consultarJob).not.toHaveBeenCalled()
+    expect(handlers.onReconciliar).not.toHaveBeenCalled()
   })
 
   it('sinaliza aberta quando a conexão nativa abre', () => {
@@ -133,7 +111,11 @@ describe('jobEvents', () => {
     const handlers = novosHandlers()
     abrirAcompanhamentoJob('job-123', handlers)
 
-    const evento: EventoEstado = { job_id: 'job-123', status: 'simulando', status_anterior: 'gerando_regra' }
+    const evento: EventoEstado = {
+      job_id: 'job-123',
+      status: 'simulando',
+      status_anterior: 'gerando_regra',
+    }
     instanciaAtual().emitir('estado', evento)
 
     expect(handlers.onEstado).toHaveBeenCalledWith(evento)
@@ -279,31 +261,27 @@ describe('jobEvents', () => {
     expect(FakeEventSource.instances).toHaveLength(3)
   })
 
-  it('reconecta e chama consultarJob (reconciliação) a partir da segunda abertura', async () => {
-    vi.mocked(apiClient.consultarJob).mockResolvedValue(jobFake())
+  it('solicita reconciliação ao reabrir a conexão', async () => {
     const handlers = novosHandlers()
-
     abrirAcompanhamentoJob('job-123', handlers)
-    expect(apiClient.consultarJob).not.toHaveBeenCalled()
-
+    expect(handlers.onReconciliar).not.toHaveBeenCalled()
     instanciaAtual().abrir()
     instanciaAtual().errar()
     await vi.advanceTimersByTimeAsync(1250)
-
     expect(FakeEventSource.instances).toHaveLength(2)
-    expect(apiClient.consultarJob).toHaveBeenCalledWith('job-123')
+    expect(handlers.onReconciliar).toHaveBeenCalledOnce()
   })
 
-  it('repassa o job retornado pela reconciliação ao handler onReconciliar', async () => {
-    const jobReconciliado = jobFake({ status: 'gerando_regra' })
-    vi.mocked(apiClient.consultarJob).mockResolvedValue(jobReconciliado)
+  it('ignora eventos e erros de uma conexão já fechada', async () => {
     const handlers = novosHandlers()
-
-    abrirAcompanhamentoJob('job-123', handlers)
-    instanciaAtual().abrir()
-    instanciaAtual().errar()
-    await vi.advanceTimersByTimeAsync(1250)
-    await vi.waitFor(() => expect(handlers.onReconciliar).toHaveBeenCalledWith(jobReconciliado))
+    const { fechar } = abrirAcompanhamentoJob('job-123', handlers)
+    const antiga = instanciaAtual()
+    fechar()
+    antiga.emitir('estado', { job_id: 'job-123', status: 'simulando' })
+    antiga.errar()
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(handlers.onEstado).not.toHaveBeenCalled()
+    expect(FakeEventSource.instances).toHaveLength(1)
   })
 
   it('fechar() encerra a conexão nativa e cancela o timer de reconexão pendente', async () => {

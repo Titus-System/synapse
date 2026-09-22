@@ -49,9 +49,10 @@ import static org.awaitility.Awaitility.await;
  * O ciclo completo do job da Sprint 1, com a api fazendo o papel de si mesma e o teste
  * fazendo o papel de codegen e worker - os dois lados que a T-046 (trilha de auditoria) e
  * o gatilho de {@code gerando_regra → simulando} ({@link EtapaAlteradaService}) deixavam
- * sem exercício ponta a ponta: {@code POST /jobs} → confirmação → {@code etapa-alterada}
- * → {@code no-concluido} → {@code simulacao-concluida} → {@code GET /jobs/{id}} com o
- * relatório preenchido → {@code POST /jobs/{id}/actions}.
+ * sem exercício ponta a ponta: {@code POST /jobs} → {@code etapa-alterada} →
+ * {@code no-concluido} → {@code simulacao-concluida} → {@code GET /jobs/{id}} com o
+ * relatório preenchido → {@code POST /jobs/{id}/actions}. Submissão de formulário não
+ * passa por confirmação: o job já nasce em {@code gerando_regra}.
  */
 @EnabledIf("dockerIsAvailable")
 class CicloDoJobTests {
@@ -147,37 +148,29 @@ class CicloDoJobTests {
 
 	@Test
 	void daSubmissaoAoRelatorioELiberacao() throws Exception {
-		// 1. POST /jobs: o job nasce em aguardando_confirmacao_parametros.
+		// 1. POST /jobs: o job de formulário já nasce em gerando_regra, com a versão 1
+		// da regra formada a partir da própria submissão - sem confirmação.
 		JsonNode jobCriado = post("/jobs", FORMULARIO, 201);
 		UUID jobId = UUID.fromString(jobCriado.path("id").asString());
-		assertThat(jobCriado.path("status").asString()).isEqualTo("aguardando_confirmacao_parametros");
+		UUID regraId = UUID.fromString(jobCriado.path("regra").path("id").asString());
+		assertThat(jobCriado.path("status").asString()).isEqualTo("gerando_regra");
 
 		StreamCliente cliente = conectar(jobId);
 		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
 
-		// 2. POST /jobs/{id}/parameters: confirma o núcleo tal como enviado, vai a
-		// gerando_regra.
-		String parametros = """
-				{"regra":{"nucleo":{"vigencia":{"inicio":"2025-08","fim":"2025-08"},
-				 "loja":["13"],"marca":["10"],"cargo":["100"],"percentual":0.03},"especificacoes":[]}}
-				""";
-		JsonNode confirmado = post("/jobs/" + jobId + "/parameters", parametros, 202);
-		UUID regraId = UUID.fromString(confirmado.path("regra").path("id").asString());
-		assertThat(confirmado.path("status").asString()).isEqualTo("gerando_regra");
-
-		// 3. codegen: publica etapa-alterada(delegacao_worker, iniciada) - leva a
+		// 2. codegen: publica etapa-alterada(delegacao_worker, iniciada) - leva a
 		// simulando.
 		publicarEtapaAlterada(jobId, "delegacao_worker", "iniciada");
 		cliente.aguardarBloco("\"status\":\"simulando\"", Duration.ofSeconds(10));
 
-		// 4. codegen: grava o código (como o worker leria) e publica no-concluido do nó
+		// 3. codegen: grava o código (como o worker leria) e publica no-concluido do nó
 		// geracao_codigo - cria a linha em simulacoes.
 		UUID codigoGeradoId = criarCodigoGerado(jobId, regraId);
 		publicarNoConcluido(UUID.randomUUID(), jobId, "geracao_codigo", regraId, codigoGeradoId);
 		await().atMost(Duration.ofSeconds(10))
 			.untilAsserted(() -> assertThat(simulacaoPorCodigoGerado(codigoGeradoId)).isNotNull());
 
-		// 5. worker: grava o resultado e publica simulacao-concluida - leva a
+		// 4. worker: grava o resultado e publica simulacao-concluida - leva a
 		// aguardando_decisao_usuario.
 		UUID resultadoId = criarResultado(jobId, codigoGeradoId);
 		publicarSimulacaoConcluida(jobId, resultadoId, "sucesso", "viavel");
@@ -186,7 +179,7 @@ class CicloDoJobTests {
 		assertThat(blocoResultado).contains("\"status\":\"sucesso\"").contains("\"veredito\":\"viavel\"");
 		cliente.aguardarBloco("\"status\":\"aguardando_decisao_usuario\"", Duration.ofSeconds(10));
 
-		// 6. GET /jobs/{id}: o relatório vem preenchido - é o que a T-046 fecha.
+		// 5. GET /jobs/{id}: o relatório vem preenchido - é o que a T-046 fecha.
 		JsonNode job = get("/jobs/" + jobId);
 		assertThat(job.path("status").asString()).isEqualTo("aguardando_decisao_usuario");
 		assertThat(job.path("simulacao").path("status").asString()).isEqualTo("sucesso");
@@ -194,7 +187,7 @@ class CicloDoJobTests {
 		assertThat(job.path("simulacao").path("resultado").path("totais").path("baseline").decimalValue())
 			.isEqualByComparingTo("480312.00");
 
-		// 7. POST /jobs/{id}/actions: confirmar_liberar - o destino é terminal e fecha o
+		// 6. POST /jobs/{id}/actions: confirmar_liberar - o destino é terminal e fecha o
 		// stream.
 		JsonNode acao = post("/jobs/" + jobId + "/actions", """
 				{"acao":"confirmar_liberar"}

@@ -1,85 +1,118 @@
-import { ref } from 'vue'
+import { ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { abrirAcompanhamentoJob } from '@/services/jobEvents'
 import { apiClient } from '@/services/api'
-import type { EventoEtapa, EventoEstado, EventoResultado, Job } from '@/types/api'
+import { HttpError } from '@/services/http'
+import type { EventoEtapa, Job, JobCriado, StatusJob } from '@/types/api'
 
-/**
- * Estado do job em acompanhamento, alimentado pelo stream SSE (via `abrirAcompanhamentoJob`,
- * src/services/jobEvents.ts) e por `GET /jobs/{id}` quando o stream pede reconciliação.
- *
- * Uso: qualquer componente obtém a instância chamando `usarStoreJobAtual()` — o Pinia garante que
- * toda chamada, em qualquer lugar da árvore, devolve a mesma instância singleton (enquanto a app
- * tiver um só `Pinia` registrado em main.ts). A view que exibe o progresso chama isso e, com a
- * instância em mãos, dispara `store.iniciarAcompanhamento(jobId)` ao montar (`onMounted`) e
- * `store.pararAcompanhamento()` ao desmontar (`onUnmounted`) — sair da tela sem parar deixa a
- * conexão SSE aberta indefinidamente. `iniciarAcompanhamento` fecha sozinho qualquer conexão
- * anterior antes de abrir a nova, então trocar de job só requer chamar de novo com o id novo, sem
- * parar manualmente primeiro.
- *
- * Nenhum evento "retorna" nada: os handlers internos apenas escrevem nos refs (`statusAtual`,
- * `etapaAtual`, `job`, `estadoConexao`, ...) conforme os eventos chegam, de forma idempotente e
- * sem calcular nada — tudo vem pronto da api. Qualquer componente que também tenha chamado
- * `usarStoreJobAtual()` lê esses refs (`store.statusAtual` etc.) e o Vue re-renderiza sozinho a
- * cada mudança, mesmo que esse componente nunca tenha chamado `iniciarAcompanhamento` — é a mesma
- * instância reativa por trás de toda chamada ao hook.
- */
 export const usarStoreJobAtual = defineStore('current-job', () => {
   const idJob = ref<string | null>(null)
   const job = ref<Job | null>(null)
-  const statusAtual = ref<string | null>(null)
-  const statusAnterior = ref<string | null>(null)
+  const statusAtual = ref<StatusJob | null>(null)
+  const statusAnterior = ref<StatusJob | null>(null)
   const motivoParada = ref<string | null>(null)
-  const etapaAtual = ref<{ etapa: string; status: string } | null>(null)
+  const etapaAtual = ref<EventoEtapa | null>(null)
   const estadoConexao = ref<'conectando' | 'aberta' | 'reconectando'>('conectando')
+  const carregando = ref(false)
+  const erro = shallowRef<HttpError | null>(null)
 
-  let controladorConexao: ReturnType<typeof abrirAcompanhamentoJob> | null = null
+  let conexao: ReturnType<typeof abrirAcompanhamentoJob> | null = null
+  let acompanhamento = 0
+  let consulta = 0
 
-  function iniciarAcompanhamento(jobId: string) {
+  function aplicarJob(atualizado: Job) {
+    if (atualizado.id !== idJob.value) return
+    consulta += 1
+    job.value = atualizado
+    statusAtual.value = atualizado.status
+    motivoParada.value = atualizado.motivo ?? null
+    carregando.value = false
+    erro.value = null
+  }
+
+  function aplicarConfirmacao(confirmado: JobCriado) {
+    if (confirmado.id !== idJob.value) return
+    const regras = (job.value?.regras ?? []).filter((regra) => regra.id !== confirmado.regra.id)
+    aplicarJob({ ...confirmado, regras: [...regras, confirmado.regra], simulacao: null })
+  }
+
+  async function consultarJob(): Promise<Job | null> {
+    const id = idJob.value
+    if (!id) return null
+    const numero = ++consulta
+    const ciclo = acompanhamento
+    try {
+      const atualizado = await apiClient.consultarJob(id)
+      if (ciclo !== acompanhamento || numero !== consulta) return null
+      aplicarJob(atualizado)
+      return atualizado
+    } catch (falha) {
+      if (ciclo !== acompanhamento || numero !== consulta) return null
+      erro.value =
+        falha instanceof HttpError
+          ? falha
+          : new HttpError(0, 'Não foi possível consultar o processamento. Tente novamente.')
+      if ([401, 403, 404].includes(erro.value.status)) {
+        conexao?.fechar()
+        conexao = null
+      }
+      return null
+    } finally {
+      if (ciclo === acompanhamento && numero === consulta) carregando.value = false
+    }
+  }
+
+  async function iniciarAcompanhamento(id: string) {
     pararAcompanhamento()
-
-    idJob.value = jobId
+    const ciclo = acompanhamento
+    const ativo = () => ciclo === acompanhamento
+    idJob.value = id
     job.value = null
     statusAtual.value = null
     statusAnterior.value = null
     motivoParada.value = null
     etapaAtual.value = null
-
-    controladorConexao = abrirAcompanhamentoJob(jobId, {
-      onEstado(evento: EventoEstado) {
+    erro.value = null
+    carregando.value = true
+    estadoConexao.value = 'conectando'
+    conexao = abrirAcompanhamentoJob(id, {
+      onEstado(evento) {
+        if (!ativo()) return
         statusAnterior.value = evento.status_anterior ?? null
         statusAtual.value = evento.status
         motivoParada.value = evento.motivo ?? null
+        if (job.value)
+          job.value = {
+            ...job.value,
+            status: evento.status,
+            motivo: evento.motivo,
+            simulacao: evento.status === job.value.status ? job.value.simulacao : null,
+          }
+        void consultarJob()
       },
-      onEtapa(evento: EventoEtapa) {
-        etapaAtual.value = { etapa: evento.etapa, status: evento.status }
+      onEtapa(evento) {
+        if (!ativo()) return
+        etapaAtual.value = evento
+        if (evento.status === 'concluido') void consultarJob()
       },
-      onResultado(_evento: EventoResultado) {
-        // Disparar fetch do job para capturar os números do resultado
-        apiClient
-          .consultarJob(jobId)
-          .then((jobAtualizado) => {
-            job.value = jobAtualizado
-          })
-          .catch(() => {
-            // Erro ao consultar; o próximo evento estado do stream recupera
-          })
+      onResultado() {
+        if (ativo()) void consultarJob()
       },
-      onReconciliar(jobReconciliado: Job) {
-        job.value = jobReconciliado
-        statusAtual.value = jobReconciliado.status
+      onReconciliar() {
+        if (ativo()) void consultarJob()
       },
       onStatusConexao(status) {
-        estadoConexao.value = status
+        if (ativo()) estadoConexao.value = status
       },
     })
+    await consultarJob()
   }
 
   function pararAcompanhamento() {
-    if (controladorConexao) {
-      controladorConexao.fechar()
-      controladorConexao = null
-    }
+    acompanhamento += 1
+    consulta += 1
+    conexao?.fechar()
+    conexao = null
   }
 
   return {
@@ -90,7 +123,12 @@ export const usarStoreJobAtual = defineStore('current-job', () => {
     motivoParada,
     etapaAtual,
     estadoConexao,
+    carregando,
+    erro,
     iniciarAcompanhamento,
     pararAcompanhamento,
+    consultarJob,
+    aplicarJob,
+    aplicarConfirmacao,
   }
 })

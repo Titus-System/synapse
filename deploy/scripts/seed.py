@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # Popula um banco synapse_db local com dados de demonstração:
 #   - as contas develop@synapse.com e staging@synapse.com (usuarios);
-#   - três jobs de ponta a ponta (submissao -> regra -> código gerado ->
+#   - quatro jobs de ponta a ponta (submissao -> regra -> código gerado ->
 #     resultado -> simulação), um para cada desfecho de resultados_simulacao:
-#     viável, inviável e assercao_violada.
+#     viável, inviável, inviável com sugestão de adaptação e assercao_violada.
 #
 # Conecta como o dono do schema (POSTGRES_USER/POSTGRES_PASSWORD) para poder
 # escrever em todas as tabelas, incluindo as de produtor único (prompts,
@@ -29,7 +29,7 @@ import json
 import os
 import sys
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -118,6 +118,7 @@ class Cenario:
     resultado: Resultado
     transicoes: list
     trilhas: list
+    sugestao_percentual: float | None = None
     resultado_minutos: int = 20
     acao: Acao | None = None
     explicacao_texto: str | None = None
@@ -385,7 +386,25 @@ def cenarios() -> list[Cenario]:
         explicacao_texto=None,
     )
 
-    return [viavel, inviavel, assercao_violada]
+    inviavel_com_sugestao = replace(
+        inviavel,
+        chave="job-inviavel-com-sugestao",
+        base=datetime(2025, 11, 23, 9, 0, tzinfo=timezone.utc),
+        sugestao_percentual=0.02,
+        transicoes=[
+            *inviavel.transicoes[:-2],
+            Transicao(
+                "simulando",
+                "simulacao_inviavel",
+                "evento",
+                21,
+                motivo="orçamento excedido; alternativa de adaptação disponível",
+            ),
+        ],
+        acao=None,
+    )
+
+    return [viavel, inviavel, inviavel_com_sugestao, assercao_violada]
 
 
 # ---------------------------------------------------------------------------
@@ -401,6 +420,14 @@ def nucleo_payload(cenario: Cenario) -> dict:
         "cargo": cenario.cargo,
         "percentual": cenario.percentual,
     }
+
+
+def sugestao_nucleo_payload(cenario: Cenario) -> dict | None:
+    if cenario.sugestao_percentual is None:
+        return None
+    nucleo = nucleo_payload(cenario)
+    nucleo["percentual"] = cenario.sugestao_percentual
+    return nucleo
 
 
 def canonical_hash(nucleo: dict, especificacoes: list) -> str:
@@ -605,6 +632,25 @@ def seed_cenario(cur, cenario: Cenario, usuario_ids: dict[str, uuid.UUID]) -> No
         },
     )
 
+    sugestao_nucleo = sugestao_nucleo_payload(cenario)
+    if sugestao_nucleo is not None:
+        sugestao_especificacoes: list = []
+        insert(
+            cur,
+            "regras",
+            {
+                "id": seed_id(cenario.chave, "regra-sugestao"),
+                "job_id": ids["job"],
+                "versao": 2,
+                "origem": "sugestao_adaptacao",
+                "regra_origem_id": ids["regra"],
+                "nucleo": sugestao_nucleo,
+                "especificacoes": psycopg2.extras.Json(sugestao_especificacoes),
+                "hash": canonical_hash(sugestao_nucleo, sugestao_especificacoes),
+                "criada_em": criado_em + timedelta(minutes=24),
+            },
+        )
+
     insert(
         cur,
         "prompts",
@@ -770,7 +816,7 @@ def main() -> None:
 
     print(
         "seed: usuários (develop@synapse.com, staging@synapse.com) e pipeline de "
-        "demonstração prontos (3 jobs: viável, inviável, assercao_violada)"
+        "demonstração prontos (4 jobs: viável, inviável, inviável com sugestão, assercao_violada)"
     )
 
 

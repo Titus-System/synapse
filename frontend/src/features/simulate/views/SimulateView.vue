@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useJobSimulacao } from '../composables/useJobSimulacao'
-import TheProcessHeader from '@/components/TheProcessHeader.vue'
-import TheSidebar from '@/components/TheSidebar.vue'
+import { computed, onUnmounted, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { useJobSimulacao } from "../composables/useJobSimulacao";
+import TheProcessHeader from "@/components/TheProcessHeader.vue";
+import TheSidebar from "@/components/TheSidebar.vue";
 
-const rota = useRoute()
-const roteador = useRouter()
-const jobId = computed(() => String(rota.params.id))
+const rota = useRoute();
+const roteador = useRouter();
+const jobId = computed(() => String(rota.params.id));
 
 const {
   job,
@@ -15,113 +15,129 @@ const {
   erro,
   erroEspecifico,
   iniciar,
-} = useJobSimulacao(jobId.value)
+  parar,
+  regra,
+  sugestao,
+  simulacao,
+  aguardandoConfirmacao,
+  aceitarSugestao,
+  cancelar,
+  podeAceitarSugestao,
+  podeCancelar,
+  podeFinalizar,
+} = useJobSimulacao(jobId);
 
-const nucleo = computed(() => job.value?.regra?.representacao.nucleo)
+
+const nucleo = computed(() => regra.value?.representacao.nucleo);
 
 function seguirParaFinalizacao(): void {
+  if (!podeFinalizar.value) return;
   roteador.push({
-    name: 'finalizar',
+    name: "finalizar",
     params: {
       id: rota.params.id,
     },
-  })
+  });
 }
 
-function cancelarFluxo(): void {
-  roteador.push('/nova-regra')
+async function cancelarFluxo(): Promise<void> {
+  if (await cancelar()) await roteador.push("/nova-regra");
 }
 
 function formatarCompetencia(valor: string): string {
-  const [ano, mes] = valor.split('-')
+  const [ano, mes] = valor.split("-");
 
-  if (!ano || !mes) return valor
+  if (!ano || !mes) return valor;
 
-  return `${mes}/${ano}`
+  return `${mes}/${ano}`;
 }
 
 const vigencia = computed(() => {
-  const valor = nucleo.value?.vigencia
+  const valor = nucleo.value?.vigencia;
 
-  if (!valor) return ''
+  if (!valor) return "";
 
-  const inicio = formatarCompetencia(valor.inicio)
-  const fim = formatarCompetencia(valor.fim)
+  const inicio = formatarCompetencia(valor.inicio);
+  const fim = formatarCompetencia(valor.fim);
 
   if (valor.inicio === valor.fim) {
-    return inicio
+    return inicio;
   }
 
-  return `${inicio} até ${fim}`
-})
+  return `${inicio} até ${fim}`;
+});
 
-const loja = computed(() => nucleo.value?.loja?.join(', ') ?? '')
+const loja = computed(() => nucleo.value?.loja?.join(", ") ?? "");
 
-const marca = computed(() => nucleo.value?.marca?.join(', ') ?? '')
+const marca = computed(() => nucleo.value?.marca?.join(", ") ?? "");
 
-const cargo = computed(() => nucleo.value?.cargo?.join(', ') ?? '')
+const cargo = computed(() => nucleo.value?.cargo?.join(", ") ?? "");
 
 const meta = computed(() => {
-  const valor = job.value?.orcamento
+  const valor = job.value?.orcamento;
 
-  if (valor == null) return ''
+  if (valor == null) return "";
 
-  return `R$ ${valor.toLocaleString('pt-BR', {
+  return `R$ ${valor.toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  })}`
-})
+  })}`;
+});
 
 const percentual = computed(() => {
-  const valor = nucleo.value?.percentual
+  const valor = nucleo.value?.percentual;
 
-  if (valor == null) return ''
+  if (valor == null) return "";
 
-  return `${valor * 100}%`
-})
+  return new Intl.NumberFormat("pt-BR", {
+    style: "percent",
+    maximumFractionDigits: 4,
+  }).format(valor);
+});
 
 const totalComissionamento = computed(() => {
-  const valor = job.value?.simulacao?.resultado?.totais?.simulado
+  const valor = simulacao.value?.resultado?.totais?.simulado;
 
-  if (valor == null) return ''
+  if (valor == null) return "";
 
-  return `R$ ${valor.toLocaleString('pt-BR', {
+  return `R$ ${valor.toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  })}`
-})
+  })}`;
+});
 
 const orcamentoExcedido = computed(() => {
-  const simulado = job.value?.simulacao?.resultado?.totais?.simulado
-  const orcamento = job.value?.simulacao?.resultado?.totais?.orcamento
+  const simulado = simulacao.value?.resultado?.totais?.simulado;
+  const orcamento = simulacao.value?.resultado?.totais?.orcamento;
 
   if (simulado == null || orcamento == null || simulado <= orcamento) {
-    return ''
+    return "";
   }
 
-  const excedente = simulado - orcamento
+  const excedente = simulado - orcamento;
 
-  return `R$ ${excedente.toLocaleString('pt-BR', {
+  return `R$ ${excedente.toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  })}`
-})
+  })}`;
+});
 
-const regraViavel = computed(
-  () => job.value?.simulacao?.veredito === 'viavel',
-)
+const regraViavel = computed(() => simulacao.value?.veredito === "viavel");
 
-const regraInviavel = computed(
-  () => job.value?.simulacao?.veredito === 'inviavel',
-)
+const regraInviavel = computed(() => simulacao.value?.veredito === "inviavel");
 
 const assercaoViolada = computed(
-  () => job.value?.simulacao?.status === 'assercao_violada',
-)
+  () => simulacao.value?.status === "assercao_violada",
+);
 
-onMounted(() => {
-  iniciar()
-})
+watch(
+  jobId,
+  () => {
+    void iniciar();
+  },
+  { immediate: true },
+);
+onUnmounted(parar);
 </script>
 
 <template>
@@ -228,7 +244,7 @@ onMounted(() => {
                             </div>
                         </div>
                         <button
-                                v-if="regraViavel"
+                                v-if="regraViavel && podeFinalizar"
                                 type="button"
                                 class="flex items-center justify-center cursor-pointer rounded-lg bg-[#14532D] text-white px-6 py-3 mt-4"
                                 @click="seguirParaFinalizacao"
@@ -280,7 +296,7 @@ onMounted(() => {
             </div>
         </div>
     <!-- Sugestão (tornar aparição dinâmica depois) -->
-        <div v-if="regraInviavel" class="mb-8">
+        <div v-if="sugestao && (regraInviavel || aguardandoConfirmacao)" class="mb-8">
             <div class="mb-11">
                 <h1 class="text-3xl text-[#2B160D] mb-2">Sugestão</h1>
                 <p class="text-[#584237]">A regra de negócio escolhida é inviável. Mas não se preocupe, criamos esta para você:</p>
@@ -294,14 +310,14 @@ onMounted(() => {
                                 <div class="flex flex-col">
                                     <div class="flex flex-col">
                                         <label for="vigencia" class="mb-1 text-[#584237]">Vigência</label>
-                                        <input id="vigencia" type="text" :class="[
+                                        <input id="vigencia" type="text" readonly :value="vigencia" :class="[
         'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
         assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
     ]"/>
                                     </div>
                                     <div class="flex flex-col">
                                         <label for="loja" class="mb-1 text-[#584237]">Loja</label>
-                                        <input id="loja" type="text" :class="[
+                                        <input id="loja" type="text" readonly :value="sugestao?.representacao.nucleo.loja?.join(', ') ?? ''" :class="[
         'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
         assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
     ]"/>
@@ -309,7 +325,7 @@ onMounted(() => {
 
                                     <div class="flex flex-col">
                                         <label for="marca" class="mb-1 text-[#584237]">Marca</label>
-                                        <input id="marca" type="text" :class="[
+                                        <input id="marca" type="text" readonly :value="sugestao?.representacao.nucleo.marca?.join(', ') ?? ''" :class="[
         'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
         assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
     ]" />
@@ -317,19 +333,19 @@ onMounted(() => {
                                 </div>
                                 <div class="flex flex-col">
                                     <label for="cargo" class="mb-1 text-[#584237]">Cargo</label>
-                                    <input id="cargo" type="text" :class="[
+                                    <input id="cargo" type="text" readonly :value="sugestao?.representacao.nucleo.cargo?.join(', ') ?? ''" :class="[
         'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
         assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
     ]"/>
 
                                     <label for="meta" class="mb-1 text-[#584237]">Meta</label>
-                                    <input id="meta" type="text" :class="[
+                                    <input id="meta" type="text" readonly :value="meta" :class="[
         'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
         assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
     ]"/>
 
                                     <label for="percentual" class="mb-1 text-[#584237]">Percentual</label>
-                                    <input id="percentual" type="text" :class="[
+                                    <input id="percentual" type="text" readonly :value="sugestao?.representacao.nucleo.percentual == null ? '' : new Intl.NumberFormat('pt-BR', { style: 'percent', maximumFractionDigits: 4 }).format(sugestao.representacao.nucleo.percentual)" :class="[
         'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
         assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
     ]"/>
@@ -341,19 +357,19 @@ onMounted(() => {
                         <hr class="mb-4 border border-[#FFDBCD]">
                         <div class="flex flex-col mb-8">
                             <label for="percentual" class="mb-1 text-[#584237]">Total de comissionamento</label>
-                            <input id="percentual" type="text" placeholder="R$ X,00"  class="bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265] text-[#2B160D] px-3.5 py-3 w-full"/>
+                            <input id="percentual" type="text" readonly placeholder="R$ X,00"  class="bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265] text-[#2B160D] px-3.5 py-3 w-full"/>
                         </div>
                         <p class="text-lg mb-3">Deseja escolher essa nova regra?</p>
                         <div class="flex flex-row justify-around p-0 mb-3 gap-16">
                             <!-- SIM -->
-                            <button type="button" class="flex flex-col w-[50%] cursor-pointer h-fit rounded-lg border-l-8 border-r border-t border-b border-l-[#14532D] border-r-#14532D]/20 border-t-[#14532D]/20 border-b-[#14532D]/20 bg-[#F4ECE6]/50 p-3 items-center justify-center">
+                            <button type="button" :disabled="!podeAceitarSugestao" @click="aceitarSugestao" class="flex flex-col w-[50%] cursor-pointer h-fit rounded-lg border-l-8 border-r border-t border-b border-l-[#14532D] border-r-#14532D]/20 border-t-[#14532D]/20 border-b-[#14532D]/20 bg-[#F4ECE6]/50 p-3 items-center justify-center">
                                 <div class="flex flex-col items-center">
                                     <h4 class="text-[#14532D] font-bold">SIM!</h4>
                                     <span class="text-[#584237]">Seguir para a próxima etapa.</span>
                                 </div>
                             </button>
                             <!-- NÃO -->
-                            <button type="button" class="flex flex-col w-[50%] h-fit cursor-pointer rounded-lg border-l-8 border-r border-t border-b border-l-[#950606] border-r-[#950606]/20 border-t-[#950606]/20 border-b-[#950606]/20 bg-[#F4ECE6]/50 p-3 items-center justify-center" @click="cancelarFluxo">
+                            <button type="button" class="flex flex-col w-[50%] h-fit cursor-pointer rounded-lg border-l-8 border-r border-t border-b border-l-[#950606] border-r-[#950606]/20 border-t-[#950606]/20 border-b-[#950606]/20 bg-[#F4ECE6]/50 p-3 items-center justify-center" :disabled="!podeCancelar" @click="cancelarFluxo">
                                 <div class="flex flex-col items-center">
                                     <h4 class="text-[#950606] font-bold">Não.</h4>
                                     <span class="text-[#584237]">Cancelar este fluxo.</span>

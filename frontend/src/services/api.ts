@@ -4,6 +4,7 @@ import type {
   CriarJobRequisicao,
   ExecutarAcaoRequisicao,
   Job,
+  JobCriado,
   ListarJobsParametros,
   PaginaJobs,
   ReprocessarRequisicao,
@@ -15,7 +16,7 @@ function jobPath(id: string): string {
 
 export const apiClient = {
   criarJob(requisicao: CriarJobRequisicao, signal?: AbortSignal) {
-    return http.post<Job, CriarJobRequisicao>('/jobs', requisicao, signal)
+    return http.post<JobCriado, CriarJobRequisicao>('/jobs', requisicao, signal)
   },
 
   listarJobs(parametros: ListarJobsParametros = {}, signal?: AbortSignal) {
@@ -36,7 +37,7 @@ export const apiClient = {
   },
 
   confirmarParametros(id: string, requisicao: ConfirmarParametrosRequisicao, signal?: AbortSignal) {
-    return http.post<Job, ConfirmarParametrosRequisicao>(
+    return http.post<JobCriado, ConfirmarParametrosRequisicao>(
       `${jobPath(id)}/parameters`,
       requisicao,
       signal,
@@ -48,7 +49,7 @@ export const apiClient = {
   },
 
   reprocessarJob(id: string, requisicao?: ReprocessarRequisicao, signal?: AbortSignal) {
-    return http.post<Job, ReprocessarRequisicao | undefined>(
+    return http.post<JobCriado, ReprocessarRequisicao | undefined>(
       `${jobPath(id)}/reprocessar`,
       requisicao,
       signal,

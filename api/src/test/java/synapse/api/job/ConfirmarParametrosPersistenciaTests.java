@@ -224,8 +224,12 @@ class ConfirmarParametrosPersistenciaTests {
 		assertThat(percentual(jobId, 1)).isEqualTo("0.025");
 	}
 
+	// Submissão de formulário não passa mais por aguardando_confirmacao_parametros;
+	// voltarParaConfirmacao simula o estado de uma origem que ainda precisa dela.
 	private static UUID criarJob() {
-		return criarService.criar(CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO)).id();
+		UUID jobId = criarService.criar(CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO)).id();
+		voltarParaConfirmacao(jobId);
+		return jobId;
 	}
 
 	private static JobCriadoDto confirmar(UUID jobId, String corpo) {

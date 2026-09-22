@@ -20,9 +20,9 @@ info:
     * Job é a entidade que envelopa todo o fluxo de trabalho, desde a validação da regra até o resultado da simulação.
 
     1. `POST /jobs` submete a regra e cria o job. Na Sprint 1 a regra já nasce
-       formada a partir do formulário, mas o job entra em
-       `aguardando_confirmacao_parametros` do mesmo jeito: é ali que a tela de
-       confirmação revisa o que o usuário preencheu.
+       validada e estruturada a partir do formulário, então o job entra direto em
+       `gerando_regra`: submissão de formulário não passa por uma etapa
+       intermediária de confirmação do usuário.
     2. O cliente abre conexão SSE `GET /jobs/{id}/events` logo em seguida. O primeiro
        evento é a fotografia do estado atual; os demais chegam conforme o job avança,
        inclusive o que os próximos passos disparam. A conexão pode cair e ser
@@ -95,8 +95,8 @@ paths:
 
         A resposta chega antes de a simulação terminar: o processamento leva minutos
         e é acompanhado por `GET /jobs/{id}/events`. O job criado nasce em
-        `aguardando_confirmacao_parametros`, porque o job de formulário entra direto
-        no nó de confirmação do grafo.
+        `gerando_regra`, porque o formulário já entrega a regra validada e
+        estruturada - não há etapa de confirmação para esta origem.
 
         Recusa a criação quando o núcleo está incompleto, com código próprio e
         distinto do da recusa de liberação: aqui o que falta é dado da regra, e o
@@ -116,18 +116,17 @@ paths:
             `criado_em`, `submissao_id` e `regra`.
 
             **`simulacao`, `iniciado_em`, `finalizado_em` e `motivo` são ausentes por
-            construção, não por atraso.** O job nasce em
-            `aguardando_confirmacao_parametros` e nada foi executado ainda; geração de
-            código e simulação são assíncronas e acontecem depois da confirmação. Quem
-            consome esta resposta não precisa tratar esses campos, e eles aparecem em
+            construção, não por atraso.** O job nasce em `gerando_regra` e a geração
+            de código já começou; ela e a simulação são assíncronas. Quem consome
+            esta resposta não precisa tratar esses campos, e eles aparecem em
             `GET /jobs/{id}` quando passarem a existir.
 
             **`regra` está presente**, e não é exceção à assincronia. O formulário já
             chega com parâmetros estruturados, então a versão 1 da regra nasce da
             própria submissão, na mesma transação que grava o job e o evento de outbox
             - é o que `regra-submetida` exige ao pedir `regra_id` na origem
-            `formulario`. É também o que a tela de confirmação exibe em seguida, sem um
-            `GET` adicional.
+            `formulario`. É também o que a tela de acompanhamento exibe em seguida,
+            sem um `GET` adicional.
           headers:
             Location:
               description: Caminho do job criado.
@@ -140,10 +139,10 @@ paths:
                 $ref: "#/components/schemas/Job"
               examples:
                 jobRecemCriado:
-                  summary: Job recém-criado, aguardando confirmação
+                  summary: Job recém-criado, geração em curso
                   value:
                     id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
-                    status: aguardando_confirmacao_parametros
+                    status: gerando_regra
                     origem: formulario
                     competencias: ["2025-11"]
                     orcamento: 485000.0
