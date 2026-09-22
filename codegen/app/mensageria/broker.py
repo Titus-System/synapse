@@ -4,7 +4,7 @@ from aio_pika import ExchangeType, connect_robust
 from aio_pika.abc import AbstractChannel, AbstractQueue, AbstractRobustConnection
 
 from app.config import Settings
-from app.contratos.mensagens import ParametrosConfirmados, RegraSubmetida, SimulacaoConcluida
+from app.contratos.mensagens import RegraSubmetida
 from app.core.logger import get_logger
 from app.mensageria.consumers import Consumer
 from app.mensageria.producers import Producers
@@ -40,17 +40,15 @@ class ConexaoBroker:
     consumidores: list[tuple[AbstractQueue, str, Consumer]] = field(default_factory=list)
 
     async def iniciar_consumers(self, roteador: RoteadorGrafo) -> None:
+        # Só regra-submetida por enquanto: retomar parametros-confirmados/simulacao-concluida
+        # com Command(resume=...) ainda não está implementado, e as duas filas permanecem com
+        # as mensagens preservadas no broker até essa integração existir.
         if self.consumidores:
             raise RuntimeError("Consumers já iniciados")
-        for modelo, nome, nome_fila in (
-            (RegraSubmetida, "regra-submetida", "regra-submetida"),
-            (ParametrosConfirmados, "parametros-confirmados", "parametros-confirmados"),
-            (SimulacaoConcluida, EXCHANGE_SIMULACAO, FILA_SIMULACAO),
-        ):
-            consumer = Consumer(modelo, nome, roteador)
-            fila = self.filas[nome_fila]
-            tag = await fila.consume(consumer.receber, no_ack=False)
-            self.consumidores.append((fila, tag, consumer))
+        consumer = Consumer(RegraSubmetida, "regra-submetida", roteador)
+        fila = self.filas["regra-submetida"]
+        tag = await fila.consume(consumer.receber, no_ack=False)
+        self.consumidores.append((fila, tag, consumer))
 
     async def fechar(self) -> None:
         try:

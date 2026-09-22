@@ -27,6 +27,11 @@ o comando `executar-codigo`. A topologia é durável, não exclusiva, sem auto-d
 e sem argumentos `x-*`. Cada lado declara as filas em que participa de forma
 idempotente. O codegen não declara nem consome `simulacao-concluida.api`.
 
+`RegraSubmetida` tem um campo opcional `orcamento` (`Decimal`, `>= 0`, vindo de
+`jobs.orcamento`), aditivo ao contrato existente. O estado do grafo o carrega como
+texto decimal (nunca `float`) e não o usa para decidir viabilidade - isso é apuração
+do worker sobre dados reais.
+
 `scripts/preparar_contratos.py` incorpora dinamicamente todos os schemas, mantendo
 os caminhos relativos e removendo cópias obsoletas. O Docker já copia `contracts/`.
 O runtime registra os schemas incorporados por `$id`, sem consulta ao monorepo
@@ -64,7 +69,7 @@ da persistência e antes do ACK. T-049 não implementa nós nem checkpointer.
 | Cancelamento | sem ACK; fechamento da conexão devolve mensagens não confirmadas |
 
 A rejeição de mensagens inválidas e jobs desconhecidos é a decisão mínima local
-da T-049 para falhas não recuperáveis. **As filas de entrada do codegen não têm DLQ;
+para falhas não recuperáveis. **As filas de entrada do codegen não têm DLQ;
 essas rejeições descartam a mensagem.** Ausência de roteador configurado não é job
 desconhecido: nesse caso nenhum consumer é iniciado e as mensagens ficam nas filas.
 Falhas transitórias usam a reentrega do broker, sem republicação/retry manual.
@@ -89,22 +94,27 @@ exceção ou traceback do processador, que podem carregar dados confidenciais.
 
 ## Ciclo de vida e configuração
 
-O lifespan abre uma conexão robusta, habilita confirmações e limita prefetch
-(padrão 1), declara topologia e disponibiliza `aplicacao.state.producers`.
-`criar_aplicacao(roteador=...)` injeta a implementação real de `RoteadorGrafo` e
-inicia os três consumers. Sem essa integração, o processo emite um aviso e mantém
-as mensagens no broker. `/health` continua sendo liveness do processo.
+O lifespan cria o engine assíncrono do banco (`app/db.py`, `asyncpg`) e o
+`async_sessionmaker`, roda `checkpointer.setup()` (idempotente), abre a conexão
+RabbitMQ robusta, habilita confirmações e limita prefetch (padrão 1), declara
+topologia e disponibiliza `aplicacao.state.producers`. `criar_aplicacao(roteador=...)`
+injeta a implementação real de `RoteadorGrafo` e inicia **só o consumer de
+regra-submetida**; `parametros-confirmados` e `simulacao-concluida` ficam com as
+mensagens preservadas no broker até a retomada com `Command(resume=...)` existir.
+Sem essa integração, o processo emite um aviso e mantém as mensagens no broker.
+`/health` continua sendo liveness do processo.
 
-O entrypoint Docker/uvicorn chama a factory sem argumentos, portanto não ativa
-consumers. A [T-050](https://github.com/Titus-System/synapse/issues/53), dependente
-da T-049, cria o esqueleto do grafo e recebe como entrada o evento dessa camada:
-é o ponto de integração previsto por essa sequência. Contudo, a issue não atribui
-explicitamente a injeção do roteador na factory; essa composição precisa ser
-confirmada no escopo da T-050. Ela deverá fornecer o adaptador real e passá-lo a
-`criar_aplicacao`, com a persistência da T-048 quando necessária para retorno seguro.
-A [T-053](https://github.com/Titus-System/synapse/issues/56) é a abstração de LLM,
-não a composição da aplicação. A interface da T-049 pode ser testada isoladamente;
-o consumo pelo entrypoint padrão permanece pendente dessa integração.
+`GraphRouter` (`app/mensageria/roteamento.py`) é o `RoteadorGrafo` real: traduz
+`RegraSubmetida` no estado inicial do grafo e chama
+`app/graph/entrypoint.py::run_to_completion`, nunca invocado diretamente pelo
+`Consumer` - ver `Attention.md`. Ele nasce sem `sessoes`/`producers`; o lifespan os
+atribui depois de criar o engine e conectar ao broker, porque `GraphRouter` existe
+antes de qualquer um dos dois estar pronto.
+
+O entrypoint Docker/uvicorn chama `app.main:criar_aplicacao_padrao`, que monta um
+`GraphRouter` e o passa a `criar_aplicacao`, ativando o consumer de regra-submetida
+em produção. `criar_aplicacao` (sem roteador) continua existindo para os testes e
+para compor um roteador diferente.
 
 Ao encerrar, cancela as inscrições, aguarda handlers ativos e fecha a conexão
 (incluindo canais). Falha na abertura de canal/topologia também fecha a conexão.

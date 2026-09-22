@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -318,7 +320,12 @@ async def test_lifespan_inicia_recursos_e_fecha_sem_grafo_falso(
 ) -> None:
     from app.main import criar_aplicacao
 
+    engine = MagicMock(dispose=AsyncMock())
+    checkpointer = AsyncMock()
     broker = MagicMock(iniciar_consumers=AsyncMock(), fechar=AsyncMock())
+    monkeypatch.setattr("app.main.criar_engine", MagicMock(return_value=engine))
+    monkeypatch.setattr("app.main.criar_sessionmaker", MagicMock(return_value=MagicMock()))
+    monkeypatch.setattr("app.main.get_checkpointer", _checkpointer_fixo(checkpointer))
     monkeypatch.setattr("app.main.conectar", AsyncMock(return_value=broker))
     monkeypatch.setattr("app.main.stop_logger", MagicMock())
     roteador = MagicMock() if com_roteador else None
@@ -331,7 +338,40 @@ async def test_lifespan_inicia_recursos_e_fecha_sem_grafo_falso(
             broker.iniciar_consumers.assert_awaited_once_with(roteador)
         else:
             broker.iniciar_consumers.assert_not_awaited()
+    checkpointer.setup.assert_awaited_once_with()
     broker.fechar.assert_awaited_once_with()
+    engine.dispose.assert_awaited_once_with()
+
+
+def _checkpointer_fixo(checkpointer: AsyncMock) -> Any:
+    @asynccontextmanager
+    async def get_checkpointer() -> AsyncIterator[AsyncMock]:
+        yield checkpointer
+
+    return get_checkpointer
+
+
+async def test_lifespan_liga_sessoes_e_producers_num_graph_router_real(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.main import criar_aplicacao
+    from app.mensageria.roteamento import GraphRouter
+
+    engine = MagicMock(dispose=AsyncMock())
+    sessoes = MagicMock()
+    checkpointer = AsyncMock()
+    broker = MagicMock(iniciar_consumers=AsyncMock(), fechar=AsyncMock())
+    monkeypatch.setattr("app.main.criar_engine", MagicMock(return_value=engine))
+    monkeypatch.setattr("app.main.criar_sessionmaker", MagicMock(return_value=sessoes))
+    monkeypatch.setattr("app.main.get_checkpointer", _checkpointer_fixo(checkpointer))
+    monkeypatch.setattr("app.main.conectar", AsyncMock(return_value=broker))
+    monkeypatch.setattr("app.main.stop_logger", MagicMock())
+    roteador = GraphRouter()
+    aplicacao = criar_aplicacao(roteador)
+
+    async with aplicacao.router.lifespan_context(aplicacao):
+        assert roteador.sessoes is sessoes
+        assert roteador.producers is broker.producers
 
 
 async def test_producer_revalida_restricao_schema_depois_de_mutacao() -> None:
@@ -359,7 +399,7 @@ async def test_broker_usa_confirms_prefetch_e_consumers_com_ack_manual(
 
     conexao.channel.assert_awaited_once_with(publisher_confirms=True, on_return_raises=True)
     canal.set_qos.assert_awaited_once_with(prefetch_count=1)
-    assert len(broker.consumidores) == 3
+    assert len(broker.consumidores) == 1
     for fila, _, _ in broker.consumidores:
         assert fila.consume.call_args.kwargs == {"no_ack": False}
     await broker.fechar()
