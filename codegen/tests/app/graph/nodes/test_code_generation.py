@@ -3,7 +3,7 @@ import re
 from collections.abc import Callable, Iterable
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from app.config import get_settings
 from app.graph.core.state import AgentState
@@ -40,6 +40,37 @@ async def test_code_generation_sends_exactly_the_generation_prompt(
     regra = RepresentacaoRegra.model_validate(_REGRA["representacao_regra"])
     esperado = montar_prompt_geracao(regra)
     assert [m.content for m in model.seen_messages[0]] == [esperado]
+
+
+async def test_code_generation_sends_only_its_prompt_even_after_the_greeting_exchange(
+    scripted_model: ScriptedModel,
+) -> None:
+    model = scripted_model([AIMessage(content="```python\ndef aplicar_regra(): ...\n```")])
+    state: AgentState = {
+        **_REGRA,
+        "messages": [
+            HumanMessage(content="greeting prompt"),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "say_hello", "args": {"name": "x"}, "id": "call_1"}],
+            ),
+            ToolMessage(content="Hello x", tool_call_id="call_1"),
+            AIMessage(content="Hello x"),
+        ],
+    }
+
+    await code_generation(state, {"configurable": {}})
+
+    regra = RepresentacaoRegra.model_validate(_REGRA["representacao_regra"])
+    assert [m.content for m in model.seen_messages[0]] == [montar_prompt_geracao(regra)]
+
+
+async def test_code_generation_binds_no_tools(scripted_model: ScriptedModel) -> None:
+    model = scripted_model([AIMessage(content="```python\n...\n```")])
+
+    await code_generation(_REGRA, {"configurable": {}})
+
+    assert model.bound_tools == []
 
 
 async def test_code_generation_extracts_text_from_a_list_of_content_parts(

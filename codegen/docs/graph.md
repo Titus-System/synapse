@@ -9,10 +9,12 @@ config:
     curve: linear
 ---
 graph TD;
-	__start__([<p>__start__</p>]):::first
+	__start__(<p>__start__</p>)
+	greeting(greeting)
 	load_rule(load_rule)
 	code_generation(code_generation)
-	__end__([<p>__end__</p>]):::last
+	tools(tools)
+	__end__(<p>__end__</p>)
 	__start__ --> load_rule;
 	load_rule --> code_generation;
 	code_generation --> __end__;
