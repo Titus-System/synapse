@@ -333,9 +333,9 @@ Como o pipeline trata a entrada em geração de código como a fronteira entre a
 **Aspectos técnicos a definir pela equipe de frontend:**
 
 - Gerenciamento de estado (ex.: Pinia) para o estado do job corrente (parâmetros, progresso, resultado) e para sessão/autenticação.
-- Roteamento (Vue Router) entre as telas acima, com guarda de rota autenticada: o login envia credencial à API, que devolve a sessão; o guarda barra as rotas sem sessão válida e as que o papel do usuário não autoriza.
-- Cliente SSE com reconexão automática (o job pode durar minutos; a conexão pode cair) e deduplicação de eventos.
-- Cliente REST para as ações síncronas (submissão, consulta de histórico, ações de finalização).
+- Roteamento (Vue Router) entre as telas acima, com guarda de rota autenticada: o Keycloak autentica via OIDC com PKCE, o frontend mantém os tokens apenas em memória e recupera a sessão por SSO silencioso ao recarregar. A guarda exige sessão autenticada; a aplicação das permissões por papel segue a tarefa do middleware de autorização.
+- Cliente SSE via `fetch`, com `Authorization: Bearer`, reconexão automática e deduplicação de resultados. Cada abertura do stream aguarda a renovação do token pelo adaptador Keycloak.
+- Cliente REST para as ações síncronas (submissão, consulta de histórico, ações de finalização), usando o mesmo transporte autenticado. Antes de enviar a requisição, o cliente chama `updateToken(30)`; uma falha transitória de renovação preserva a sessão e permite tentar novamente. Respostas 401 reiniciam o login.
 - Validação client-side complementar (não substitui a validação da API) para reduzir round-trips óbvios.
 - Acessibilidade e clareza de mensagens - requisito não funcional do parceiro é que o sistema seja usável por quem "não tem domínio de tecnologia".
 
@@ -362,7 +362,8 @@ Como o pipeline trata a entrada em geração de código como a fronteira entre a
 - **Gestão de SSE** - mapeamento `job_id → emissores conectados`, para repassar cada evento de progresso consumido do RabbitMQ ao(s) cliente(s) Frontend inscritos naquele job. Também é o que sustenta a retenção do trabalho na saída abrupta (US07, cenário 2): o job vive na API, não na aba do navegador, então fechar a página não descarta o processamento - o Frontend apenas alerta antes de sair e reencontra o job no histórico.
 - **Persistência (Spring Data JPA)** - repositórios da tabela `job` e das tabelas relacionadas (ver seção 5), reaproveitados pelas fatias que precisam. Inclui os artefatos que a própria API produz: áudio (`bytea`) e transcrição, em tabela separada das de consulta frequente para não pesar o dia a dia.
 - **Dono das migrations** - o schema é único e a API é quem o versiona, via Liquibase (seção 5), inclusive as tabelas que Worker e codegen escrevem. Eles inserem; não criam nem alteram estrutura.
-- **Segurança** - Spring Security com autenticação local: a API é dona das credenciais e da sessão. A senha é guardada apenas como hash de KDF, nunca em claro. A autorização é por papel único, sem RBAC fino — a matriz de papel × ação está na DEC-087, que também fixa os dois papéis existentes: profissional de RH e auditor. Não há provedor de identidade externo nem SSO: o MVP não precisa de federação, e a granularidade de permissão que o produto exige cabe em dois papéis.
+- **Autenticação** - O [ADR-006](adrs/ADR-006.md) adota o Keycloak como provedor OIDC, responsável pelas credenciais e pela sessão. Com autenticação habilitada, a API atua como resource server do Spring Security: valida assinatura, emissor e validade do JWT recebido como Bearer nas chamadas REST e SSE. A API mantém o usuário local e seu vínculo com jobs pelo claim `sub`, persistido em `usuarios.keycloak_sub`.
+- **Autorização** - A [DEC-087](decisoes/dec-087.md) mantém os papéis profissional de RH e auditor, com o auditor em função investigativa. Existem checagens de posse em controllers, mas a cobertura uniforme de todas as operações, as permissões de mutação e o tratamento de acesso negado ainda pertencem à tarefa específica do middleware de autorização. A adoção do Keycloak não conclui essa tarefa.
 
 **Pontos de atenção para o desenvolvimento:**
 

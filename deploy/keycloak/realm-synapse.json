@@ -1,0 +1,29 @@
+{
+  "realm": "synapse",
+  "enabled": true,
+  "displayName": "Synapse",
+  "loginTheme": "synapse",
+  "defaultLocale": "pt-BR",
+  "supportedLocales": ["pt-BR"],
+  "roles": {
+    "realm": [
+      { "name": "profissional-rh" },
+      { "name": "auditor" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "synapse-frontend",
+      "name": "Frontend Synapse",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:5173/*"],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:5173/*"
+      },
+      "webOrigins": ["http://localhost:5173"]
+    }
+  ]
+}

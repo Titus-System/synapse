@@ -9,6 +9,7 @@ import { faCircleExclamation } from '@fortawesome/free-solid-svg-icons'
 import App from './App.vue'
 import roteador from './router'
 import { instalarRegistroDeErrosDoNavegador } from './observability/browserErrorLogging'
+import { usarStoreSessao } from './stores/session'
 
 import './assets/main.css'
 
@@ -17,9 +18,11 @@ library.add(faCircleCheck)
 library.add(faCircleExclamation)
 
 const aplicacao = createApp(App)
+const pinia = createPinia()
 
 aplicacao.component('font-awesome-icon', FontAwesomeIcon)
-aplicacao.use(createPinia())
+aplicacao.use(pinia)
+await usarStoreSessao(pinia).inicializar()
 aplicacao.use(roteador)
 instalarRegistroDeErrosDoNavegador(aplicacao)
 

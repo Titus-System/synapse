@@ -6,20 +6,30 @@ import { jobFixture, regraFixture } from '@/services/job.fixtures'
 import type { Job } from '@/types/api'
 import SimulateView from './SimulateView.vue'
 
-class Stream extends EventTarget {
+vi.mock('@/services/keycloak', () => ({
+  obterTokenDeAcesso: vi.fn<() => Promise<string>>().mockResolvedValue('token-da-sessao'),
+  iniciarLogin: vi.fn<() => Promise<void>>().mockResolvedValue(),
+  limparTokenDoKeycloak: vi.fn<() => void>(),
+}))
+
+class Stream {
   static atual: Stream
-  onopen: (() => void) | null = null
-  onerror: (() => void) | null = null
+  private controlador!: ReadableStreamDefaultController<Uint8Array>
+  readonly corpo = new ReadableStream<Uint8Array>({
+    start: (controlador) => { this.controlador = controlador },
+  })
   fechado = false
-  constructor(readonly url: string) {
-    super()
+
+  constructor(readonly url: string, signal: AbortSignal) {
     Stream.atual = this
+    signal.addEventListener('abort', () => {
+      this.fechado = true
+      this.controlador.error(new DOMException('Cancelado', 'AbortError'))
+    }, { once: true })
   }
-  close() {
-    this.fechado = true
-  }
+
   emitir(tipo: string, dados: unknown) {
-    this.dispatchEvent(new MessageEvent(tipo, { data: JSON.stringify(dados) }))
+    this.controlador.enqueue(new TextEncoder().encode(`event: ${tipo}\ndata: ${JSON.stringify(dados)}\n\n`))
   }
 }
 
@@ -29,16 +39,17 @@ afterEach(() => {
 })
 
 async function montar(consultar: () => Job) {
-  vi.stubGlobal('EventSource', Stream)
-  const fetchMock = vi
-    .spyOn(globalThis, 'fetch')
-    .mockImplementation(
-      async () =>
-        new Response(JSON.stringify(consultar()), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        }),
-    )
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/events')) {
+      if (!init?.signal) throw new Error('O stream precisa de um sinal de cancelamento')
+      const stream = new Stream(String(url), init.signal)
+      return new Response(stream.corpo, { headers: { 'content-type': 'text/event-stream' } })
+    }
+    return new Response(JSON.stringify(consultar()), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  })
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -64,7 +75,10 @@ describe('integração da tela com HTTP e SSE', () => {
     recente.representacao.nucleo.loja = ['Loja mais recente']
     let resposta = jobFixture({ status: 'gerando_regra', regras: [recente, regraFixture()] })
     const { wrapper, fetchMock } = await montar(() => resposta)
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/jobs/job-1')
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(expect.arrayContaining(['/api/jobs/job-1', '/api/jobs/job-1/events']))
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer token-da-sessao')
+    }
     expect(Stream.atual.url).toBe('/api/jobs/job-1/events')
     expect(wrapper.get('#loja').element).toHaveProperty('value', 'Loja mais recente')
     expect(wrapper.get('#totalComissionamento').element).toHaveProperty('value', '')

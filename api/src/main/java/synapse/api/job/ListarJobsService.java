@@ -16,6 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+import synapse.api.core.security.AcessoDoUsuario;
+
 @Service
 class ListarJobsService {
 
@@ -25,14 +27,21 @@ class ListarJobsService {
 		this.jdbc = jdbc;
 	}
 
+	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+	PaginaJobsDto listar(ListarJobsRequisicao requisicao) {
+		return listar(requisicao, new AcessoDoUsuario(UUID.randomUUID(), true));
+	}
+
 	/**
 	 * {@code REPEATABLE_READ} faz a contagem e a página lerem o mesmo snapshot. O
 	 * veredito é o da simulação mais recente do job, e só quando ela terminou com
 	 * sucesso.
 	 */
 	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-	PaginaJobsDto listar(ListarJobsRequisicao requisicao) {
-		long total = Objects.requireNonNull(this.jdbc.queryForObject("SELECT count(*) FROM jobs", Long.class));
+	PaginaJobsDto listar(ListarJobsRequisicao requisicao, AcessoDoUsuario acesso) {
+		long total = Objects.requireNonNull(this.jdbc.queryForObject("""
+				SELECT count(*) FROM jobs WHERE ? OR usuario_id = ?
+				""", Long.class, acesso.auditor(), acesso.usuarioId()));
 		List<JobResumoDto> itens = this.jdbc.query("""
 				SELECT j.id, j.status, j.competencias, j.orcamento, j.criado_em, j.finalizado_em,
 				       j.job_origem_id, rs.veredito
@@ -44,9 +53,11 @@ class ListarJobsService {
 				    LIMIT 1
 				) corrente ON true
 				LEFT JOIN resultados_simulacao rs ON rs.id = corrente.resultado_id AND rs.status = 'sucesso'
+				WHERE ? OR j.usuario_id = ?
 				ORDER BY j.criado_em DESC, j.id DESC
 				LIMIT ? OFFSET ?
-				""", (linha, numero) -> resumo(linha), requisicao.tamanho(), requisicao.deslocamento());
+				""", (linha, numero) -> resumo(linha), acesso.auditor(), acesso.usuarioId(), requisicao.tamanho(),
+				requisicao.deslocamento());
 		return new PaginaJobsDto(itens, requisicao.pagina(), requisicao.tamanho(), total);
 	}
 

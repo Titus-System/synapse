@@ -85,6 +85,10 @@ app:
   outbox:
     enabled: ${OUTBOX_ENABLED:true}
     poll-interval: ${OUTBOX_POLL_INTERVAL:1s}
+  keycloak:
+    enabled: ${KEYCLOAK_ENABLED:false}
+    issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/synapse}
+    jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8081/realms/synapse/protocol/openid-connect/certs}
 
 logging:
   level:
