@@ -67,7 +67,7 @@ class CriarJobService {
 		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA,
 				new RegraSubmetidaDto(jobId, requisicao.origem(), requisicao.competencias(), submissaoId, regraId));
 		return new JobCriadoDto(jobId, status, requisicao.origem(), requisicao.competencias(), requisicao.orcamento(),
-				agora, submissaoId, regra);
+				agora, submissaoId, null, regra);
 	}
 
 }

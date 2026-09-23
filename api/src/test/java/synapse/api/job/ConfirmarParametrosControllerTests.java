@@ -46,7 +46,7 @@ class ConfirmarParametrosControllerTests {
 	void confirmaResponde202ComRegraNaVersaoNova() throws Exception {
 		when(this.service.confirmar(any(), any())).thenReturn(new JobCriadoDto(JOB, "gerando_regra", "formulario",
 				List.of("2025-11"), new BigDecimal("485000.0"), Instant.parse("2026-09-20T10:00:00Z"),
-				UUID.randomUUID(),
+				UUID.randomUUID(), null,
 				new RegraCriadaDto(UUID.randomUUID(), 2, "confirmacao_usuario",
 						new RepresentacaoRegraDto(new NucleoRegraDto(new VigenciaDto("2025-11", "2025-11"),
 								List.of("13"), List.of("10", "20"), List.of("100", "300"), new BigDecimal("0.03")),
@@ -59,6 +59,17 @@ class ConfirmarParametrosControllerTests {
 			.andExpect(jsonPath("$.status").value("gerando_regra"))
 			.andExpect(jsonPath("$.regra.versao").value(2))
 			.andExpect(jsonPath("$.regra.representacao.nucleo.percentual").value(0.03));
+	}
+
+	@Test
+	void naoPermiteEditarEspecificacoes() throws Exception {
+		this.mvc
+			.perform(post("/jobs/" + JOB + "/parameters").contentType(MediaType.APPLICATION_JSON)
+				.content(CONFIRMAR.replace("\"especificacoes\":[]",
+						"\"especificacoes\":[{\"ref\":\"elem.1\",\"construto\":\"generico\"}]")))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.codigo").value("requisicao_invalida"));
+		verifyNoInteractions(this.service);
 	}
 
 	@Test

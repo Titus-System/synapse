@@ -13,6 +13,8 @@ import java.util.Objects;
 import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -40,7 +42,9 @@ class ConfirmarParametrosService {
 
 	private final Outbox outbox;
 
-	private final JsonMapper json = new JsonMapper();
+	private final JsonMapper json = JsonMapper.builder()
+		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+		.build();
 
 	ConfirmarParametrosService(JdbcTemplate jdbc, MaquinaDeEstadosDoJob maquina, Outbox outbox) {
 		this.jdbc = jdbc;
@@ -54,7 +58,8 @@ class ConfirmarParametrosService {
 		this.maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "usuario", null);
 
 		VersaoAnterior anterior = ultimaVersao(jobId);
-		RepresentacaoRegraDto representacao = requisicao.representacao();
+		RepresentacaoRegraDto representacao = new RepresentacaoRegraDto(requisicao.representacao().nucleo(),
+				anterior != null ? anterior.especificacoes() : List.of());
 		String hash = HashDaRegra.calcular(representacao);
 		boolean editado = anterior != null && !hash.equals(anterior.hash());
 
@@ -69,23 +74,24 @@ class ConfirmarParametrosService {
 				new ParametrosConfirmadosDto(jobId, versao.id()));
 		registrarTrilha(jobId, versao.id(), editado, representacao.nucleo(), anterior, timestamp);
 
-		RegraCriadaDto regra = new RegraCriadaDto(versao.id(), versao.versao(), "confirmacao_usuario", representacao,
+		RegraCriadaDto regra = new RegraCriadaDto(versao.id(), versao.versao(), versao.origem(), representacao,
 				versao.criadaEm());
 		return new JobCriadoDto(jobId, JobStatus.GERANDO_REGRA.paraColuna(), dados.origem(), competencias, orcamento,
-				dados.criadoEm(), dados.submissaoId(), regra);
+				dados.criadoEm(), dados.submissaoId(), dados.jobOrigemId(), regra);
 	}
 
 	private DadosDoJob carregarJob(UUID jobId) {
 		try {
 			return Objects.requireNonNull(this.jdbc.queryForObject("""
-					SELECT s.tipo AS origem, j.orcamento, j.criado_em, j.submissao_id
-					FROM jobs j JOIN submissoes s ON s.id = j.submissao_id
+					SELECT CASE WHEN j.job_origem_id IS NOT NULL THEN 'reprocessamento' ELSE s.tipo END AS origem,
+					       j.orcamento, j.criado_em, j.submissao_id, j.job_origem_id
+					FROM jobs j LEFT JOIN submissoes s ON s.id = j.submissao_id
 					WHERE j.id = ?
 					""",
 					(rs, linha) -> new DadosDoJob(Objects.requireNonNull(rs.getString("origem")),
 							Objects.requireNonNull(rs.getBigDecimal("orcamento")),
 							Objects.requireNonNull(rs.getTimestamp("criado_em")).toInstant(),
-							Objects.requireNonNull(rs.getObject("submissao_id", UUID.class))),
+							rs.getObject("submissao_id", UUID.class), rs.getObject("job_origem_id", UUID.class)),
 					jobId));
 		}
 		catch (EmptyResultDataAccessException ex) {
@@ -94,12 +100,16 @@ class ConfirmarParametrosService {
 	}
 
 	private @Nullable VersaoAnterior ultimaVersao(UUID jobId) {
-		List<VersaoAnterior> versoes = this.jdbc.query("""
-				SELECT id, versao, hash, nucleo FROM regras WHERE job_id = ? ORDER BY versao DESC LIMIT 1
-				""",
+		List<VersaoAnterior> versoes = this.jdbc.query(
+				"""
+						SELECT id, versao, hash, nucleo, especificacoes FROM regras WHERE job_id = ? ORDER BY versao DESC LIMIT 1
+						""",
 				(rs, linha) -> new VersaoAnterior(Objects.requireNonNull(rs.getObject("id", UUID.class)),
 						rs.getInt("versao"), Objects.requireNonNull(rs.getString("hash")),
-						this.json.readValue(Objects.requireNonNull(rs.getString("nucleo")), NucleoRegraDto.class)),
+						this.json.readValue(Objects.requireNonNull(rs.getString("nucleo")), NucleoRegraDto.class),
+						this.json.readTree(Objects.requireNonNull(rs.getString("especificacoes")))
+							.valueStream()
+							.toList()),
 				jobId);
 		return versoes.isEmpty() ? null : versoes.getFirst();
 	}
@@ -107,10 +117,11 @@ class ConfirmarParametrosService {
 	private VersaoRegra resolverVersao(UUID jobId, RepresentacaoRegraDto representacao, String hash,
 			@Nullable VersaoAnterior anterior, Timestamp timestamp, Instant agora) {
 		List<VersaoRegra> existentes = this.jdbc.query("""
-				SELECT id, versao, criada_em FROM regras WHERE job_id = ? AND hash = ?
+				SELECT id, versao, origem, criada_em FROM regras WHERE job_id = ? AND hash = ?
 				""",
 				(rs, linha) -> new VersaoRegra(Objects.requireNonNull(rs.getObject("id", UUID.class)),
-						rs.getInt("versao"), Objects.requireNonNull(rs.getTimestamp("criada_em")).toInstant()),
+						rs.getInt("versao"), Objects.requireNonNull(rs.getString("origem")),
+						Objects.requireNonNull(rs.getTimestamp("criada_em")).toInstant()),
 				jobId, hash);
 		if (!existentes.isEmpty()) {
 			return existentes.getFirst();
@@ -119,10 +130,11 @@ class ConfirmarParametrosService {
 		UUID origemId = (anterior != null) ? anterior.id() : null;
 		UUID id = Objects.requireNonNull(this.jdbc.queryForObject("""
 				INSERT INTO regras (job_id, versao, origem, regra_origem_id, nucleo, especificacoes, hash, criada_em)
-				VALUES (?, ?, 'confirmacao_usuario', ?, ?::jsonb, '[]'::jsonb, ?, ?) RETURNING id
+				VALUES (?, ?, 'confirmacao_usuario', ?, ?::jsonb,
+				        COALESCE((SELECT especificacoes FROM regras WHERE id = ?), '[]'::jsonb), ?, ?) RETURNING id
 				""", UUID.class, jobId, novaVersao, origemId, this.json.writeValueAsString(representacao.nucleo()),
-				hash, timestamp));
-		return new VersaoRegra(id, novaVersao, agora);
+				origemId, hash, timestamp));
+		return new VersaoRegra(id, novaVersao, "confirmacao_usuario", agora);
 	}
 
 	private BigDecimal resolverOrcamento(UUID jobId, ConfirmarParametrosRequisicao requisicao, BigDecimal atual) {
@@ -189,13 +201,15 @@ class ConfirmarParametrosService {
 		return atual.compareTo(anterior) != 0;
 	}
 
-	private record DadosDoJob(String origem, BigDecimal orcamento, Instant criadoEm, UUID submissaoId) {
+	private record DadosDoJob(String origem, BigDecimal orcamento, Instant criadoEm, @Nullable UUID submissaoId,
+			@Nullable UUID jobOrigemId) {
 	}
 
-	private record VersaoAnterior(UUID id, int versao, String hash, NucleoRegraDto nucleo) {
+	private record VersaoAnterior(UUID id, int versao, String hash, NucleoRegraDto nucleo,
+			List<JsonNode> especificacoes) {
 	}
 
-	private record VersaoRegra(UUID id, int versao, Instant criadaEm) {
+	private record VersaoRegra(UUID id, int versao, String origem, Instant criadaEm) {
 	}
 
 }
