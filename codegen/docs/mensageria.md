@@ -115,7 +115,7 @@ Sem essa integração, o processo emite um aviso e mantém as mensagens no broke
 `GraphRouter` (`app/mensageria/roteamento.py`) é o `RoteadorGrafo` real: traduz
 `RegraSubmetida` no estado inicial do grafo e chama
 `app/graph/entrypoint.py::run_to_completion`, nunca invocado diretamente pelo
-`Consumer` - ver `Attention.md`. Ele nasce sem `sessoes`/`producers`; o lifespan os
+`Consumer`. Ele nasce sem `sessoes`/`producers`; o lifespan os
 atribui depois de criar o engine e conectar ao broker, porque `GraphRouter` existe
 antes de qualquer um dos dois estar pronto.
 

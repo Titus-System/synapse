@@ -25,7 +25,7 @@ async def run_to_completion(
     """Run the graph for `job_id` to completion, or until it pauses.
 
     Meant to be called from the message-router boundary, never directly from a message
-    handler - see `Attention.md`. `job_id` is used as the LangGraph `thread_id`: if a
+    handler. `job_id` is used as the LangGraph `thread_id`: if a
     checkpoint already exists under it, the graph resumes from that point and
     `initial_state` is ignored; otherwise the graph starts fresh from it.
 

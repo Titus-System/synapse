@@ -33,8 +33,8 @@ def _google(model_id: str, **kwargs: Any) -> BaseChatModel:
 # below must stay below the RabbitMQ consumer_timeout for regra-submetida (the message carries
 # no ack while this call runs - see `.agents/skills/graph/SKILL.md`).
 #
-# `gemini-3.1-flash-lite`, not a "pro" model: verified against the real API (see
-# `Attention.md`) - `gemini-3.1-pro` does not exist, and the "pro" tier models that do
+# `gemini-3.1-flash-lite`, not a "pro" model: verified against the real API -
+# `gemini-3.1-pro` does not exist, and the "pro" tier models that do
 # (`gemini-3.1-pro-preview`, `gemini-2.5-pro`) return `RESOURCE_EXHAUSTED` (quota 0) on this
 # project's free-tier key. `flash-lite` has real quota and the same 1,048,576-token input
 # window, comfortably above this prompt's size.

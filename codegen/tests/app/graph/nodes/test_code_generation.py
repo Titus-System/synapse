@@ -48,7 +48,7 @@ async def test_code_generation_extracts_text_from_a_list_of_content_parts(
     # Real-provider regression: `langchain_google_genai` can return `AIMessage.content` as a
     # list of part dicts (observed against the real API) instead of a plain `str`, even for an
     # ordinary text reply. A bare `isinstance(content, str)` check treats every one of those as
-    # empty and fails the node on every real call - see `Attention.md`.
+    # empty and fails the node on every real call.
     resposta = AIMessage(
         content=[
             {"type": "text", "text": "```python\n"},
