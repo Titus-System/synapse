@@ -1,3 +1,20 @@
+<script setup lang="ts">
+import { ref } from 'vue'
+import { usarStoreSessao } from '@/stores/session'
+
+const sessao = usarStoreSessao()
+const saindoDaConta = ref(false)
+
+async function sairDaConta(): Promise<void> {
+  saindoDaConta.value = true
+  try {
+    await sessao.sair()
+  } finally {
+    saindoDaConta.value = false
+  }
+}
+</script>
+
 <template>
   <header class="flex h-[clamp(2.5rem,7vh,4rem)] items-center gap-6 border-b border-[#ebd8cc] bg-[#fffaf7] px-6 lg:px-8">
     <div class="flex shrink-0 gap-2" aria-label="Indicadores da janela">
@@ -44,9 +61,9 @@
       </summary>
       <div class="absolute top-[calc(100%+.5rem)] right-0 z-10 w-52 rounded-lg border border-[#ead4c7] bg-white p-3 shadow-[0_12px_30px_-12px_rgba(60,30,15,0.35)]">
         <p class="text-sm font-semibold text-[#2e1a10]">Perfil do usuário</p>
-        <p class="mt-1 text-xs leading-5 text-[#80695c]">A saída da conta será conectada ao login.</p>
-        <button type="button" disabled class="mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-[#e4cfc3] px-3 py-2 text-sm font-medium text-[#9c8174] disabled:cursor-not-allowed disabled:opacity-70">
-          Sair da conta
+        <p class="mt-1 text-xs leading-5 text-[#80695c]">Encerre a sessão para trocar de conta.</p>
+        <button type="button" :disabled="saindoDaConta" class="mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-[#e4cfc3] px-3 py-2 text-sm font-medium text-[#6d4030] transition hover:bg-[#fff6f1] disabled:cursor-not-allowed disabled:opacity-70" @click="sairDaConta">
+          {{ saindoDaConta ? 'Saindo…' : 'Sair da conta' }}
         </button>
       </div>
     </details>

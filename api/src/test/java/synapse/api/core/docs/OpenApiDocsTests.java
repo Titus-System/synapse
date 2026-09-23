@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Um erro na cópia de build deixaria /docs de pé, mas com um contrato ausente ou
  * incompleto.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "app.keycloak.enabled=true")
 @ActiveProfiles("test")
 class OpenApiDocsTests {
 

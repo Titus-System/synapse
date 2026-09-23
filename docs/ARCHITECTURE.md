@@ -333,7 +333,7 @@ Como o pipeline trata a entrada em geração de código como a fronteira entre a
 **Aspectos técnicos a definir pela equipe de frontend:**
 
 - Gerenciamento de estado (ex.: Pinia) para o estado do job corrente (parâmetros, progresso, resultado) e para sessão/autenticação.
-- Roteamento (Vue Router) entre as telas acima, com guarda de rota autenticada: o login envia credencial à API, que devolve a sessão; o guarda barra as rotas sem sessão válida e as que o papel do usuário não autoriza.
+- Roteamento (Vue Router) entre as telas acima, com guarda de rota autenticada: o Keycloak autentica a credencial via OIDC, o frontend mantém o token apenas em memória e a guarda barra as rotas sem sessão válida ou sem o papel autorizado.
 - Cliente SSE com reconexão automática (o job pode durar minutos; a conexão pode cair) e deduplicação de eventos.
 - Cliente REST para as ações síncronas (submissão, consulta de histórico, ações de finalização).
 - Validação client-side complementar (não substitui a validação da API) para reduzir round-trips óbvios.

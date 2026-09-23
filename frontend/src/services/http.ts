@@ -1,5 +1,8 @@
 import { config } from '@/config/env'
 import type { ApiError, CodigoErro, ElementoErro } from '@/types/api'
+import { iniciarLogin, limparTokenDoKeycloak, obterTokenDeAcesso } from './keycloak'
+
+let redirecionandoPorSessaoInvalida = false
 
 const mensagensPorCodigo: Record<CodigoErro, string> = {
   requisicao_invalida: 'Não foi possível enviar os dados. Revise as informações e tente novamente.',
@@ -121,6 +124,8 @@ async function request<TResponse>(
   options?: { body?: unknown; signal?: AbortSignal },
 ): Promise<TResponse> {
   const headers = new Headers({ Accept: 'application/json' })
+  const token = obterTokenDeAcesso()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
   const hasBody = options?.body !== undefined
 
   if (hasBody) headers.set('Content-Type', 'application/json')
@@ -145,6 +150,14 @@ async function request<TResponse>(
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error
     throw new HttpError(0, 'Não foi possível se conectar ao serviço. Verifique sua conexão e tente novamente.')
+  }
+
+  if (response.status === 401) {
+    limparTokenDoKeycloak()
+    if (!redirecionandoPorSessaoInvalida) {
+      redirecionandoPorSessaoInvalida = true
+      void iniciarLogin().catch(() => undefined)
+    }
   }
 
   if (!response.ok) throw await criarErro(response)

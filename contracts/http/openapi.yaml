@@ -70,7 +70,7 @@ servers:
       parte deste contrato.
 
 security:
-  - sessaoSynapse: []
+  - keycloakOidc: []
 
 tags:
   - name: jobs
@@ -742,20 +742,15 @@ paths:
 
 components:
   securitySchemes:
-    sessaoSynapse:
-      type: http
-      scheme: bearer
+    keycloakOidc:
+      type: openIdConnect
+      openIdConnectUrl: http://localhost:8081/realms/synapse/.well-known/openid-configuration
       description: |
-        Sessão emitida pela `api` após login com credencial. A `api` é dona das
-        credenciais, da sessão e do papel do usuário, sem provedor de identidade
-        externo. O papel é único por usuário, sem RBAC fino, e as sete
-        operações deste contrato são do papel `PROFISSIONAL DE RH`; o `AUDITOR` é
-        perfil investigativo, fora do fluxo operacional (DEC-087).
-
-        A rota que emite a sessão e a forma de renovação não fazem parte desta
-        versão do contrato e entram com a tarefa de autenticação. O que este arquivo
-        fixa é que toda operação exige sessão válida e que o acesso a um job confere
-        posse, e não apenas autenticação.
+        Autenticação OIDC emitida pelo Keycloak. O cliente envia o access token como
+        `Authorization: Bearer <token>`; a API valida emissor, assinatura e expiração.
+        A conta local é associada ao claim `sub`, e o acesso a um job confere posse,
+        não apenas autenticação. O papel `auditor` no realm autoriza consulta além da
+        própria conta.
 
   parameters:
     JobId:

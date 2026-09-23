@@ -1,14 +1,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+const adaptadorKeycloak = vi.hoisted(() => ({
+  iniciarLogin: vi.fn<() => Promise<void>>().mockResolvedValue(),
+  limparTokenDoKeycloak: vi.fn<() => void>(),
+  obterTokenDeAcesso: vi.fn<() => string | undefined>(),
+}))
+
+vi.mock('./keycloak', () => adaptadorKeycloak)
+
 import { http } from './http'
 
 afterEach(() => {
-  vi.restoreAllMocks()
+	vi.restoreAllMocks()
+	adaptadorKeycloak.obterTokenDeAcesso.mockReset()
+	adaptadorKeycloak.limparTokenDoKeycloak.mockReset()
+	adaptadorKeycloak.iniciarLogin.mockClear()
 })
 
 describe('http', () => {
-  it('não envia token de autenticação', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+	it('anexa o token de autenticação à chamada', async () => {
+		adaptadorKeycloak.obterTokenDeAcesso.mockReturnValue('token-de-teste')
+		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ id: 'job-1' }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -17,11 +29,20 @@ describe('http', () => {
 
     await http.get<{ id: string }>('/jobs/job-1')
 
-    const request = fetchMock.mock.calls[0]
-    const init = request?.[1]
-    const headers = new Headers(init?.headers)
-    expect(headers.has('Authorization')).toBe(false)
-  })
+		const request = fetchMock.mock.calls[0]
+		const init = request?.[1]
+		const headers = new Headers(init?.headers)
+		expect(headers.get('Authorization')).toBe('Bearer token-de-teste')
+	})
+
+	it('limpa o token e reinicia o login ao receber 401', async () => {
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 401 }))
+
+		await expect(http.get('/jobs')).rejects.toMatchObject({ status: 401 })
+
+		expect(adaptadorKeycloak.limparTokenDoKeycloak).toHaveBeenCalledOnce()
+		await vi.waitFor(() => expect(adaptadorKeycloak.iniciarLogin).toHaveBeenCalledOnce())
+	})
 
   it('transforma erro de validação em mensagem com o nome do campo', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(

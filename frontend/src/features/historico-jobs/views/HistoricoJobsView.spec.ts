@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import type { JobResumo } from '@/types/api'
 import HistoricoJobsView from './HistoricoJobsView.vue'
 
@@ -28,6 +29,7 @@ function criarResumoDoJob(numero: number, status: JobResumo['status'] = 'liberad
 
 const opcoesDeMontagem = {
   global: {
+    plugins: [createPinia()],
     stubs: {
       RouterLink: {
         props: ['to'],

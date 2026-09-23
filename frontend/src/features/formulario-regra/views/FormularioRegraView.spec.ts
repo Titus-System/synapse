@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import FormularioRegraView from './FormularioRegraView.vue'
 
 vi.mock('@/services/api', () => ({
@@ -38,6 +39,7 @@ vi.mock('vue-router', () => ({
 
 const opcoesDeMontagem = {
   global: {
+    plugins: [createPinia()],
     stubs: {
       RouterLink: {
         props: ['to'],
