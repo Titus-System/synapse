@@ -57,6 +57,11 @@ services:
       dockerfile: codegen/Dockerfile
     image: synapse-codegen:${TAG:-local}
     restart: unless-stopped
+    # Variáveis da aplicação (ex. GOOGLE_API_KEY). As chaves de `environment` abaixo
+    # prevalecem sobre as do arquivo, pois apontam para os serviços da rede do compose.
+    env_file:
+      - path: ../codegen/.env
+        required: false
     environment:
       SERVICE_NAME: synapse-codegen
       POSTGRES_HOST: postgres
