@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { abrirAcompanhamentoJob } from './jobEvents'
 import { apiClient } from './api'
+import { http } from './http'
+import { flushPromises } from '@vue/test-utils'
 import type { EventoEtapa, EventoEstado, EventoResultado } from '@/types/api'
 
 vi.mock('./api', () => ({
@@ -9,47 +11,60 @@ vi.mock('./api', () => ({
   },
 }))
 
-class FakeEventSource {
-  static instances: FakeEventSource[] = []
+vi.mock('./http', () => ({
+  http: { stream: vi.fn<(url: string, signal: AbortSignal) => Promise<ReadableStream<Uint8Array>>>() },
+}))
 
-  url: string
-  listeners = new Map<string, Set<(event: MessageEvent) => void>>()
-  onopen: (() => void) | null = null
-  onerror: (() => void) | null = null
+class StreamSimulado {
+  static instances: StreamSimulado[] = []
+  private resolver!: (corpo: ReadableStream<Uint8Array>) => void
+  private rejeitar!: (erro: Error) => void
+  readonly resposta = new Promise<ReadableStream<Uint8Array>>((resolve, reject) => {
+    this.resolver = resolve
+    this.rejeitar = reject
+  })
+  private controlador!: ReadableStreamDefaultController<Uint8Array>
+  private corpo = new ReadableStream<Uint8Array>({
+    start: (controlador) => { this.controlador = controlador },
+  })
   fechada = false
 
-  constructor(url: string) {
-    this.url = url
-    FakeEventSource.instances.push(this)
+  constructor(readonly url: string, signal: AbortSignal) {
+    StreamSimulado.instances.push(this)
+    signal.addEventListener('abort', () => {
+      this.fechada = true
+      const erro = new DOMException('Cancelado', 'AbortError')
+      this.rejeitar(erro)
+      this.controlador.error(erro)
+    }, { once: true })
   }
 
-  addEventListener(evento: string, handler: (event: MessageEvent) => void) {
-    if (!this.listeners.has(evento)) {
-      this.listeners.set(evento, new Set())
-    }
-    this.listeners.get(evento)!.add(handler)
+  async emitir(evento: string, dados: unknown) {
+    await this.emitirBruto(evento, JSON.stringify(dados))
   }
 
-  emitir(evento: string, dados: unknown) {
-    const mensagem = new MessageEvent(evento, { data: JSON.stringify(dados) })
-    this.listeners.get(evento)?.forEach((handler) => handler(mensagem))
+  async emitirBruto(evento: string, dados: string) {
+    if (this.fechada) return
+    await this.abrir()
+    this.controlador.enqueue(new TextEncoder().encode(`event: ${evento}\ndata: ${dados}\n\n`))
+    await flushPromises()
   }
 
-  emitirBruto(evento: string, dataCru: string) {
-    const mensagem = new MessageEvent(evento, { data: dataCru })
-    this.listeners.get(evento)?.forEach((handler) => handler(mensagem))
+  async abrir() {
+    this.resolver(this.corpo)
+    await flushPromises()
   }
 
-  abrir() {
-    this.onopen?.()
+  async errar() {
+    const erro = new Error('Conexão interrompida')
+    this.rejeitar(erro)
+    this.controlador.error(erro)
+    await flushPromises()
   }
 
-  errar() {
-    this.onerror?.()
-  }
-
-  close() {
-    this.fechada = true
+  async concluir() {
+    this.controlador.close()
+    await flushPromises()
   }
 }
 
@@ -65,8 +80,8 @@ function novosHandlers() {
 
 describe('jobEvents', () => {
   beforeEach(() => {
-    FakeEventSource.instances = []
-    vi.stubGlobal('EventSource', FakeEventSource as unknown as typeof EventSource)
+    StreamSimulado.instances = []
+    vi.mocked(http.stream).mockImplementation((url, signal) => new StreamSimulado(url, signal).resposta)
     vi.useFakeTimers()
   })
 
@@ -76,20 +91,20 @@ describe('jobEvents', () => {
     vi.clearAllMocks()
   })
 
-  function instanciaAtual(): FakeEventSource {
-    const instancia = FakeEventSource.instances[FakeEventSource.instances.length - 1]
-    if (!instancia) throw new Error('Nenhuma instância de EventSource foi criada')
+  function instanciaAtual(): StreamSimulado {
+    const instancia = StreamSimulado.instances[StreamSimulado.instances.length - 1]
+    if (!instancia) throw new Error('Nenhum stream foi criado')
     return instancia
   }
 
-  it('abre o stream com a URL de apiClient.acompanharJob', () => {
+  it('abre o stream com a URL de apiClient.acompanharJob', async () => {
     abrirAcompanhamentoJob('job-123', novosHandlers())
 
     expect(apiClient.acompanharJob).toHaveBeenCalledWith('job-123')
     expect(instanciaAtual().url).toBe('/api/jobs/job-123/events')
   })
 
-  it('sinaliza conectando na primeira abertura, sem reconciliar', () => {
+  it('sinaliza conectando na primeira abertura, sem reconciliar', async () => {
     const handlers = novosHandlers()
 
     abrirAcompanhamentoJob('job-123', handlers)
@@ -98,16 +113,16 @@ describe('jobEvents', () => {
     expect(handlers.onReconciliar).not.toHaveBeenCalled()
   })
 
-  it('sinaliza aberta quando a conexão nativa abre', () => {
+  it('sinaliza aberta quando o servidor abre o stream', async () => {
     const handlers = novosHandlers()
     abrirAcompanhamentoJob('job-123', handlers)
 
-    instanciaAtual().abrir()
+    await instanciaAtual().abrir()
 
     expect(handlers.onStatusConexao).toHaveBeenLastCalledWith('aberta')
   })
 
-  it('despacha o evento estado desserializado para o handler', () => {
+  it('despacha o evento estado desserializado para o handler', async () => {
     const handlers = novosHandlers()
     abrirAcompanhamentoJob('job-123', handlers)
 
@@ -116,22 +131,22 @@ describe('jobEvents', () => {
       status: 'simulando',
       status_anterior: 'gerando_regra',
     }
-    instanciaAtual().emitir('estado', evento)
+    await instanciaAtual().emitir('estado', evento)
 
     expect(handlers.onEstado).toHaveBeenCalledWith(evento)
   })
 
-  it('despacha o evento etapa desserializado para o handler', () => {
+  it('despacha o evento etapa desserializado para o handler', async () => {
     const handlers = novosHandlers()
     abrirAcompanhamentoJob('job-123', handlers)
 
     const evento: EventoEtapa = { job_id: 'job-123', etapa: 'geracao_codigo', status: 'iniciada' }
-    instanciaAtual().emitir('etapa', evento)
+    await instanciaAtual().emitir('etapa', evento)
 
     expect(handlers.onEtapa).toHaveBeenCalledWith(evento)
   })
 
-  it('despacha o evento resultado desserializado para o handler', () => {
+  it('despacha o evento resultado desserializado para o handler', async () => {
     const handlers = novosHandlers()
     abrirAcompanhamentoJob('job-123', handlers)
 
@@ -141,12 +156,12 @@ describe('jobEvents', () => {
       status: 'sucesso',
       veredito: 'viavel',
     }
-    instanciaAtual().emitir('resultado', evento)
+    await instanciaAtual().emitir('resultado', evento)
 
     expect(handlers.onResultado).toHaveBeenCalledWith(evento)
   })
 
-  it('deduplica resultado repetido com o mesmo simulacao_id', () => {
+  it('deduplica resultado repetido com o mesmo simulacao_id', async () => {
     const handlers = novosHandlers()
     abrirAcompanhamentoJob('job-123', handlers)
 
@@ -157,22 +172,22 @@ describe('jobEvents', () => {
       veredito: 'viavel',
     }
 
-    instanciaAtual().emitir('resultado', evento)
-    instanciaAtual().emitir('resultado', evento)
+    await instanciaAtual().emitir('resultado', evento)
+    await instanciaAtual().emitir('resultado', evento)
 
     expect(handlers.onResultado).toHaveBeenCalledTimes(1)
   })
 
-  it('não deduplica resultados de simulacoes distintas', () => {
+  it('não deduplica resultados de simulacoes distintas', async () => {
     const handlers = novosHandlers()
     abrirAcompanhamentoJob('job-123', handlers)
 
-    instanciaAtual().emitir('resultado', {
+    await instanciaAtual().emitir('resultado', {
       job_id: 'job-123',
       simulacao_id: 'sim-1',
       status: 'sucesso',
     } satisfies EventoResultado)
-    instanciaAtual().emitir('resultado', {
+    await instanciaAtual().emitir('resultado', {
       job_id: 'job-123',
       simulacao_id: 'sim-2',
       status: 'sucesso',
@@ -181,21 +196,21 @@ describe('jobEvents', () => {
     expect(handlers.onResultado).toHaveBeenCalledTimes(2)
   })
 
-  it('ignora evento com data que não é JSON válido, sem lançar e sem chamar o handler', () => {
+  it('ignora evento com data que não é JSON válido, sem lançar e sem chamar o handler', async () => {
     const handlers = novosHandlers()
     abrirAcompanhamentoJob('job-123', handlers)
 
-    expect(() => instanciaAtual().emitirBruto('estado', 'não é JSON')).not.toThrow()
+    await instanciaAtual().emitirBruto('estado', 'não é JSON')
     expect(handlers.onEstado).not.toHaveBeenCalled()
   })
 
-  it('ao cair a conexão, fecha a instância nativa e sinaliza reconectando imediatamente', () => {
+  it('ao cair a conexão, fecha a requisição e sinaliza reconectando imediatamente', async () => {
     const handlers = novosHandlers()
     abrirAcompanhamentoJob('job-123', handlers)
-    instanciaAtual().abrir()
+    await instanciaAtual().abrir()
 
     const instanciaCaida = instanciaAtual()
-    instanciaCaida.errar()
+    await instanciaCaida.errar()
 
     expect(instanciaCaida.fechada).toBe(true)
     expect(handlers.onStatusConexao).toHaveBeenLastCalledWith('reconectando')
@@ -211,16 +226,16 @@ describe('jobEvents', () => {
   it('reabre uma nova conexão após o delay de backoff', async () => {
     const handlers = novosHandlers()
     abrirAcompanhamentoJob('job-123', handlers)
-    instanciaAtual().abrir()
-    instanciaAtual().errar()
+    await instanciaAtual().abrir()
+    await instanciaAtual().errar()
 
-    expect(FakeEventSource.instances).toHaveLength(1)
+    expect(StreamSimulado.instances).toHaveLength(1)
 
     await vi.advanceTimersByTimeAsync(ANTES_DO_MINIMO_TENTATIVA_1)
-    expect(FakeEventSource.instances).toHaveLength(1)
+    expect(StreamSimulado.instances).toHaveLength(1)
 
     await vi.advanceTimersByTimeAsync(DEPOIS_DO_MAXIMO_TENTATIVA_1 - ANTES_DO_MINIMO_TENTATIVA_1)
-    expect(FakeEventSource.instances).toHaveLength(2)
+    expect(StreamSimulado.instances).toHaveLength(2)
   })
 
   it('cresce o delay exponencialmente em erros consecutivos sem sucesso entre eles', async () => {
@@ -228,18 +243,18 @@ describe('jobEvents', () => {
     abrirAcompanhamentoJob('job-123', handlers)
 
     // 1º erro (antes de qualquer onopen): delay base ~1000ms
-    instanciaAtual().errar()
+    await instanciaAtual().errar()
     await vi.advanceTimersByTimeAsync(ANTES_DO_MINIMO_TENTATIVA_1)
-    expect(FakeEventSource.instances).toHaveLength(1)
+    expect(StreamSimulado.instances).toHaveLength(1)
     await vi.advanceTimersByTimeAsync(DEPOIS_DO_MAXIMO_TENTATIVA_1 - ANTES_DO_MINIMO_TENTATIVA_1)
-    expect(FakeEventSource.instances).toHaveLength(2)
+    expect(StreamSimulado.instances).toHaveLength(2)
 
     // 2º erro consecutivo, sem onopen no meio: delay deve dobrar para ~2000ms
-    instanciaAtual().errar()
+    await instanciaAtual().errar()
     await vi.advanceTimersByTimeAsync(ANTES_DO_MINIMO_TENTATIVA_2)
-    expect(FakeEventSource.instances).toHaveLength(2)
+    expect(StreamSimulado.instances).toHaveLength(2)
     await vi.advanceTimersByTimeAsync(DEPOIS_DO_MAXIMO_TENTATIVA_2 - ANTES_DO_MINIMO_TENTATIVA_2)
-    expect(FakeEventSource.instances).toHaveLength(3)
+    expect(StreamSimulado.instances).toHaveLength(3)
   })
 
   it('reseta o backoff para o valor base após uma reconexão bem-sucedida', async () => {
@@ -247,28 +262,28 @@ describe('jobEvents', () => {
     abrirAcompanhamentoJob('job-123', handlers)
 
     // 1º erro, reconecta após o delay base
-    instanciaAtual().errar()
+    await instanciaAtual().errar()
     await vi.advanceTimersByTimeAsync(DEPOIS_DO_MAXIMO_TENTATIVA_1)
-    expect(FakeEventSource.instances).toHaveLength(2)
+    expect(StreamSimulado.instances).toHaveLength(2)
 
     // A nova conexão abre com sucesso, resetando o backoff
-    instanciaAtual().abrir()
-    instanciaAtual().errar()
+    await instanciaAtual().abrir()
+    await instanciaAtual().errar()
 
     // Se o backoff não tivesse resetado, o delay teria dobrado (mínimo ~2000ms) e não
     // dispararia ainda em 1500ms; reconectar aqui prova que voltou ao delay base (~1000-1200ms).
     await vi.advanceTimersByTimeAsync(1500)
-    expect(FakeEventSource.instances).toHaveLength(3)
+    expect(StreamSimulado.instances).toHaveLength(3)
   })
 
   it('solicita reconciliação ao reabrir a conexão', async () => {
     const handlers = novosHandlers()
     abrirAcompanhamentoJob('job-123', handlers)
     expect(handlers.onReconciliar).not.toHaveBeenCalled()
-    instanciaAtual().abrir()
-    instanciaAtual().errar()
+    await instanciaAtual().abrir()
+    await instanciaAtual().errar()
     await vi.advanceTimersByTimeAsync(1250)
-    expect(FakeEventSource.instances).toHaveLength(2)
+    expect(StreamSimulado.instances).toHaveLength(2)
     expect(handlers.onReconciliar).toHaveBeenCalledOnce()
   })
 
@@ -277,25 +292,25 @@ describe('jobEvents', () => {
     const { fechar } = abrirAcompanhamentoJob('job-123', handlers)
     const antiga = instanciaAtual()
     fechar()
-    antiga.emitir('estado', { job_id: 'job-123', status: 'simulando' })
-    antiga.errar()
+    await antiga.emitir('estado', { job_id: 'job-123', status: 'simulando' })
+    await antiga.errar()
     await vi.advanceTimersByTimeAsync(60000)
     expect(handlers.onEstado).not.toHaveBeenCalled()
-    expect(FakeEventSource.instances).toHaveLength(1)
+    expect(StreamSimulado.instances).toHaveLength(1)
   })
 
-  it('fechar() encerra a conexão nativa e cancela o timer de reconexão pendente', async () => {
+  it('fechar() encerra a requisição e cancela o timer de reconexão pendente', async () => {
     const handlers = novosHandlers()
     const { fechar } = abrirAcompanhamentoJob('job-123', handlers)
-    instanciaAtual().abrir()
-    instanciaAtual().errar()
+    await instanciaAtual().abrir()
+    await instanciaAtual().errar()
 
     fechar()
 
     expect(instanciaAtual().fechada).toBe(true)
 
     await vi.advanceTimersByTimeAsync(5000)
-    expect(FakeEventSource.instances).toHaveLength(1)
+    expect(StreamSimulado.instances).toHaveLength(1)
   })
 
   describe('encerramento pelo servidor em estado terminal', () => {
@@ -304,48 +319,48 @@ describe('jobEvents', () => {
       async (statusTerminal) => {
         const handlers = novosHandlers()
         abrirAcompanhamentoJob('job-123', handlers)
-        instanciaAtual().abrir()
+        await instanciaAtual().abrir()
 
         // Fotografia final: o contrato diz que o servidor manda o estado terminal e fecha.
-        instanciaAtual().emitir('estado', {
+        await instanciaAtual().emitir('estado', {
           job_id: 'job-123',
           status: statusTerminal,
         } satisfies EventoEstado)
-        instanciaAtual().errar()
+        await instanciaAtual().concluir()
 
         // Sem o fix, isso reabriria indefinidamente. Avança bem além de qualquer backoff possível.
         await vi.advanceTimersByTimeAsync(60000)
 
-        expect(FakeEventSource.instances).toHaveLength(1)
+        expect(StreamSimulado.instances).toHaveLength(1)
       },
     )
 
     it('continua reconectando normalmente após um estado não-terminal seguido de erro', async () => {
       const handlers = novosHandlers()
       abrirAcompanhamentoJob('job-123', handlers)
-      instanciaAtual().abrir()
+      await instanciaAtual().abrir()
 
-      instanciaAtual().emitir('estado', {
+      await instanciaAtual().emitir('estado', {
         job_id: 'job-123',
         status: 'simulando',
       } satisfies EventoEstado)
-      instanciaAtual().errar()
+      await instanciaAtual().errar()
 
       await vi.advanceTimersByTimeAsync(DEPOIS_DO_MAXIMO_TENTATIVA_1)
 
-      expect(FakeEventSource.instances).toHaveLength(2)
+      expect(StreamSimulado.instances).toHaveLength(2)
     })
 
-    it('não emite reconectando quando o fechamento é o desfecho esperado do estado terminal', () => {
+    it('não emite reconectando quando o fechamento é o desfecho esperado do estado terminal', async () => {
       const handlers = novosHandlers()
       abrirAcompanhamentoJob('job-123', handlers)
-      instanciaAtual().abrir()
+      await instanciaAtual().abrir()
 
-      instanciaAtual().emitir('estado', {
+      await instanciaAtual().emitir('estado', {
         job_id: 'job-123',
         status: 'liberado',
       } satisfies EventoEstado)
-      instanciaAtual().errar()
+      await instanciaAtual().errar()
 
       expect(handlers.onStatusConexao).not.toHaveBeenCalledWith('reconectando')
     })

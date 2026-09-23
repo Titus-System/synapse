@@ -16,7 +16,11 @@ São catorze, num schema único. Cada uma aparece abaixo com o que guarda e, qua
 
 ### `usuarios`
 
-Quem entra no sistema. A autenticação é local, feita pela própria API, sem provedor de identidade externo. Usuário desativado mantém a linha, porque jobs antigos a referenciam.
+A identidade é autenticada pelo Keycloak, conforme o [ADR-006](../adrs/ADR-006.md). A API mantém esta conta local para relacionar o usuário às submissões, aos jobs e à trilha de auditoria. `keycloak_sub` armazena o claim `sub` e tem unicidade; `senha_hash` é um campo legado, opcional, preenchido com `NULL` nas novas contas do Keycloak.
+
+Ao resolver a identidade autenticada, a API busca o `sub` ou um registro legado com `keycloak_sub` nulo e `login` igual ao `preferred_username`. Se não encontrar uma conta, cria uma com papel local `profissional_rh`. O indicador de auditor é lido de `realm_access.roles` no token; esse processo não sincroniza o papel do realm com a coluna `papel`.
+
+Usuário desativado mantém a linha porque jobs antigos a referenciam. `ativo = false` impede a resolução dessa conta local pela API, mas não encerra a sessão no Keycloak. A cobertura uniforme das operações depende do middleware de autorização descrito no ADR-006.
 
 ### `submissoes`
 

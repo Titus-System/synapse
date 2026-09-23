@@ -42,7 +42,7 @@ Table usuarios {
   keycloak_sub text [unique, note: 'claim sub do Keycloak; identifica a conta de forma estável']
   nome text [not null, note: 'nome de exibicao']
   papel text [not null, note: 'profissional_rh | auditor (DEC-087)']
-  ativo bool [not null, default: true, note: 'desativacao logica; false impede o login']
+  ativo bool [not null, default: true, note: 'desativacao logica; false impede a resolucao da conta local pela API, sem encerrar a sessao no Keycloak']
   criado_em timestamptz [not null]
   atualizado_em timestamptz [note: 'null ate a primeira alteracao']
   ultimo_login_em timestamptz [note: 'null ate o primeiro acesso']

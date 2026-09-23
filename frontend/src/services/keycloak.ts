@@ -29,8 +29,18 @@ export async function inicializarKeycloak(): Promise<boolean> {
   })
 }
 
-export function obterTokenDeAcesso(): string | undefined {
-  return obterClienteKeycloak().token
+export async function obterTokenDeAcesso(): Promise<string | undefined> {
+  const cliente = obterClienteKeycloak()
+  if (!cliente.token) return undefined
+
+  try {
+    await cliente.updateToken(30)
+  } catch (error) {
+    // O adaptador limpa o token quando o refresh é rejeitado por sessão inválida.
+    if (!cliente.token) return undefined
+    throw error
+  }
+  return cliente.token
 }
 
 export async function iniciarLogin(caminhoDeRetorno?: string): Promise<void> {
