@@ -1,5 +1,5 @@
 # Ponto único de entrada do droplet: termina TLS e roteia por subdomínio pra
-# cada um dos quatro serviços. Nenhum outro serviço expõe porta 80/443.
+# a aplicação e o Keycloak. Nenhum outro serviço expõe porta 80/443.
 
 app.synnapse.pro {
 	root * /srv/app
@@ -17,6 +17,13 @@ app.synnapse.pro {
 		# SPA: unknown paths fall back to index.html for vue-router.
 		try_files {path} /index.html
 		file_server
+	}
+}
+
+auth.synnapse.pro {
+	reverse_proxy keycloak:8080 {
+		header_up X-Forwarded-Port 443
+		header_up -X-Forwarded-Prefix
 	}
 }
 

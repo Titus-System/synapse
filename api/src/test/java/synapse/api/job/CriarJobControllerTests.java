@@ -18,6 +18,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import synapse.api.core.security.AcessoDoUsuario;
+import synapse.api.core.security.UsuarioAtual;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -39,11 +42,14 @@ class CriarJobControllerTests {
 
 	private final CriarJobService service = mock(CriarJobService.class);
 
+	private final UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
+
 	private MockMvc mvc;
 
 	@BeforeEach
 	void preparar() {
-		this.mvc = MockMvcBuilders.standaloneSetup(new CriarJobController(this.service))
+		when(this.usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, false));
+		this.mvc = MockMvcBuilders.standaloneSetup(new CriarJobController(this.service, this.usuarioAtual))
 			.setControllerAdvice(new CriarJobAdvice())
 			.build();
 	}
@@ -51,10 +57,10 @@ class CriarJobControllerTests {
 	@Test
 	void semPrincipalResponde201ComLocationEExatamenteOsCamposIniciais() throws Exception {
 		UUID jobId = UUID.randomUUID();
-		when(this.service.criar(any())).thenAnswer(invocacao -> {
+		when(this.service.criar(any(), any())).thenAnswer(invocacao -> {
 			CriarJobRequisicao requisicao = invocacao.getArgument(0);
 			return new JobCriadoDto(jobId, "gerando_regra", "formulario", requisicao.competencias(),
-					requisicao.orcamento(), Instant.parse("2026-09-16T15:00:00Z"), UUID.randomUUID(),
+					requisicao.orcamento(), Instant.parse("2026-09-16T15:00:00Z"), UUID.randomUUID(), null,
 					new RegraCriadaDto(UUID.randomUUID(), 1, "confirmacao_usuario", requisicao.representacao(),
 							Instant.parse("2026-09-16T15:00:00Z")));
 		});
@@ -74,7 +80,7 @@ class CriarJobControllerTests {
 				"criado_em", "submissao_id", "regra");
 		assertThat(job.path("regra").propertyNames()).containsExactlyInAnyOrder("id", "versao", "origem",
 				"representacao", "criada_em");
-		verify(this.service).criar(any());
+		verify(this.service).criar(any(), any());
 	}
 
 	@ParameterizedTest
@@ -162,7 +168,7 @@ class CriarJobControllerTests {
 
 	@Test
 	void semUsuarioAtivoResponde503ComErroDeDominio() throws Exception {
-		when(this.service.criar(any())).thenThrow(CriarJobException.semUsuarioAtivo());
+		when(this.service.criar(any(), any())).thenThrow(CriarJobException.semUsuarioAtivo());
 		this.mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(FORMULARIO))
 			.andExpect(status().isServiceUnavailable())
 			.andExpect(jsonPath("$.codigo").value("usuario_ativo_indisponivel"))
@@ -171,7 +177,7 @@ class CriarJobControllerTests {
 
 	@Test
 	void naoExpoeErroDoJdbc() throws Exception {
-		when(this.service.criar(any())).thenThrow(new DataIntegrityViolationException("regras SQL stack trace"));
+		when(this.service.criar(any(), any())).thenThrow(new DataIntegrityViolationException("regras SQL stack trace"));
 		this.mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(FORMULARIO))
 			.andExpect(status().isInternalServerError())
 			.andExpect(content().string(""));

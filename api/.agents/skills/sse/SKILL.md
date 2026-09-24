@@ -60,9 +60,13 @@ emissor é removido).
   atrasa quem chama `emitir` (hoje, o consumidor RabbitMQ de T-044/T-045). Aceitável para
   o volume do MVP; se isso doer, a saída é emitir numa thread separada da que consome a
   fila, não sem essa fila.
-- **Sem autenticação nesta rota ainda** (ver `AGENTS.md` da raiz, decisão de escopo):
-  `GET /jobs/{id}/events` não confere posse. Um filtro futuro (T-091) cobre isto; até lá
-  não implemente checagem aqui.
+- **Autenticação do stream.** Com Keycloak habilitado, `GET /jobs/{id}/events`
+  exige JWT Bearer, como as demais rotas de jobs. O frontend usa `fetch` para enviar
+  o cabeçalho e renova o token antes de abrir ou reconectar o stream.
+- **Autorização em tarefa própria.** O controller já chama `AutorizadorDeJob`;
+  preserve essa checagem ao alterar o transporte. A cobertura uniforme de posse,
+  papéis e respostas de acesso negado pertence à tarefa do middleware de
+  autorização, conforme o [ADR-006](../../../../docs/adrs/ADR-006.md).
 
 ## Referências
 

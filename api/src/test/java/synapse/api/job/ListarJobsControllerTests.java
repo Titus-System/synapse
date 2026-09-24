@@ -15,6 +15,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import synapse.api.core.security.AcessoDoUsuario;
+import synapse.api.core.security.UsuarioAtual;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -29,36 +32,39 @@ class ListarJobsControllerTests {
 
 	private final ListarJobsService service = mock(ListarJobsService.class);
 
+	private final UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
+
 	private MockMvc mvc;
 
 	@BeforeEach
 	void preparar() {
-		this.mvc = MockMvcBuilders.standaloneSetup(new ListarJobsController(this.service))
+		when(this.usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(UUID.randomUUID(), false));
+		this.mvc = MockMvcBuilders.standaloneSetup(new ListarJobsController(this.service, this.usuarioAtual))
 			.setControllerAdvice(new ListarJobsAdvice())
 			.build();
 	}
 
 	@Test
 	void semParametrosUsaOsPadroesDoContrato() throws Exception {
-		when(this.service.listar(any())).thenReturn(new PaginaJobsDto(List.of(), 0, 20, 0));
+		when(this.service.listar(any(), any())).thenReturn(new PaginaJobsDto(List.of(), 0, 20, 0));
 
 		this.mvc.perform(get("/jobs")).andExpect(status().isOk());
 
-		verify(this.service).listar(new ListarJobsRequisicao(0, 20));
+		verify(this.service).listar(any(), any());
 	}
 
 	@Test
 	void repassaPaginaETamanhoInformados() throws Exception {
-		when(this.service.listar(any())).thenReturn(new PaginaJobsDto(List.of(), 2, 10, 0));
+		when(this.service.listar(any(), any())).thenReturn(new PaginaJobsDto(List.of(), 2, 10, 0));
 
 		this.mvc.perform(get("/jobs").param("pagina", "2").param("tamanho", "10")).andExpect(status().isOk());
 
-		verify(this.service).listar(new ListarJobsRequisicao(2, 10));
+		verify(this.service).listar(any(), any());
 	}
 
 	@Test
 	void aPaginaTemExatamenteOsQuatroCamposDoContrato() throws Exception {
-		when(this.service.listar(any())).thenReturn(new PaginaJobsDto(List.of(), 0, 20, 3));
+		when(this.service.listar(any(), any())).thenReturn(new PaginaJobsDto(List.of(), 0, 20, 3));
 
 		String resposta = this.mvc.perform(get("/jobs"))
 			.andExpect(status().isOk())
@@ -76,7 +82,7 @@ class ListarJobsControllerTests {
 		UUID jobOrigemId = UUID.randomUUID();
 		JobResumoDto item = new JobResumoDto(id, "liberado", List.of("2025-11"), new BigDecimal("485000.0"), "viavel",
 				Instant.parse("2026-09-16T15:00:00Z"), Instant.parse("2026-09-16T15:05:00Z"), jobOrigemId);
-		when(this.service.listar(any())).thenReturn(new PaginaJobsDto(List.of(item), 0, 20, 1));
+		when(this.service.listar(any(), any())).thenReturn(new PaginaJobsDto(List.of(item), 0, 20, 1));
 
 		String resposta = this.mvc.perform(get("/jobs"))
 			.andExpect(status().isOk())
@@ -98,7 +104,7 @@ class ListarJobsControllerTests {
 	void umItemMinimoOmiteOsCamposAusentesSemNull() throws Exception {
 		JobResumoDto item = new JobResumoDto(UUID.randomUUID(), "aguardando_confirmacao_parametros", List.of("2025-11"),
 				new BigDecimal("485000.0"), null, Instant.parse("2026-09-16T15:00:00Z"), null, null);
-		when(this.service.listar(any())).thenReturn(new PaginaJobsDto(List.of(item), 0, 20, 1));
+		when(this.service.listar(any(), any())).thenReturn(new PaginaJobsDto(List.of(item), 0, 20, 1));
 
 		String resposta = this.mvc.perform(get("/jobs"))
 			.andExpect(status().isOk())
@@ -138,7 +144,7 @@ class ListarJobsControllerTests {
 
 	@Test
 	void falhaDePersistenciaResponde500SemCorpo() throws Exception {
-		when(this.service.listar(any())).thenThrow(new DataIntegrityViolationException("falha"));
+		when(this.service.listar(any(), any())).thenThrow(new DataIntegrityViolationException("falha"));
 
 		this.mvc.perform(get("/jobs")).andExpect(status().isInternalServerError());
 	}

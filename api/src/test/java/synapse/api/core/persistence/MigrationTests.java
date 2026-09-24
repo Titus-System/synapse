@@ -37,9 +37,7 @@ class MigrationTests {
 			"regras", "prompts", "respostas_modelo", "codigos_gerados", "resultados_simulacao", "explicacoes",
 			"simulacoes", "trilhas_auditoria", "outbox_events");
 
-	// Uma tabela por changeset, mais o 000 que cria os usuários de banco e não cria
-	// tabela nenhuma.
-	private static final int CHANGESETS = TABELAS.size() + 1;
+	private static final int CHANGESETS = 16;
 
 	private static PostgreSQLContainer postgres;
 

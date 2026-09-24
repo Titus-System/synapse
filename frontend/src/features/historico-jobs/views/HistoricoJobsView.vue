@@ -102,32 +102,28 @@ watch(
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#fdf7f3] text-[#2e1a10] md:grid md:grid-cols-[clamp(13.5rem,18vw,16.25rem)_1fr]">
+  <div class="tela-de-negocio min-h-[100dvh] bg-[#fdf7f3] text-[#2e1a10] lg:grid lg:h-[100dvh] lg:grid-cols-[16rem_minmax(0,1fr)] lg:overflow-hidden">
     <TheSidebar
-      class="hidden md:flex"
+      class="hidden lg:flex"
       :secao-ativa="tipoDoHistorico"
       :quantidade-arquivadas="jobsArquivados.length"
       :quantidade-salvas="jobsSalvos.length"
       :regras-recentes="regrasRecentes"
     />
 
-    <main class="min-w-0 bg-[radial-gradient(circle_at_top,#fffdfb_0%,#fdf7f3_48%,#f8eee8_100%)]">
-      <TheProcessHeader />
+    <main class="min-w-0 bg-[radial-gradient(circle_at_top,#fffdfb_0%,#fdf7f3_48%,#f8eee8_100%)] lg:min-h-0 lg:overflow-y-auto">
+      <TheProcessHeader :etapa-da-rota="null" />
 
-      <section class="mx-auto w-full max-w-6xl px-6 py-10 lg:px-10 lg:py-14">
+      <section class="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-14">
         <div class="border-b border-[#eadbd2] pb-6">
           <div class="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
             <div class="shrink-0">
-              <p class="text-xs font-semibold tracking-[0.14em] text-[#a54809] uppercase">Histórico de regras</p>
               <div class="mt-2 flex flex-wrap items-center gap-3">
                 <h1 class="font-serif text-4xl font-semibold tracking-tight text-[#2e1a10]">{{ titulo }}</h1>
                 <span class="rounded-full border border-[#ead4c7] bg-white/80 px-3 py-1 text-xs font-medium text-[#80695c]">
                   {{ jobsDoHistorico.length }} {{ jobsDoHistorico.length === 1 ? 'regra' : 'regras' }}
                 </span>
               </div>
-              <p class="mt-2 text-sm text-[#6b564a]">
-                {{ tipoDoHistorico === 'arquivadas' ? 'Regras preservadas para consulta e reprocessamento futuro.' : 'Regras que permanecem disponíveis para acompanhamento.' }}
-              </p>
             </div>
 
             <div class="flex w-full max-w-2xl gap-2" aria-label="Busca e filtro do histórico indisponíveis">
@@ -164,7 +160,7 @@ watch(
           {{ mensagemDeErro }}
         </p>
 
-        <div v-else-if="carregando" class="mt-8 grid gap-5 md:grid-cols-2" aria-label="Carregando histórico">
+        <div v-else-if="carregando" class="mt-8 grid gap-5 xl:grid-cols-2" aria-label="Carregando histórico">
           <div v-for="numero in 4" :key="numero" class="h-52 animate-pulse rounded-2xl border border-[#eadbd2] bg-white/70"></div>
         </div>
 
@@ -173,8 +169,8 @@ watch(
           <p class="mt-2 text-sm text-[#6b564a]">Quando houver uma regra nesta categoria, ela aparecerá aqui.</p>
         </div>
 
-        <div v-else class="mt-8 grid gap-5 md:grid-cols-2">
-          <article v-for="resumoDoJob in jobsDaPagina" :key="resumoDoJob.id" class="flex min-h-56 flex-col rounded-2xl border border-[#eadbd2] bg-white p-6 shadow-[0_16px_40px_-26px_rgba(60,30,15,0.5)]">
+        <div v-else class="mt-8 grid gap-5 xl:grid-cols-2">
+          <article v-for="resumoDoJob in jobsDaPagina" :key="resumoDoJob.id" class="flex min-h-56 flex-col rounded-2xl border border-[#eadbd2] bg-white p-4 shadow-[0_16px_40px_-26px_rgba(60,30,15,0.5)] sm:p-6">
             <div class="flex items-start justify-between gap-4 border-b border-[#f0e2da] pb-4">
               <div>
                 <h2 class="font-serif text-2xl font-semibold">Regra {{ resumoDoJob.id.slice(0, 8) }}</h2>

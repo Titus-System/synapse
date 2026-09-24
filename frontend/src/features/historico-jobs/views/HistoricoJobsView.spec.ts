@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import type { JobResumo } from '@/types/api'
 import HistoricoJobsView from './HistoricoJobsView.vue'
 
@@ -28,6 +29,7 @@ function criarResumoDoJob(numero: number, status: JobResumo['status'] = 'liberad
 
 const opcoesDeMontagem = {
   global: {
+    plugins: [createPinia()],
     stubs: {
       RouterLink: {
         props: ['to'],
@@ -48,6 +50,7 @@ describe('HistoricoJobsView', () => {
     const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
 
     await vi.waitFor(() => {
+      expect(conteiner.get('.tela-de-negocio').classes()).toContain('tela-de-negocio')
       expect(conteiner.text()).toContain('Salvas')
       expect(conteiner.text()).toContain('Regra 00000001')
       expect(conteiner.text()).not.toContain('Regra 00000003')

@@ -5,3 +5,6 @@ deploy/.env
 __pycache__/
 .digital-ocean
 .claude
+tasks/
+venv/
+.venv/

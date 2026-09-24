@@ -1,5 +1,8 @@
 import { config } from '@/config/env'
 import type { ApiError, CodigoErro, ElementoErro } from '@/types/api'
+import { iniciarLogin, limparTokenDoKeycloak, obterTokenDeAcesso } from './keycloak'
+
+let redirecionandoPorSessaoInvalida = false
 
 const mensagensPorCodigo: Record<CodigoErro, string> = {
   requisicao_invalida: 'Não foi possível enviar os dados. Revise as informações e tente novamente.',
@@ -115,6 +118,40 @@ function construirUrl(path: string): string {
   return `${base}${normalizedPath}`
 }
 
+async function enviar(url: string, requestInit: RequestInit): Promise<Response> {
+  requestInit.signal?.throwIfAborted()
+  let token: string | undefined
+  try {
+    token = await obterTokenDeAcesso()
+  } catch {
+    requestInit.signal?.throwIfAborted()
+    throw new HttpError(0, 'Não foi possível renovar sua sessão. Tente novamente.')
+  }
+  requestInit.signal?.throwIfAborted()
+  const headers = new Headers(requestInit.headers)
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  let response: Response
+  try {
+    response = await fetch(url, { ...requestInit, headers })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    throw new HttpError(0, 'Não foi possível se conectar ao serviço. Verifique sua conexão e tente novamente.')
+  }
+
+  if (response.status === 401) {
+    limparTokenDoKeycloak()
+    if (!redirecionandoPorSessaoInvalida) {
+      redirecionandoPorSessaoInvalida = true
+      void iniciarLogin().catch(() => undefined)
+    }
+  }
+
+  if (!response.ok) throw await criarErro(response)
+
+  return response
+}
+
 async function request<TResponse>(
   method: 'GET' | 'POST',
   path: string,
@@ -139,15 +176,7 @@ async function request<TResponse>(
           signal: options?.signal,
         }
 
-  let response: Response
-  try {
-    response = await fetch(construirUrl(path), requestInit)
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') throw error
-    throw new HttpError(0, 'Não foi possível se conectar ao serviço. Verifique sua conexão e tente novamente.')
-  }
-
-  if (!response.ok) throw await criarErro(response)
+  const response = await enviar(construirUrl(path), requestInit)
 
   if (response.status === 204) return undefined as TResponse
   return (await response.json()) as TResponse
@@ -159,6 +188,20 @@ export const http = {
   },
   post<TResponse, TBody = undefined>(path: string, body?: TBody, signal?: AbortSignal) {
     return request<TResponse>('POST', path, { body, signal })
+  },
+  async stream(url: string, signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
+    const response = await enviar(url, {
+      method: 'GET',
+      headers: { Accept: 'text/event-stream' },
+      cache: 'no-store',
+      signal,
+    })
+    const contentType = response.headers.get('content-type')?.split(';')[0]?.trim()
+    if (contentType !== 'text/event-stream' || !response.body) {
+      await response.body?.cancel()
+      throw new HttpError(0, 'Não foi possível acompanhar o processamento. Tente novamente.')
+    }
+    return response.body
   },
   url(path: string) {
     return construirUrl(path)

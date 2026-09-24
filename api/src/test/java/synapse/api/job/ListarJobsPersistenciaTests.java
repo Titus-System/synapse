@@ -38,7 +38,12 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
+import synapse.api.core.security.AcessoDoUsuario;
+import synapse.api.core.security.UsuarioAtual;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 /**
@@ -98,7 +103,9 @@ class ListarJobsPersistenciaTests {
 		contexto.register(Config.class);
 		contexto.refresh();
 		service = contexto.getBean(ListarJobsService.class);
-		mvc = MockMvcBuilders.standaloneSetup(contexto.getBean(ListarJobsController.class))
+		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
+		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, false));
+		mvc = MockMvcBuilders.standaloneSetup(new ListarJobsController(service, usuarioAtual))
 			.setControllerAdvice(contexto.getBean(ListarJobsAdvice.class))
 			.build();
 	}
@@ -120,7 +127,7 @@ class ListarJobsPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ ListarJobsService.class, ListarJobsController.class, ListarJobsAdvice.class })
+	@Import({ ListarJobsService.class, ListarJobsAdvice.class })
 	static class Config {
 
 	}

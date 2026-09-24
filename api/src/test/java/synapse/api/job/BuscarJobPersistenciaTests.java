@@ -32,7 +32,12 @@ import org.springframework.jdbc.support.SqlArrayValue;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import synapse.api.core.security.AcessoDoUsuario;
+import synapse.api.core.security.UsuarioAtual;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -91,7 +96,11 @@ class BuscarJobPersistenciaTests {
 		contexto.register(Config.class);
 		contexto.refresh();
 		service = contexto.getBean(BuscarJobService.class);
-		mvc = MockMvcBuilders.standaloneSetup(contexto.getBean(BuscarJobController.class)).build();
+		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
+		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, false));
+		mvc = MockMvcBuilders
+			.standaloneSetup(new BuscarJobController(service, contexto.getBean(AutorizadorDeJob.class), usuarioAtual))
+			.build();
 	}
 
 	@AfterAll
@@ -110,7 +119,7 @@ class BuscarJobPersistenciaTests {
 	}
 
 	@TestConfiguration(proxyBeanMethods = false)
-	@Import({ BuscarJobService.class, BuscarJobController.class })
+	@Import({ BuscarJobService.class, AutorizadorDeJob.class })
 	static class Config {
 
 	}
