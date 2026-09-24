@@ -16,6 +16,9 @@ from app.representacao_regra import RepresentacaoRegra
 
 logger = get_logger("app.graph.nodes.code_generation")
 
+# Identifies this node's model call in the log `no` field and in `prompts.no`.
+NO_GERACAO_CODIGO = "geracao_codigo"
+
 # Finish reasons the provider can report besides a clean stop; any of these means the reply is
 # not usable, even when `content` is non-empty (e.g. `MAX_TOKENS` can still carry partial text).
 _FAILURE_FINISH_REASONS = {"SAFETY", "RECITATION", "MAX_TOKENS", "OTHER"}
@@ -34,7 +37,7 @@ async def code_generation(state: AgentState, config: RunnableConfig) -> AgentSta
     rule = RepresentacaoRegra.model_validate(state["representacao_regra"])
     prompt = montar_prompt_geracao(rule)
 
-    token = no_ctx.set("geracao_codigo")
+    token = no_ctx.set(NO_GERACAO_CODIGO)
     try:
         model = get_model("code_generation")
         response = await model.ainvoke([HumanMessage(content=prompt)])
