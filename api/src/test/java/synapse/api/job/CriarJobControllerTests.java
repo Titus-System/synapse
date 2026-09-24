@@ -60,7 +60,7 @@ class CriarJobControllerTests {
 		when(this.service.criar(any(), any())).thenAnswer(invocacao -> {
 			CriarJobRequisicao requisicao = invocacao.getArgument(0);
 			return new JobCriadoDto(jobId, "gerando_regra", "formulario", requisicao.competencias(),
-					requisicao.orcamento(), Instant.parse("2026-09-16T15:00:00Z"), UUID.randomUUID(),
+					requisicao.orcamento(), Instant.parse("2026-09-16T15:00:00Z"), UUID.randomUUID(), null,
 					new RegraCriadaDto(UUID.randomUUID(), 1, "confirmacao_usuario", requisicao.representacao(),
 							Instant.parse("2026-09-16T15:00:00Z")));
 		});

@@ -1,6 +1,6 @@
 # Configuração do deploy de staging (droplet + CD)
 
-Este guia cobre o passo a passo único, feito uma vez por droplet, para deixar os workflows de CD (`.github/workflows/cd-*.yml` - um por componente, mais `cd-gateway.yml` e `cd-observability.yml`) prontos para implantar em staging. Ele assume um único droplet rodando todos os serviços na mesma rede Docker (`synapse-net`), conforme decidido para a fase atual do projeto.
+Este guia cobre o passo a passo único, feito uma vez por droplet, para deixar os workflows de CD (`.github/workflows/cd-*.yml` - um por componente, mais `cd-gateway.yml`, `cd-keycloak.yml` e `cd-observability.yml`) prontos para implantar em staging. Ele assume um único droplet rodando todos os serviços na mesma rede Docker (`synapse-net`), conforme decidido para a fase atual do projeto.
 
 Todos os serviços têm subdomínio próprio, atrás de um único gateway (Caddy) que termina TLS - ver a seção 2.1 para o que isso exige de DNS antes do primeiro deploy.
 
@@ -25,18 +25,19 @@ Para o funcionamento normal do ambiente (subir/parar containers, healthchecks, t
 - Um usuário com permissão de `docker` (grupo `docker`) e acesso SSH por chave.
 - Portas liberadas no firewall do droplet:
   - `22` (SSH, só para o CD e administração) - considere restringir por IP se possível.
-  - `80`/`443` (gateway - único serviço que fala com a internet; termina TLS pros quatro subdomínios).
+  - `80`/`443` (gateway - único serviço que fala com a internet; termina TLS para a aplicação e o Keycloak).
   - **Não** exponha `5432`/`5672`/`15672` publicamente por enquanto - não há necessidade de acesso remoto de devs à infraestrutura de staging nesta fase.
   - `api`, `codegen` e `worker` não precisam de porta liberada no firewall externo - só são alcançados via o gateway, dentro da `synapse-net`.
 
 ### 2.1. DNS dos subdomínios
 
-Antes de subir o gateway pela primeira vez, aponte os quatro registros DNS (tipo `A`, ou `AAAA` se o droplet tiver IPv6) para o IP do droplet:
+Antes de subir o gateway pela primeira vez, aponte os registros DNS (tipo `A`, ou `AAAA` se o droplet tiver IPv6) para o IP do droplet:
 
 - `GATEWAY_APP_DOMAIN` (ex.: `app.<seu-domínio>`)
 - `GATEWAY_API_DOMAIN` (ex.: `api.<seu-domínio>`)
 - `GATEWAY_CODEGEN_DOMAIN` (ex.: `codegen.<seu-domínio>`)
 - `GATEWAY_WORKER_DOMAIN` (ex.: `worker.<seu-domínio>`)
+- `auth.synnapse.pro`, para o Keycloak.
 
 O Caddy do gateway pede um certificado Let's Encrypt por domínio na primeira subida (HTTP-01 challenge) - se o DNS ainda não resolver pro droplet nesse momento, a emissão falha e o serviço correspondente fica sem HTTPS até você repetir a subida com o DNS já propagado.
 
@@ -76,6 +77,14 @@ Preencha em `deploy/.env`:
 - `GATEWAY_APP_DOMAIN`, `GATEWAY_API_DOMAIN`, `GATEWAY_CODEGEN_DOMAIN`, `GATEWAY_WORKER_DOMAIN`, com os quatro domínios reais apontados no passo 2.1 - sem eles o gateway sobe respondendo em `*.localhost`, sem certificado válido.
 - `VITE_API_BASE_URL`, com a URL completa do domínio da api (ex.: `https://api.exemplo.com`) - com subdomínio próprio por serviço, um caminho relativo (`/api`) não atravessa origem.
 - `CORS_ALLOWED_ORIGINS`, com a URL do frontend (ex.: `https://app.exemplo.com`) - `app.<domínio>` e `api.<domínio>` são origens diferentes, então o navegador bloqueia toda chamada do frontend que não venha de uma origem liberada aqui. Só esquema + host (+ porta), sem caminho nem barra final; mais de uma origem, separadas por vírgula.
+
+Para o Keycloak, configure também `KEYCLOAK_ADMIN_PASSWORD`,
+`KEYCLOAK_PUBLIC_URL=https://auth.synnapse.pro`,
+`VITE_KEYCLOAK_URL=https://auth.synnapse.pro` e
+`KEYCLOAK_ISSUER_URI=https://auth.synnapse.pro/realms/synapse`. Mantenha a busca de
+chaves pela rede Docker e ajuste os redirecionamentos do cliente conforme o
+[guia do Keycloak](../deploy/keycloak/README.md#staging-e-cd). O gateway publica
+`auth.synnapse.pro` por HTTPS; a porta direta do Keycloak fica restrita ao host.
 
 Esse arquivo é `.gitignore`d e fica só no droplet; o CD não o sobrescreve (só adiciona/atualiza a linha `TAG=`, usada para etiquetar a imagem pelo SHA do commit implantado).
 
@@ -134,8 +143,8 @@ Em **Settings → Environments → staging → Environment secrets**:
 
 ## 6. Validar o primeiro deploy automático
 
-1. Faça um push (ou merge de PR) para `staging` que toque em algum dos diretórios `api/`, `frontend/`, `codegen/`, `worker/`, `deploy/gateway/` ou `deploy/observability/`.
-2. Acompanhe a run correspondente em **Actions** (`cd-api`, `cd-frontend`, `cd-codegen`, `cd-worker`, `cd-gateway` ou `cd-observability`).
+1. Faça um push (ou merge de PR) para `staging` que toque em algum dos diretórios `api/`, `frontend/`, `codegen/`, `worker/`, `deploy/gateway/`, `deploy/keycloak/` ou `deploy/observability/`.
+2. Acompanhe a run correspondente em **Actions** (`cd-api`, `cd-frontend`, `cd-codegen`, `cd-worker`, `cd-gateway`, `cd-keycloak` ou `cd-observability`).
 3. No droplet, confirme a imagem etiquetada e o container recriado:
 
    ```bash
@@ -160,9 +169,15 @@ Se algo falhar, os logs do passo SSH aparecem diretamente na run do Actions - n�
 | `cd-codegen.yml` | push em `staging` tocando `codegen/**` | `docker compose build/up -d codegen` |
 | `cd-worker.yml` | push em `staging` tocando `worker/**` | `docker compose build/up -d worker` |
 | `cd-gateway.yml` | push em `staging` tocando `deploy/gateway/**` | `docker compose up -d --force-recreate gateway` |
+| `cd-keycloak.yml` | push em `staging` tocando `deploy/keycloak/**`, `deploy/docker-compose.yml` ou o próprio workflow | `docker compose pull keycloak` + recriação somente do Keycloak, aguardando healthcheck por até 180 segundos |
 | `cd-observability.yml` | push em `staging` tocando `deploy/observability/**` | `docker compose up -d --force-recreate` (compose de observabilidade) |
 
-Nenhum deles dispara em `develop` - essa branch passa apenas pela CI de verificação (`verificar-api.yml` e futuros equivalentes por componente).
+Nenhum deles dispara em `develop` - essa branch passa apenas pela CI de
+verificação (`verificar.yml`). Nenhum workflow executa o seed.
+
+O CD do Keycloak preserva seu volume. Mudanças no tema são aplicadas pela
+recriação; mudanças no realm JSON exigem atualização manual de realms já
+existentes, pois `--import-realm` não substitui o realm persistido.
 
 ---
 

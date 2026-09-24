@@ -1,10 +1,48 @@
 package synapse.api.job;
 
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class HashDaRegraTests {
+
+	private static final JsonMapper JSON = JsonMapper.builder()
+		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+		.build();
+
+	@Test
+	void hashIncluiCamposExtensiveisSemPerderPrecisao() {
+		String especificacoes = """
+				[{"ref":"elem.1","construto":"faixa_valor","efeito":{"tipo":"bonus_fixo",
+				"valor":3500.1234567890123456789},"extensao":{"ativo":true}}]
+				""";
+		String hash = HashDaRegra.calcular(comEspecificacoes(especificacoes));
+		assertThat(hash).isNotEqualTo(HashDaRegra.calcular(comEspecificacoes(especificacoes.replace("true", "false"))))
+			.isNotEqualTo(HashDaRegra.calcular(comEspecificacoes(especificacoes.replace("6789", "6788"))));
+	}
+
+	@Test
+	void ordemDeCamposExtensiveisNaoCriaUmaRepresentacaoDiferente() {
+		String primeira = """
+				[{"ref":"elem.1","construto":"faixa_valor","efeito":{"tipo":"bonus_fixo","valor":3500.125},
+				"extensao":{"criterios":["a","b"],"ativo":true}}]
+				""";
+		String equivalente = """
+				[{"extensao":{"ativo":true,"criterios":["a","b"]},"efeito":{"valor":3500.125,"tipo":"bonus_fixo"},
+				"construto":"faixa_valor","ref":"elem.1"}]
+				""";
+		assertThat(HashDaRegra.calcular(comEspecificacoes(primeira)))
+			.isEqualTo(HashDaRegra.calcular(comEspecificacoes(equivalente)));
+	}
+
+	private static RepresentacaoRegraDto comEspecificacoes(String especificacoes) {
+		var nucleo = CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO).representacao().nucleo();
+		return JSON.readValue(
+				"{\"nucleo\":" + JSON.writeValueAsString(nucleo) + ",\"especificacoes\":" + especificacoes + "}",
+				RepresentacaoRegraDto.class);
+	}
 
 	@Test
 	void ignoraOrdemDasPropriedadesEscalaDecimalEConteudoForaDaRegra() {

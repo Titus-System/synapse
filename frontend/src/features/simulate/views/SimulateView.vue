@@ -196,12 +196,20 @@ onUnmounted(parar);
 
 <template>
     <div class="font-['Tinos'] bg-[#fffaf7]">
+<<<<<<< HEAD
     <div class="flex flex-row min-h-screen">
     <TheSidebar class="hidden md:flex" :quantidade-arquivadas="quantidadeArquivadas" :quantidade-salvas="quantidadeSalvas" :regras-recentes="regrasRecentes"/>
     <div class="flex flex-col min-h-screen w-[84.7%]">
     <TheProcessHeader class="mb-12" />
+=======
+    <div class="tela-de-negocio min-h-[100dvh] bg-[#fffaf7] text-[#2e1a10] lg:grid lg:h-[100dvh] lg:grid-cols-[16rem_minmax(0,1fr)] lg:overflow-hidden">
+    <TheSidebar class="hidden lg:flex"/>
+    <main class="min-w-0 lg:min-h-0 lg:overflow-y-auto">
+    <div class="flex min-w-0 flex-col">
+    <TheProcessHeader etapa-da-rota="simulacao" :status-do-job="job?.status ?? null" class="mb-12" />
+>>>>>>> develop
     <!-- Simulação -->
-        <div class="mb-12 p-10">
+        <div class="mx-auto mb-12 w-full max-w-6xl p-4 sm:p-6 lg:p-10">
             <div class="mb-11">
                 <h1 class="text-3xl text-[#2B160D] mb-2 font-semibold">Simulação</h1>
                 <div v-if="carregando">
@@ -225,23 +233,23 @@ onUnmounted(parar);
                         Por favor, tente novamente.
                     </p>
                                 </div>
-                <div v-else class="flex flex-row">
-                    <div class="w-[50%]">
+                <div v-else class="flex flex-col gap-6 lg:flex-row">
+                    <div class="min-w-0 w-full lg:w-1/2">
                         <h3 class="font-bold">Regra estruturada</h3>
-                        <hr class="mb-4 border border-[#FFDBCD] w-[89%]">
-                            <form class="flex flex-row gap-22">
-                                <div class="flex flex-col">
+                        <hr class="mb-4 w-full border border-[#FFDBCD]">
+                            <form class="flex flex-col gap-4 sm:flex-row sm:gap-8">
+                                <div class="flex min-w-0 flex-1 flex-col">
                                     <div class="flex flex-col">
                                         <label for="vigencia" class="mb-1 text-[#584237]">Vigência</label>
                                         <input id="vigencia" type="text" :value="vigencia" readonly :class="[
-        'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
+        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
         assercaoViolada ? 'text-[#B45309]' : regraInviavel ? 'text-[#950606]' : 'text-[#2B160D]'
     ]"/>
                                     </div>
                                     <div class="flex flex-col">
                                         <label for="loja" class="mb-1 text-[#584237]">Loja</label>
                                         <input id="loja" type="text" :value="loja" readonly :class="[
-        'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
+        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
         assercaoViolada ? 'text-[#B45309]' : regraInviavel ? 'text-[#950606]' : 'text-[#2B160D]'
     ]"/>
                                     </div>
@@ -249,33 +257,33 @@ onUnmounted(parar);
                                     <div class="flex flex-col">
                                         <label for="marca" class="mb-1 text-[#584237]">Marca</label>
                                         <input id="marca" type="text" :value="marca" readonly :class="[
-        'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
+        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
         assercaoViolada ? 'text-[#B45309]' : regraInviavel ? 'text-[#950606]' : 'text-[#2B160D]'
     ]" />
                                     </div>
                                 </div>
-                                <div class="flex flex-col">
+                                <div class="flex min-w-0 flex-1 flex-col">
                                     <label for="cargo" class="mb-1 text-[#584237]">Cargo</label>
                                     <input id="cargo" type="text" :value="cargo" readonly :class="[
-        'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
+        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
         assercaoViolada ? 'text-[#B45309]' : regraInviavel ? 'text-[#950606]' : 'text-[#2B160D]'
     ]"/>
 
                                     <label for="meta" class="mb-1 text-[#584237]">Meta</label>
                                     <input id="meta" type="text" :value="meta" readonly :class="[
-        'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
+        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
         assercaoViolada ? 'text-[#B45309]' : regraInviavel ? 'text-[#950606]' : 'text-[#2B160D]'
     ]"/>
 
                                     <label for="percentual" class="mb-1 text-[#584237]">Percentual</label>
                                     <input id="percentual" type="text" :value="percentual" readonly :class="[
-        'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
+        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
         assercaoViolada ? 'text-[#B45309]' : regraInviavel ? 'text-[#950606]' : 'text-[#2B160D]'
     ]"/>
                                 </div>
                             </form>
                     </div>
-                    <div class="border-2 border-[#DFC0B2] rounded-lg w-[50%] p-5">
+                    <div class="min-w-0 w-full rounded-lg border-2 border-[#DFC0B2] p-5 lg:w-1/2">
                         <h3 class="font-bold">Dados da simulação</h3>
                         <hr class="mb-4 border border-[#FFDBCD]">
                         <div class="flex flex-col mb-8">
@@ -283,7 +291,7 @@ onUnmounted(parar);
                             <input id="totalComissionamento" type="text" :value="totalComissionamento" readonly placeholder="R$ X,00"  class="bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265] text-[#2B160D] px-3.5 py-3 w-full"/>
                         </div>
                         <!-- Aprovada -->
-                        <div v-if="regraViavel" class="flex flex-col w-[80%] rounded-lg mb-3 border-l-8 border-r border-t border-b border-l-[#14532D] border-r-[#14532D]/20 border-t-[#14532D]/20 border-b-[#14532D]/20 bg-[#F4ECE6]/50 p-3">
+                        <div v-if="regraViavel" class="mb-3 flex w-full flex-col rounded-lg border-t border-r border-b border-l-8 border-l-[#14532D] border-r-[#14532D]/20 border-t-[#14532D]/20 border-b-[#14532D]/20 bg-[#F4ECE6]/50 p-3 lg:w-4/5">
                             <div class="flex flex-row items-center gap-3.5">
                                 <font-awesome-icon
                                     :icon="['far', 'circle-check']"
@@ -306,7 +314,7 @@ onUnmounted(parar);
                                 Seguir para Finalização
                             </button>
                         <!-- Reprovada -->
-                        <div v-if="regraInviavel" class="flex flex-col w-[80%] rounded-lg mb-3 border-l-8 border-r border-t border-b border-l-[#950606] border-r-[#950606]/20 border-t-[#950606]/20 border-b-[#950606]/20 bg-[#F4ECE6]/50 p-3">
+                        <div v-if="regraInviavel" class="mb-3 flex w-full flex-col rounded-lg border-t border-r border-b border-l-8 border-l-[#950606] border-r-[#950606]/20 border-t-[#950606]/20 border-b-[#950606]/20 bg-[#F4ECE6]/50 p-3 lg:w-4/5">
                             <div class="flex flex-row items-center gap-3.5">
                                 <font-awesome-icon
                                     :icon="['far', 'circle-xmark']"
@@ -324,7 +332,7 @@ onUnmounted(parar);
                         <!-- Erro: asserção violada -->
                         <div
                             v-if="assercaoViolada"
-                            class="flex flex-col w-[80%] rounded-lg mb-3 border-l-8 border-r border-t border-b border-l-[#B45309] border-r-[#B45309]/20 border-t-[#B45309]/20 border-b-[#B45309]/20 bg-[#F4ECE6]/50 p-3"
+                            class="mb-3 flex w-full flex-col rounded-lg border-t border-r border-b border-l-8 border-l-[#B45309] border-r-[#B45309]/20 border-t-[#B45309]/20 border-b-[#B45309]/20 bg-[#F4ECE6]/50 p-3 lg:w-4/5"
                         >
                             <div class="flex flex-row items-center gap-3.5">
                                 <font-awesome-icon
@@ -350,29 +358,33 @@ onUnmounted(parar);
             </div>
         </div>
     <!-- Sugestão (tornar aparição dinâmica depois) -->
+<<<<<<< HEAD
         <div v-if="sugestao && (regraInviavel || aguardandoConfirmacao)" class="mb-8 p-10">
+=======
+        <div v-if="sugestao && (regraInviavel || aguardandoConfirmacao)" class="mx-auto mb-8 w-full max-w-6xl px-4 sm:px-6 lg:px-10">
+>>>>>>> develop
             <div class="mb-11">
                 <h1 class="text-3xl text-[#2B160D] mb-2 font-semibold">Sugestão</h1>
                 <p class="text-[#584237]">A regra de negócio escolhida é inviável. Mas não se preocupe, criamos esta para você:</p>
             </div>
             <div>
-                <div class="flex flex-row">
-                    <div class="w-[50%]">
+                <div class="flex flex-col gap-6 lg:flex-row">
+                    <div class="min-w-0 w-full lg:w-1/2">
                         <h3 class="font-bold">Regra estruturada</h3>
-                        <hr class="mb-4 border border-[#FFDBCD] w-[89%]">
-                            <form class="flex flex-row gap-22">
-                                <div class="flex flex-col">
+                        <hr class="mb-4 w-full border border-[#FFDBCD]">
+                            <form class="flex flex-col gap-4 sm:flex-row sm:gap-8">
+                                <div class="flex min-w-0 flex-1 flex-col">
                                     <div class="flex flex-col">
                                         <label for="vigencia" class="mb-1 text-[#584237]">Vigência</label>
                                         <input id="vigencia" type="text" readonly :value="vigencia" :class="[
-        'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
+        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
         assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
     ]"/>
                                     </div>
                                     <div class="flex flex-col">
                                         <label for="loja" class="mb-1 text-[#584237]">Loja</label>
                                         <input id="loja" type="text" readonly :value="sugestao?.representacao.nucleo.loja?.join(', ') ?? ''" :class="[
-        'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
+        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
         assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
     ]"/>
                                     </div>
@@ -380,33 +392,33 @@ onUnmounted(parar);
                                     <div class="flex flex-col">
                                         <label for="marca" class="mb-1 text-[#584237]">Marca</label>
                                         <input id="marca" type="text" readonly :value="sugestao?.representacao.nucleo.marca?.join(', ') ?? ''" :class="[
-        'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
+        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
         assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
     ]" />
                                     </div>
                                 </div>
-                                <div class="flex flex-col">
+                                <div class="flex min-w-0 flex-1 flex-col">
                                     <label for="cargo" class="mb-1 text-[#584237]">Cargo</label>
                                     <input id="cargo" type="text" readonly :value="sugestao?.representacao.nucleo.cargo?.join(', ') ?? ''" :class="[
-        'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
+        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
         assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
     ]"/>
 
                                     <label for="meta" class="mb-1 text-[#584237]">Meta</label>
                                     <input id="meta" type="text" readonly :value="meta" :class="[
-        'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
+        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
         assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
     ]"/>
 
                                     <label for="percentual" class="mb-1 text-[#584237]">Percentual</label>
                                     <input id="percentual" type="text" readonly :value="sugestao?.representacao.nucleo.percentual == null ? '' : new Intl.NumberFormat('pt-BR', { style: 'percent', maximumFractionDigits: 4 }).format(sugestao.representacao.nucleo.percentual)" :class="[
-        'bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265]/10 px-3.5 py-3 w-[14.5vw]',
+        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
         assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
     ]"/>
                                 </div>
                             </form>
                     </div>
-                    <div class="border-2 border-[#DFC0B2] rounded-lg w-[50%] p-5">
+                    <div class="min-w-0 w-full rounded-lg border-2 border-[#DFC0B2] p-5 lg:w-1/2">
                         <h3 class="font-bold">Dados da simulação</h3>
                         <hr class="mb-4 border border-[#FFDBCD]">
                         <div class="flex flex-col mb-8">
@@ -414,16 +426,16 @@ onUnmounted(parar);
                             <input id="percentual" type="text" readonly placeholder="R$ X,00"  class="bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265] text-[#2B160D] px-3.5 py-3 w-full"/>
                         </div>
                         <p class="text-lg mb-3">Deseja escolher essa nova regra?</p>
-                        <div class="flex flex-row justify-around p-0 mb-3 gap-16">
+                        <div class="mb-3 flex flex-col justify-around gap-4 p-0 sm:flex-row sm:gap-6">
                             <!-- SIM -->
-                            <button type="button" :disabled="!podeAceitarSugestao" @click="aceitarSugestao" class="flex flex-col w-[50%] cursor-pointer h-fit rounded-lg border-l-8 border-r border-t border-b border-l-[#14532D] border-r-#14532D]/20 border-t-[#14532D]/20 border-b-[#14532D]/20 bg-[#F4ECE6]/50 p-3 items-center justify-center">
+                            <button type="button" :disabled="!podeAceitarSugestao" @click="aceitarSugestao" class="flex h-fit w-full cursor-pointer flex-col items-center justify-center rounded-lg border-t border-r border-b border-l-8 border-l-[#14532D] border-r-[#14532D]/20 border-t-[#14532D]/20 border-b-[#14532D]/20 bg-[#F4ECE6]/50 p-3 sm:w-1/2">
                                 <div class="flex flex-col items-center">
                                     <h4 class="text-[#14532D] font-bold">SIM!</h4>
                                     <span class="text-[#584237]">Seguir para a próxima etapa.</span>
                                 </div>
                             </button>
                             <!-- NÃO -->
-                            <button type="button" class="flex flex-col w-[50%] h-fit cursor-pointer rounded-lg border-l-8 border-r border-t border-b border-l-[#950606] border-r-[#950606]/20 border-t-[#950606]/20 border-b-[#950606]/20 bg-[#F4ECE6]/50 p-3 items-center justify-center" :disabled="!podeCancelar" @click="cancelarFluxo">
+                            <button type="button" class="flex h-fit w-full cursor-pointer flex-col items-center justify-center rounded-lg border-t border-r border-b border-l-8 border-l-[#950606] border-r-[#950606]/20 border-t-[#950606]/20 border-b-[#950606]/20 bg-[#F4ECE6]/50 p-3 sm:w-1/2" :disabled="!podeCancelar" @click="cancelarFluxo">
                                 <div class="flex flex-col items-center">
                                     <h4 class="text-[#950606] font-bold">Não.</h4>
                                     <span class="text-[#584237]">Cancelar este fluxo.</span>
@@ -435,6 +447,7 @@ onUnmounted(parar);
             </div>
         </div>
     </div>
+    </main>
     </div>
     </div>
 </template>

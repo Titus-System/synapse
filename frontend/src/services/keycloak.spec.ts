@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { obterTokenDeAcesso } from './keycloak'
+import { iniciarLogout, obterTokenDeAcesso } from './keycloak'
 
 const cliente = vi.hoisted(() => ({
   token: undefined as string | undefined,
   updateToken: vi.fn<(minValidity: number) => Promise<boolean>>(),
+  clearToken: vi.fn<() => void>(),
+  logout: vi.fn<(opcoes: { redirectUri: string }) => Promise<void>>(),
 }))
 
 vi.mock('keycloak-js', () => ({
@@ -13,6 +15,8 @@ vi.mock('keycloak-js', () => ({
 beforeEach(() => {
   cliente.token = 'token-atual'
   cliente.updateToken.mockReset().mockResolvedValue(false)
+  cliente.clearToken.mockReset()
+  cliente.logout.mockReset().mockResolvedValue()
 })
 
 describe('renovação do token', () => {
@@ -51,5 +55,16 @@ describe('renovação do token', () => {
       throw new Error('Sessão expirada')
     })
     await expect(obterTokenDeAcesso()).resolves.toBeUndefined()
+  })
+})
+
+describe('logout', () => {
+  it('retorna para uma rota protegida para iniciar o login novamente', async () => {
+    await iniciarLogout()
+
+    expect(cliente.clearToken).toHaveBeenCalledOnce()
+    expect(cliente.logout).toHaveBeenCalledWith({
+      redirectUri: new URL('/nova-regra', window.location.origin).toString(),
+    })
   })
 })

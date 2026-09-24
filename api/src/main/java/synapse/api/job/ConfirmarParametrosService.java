@@ -7,12 +7,15 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -40,7 +43,9 @@ class ConfirmarParametrosService {
 
 	private final Outbox outbox;
 
-	private final JsonMapper json = new JsonMapper();
+	private final JsonMapper json = JsonMapper.builder()
+		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+		.build();
 
 	ConfirmarParametrosService(JdbcTemplate jdbc, MaquinaDeEstadosDoJob maquina, Outbox outbox) {
 		this.jdbc = jdbc;
@@ -67,25 +72,26 @@ class ConfirmarParametrosService {
 
 		this.outbox.registrar(jobId, EventoOutbox.PARAMETROS_CONFIRMADOS,
 				new ParametrosConfirmadosDto(jobId, versao.id()));
-		registrarTrilha(jobId, versao.id(), editado, representacao.nucleo(), anterior, timestamp);
+		registrarTrilha(jobId, versao.id(), editado, representacao, anterior, timestamp);
 
-		RegraCriadaDto regra = new RegraCriadaDto(versao.id(), versao.versao(), "confirmacao_usuario", representacao,
+		RegraCriadaDto regra = new RegraCriadaDto(versao.id(), versao.versao(), versao.origem(), representacao,
 				versao.criadaEm());
 		return new JobCriadoDto(jobId, JobStatus.GERANDO_REGRA.paraColuna(), dados.origem(), competencias, orcamento,
-				dados.criadoEm(), dados.submissaoId(), regra);
+				dados.criadoEm(), dados.submissaoId(), dados.jobOrigemId(), regra);
 	}
 
 	private DadosDoJob carregarJob(UUID jobId) {
 		try {
 			return Objects.requireNonNull(this.jdbc.queryForObject("""
-					SELECT s.tipo AS origem, j.orcamento, j.criado_em, j.submissao_id
-					FROM jobs j JOIN submissoes s ON s.id = j.submissao_id
+					SELECT CASE WHEN j.job_origem_id IS NOT NULL THEN 'reprocessamento' ELSE s.tipo END AS origem,
+					       j.orcamento, j.criado_em, j.submissao_id, j.job_origem_id
+					FROM jobs j LEFT JOIN submissoes s ON s.id = j.submissao_id
 					WHERE j.id = ?
 					""",
 					(rs, linha) -> new DadosDoJob(Objects.requireNonNull(rs.getString("origem")),
 							Objects.requireNonNull(rs.getBigDecimal("orcamento")),
 							Objects.requireNonNull(rs.getTimestamp("criado_em")).toInstant(),
-							Objects.requireNonNull(rs.getObject("submissao_id", UUID.class))),
+							rs.getObject("submissao_id", UUID.class), rs.getObject("job_origem_id", UUID.class)),
 					jobId));
 		}
 		catch (EmptyResultDataAccessException ex) {
@@ -94,12 +100,16 @@ class ConfirmarParametrosService {
 	}
 
 	private @Nullable VersaoAnterior ultimaVersao(UUID jobId) {
-		List<VersaoAnterior> versoes = this.jdbc.query("""
-				SELECT id, versao, hash, nucleo FROM regras WHERE job_id = ? ORDER BY versao DESC LIMIT 1
-				""",
+		List<VersaoAnterior> versoes = this.jdbc.query(
+				"""
+						SELECT id, versao, hash, nucleo, especificacoes FROM regras WHERE job_id = ? ORDER BY versao DESC LIMIT 1
+						""",
 				(rs, linha) -> new VersaoAnterior(Objects.requireNonNull(rs.getObject("id", UUID.class)),
 						rs.getInt("versao"), Objects.requireNonNull(rs.getString("hash")),
-						this.json.readValue(Objects.requireNonNull(rs.getString("nucleo")), NucleoRegraDto.class)),
+						this.json.readValue(Objects.requireNonNull(rs.getString("nucleo")), NucleoRegraDto.class),
+						this.json.readTree(Objects.requireNonNull(rs.getString("especificacoes")))
+							.valueStream()
+							.toList()),
 				jobId);
 		return versoes.isEmpty() ? null : versoes.getFirst();
 	}
@@ -107,10 +117,11 @@ class ConfirmarParametrosService {
 	private VersaoRegra resolverVersao(UUID jobId, RepresentacaoRegraDto representacao, String hash,
 			@Nullable VersaoAnterior anterior, Timestamp timestamp, Instant agora) {
 		List<VersaoRegra> existentes = this.jdbc.query("""
-				SELECT id, versao, criada_em FROM regras WHERE job_id = ? AND hash = ?
+				SELECT id, versao, origem, criada_em FROM regras WHERE job_id = ? AND hash = ?
 				""",
 				(rs, linha) -> new VersaoRegra(Objects.requireNonNull(rs.getObject("id", UUID.class)),
-						rs.getInt("versao"), Objects.requireNonNull(rs.getTimestamp("criada_em")).toInstant()),
+						rs.getInt("versao"), Objects.requireNonNull(rs.getString("origem")),
+						Objects.requireNonNull(rs.getTimestamp("criada_em")).toInstant()),
 				jobId, hash);
 		if (!existentes.isEmpty()) {
 			return existentes.getFirst();
@@ -119,10 +130,10 @@ class ConfirmarParametrosService {
 		UUID origemId = (anterior != null) ? anterior.id() : null;
 		UUID id = Objects.requireNonNull(this.jdbc.queryForObject("""
 				INSERT INTO regras (job_id, versao, origem, regra_origem_id, nucleo, especificacoes, hash, criada_em)
-				VALUES (?, ?, 'confirmacao_usuario', ?, ?::jsonb, '[]'::jsonb, ?, ?) RETURNING id
+				VALUES (?, ?, 'confirmacao_usuario', ?, ?::jsonb, ?::jsonb, ?, ?) RETURNING id
 				""", UUID.class, jobId, novaVersao, origemId, this.json.writeValueAsString(representacao.nucleo()),
-				hash, timestamp));
-		return new VersaoRegra(id, novaVersao, agora);
+				this.json.writeValueAsString(representacao.especificacoes()), hash, timestamp));
+		return new VersaoRegra(id, novaVersao, "confirmacao_usuario", agora);
 	}
 
 	private BigDecimal resolverOrcamento(UUID jobId, ConfirmarParametrosRequisicao requisicao, BigDecimal atual) {
@@ -144,11 +155,15 @@ class ConfirmarParametrosService {
 		return this.jdbc.queryForList("SELECT unnest(competencias) FROM jobs WHERE id = ?", String.class, jobId);
 	}
 
-	private void registrarTrilha(UUID jobId, UUID regraId, boolean editado, NucleoRegraDto atual,
+	private void registrarTrilha(UUID jobId, UUID regraId, boolean editado, RepresentacaoRegraDto atual,
 			@Nullable VersaoAnterior anterior, Timestamp timestamp) {
-		List<String> corrigidos = (anterior != null) ? camposCorrigidos(atual, anterior.nucleo()) : List.of();
-		String resumo = (editado && !corrigidos.isEmpty())
-				? "usuário corrigiu " + String.join(", ", corrigidos) + " antes de confirmar"
+		List<String> corrigidos = (anterior != null && editado) ? camposCorrigidos(atual.nucleo(), anterior.nucleo())
+				: new ArrayList<>();
+		if (anterior != null && editado) {
+			corrigidos.addAll(especificacoesCorrigidas(atual.especificacoes(), anterior.especificacoes()));
+		}
+		String resumo = editado ? "usuário corrigiu "
+				+ (corrigidos.isEmpty() ? "a representação" : String.join(", ", corrigidos)) + " antes de confirmar"
 				: "usuário confirmou os parâmetros";
 		Map<String, Object> conclusao = new LinkedHashMap<>();
 		conclusao.put("resumo", resumo);
@@ -189,13 +204,27 @@ class ConfirmarParametrosService {
 		return atual.compareTo(anterior) != 0;
 	}
 
-	private record DadosDoJob(String origem, BigDecimal orcamento, Instant criadoEm, UUID submissaoId) {
+	private static List<String> especificacoesCorrigidas(List<JsonNode> atuais, List<JsonNode> anteriores) {
+		var refs = new LinkedHashSet<String>();
+		atuais.forEach(elemento -> refs.add(elemento.path("ref").asString()));
+		anteriores.forEach(elemento -> refs.add(elemento.path("ref").asString()));
+		return refs.stream()
+			.filter(ref -> !atuais.stream()
+				.filter(elemento -> ref.equals(elemento.path("ref").asString()))
+				.toList()
+				.equals(anteriores.stream().filter(elemento -> ref.equals(elemento.path("ref").asString())).toList()))
+			.toList();
 	}
 
-	private record VersaoAnterior(UUID id, int versao, String hash, NucleoRegraDto nucleo) {
+	private record DadosDoJob(String origem, BigDecimal orcamento, Instant criadoEm, @Nullable UUID submissaoId,
+			@Nullable UUID jobOrigemId) {
 	}
 
-	private record VersaoRegra(UUID id, int versao, Instant criadaEm) {
+	private record VersaoAnterior(UUID id, int versao, String hash, NucleoRegraDto nucleo,
+			List<JsonNode> especificacoes) {
+	}
+
+	private record VersaoRegra(UUID id, int versao, String origem, Instant criadaEm) {
 	}
 
 }

@@ -13,9 +13,39 @@ O console administrativo fica em `http://localhost:8081/admin/`. As credenciais 
 administrador vêm de `KEYCLOAK_ADMIN_USERNAME` e `KEYCLOAK_ADMIN_PASSWORD` em
 `deploy/.env`.
 
-O import cria o realm `synapse` e o cliente público `synapse-frontend`. Crie os
-usuários em **synapse → Users**; não crie contas de uso da aplicação no realm
-`master`. O usuário autenticado recebe uma conta local na primeira chamada à API.
+O import cria o realm `synapse` e o cliente público `synapse-frontend`. Para
+criar uma conta manualmente, use **synapse → Users**; não crie contas de uso da
+aplicação no realm `master`. O usuário autenticado recebe uma conta local na
+primeira chamada à API.
+
+## Dados de demonstração
+
+O script `deploy/scripts/seed.py` cria `develop@synapse.pro` com o papel
+`profissional-rh` e `staging@synapse.pro` com o papel `auditor` no Keycloak.
+Também grava essas contas em `usuarios`, com `keycloak_sub` igual ao identificador
+retornado pelo Keycloak e `senha_hash` nulo. São sete jobs de demonstração:
+quatro vinculados a `develop@synapse.pro` e três vinculados a `staging@synapse.pro`
+no status `aguardando_decisao_usuario`. Em uma nova execução, o script reutiliza as contas,
+redefine a senha de ambas e corrige a posse dos jobs criados por versões antigas
+do seed.
+
+Com o Keycloak e o banco já iniciados e as migrations da API aplicadas, instale
+a dependência do script e execute-o a partir da raiz:
+
+```bash
+python3 -m pip install -r deploy/scripts/requirements.txt
+python3 deploy/scripts/seed.py
+```
+
+Antes de executar, exporte `POSTGRES_PORT`, `KEYCLOAK_ADMIN_PASSWORD`,
+`SEED_USERS_PASSWORD` e `POSTGRES_PASSWORD`. A porta deve ser a publicada pelo
+Compose no host (`5433` no ambiente local deste guia), pois o seed exige esse
+valor e não usa a porta interna do container. Se seu `deploy/.env` usar outros
+valores, exporte também `POSTGRES_HOST`, `POSTGRES_DB`, `POSTGRES_USER`,
+`KEYCLOAK_PUBLIC_URL` e `KEYCLOAK_ADMIN_USERNAME` conforme esse ambiente. O
+script lê variáveis de ambiente, não o arquivo `deploy/.env` diretamente. A
+senha em `SEED_USERS_PASSWORD` permite autenticar qualquer uma das duas contas
+de demonstração no Keycloak.
 
 O cliente já aceita `http://localhost:5173/*` como retorno de login e logout. Se
 o volume `keycloak-data` já existia antes da mudança do realm, ajuste esses valores
@@ -55,31 +85,59 @@ Nesse modo local, `KEYCLOAK_JWK_SET_URI` deve apontar para
 `http://localhost:8081/realms/synapse/protocol/openid-connect/certs`, pois o nome
 `keycloak` só é resolvido dentro da rede Docker.
 
-## Preparação para staging
+## Staging e CD
 
-A promoção manual para staging exige configurar o ambiente público. O realm
-versionado aceita apenas a origem `http://localhost:5173`; mudar as variáveis do
-frontend não altera os retornos permitidos no Keycloak.
+O Keycloak é publicado em `https://auth.synnapse.pro`. O Caddy termina TLS e
+encaminha as requisições para `keycloak:8080`; o Keycloak interpreta os cabeçalhos
+`X-Forwarded-*` enviados pelo proxy. A porta `8081` no host fica restrita a
+`127.0.0.1`, para acesso local e por túnel SSH.
 
-- Configure uma URL pública acessível pelo navegador para o Keycloak. O Caddyfile
-  versionado ainda não publica uma rota para esse serviço.
-- Use essa URL em `KEYCLOAK_PUBLIC_URL` e `VITE_KEYCLOAK_URL`; configure
-  `KEYCLOAK_ISSUER_URI` como a mesma URL seguida de `/realms/synapse`.
-- Mantenha `KEYCLOAK_JWK_SET_URI` acessível à API pela rede Docker.
-- Ajuste `Valid Redirect URIs`, `Valid Post Logout Redirect URIs` e `Web Origins`
-  do cliente para a origem pública do frontend, além de `CORS_ALLOWED_ORIGINS`
-  da API.
-- Reconstrua o frontend após alterar `VITE_*`, pois esses valores são incorporados
-  ao bundle durante o build.
+Antes da primeira implantação:
 
-Em realms já existentes, aplique os ajustes pelo console: a importação de
-inicialização não substitui o realm persistido. O serviço versionado usa
-`start-dev`; a configuração do ambiente de staging precisa considerar esse modo
-de execução antes da promoção.
+1. Aponte o DNS de `auth.synnapse.pro` para o droplet e libere `80`/`443`.
+2. Configure `KEYCLOAK_ADMIN_PASSWORD` e os seguintes valores em `deploy/.env`
+   **no droplet**:
 
-A validação pelo navegador deve cobrir login, recuperação da sessão após recarga,
-renovação após a expiração do access token, recebimento de progresso por SSE e
-logout. Os testes automatizados não substituem essa validação no endereço público.
+   ```dotenv
+   KEYCLOAK_ENABLED=true
+   KEYCLOAK_PUBLIC_URL=https://auth.synnapse.pro
+   KEYCLOAK_ISSUER_URI=https://auth.synnapse.pro/realms/synapse
+   KEYCLOAK_JWK_SET_URI=http://keycloak:8080/realms/synapse/protocol/openid-connect/certs
+   VITE_KEYCLOAK_URL=https://auth.synnapse.pro
+   VITE_KEYCLOAK_REALM=synapse
+   VITE_KEYCLOAK_CLIENT_ID=synapse-frontend
+   CORS_ALLOWED_ORIGINS=https://app.synnapse.pro
+   ```
+
+3. Em realms já existentes, acrescente `https://app.synnapse.pro/*` em
+   **Valid Redirect URIs** e **Valid Post Logout Redirect URIs**, e
+   `https://app.synnapse.pro` em **Web Origins** do cliente `synapse-frontend`.
+   Realms novos recebem esses valores do arquivo versionado, além da origem local.
+4. Implante o gateway e o Keycloak, recrie a API e reconstrua o frontend para
+   aplicar as URLs. Os workflows correspondentes podem ser disparados manualmente
+   em **Actions → Run workflow**, selecionando `staging`. Alterar o `.env` no
+   servidor não dispara esses workflows.
+
+O workflow `.github/workflows/cd-keycloak.yml` dispara em push para `staging`
+quando houver mudanças em `deploy/keycloak/**`, `deploy/docker-compose.yml` ou
+no próprio workflow. Também aceita disparo manual. Usa os mesmos secrets SSH e
+a fila `cd-staging-deploy` dos outros componentes, obtém a imagem e recria apenas
+o Keycloak, preservando o volume `keycloak-data`. O deploy aguarda o healthcheck
+`/health/ready` e falha se o serviço não ficar pronto em 180 segundos.
+
+A recriação aplica os arquivos do tema. A importação de inicialização cria realms
+novos, mas não atualiza realms já persistidos: alterações no realm existente
+devem ser aplicadas pelo console. O seed é executado manualmente e não participa
+de nenhum fluxo de CI/CD.
+
+O serviço usa `start-dev`, conforme o Compose compartilhado. A configuração
+segue as orientações do Keycloak para
+[proxy reverso](https://www.keycloak.org/server/reverseproxy) e
+[healthcheck](https://www.keycloak.org/observability/health).
+
+Após o deploy, confira o emissor em
+`https://auth.synnapse.pro/realms/synapse/.well-known/openid-configuration` e valide
+login, recarga da página, renovação de token, SSE e logout pelo frontend público.
 
 ## Tema de login
 
