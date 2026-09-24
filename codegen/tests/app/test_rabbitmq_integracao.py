@@ -2,12 +2,13 @@ import asyncio
 import os
 import subprocess
 from collections.abc import AsyncGenerator
+from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 import simplejson
-from aio_pika import Message
+from aio_pika import DeliveryMode, Message
 from aiormq.exceptions import ChannelNotFoundEntity
 
 from app.config import Settings
@@ -16,6 +17,7 @@ from app.contratos.mensagens import (
     SimulacaoConcluida,
 )
 from app.contratos.serializacao import serializar
+from app.graph.nodes.dispatch_execution import dispatch_execution
 from app.mensageria.broker import EXCHANGE_SIMULACAO, FILA_SIMULACAO, ConexaoBroker, conectar
 from app.mensageria.roteamento import Entrada
 from tests.app.test_mensageria import ENTRADAS, SAIDAS, exemplo, oficial
@@ -143,4 +145,31 @@ async def test_producer_real_entrega_payload_oficial_na_fila(
     assert payload == exemplo(nome)
     assert recebido.exchange == ""
     assert recebido.routing_key == nome
+    await recebido.ack()
+
+
+async def test_dispatch_execution_entrega_comando_persistente_e_valido(
+    broker_real: ConexaoBroker,
+) -> None:
+    job_id, codigo_gerado_id = uuid4(), uuid4()
+    estado = {
+        "job_id": str(job_id),
+        "codigo_gerado_id": str(codigo_gerado_id),
+        "competencias": ["2025-11"],
+        "orcamento": "485000.10",
+        "codigo_fonte": "def aplicar_regra(bases, apuracao_base, competencias): ...",
+    }
+
+    await dispatch_execution(estado, {"configurable": {"producers": broker_real.producers}})
+    recebido = await broker_real.filas["executar-codigo"].get(timeout=10)
+
+    payload = simplejson.loads(recebido.body, use_decimal=True)
+    oficial("executar-codigo").validate(payload)
+    assert payload == {
+        "job_id": str(job_id),
+        "codigo_gerado_id": str(codigo_gerado_id),
+        "competencias": ["2025-11"],
+        "orcamento": Decimal("485000.10"),
+    }
+    assert recebido.delivery_mode == DeliveryMode.PERSISTENT
     await recebido.ack()
