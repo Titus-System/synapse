@@ -13,11 +13,19 @@ graph TD;
 	greeting(greeting)
 	load_rule(load_rule)
 	code_generation(code_generation)
+	persist_response(persist_response)
+	extract_code(extract_code)
+	dispatch_execution(dispatch_execution)
+	await_execution(await_execution)
 	tools(tools)
 	__end__(<p>__end__</p>)
 	__start__ --> load_rule;
+	code_generation --> persist_response;
+	dispatch_execution --> await_execution;
+	extract_code --> dispatch_execution;
 	load_rule --> code_generation;
-	code_generation --> __end__;
+	persist_response --> extract_code;
+	await_execution --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc
