@@ -5,6 +5,7 @@ from uuid import UUID
 import simplejson
 from aio_pika.abc import AbstractIncomingMessage
 
+from app.codigo_gerado import CodigoInvalidoError
 from app.contratos.mensagens import ParametrosConfirmados, RegraSubmetida, SimulacaoConcluida
 from app.contratos.validacao import validar
 from app.core.logger import get_logger, job_id_ctx
@@ -80,6 +81,18 @@ class Consumer:
                     extra={
                         "tipo_mensagem": self.nome,
                         "causa": "regra_invalida",
+                        "decisao": "reject_sem_requeue",
+                    },
+                )
+                await mensagem.reject(requeue=False)
+            except CodigoInvalidoError:
+                # A redelivery resumes from the recorded reply, which stays invalid: this
+                # failure is permanent, like an invalid rule.
+                logger.warning(
+                    "código gerado inválido",
+                    extra={
+                        "tipo_mensagem": self.nome,
+                        "causa": "codigo_invalido",
                         "decisao": "reject_sem_requeue",
                     },
                 )

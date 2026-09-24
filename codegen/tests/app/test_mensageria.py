@@ -252,6 +252,25 @@ async def test_job_desconhecido_rejeitado_e_consumer_continua(
     assert "segredo" not in str(log.mock_calls)
 
 
+async def test_codigo_gerado_invalido_rejeitado_sem_requeue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.codigo_gerado import CodigoInvalidoError
+
+    log = MagicMock()
+    monkeypatch.setattr("app.mensageria.consumers.logger", log)
+    roteador = MagicMock(entregar=AsyncMock(side_effect=CodigoInvalidoError("segredo")))
+    mensagem = AsyncMock(body=simplejson.dumps(exemplo("regra-submetida")).encode())
+
+    await Consumer(RegraSubmetida, "regra-submetida", roteador).receber(mensagem)
+
+    mensagem.reject.assert_awaited_once_with(requeue=False)
+    mensagem.nack.assert_not_awaited()
+    mensagem.ack.assert_not_awaited()
+    assert log.warning.call_args.kwargs["extra"]["causa"] == "codigo_invalido"
+    assert "segredo" not in str(log.mock_calls)
+
+
 async def test_falha_de_processamento_reentrega_sem_ack(monkeypatch: pytest.MonkeyPatch) -> None:
     log = MagicMock()
     monkeypatch.setattr("app.mensageria.consumers.logger", log)
