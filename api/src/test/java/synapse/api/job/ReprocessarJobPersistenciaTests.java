@@ -44,10 +44,14 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 import synapse.api.core.outbox.Outbox;
+import synapse.api.core.security.AcessoDoUsuario;
+import synapse.api.core.security.UsuarioAtual;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -115,9 +119,13 @@ class ReprocessarJobPersistenciaTests {
 		contexto.register(Config.class);
 		contexto.refresh();
 		service = contexto.getBean(ReprocessarJobService.class);
+		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
+		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(DONO_ORIGINAL, false));
 		mvc = MockMvcBuilders
 			.standaloneSetup(contexto.getBean(ReprocessarJobController.class),
-					contexto.getBean(BuscarJobController.class), contexto.getBean(ConfirmarParametrosController.class))
+					new BuscarJobController(contexto.getBean(BuscarJobService.class),
+							contexto.getBean(AutorizadorDeJob.class), usuarioAtual),
+					contexto.getBean(ConfirmarParametrosController.class))
 			.setControllerAdvice(new ReprocessarJobAdvice(), new ConfirmarParametrosAdvice())
 			.build();
 	}
@@ -136,7 +144,7 @@ class ReprocessarJobPersistenciaTests {
 	@EnableTransactionManagement
 	@Import({ CriarJobService.class, ReprocessarJobService.class, BuscarJobService.class,
 			ConfirmarParametrosService.class, ExecutarAcaoService.class, MaquinaDeEstadosDoJob.class, Outbox.class,
-			ReprocessarJobController.class, BuscarJobController.class, ConfirmarParametrosController.class })
+			ReprocessarJobController.class, AutorizadorDeJob.class, ConfirmarParametrosController.class })
 	static class Config {
 
 	}
