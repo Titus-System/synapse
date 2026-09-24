@@ -3,7 +3,8 @@
 #   - as contas develop@synapse.pro e staging@synapse.pro no Keycloak e em usuarios;
 #   - quatro jobs de ponta a ponta (submissao -> regra -> código gerado ->
 #     resultado -> simulação), um para cada desfecho de resultados_simulacao:
-#     viável, inviável, inviável com sugestão de adaptação e assercao_violada.
+#     viável, inviável, inviável com sugestão de adaptação e assercao_violada;
+#   - três jobs viáveis aguardando decisão, pertencentes a staging@synapse.pro.
 #
 # Conecta como o dono do schema (POSTGRES_USER/POSTGRES_PASSWORD) para poder
 # escrever em todas as tabelas, incluindo as de produtor único (prompts,
@@ -41,7 +42,7 @@ REQUIRED_ENV_VARS = ("POSTGRES_PORT", "KEYCLOAK_ADMIN_PASSWORD", "SEED_USERS_PAS
 
 SEED_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "https://synapse.local/deploy/scripts/seed.py")
 
-# Deslocamentos, em minutos a partir de jobs.criado_em, comuns aos quatro
+# Deslocamentos, em minutos a partir de jobs.criado_em, comuns aos
 # cenários: regra confirmada, chamada ao modelo, código extraído e início da
 # simulação sempre seguem essa mesma micro-sequência interna.
 REGRA_OFFSET = 3
@@ -539,7 +540,26 @@ def cenarios() -> list[Cenario]:
         acao=None,
     )
 
-    return [viavel, inviavel, inviavel_com_sugestao, assercao_violada]
+    aguardando_decisao_staging = [
+        replace(
+            viavel,
+            chave=f"job-staging-aguardando-decisao-{indice}",
+            usuario_login="staging@synapse.pro",
+            base=datetime(2025, 11, 24, 9, 0, tzinfo=timezone.utc)
+            + timedelta(days=indice - 1),
+            transicoes=viavel.transicoes[:-1],
+            acao=None,
+        )
+        for indice in range(1, 4)
+    ]
+
+    return [
+        viavel,
+        inviavel,
+        inviavel_com_sugestao,
+        assercao_violada,
+        *aguardando_decisao_staging,
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -725,7 +745,11 @@ def seed_cenario(cur, cenario: Cenario, usuario_ids: dict[str, uuid.UUID]) -> No
             "orcamento": cenario.orcamento,
             "criado_em": criado_em,
             "iniciado_em": criado_em + timedelta(minutes=cenario.transicoes[1].minutos),
-            "finalizado_em": criado_em + timedelta(minutes=cenario.transicoes[-1].minutos),
+            "finalizado_em": (
+                None
+                if status_final == "aguardando_decisao_usuario"
+                else criado_em + timedelta(minutes=cenario.transicoes[-1].minutos)
+            ),
             "tentativas": 0,
         },
     )
@@ -968,7 +992,8 @@ def main() -> None:
 
     print(
         "seed: contas Keycloak e locais (develop@synapse.pro, staging@synapse.pro) e pipeline de "
-        "demonstração prontos (4 jobs: viável, inviável, inviável com sugestão, assercao_violada)"
+        "demonstração prontos (7 jobs: viável, inviável, inviável com sugestão, "
+        "assercao_violada e 3 aguardando_decisao_usuario para staging@synapse.pro)"
     )
 
 

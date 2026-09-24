@@ -1,0 +1,38 @@
+name: cd-keycloak
+
+on:
+  push:
+    branches:
+      - staging
+    paths:
+      - 'deploy/keycloak/**'
+      - 'deploy/docker-compose.yml'
+      - '.github/workflows/cd-keycloak.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Implantar Keycloak em staging
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.STAGING_DEPLOY_PATH }}
+            git fetch origin staging
+            git reset --hard origin/staging
+
+            docker compose -f deploy/docker-compose.yml --env-file deploy/.env pull keycloak
+            docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --no-deps --force-recreate --wait --wait-timeout 180 keycloak
