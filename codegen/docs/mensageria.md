@@ -67,6 +67,7 @@ da persistência e antes do ACK. T-049 não implementa nós nem checkpointer.
 | JSON/DTO/schema inválido | `reject(requeue=False)` |
 | `JobDesconhecidoError` do roteador | `reject(requeue=False)` e log correlacionado |
 | `RegraInvalidaError` do roteador | `reject(requeue=False)` e log correlacionado |
+| `CodigoInvalidoError` do roteador | `reject(requeue=False)` e log correlacionado |
 | Cancelamento | sem ACK; fechamento da conexão devolve mensagens não confirmadas |
 
 A rejeição de mensagens inválidas e jobs desconhecidos é a decisão mínima local
@@ -82,6 +83,11 @@ por `regra_id` não existe para o `job_id`, ou que falha o contrato de
 então essa falha é permanente como `JobDesconhecidoError`, e usa a mesma decisão:
 `reject(requeue=False)`, nunca `nack`. A exceção nunca carrega o conteúdo da regra,
 só a correlação do job.
+
+`CodigoInvalidoError` (`app/codigo_gerado.py`) sinaliza, no nó `extract_code`, que a
+resposta do modelo não traz exatamente um `regra.py` válido. A resposta já está gravada
+em `respostas_modelo`, e uma reentrega continua do checkpoint sobre a mesma resposta, que
+seguiria inválida: a falha é permanente e usa `reject(requeue=False)`.
 
 Para o comando de saída `executar-codigo`, a
 [DEC-091](../../docs/decisoes/dec-091.md) define retry gerenciado pela aplicação no
@@ -118,6 +124,16 @@ Sem essa integração, o processo emite um aviso e mantém as mensagens no broke
 `Consumer`. Ele nasce sem `sessoes`/`producers`; o lifespan os
 atribui depois de criar o engine e conectar ao broker, porque `GraphRouter` existe
 antes de qualquer um dos dois estar pronto.
+
+Em uma reentrega, o entrypoint continua do último checkpoint do `job_id` em vez de
+recomeçar do `START`: os nós já concluídos, como a chamada ao modelo e as gravações, não
+rodam de novo.
+
+O comando `executar-codigo` é publicado pelo nó `dispatch_execution`, depois de o
+prompt, a resposta e o código estarem gravados. Leva só `codigo_gerado_id`, nunca o
+código (claim-check, ADR-001). Em seguida, `await_execution` pausa o grafo com
+`interrupt()`, a `regra-submetida` recebe `ack` e o processo fica livre. A retomada com
+`simulacao-concluida` está descrita em [`retomada-apos-execucao.md`](retomada-apos-execucao.md).
 
 O entrypoint Docker/uvicorn chama `app.main:criar_aplicacao_padrao`, que monta um
 `GraphRouter` e o passa a `criar_aplicacao`, ativando o consumer de regra-submetida
