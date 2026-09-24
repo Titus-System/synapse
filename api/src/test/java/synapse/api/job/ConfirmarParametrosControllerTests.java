@@ -7,13 +7,21 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -62,13 +70,53 @@ class ConfirmarParametrosControllerTests {
 	}
 
 	@Test
-	void naoPermiteEditarEspecificacoes() throws Exception {
+	void permiteConfirmarRepresentacaoCompletaSemPerderCamposOuPrecisao() throws Exception {
+		String especificacoes = """
+				[{"ref":"elem.1","construto":"faixa_valor","limite_inferior":40000.123456789,
+				"limite_superior":50000,"efeito":{"tipo":"bonus_fixo","valor":3500.125},
+				"extensao":{"criterios":["a","b"],"ativo":true,"fator":0.123456789012345678901}}]
+				""";
 		this.mvc
 			.perform(post("/jobs/" + JOB + "/parameters").contentType(MediaType.APPLICATION_JSON)
-				.content(CONFIRMAR.replace("\"especificacoes\":[]",
-						"\"especificacoes\":[{\"ref\":\"elem.1\",\"construto\":\"generico\"}]")))
+				.content(CONFIRMAR.replace("\"especificacoes\":[]", "\"especificacoes\":" + especificacoes)))
+			.andExpect(status().isAccepted());
+		var captor = ArgumentCaptor.forClass(ConfirmarParametrosRequisicao.class);
+		verify(this.service).confirmar(eq(JOB), captor.capture());
+		var json = JsonMapper.builder().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS).build();
+		assertThat(captor.getValue().representacao().especificacoes())
+			.containsExactlyElementsOf(json.readTree(especificacoes).valueStream().toList());
+		assertThat(captor.getValue()
+			.representacao()
+			.especificacoes()
+			.getFirst()
+			.path("extensao")
+			.path("fator")
+			.decimalValue()).isEqualByComparingTo("0.123456789012345678901");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "null", "{}", "[1]", "[null]", "[{}]",
+			"[{\"ref\":\"invalido\",\"construto\":\"generico\",\"descricao\":\"regra\"}]",
+			"[{\"ref\":\"elem.1\",\"construto\":\"desconhecido\"}]",
+			"[{\"ref\":\"elem.1\",\"construto\":\"generico\"}]",
+			"[{\"ref\":\"elem.1\",\"construto\":\"generico\",\"descricao\":\"\"}]",
+			"[{\"ref\":\"elem.1\",\"construto\":\"faixa_valor\",\"limite_inferior\":0,\"limite_superior\":10,\"efeito\":{\"tipo\":\"invalido\",\"valor\":1}}]",
+			"[{\"ref\":\"elem.1\",\"construto\":\"janela_datas\",\"data_inicial\":\"2025-99-01\",\"data_final\":\"2025-11-30\",\"efeito\":{\"tipo\":\"bonus_fixo\",\"valor\":1}}]" })
+	void especificacoesInvalidasSaoRecusadasSemChamarService(String especificacoes) throws Exception {
+		this.mvc
+			.perform(post("/jobs/" + JOB + "/parameters").contentType(MediaType.APPLICATION_JSON)
+				.content(CONFIRMAR.replace("\"especificacoes\":[]", "\"especificacoes\":" + especificacoes)))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.codigo").value("requisicao_invalida"));
+		verifyNoInteractions(this.service);
+	}
+
+	@Test
+	void especificacoesAusentesSaoRecusadas() throws Exception {
+		this.mvc
+			.perform(post("/jobs/" + JOB + "/parameters").contentType(MediaType.APPLICATION_JSON)
+				.content(CONFIRMAR.replace(",\"especificacoes\":[]", "")))
+			.andExpect(status().isBadRequest());
 		verifyNoInteractions(this.service);
 	}
 

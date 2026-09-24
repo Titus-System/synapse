@@ -3,6 +3,7 @@ package synapse.api.job;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -20,7 +21,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.testcontainers.DockerClientFactory;
@@ -28,6 +28,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -296,71 +297,123 @@ class ReprocessarJobPersistenciaTests {
 	}
 
 	@ParameterizedTest
-	@CsvSource({ "true,false", "false,false", "true,true", "false,true" })
-	void confirmacaoPosteriorEditaParametrosPreservandoVersaoSemeada(boolean editarRegra, boolean extensoes)
-			throws Exception {
-		UUID origem = criarOrigem(extensoes);
+	@ValueSource(strings = { "nenhuma", "nucleo", "especificacoes", "ambos", "parametros", "adicionar", "remover" })
+	void confirmaRepresentacaoDoGetPreservandoVersoesEOriginal(String edicao) throws Exception {
+		UUID origem = criarOrigem(true);
 		String original = retrato(origem);
 		JsonNode novo = reprocessar(origem, "");
 		UUID novoId = UUID.fromString(novo.path("id").asString());
 		Map<String, Object> semeada = jdbc.queryForMap("SELECT * FROM regras WHERE job_id = ?", novoId);
-		String corpo = ConfirmarParametrosControllerTests.CONFIRMAR;
-		if (editarRegra) {
-			corpo = corpo.replace("0.03", "0.04");
+		JsonNode representacaoOriginal = consultar(novoId).path("regras").path(0).path("representacao");
+		ObjectNode enviada = (ObjectNode) representacaoOriginal.deepCopy();
+		boolean mudaNucleo = edicao.equals("nucleo") || edicao.equals("ambos");
+		boolean mudaEspecificacoes = List.of("especificacoes", "ambos", "adicionar", "remover").contains(edicao);
+		boolean editado = mudaNucleo || mudaEspecificacoes;
+		if (mudaNucleo) {
+			((ObjectNode) enviada.path("nucleo")).put("percentual", new BigDecimal("0.04"));
 		}
-		corpo = corpo.replace("{\"regra\"",
-				"{\"orcamento\":700000,\"competencias\":[\"2025-10\",\"2025-08\"],\"regra\"");
+		if (edicao.equals("especificacoes") || edicao.equals("ambos")) {
+			((ObjectNode) enviada.path("especificacoes").path(0).path("efeito")).put("valor",
+					new BigDecimal("3500.123456789012345678901"));
+		}
+		if (edicao.equals("adicionar")) {
+			enviada.withArray("especificacoes").add(JSON.readTree("""
+					{"ref":"elem.2","construto":"generico","descricao":"bonus de aniversario",
+					"campos":{"fator":0.123456789012345678901}}
+					"""));
+		}
+		if (edicao.equals("remover")) {
+			enviada.putArray("especificacoes");
+		}
+		ObjectNode pedido = JSON.createObjectNode();
+		pedido.set("regra", enviada);
+		if (edicao.equals("parametros")) {
+			pedido.put("orcamento", new BigDecimal("700000.123456789012345678901"));
+			pedido.set("competencias", JSON.readTree("[\"2025-10\",\"2025-08\"]"));
+		}
+		String corpo = JSON.writeValueAsString(pedido);
+		assertThat(JSON.<JsonNode>valueToTree(ConfirmarParametrosRequisicao.deJson(corpo).representacao()))
+			.isEqualTo(enviada);
 		String resposta = mvc
 			.perform(post("/jobs/{id}/parameters", novoId).contentType(MediaType.APPLICATION_JSON).content(corpo))
 			.andExpect(status().isAccepted())
 			.andExpect(jsonPath("$.status").value("gerando_regra"))
 			.andExpect(jsonPath("$.origem").value("reprocessamento"))
 			.andExpect(jsonPath("$.job_origem_id").value(origem.toString()))
-			.andExpect(jsonPath("$.regra.versao").value(editarRegra ? 2 : 1))
-			.andExpect(jsonPath("$.regra.origem").value(editarRegra ? "confirmacao_usuario" : "reprocessamento"))
+			.andExpect(jsonPath("$.regra.versao").value(editado ? 2 : 1))
+			.andExpect(jsonPath("$.regra.origem").value(editado ? "confirmacao_usuario" : "reprocessamento"))
 			.andReturn()
 			.getResponse()
 			.getContentAsString();
-		assertThat(JSON.readTree(resposta).has("submissao_id")).isFalse();
+		JsonNode confirmado = JSON.readTree(resposta);
+		assertThat(confirmado.has("submissao_id")).isFalse();
+		assertThat(confirmado.path("regra").path("representacao")).isEqualTo(enviada);
 		assertThat(jdbc.queryForMap("SELECT * FROM regras WHERE job_id = ? AND versao = 1", novoId)).isEqualTo(semeada);
 		assertThat(jdbc.queryForObject("SELECT status FROM jobs WHERE id = ?", String.class, novoId))
 			.isEqualTo("gerando_regra");
-		assertThat(jdbc.queryForObject("SELECT job_origem_id FROM jobs WHERE id = ?", UUID.class, novoId))
-			.isEqualTo(origem);
-		assertThat(jdbc.queryForObject("SELECT orcamento FROM jobs WHERE id = ?", BigDecimal.class, novoId))
-			.isEqualByComparingTo("700000");
-		assertThat(competencias(novoId)).containsExactly("2025-08", "2025-10");
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM regras WHERE job_id = ?", Integer.class, novoId))
-			.isEqualTo(editarRegra ? 2 : 1);
-		if (editarRegra) {
-			assertThat(jdbc.queryForObject("SELECT regra_origem_id FROM regras WHERE job_id = ? AND versao = 2",
-					UUID.class, novoId))
-				.isEqualTo(semeada.get("id"));
+			.isEqualTo(editado ? 2 : 1);
+		Map<String, Object> utilizada = jdbc.queryForMap("SELECT * FROM regras WHERE job_id = ? AND versao = ?", novoId,
+				editado ? 2 : 1);
+		assertThat(JSON.readTree(Objects.requireNonNull(utilizada.get("nucleo")).toString()))
+			.isEqualTo(enviada.path("nucleo"));
+		assertThat(JSON.readTree(Objects.requireNonNull(utilizada.get("especificacoes")).toString()))
+			.isEqualTo(enviada.path("especificacoes"));
+		assertThat(Objects.requireNonNull(utilizada.get("id")).toString())
+			.isEqualTo(confirmado.path("regra").path("id").asString());
+		assertThat(utilizada.get("hash"))
+			.isEqualTo(HashDaRegra.calcular(ConfirmarParametrosRequisicao.deJson(corpo).representacao()));
+		if (editado) {
+			assertThat(utilizada.get("regra_origem_id")).isEqualTo(semeada.get("id"));
+			assertThat(utilizada.get("hash")).isNotEqualTo(semeada.get("hash"));
 		}
-		JsonNode especificacoes = JSON.readTree(extensoes ? ESPECIFICACOES : "[]");
-		String persistidas = Objects.requireNonNull(
-				jdbc.queryForObject("SELECT especificacoes::text FROM regras WHERE job_id = ? AND versao = ?",
-						String.class, novoId, editarRegra ? 2 : 1));
-		assertThat(JSON.readTree(persistidas)).isEqualTo(especificacoes)
-			.isEqualTo(JSON.readTree(Objects.requireNonNull(semeada.get("especificacoes")).toString()));
-		assertThat(JSON.readTree(resposta).path("regra").path("representacao").path("especificacoes"))
-			.isEqualTo(especificacoes);
-		String consulta = mvc.perform(get("/jobs/{id}", novoId))
-			.andExpect(status().isOk())
-			.andReturn()
-			.getResponse()
-			.getContentAsString();
-		JsonNode regras = JSON.readTree(consulta).path("regras");
-		assertThat(regras.size()).isEqualTo(editarRegra ? 2 : 1);
-		for (JsonNode regra : regras) {
-			assertThat(regra.path("representacao").path("especificacoes")).isEqualTo(especificacoes);
+		else {
+			assertThat(utilizada).isEqualTo(semeada);
 		}
+		if (edicao.equals("parametros")) {
+			assertThat(jdbc.queryForObject("SELECT orcamento FROM jobs WHERE id = ?", BigDecimal.class, novoId))
+				.isEqualByComparingTo("700000.123456789012345678901");
+			assertThat(competencias(novoId)).containsExactly("2025-08", "2025-10");
+			assertThat(confirmado.path("orcamento")).isEqualTo(pedido.path("orcamento"));
+			assertThat(confirmado.path("competencias")).isEqualTo(JSON.readTree("[\"2025-08\",\"2025-10\"]"));
+		}
+		else {
+			assertThat(confirmado.path("orcamento")).isEqualTo(novo.path("orcamento"));
+			assertThat(confirmado.path("competencias")).isEqualTo(novo.path("competencias"));
+		}
+		JsonNode regras = consultar(novoId).path("regras");
+		assertThat(regras.size()).isEqualTo(editado ? 2 : 1);
+		assertThat(regras.path(0).path("representacao")).isEqualTo(representacaoOriginal);
+		assertThat(regras.path(editado ? 1 : 0).path("representacao")).isEqualTo(enviada);
 		String payload = Objects.requireNonNull(jdbc.queryForObject(
 				"SELECT payload::text FROM outbox_events WHERE job_id = ? AND tipo = 'parametros-confirmados'",
 				String.class, novoId));
 		ContratoDeEvento.validar("parametros-confirmados", payload);
-		assertThat(JSON.readTree(payload).path("regra_id")).isEqualTo(JSON.readTree(resposta).path("regra").path("id"));
+		assertThat(JSON.readTree(payload).path("regra_id")).isEqualTo(confirmado.path("regra").path("id"));
+		JsonNode trilha = JSON.readTree(Objects.requireNonNull(jdbc.queryForObject(
+				"SELECT conclusao::text FROM trilhas_auditoria WHERE job_id = ? AND no = 'confirmacao'", String.class,
+				novoId)));
+		assertThat(trilha.path("editado_pelo_usuario").asBoolean()).isEqualTo(editado);
+		List<String> corrigidos = new ArrayList<>();
+		if (mudaNucleo) {
+			corrigidos.add("nucleo.percentual");
+		}
+		if (mudaEspecificacoes) {
+			corrigidos.add(edicao.equals("adicionar") ? "elem.2" : "elem.1");
+		}
+		assertThat(trilha.path("campos_corrigidos")).isEqualTo(JSON.valueToTree(corrigidos));
+		assertThat(trilha.path("resumo").asString())
+			.isEqualTo(editado ? "usuário corrigiu " + String.join(", ", corrigidos) + " antes de confirmar"
+					: "usuário confirmou os parâmetros");
 		assertThat(retrato(origem)).isEqualTo(original);
+	}
+
+	private static JsonNode consultar(UUID jobId) throws Exception {
+		return JSON.readTree(mvc.perform(get("/jobs/{id}", jobId))
+			.andExpect(status().isOk())
+			.andReturn()
+			.getResponse()
+			.getContentAsString());
 	}
 
 	@Test

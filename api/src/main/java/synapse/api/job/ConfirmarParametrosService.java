@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -58,8 +59,7 @@ class ConfirmarParametrosService {
 		this.maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "usuario", null);
 
 		VersaoAnterior anterior = ultimaVersao(jobId);
-		RepresentacaoRegraDto representacao = new RepresentacaoRegraDto(requisicao.representacao().nucleo(),
-				anterior != null ? anterior.especificacoes() : List.of());
+		RepresentacaoRegraDto representacao = requisicao.representacao();
 		String hash = HashDaRegra.calcular(representacao);
 		boolean editado = anterior != null && !hash.equals(anterior.hash());
 
@@ -72,7 +72,7 @@ class ConfirmarParametrosService {
 
 		this.outbox.registrar(jobId, EventoOutbox.PARAMETROS_CONFIRMADOS,
 				new ParametrosConfirmadosDto(jobId, versao.id()));
-		registrarTrilha(jobId, versao.id(), editado, representacao.nucleo(), anterior, timestamp);
+		registrarTrilha(jobId, versao.id(), editado, representacao, anterior, timestamp);
 
 		RegraCriadaDto regra = new RegraCriadaDto(versao.id(), versao.versao(), versao.origem(), representacao,
 				versao.criadaEm());
@@ -130,10 +130,9 @@ class ConfirmarParametrosService {
 		UUID origemId = (anterior != null) ? anterior.id() : null;
 		UUID id = Objects.requireNonNull(this.jdbc.queryForObject("""
 				INSERT INTO regras (job_id, versao, origem, regra_origem_id, nucleo, especificacoes, hash, criada_em)
-				VALUES (?, ?, 'confirmacao_usuario', ?, ?::jsonb,
-				        COALESCE((SELECT especificacoes FROM regras WHERE id = ?), '[]'::jsonb), ?, ?) RETURNING id
+				VALUES (?, ?, 'confirmacao_usuario', ?, ?::jsonb, ?::jsonb, ?, ?) RETURNING id
 				""", UUID.class, jobId, novaVersao, origemId, this.json.writeValueAsString(representacao.nucleo()),
-				origemId, hash, timestamp));
+				this.json.writeValueAsString(representacao.especificacoes()), hash, timestamp));
 		return new VersaoRegra(id, novaVersao, "confirmacao_usuario", agora);
 	}
 
@@ -156,11 +155,15 @@ class ConfirmarParametrosService {
 		return this.jdbc.queryForList("SELECT unnest(competencias) FROM jobs WHERE id = ?", String.class, jobId);
 	}
 
-	private void registrarTrilha(UUID jobId, UUID regraId, boolean editado, NucleoRegraDto atual,
+	private void registrarTrilha(UUID jobId, UUID regraId, boolean editado, RepresentacaoRegraDto atual,
 			@Nullable VersaoAnterior anterior, Timestamp timestamp) {
-		List<String> corrigidos = (anterior != null) ? camposCorrigidos(atual, anterior.nucleo()) : List.of();
-		String resumo = (editado && !corrigidos.isEmpty())
-				? "usuário corrigiu " + String.join(", ", corrigidos) + " antes de confirmar"
+		List<String> corrigidos = (anterior != null && editado) ? camposCorrigidos(atual.nucleo(), anterior.nucleo())
+				: new ArrayList<>();
+		if (anterior != null && editado) {
+			corrigidos.addAll(especificacoesCorrigidas(atual.especificacoes(), anterior.especificacoes()));
+		}
+		String resumo = editado ? "usuário corrigiu "
+				+ (corrigidos.isEmpty() ? "a representação" : String.join(", ", corrigidos)) + " antes de confirmar"
 				: "usuário confirmou os parâmetros";
 		Map<String, Object> conclusao = new LinkedHashMap<>();
 		conclusao.put("resumo", resumo);
@@ -199,6 +202,18 @@ class ConfirmarParametrosService {
 			return (atual == null) != (anterior == null);
 		}
 		return atual.compareTo(anterior) != 0;
+	}
+
+	private static List<String> especificacoesCorrigidas(List<JsonNode> atuais, List<JsonNode> anteriores) {
+		var refs = new LinkedHashSet<String>();
+		atuais.forEach(elemento -> refs.add(elemento.path("ref").asString()));
+		anteriores.forEach(elemento -> refs.add(elemento.path("ref").asString()));
+		return refs.stream()
+			.filter(ref -> !atuais.stream()
+				.filter(elemento -> ref.equals(elemento.path("ref").asString()))
+				.toList()
+				.equals(anteriores.stream().filter(elemento -> ref.equals(elemento.path("ref").asString())).toList()))
+			.toList();
 	}
 
 	private record DadosDoJob(String origem, BigDecimal orcamento, Instant criadoEm, @Nullable UUID submissaoId,
