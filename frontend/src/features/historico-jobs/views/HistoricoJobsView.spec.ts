@@ -50,6 +50,7 @@ describe('HistoricoJobsView', () => {
     const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
 
     await vi.waitFor(() => {
+      expect(conteiner.get('.tela-de-negocio').classes()).toContain('tela-de-negocio')
       expect(conteiner.text()).toContain('Salvas')
       expect(conteiner.text()).toContain('Regra 00000001')
       expect(conteiner.text()).not.toContain('Regra 00000003')

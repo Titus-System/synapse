@@ -66,7 +66,7 @@ body.synapse-login-page {
 .synapse-trust li span { color: #d15c17; font-size: 1rem; }
 
 /* Ajustes no Card de Login baseados no Figma */
-.synapse-card { width: 480px; max-width: 480px; height: 667px; align-self: center; justify-self: end; padding: 3rem 2.25rem 2rem; border: 1px solid rgb(220 193 183 / 50%); border-radius: 24px; color: #2e1a10; background: #fff; box-shadow: 0 30px 70px -15px rgb(30 20 17 / 12%), 0 0 0 1px rgb(220 193 183 / 35%); }
+.synapse-card { width: 480px; max-width: 480px; height: 600px; align-self: center; justify-self: end; padding: 3rem 2.25rem 2rem; border: 1px solid rgb(220 193 183 / 50%); border-radius: 24px; color: #2e1a10; background: #fff; box-shadow: 0 30px 70px -15px rgb(30 20 17 / 12%), 0 0 0 1px rgb(220 193 183 / 35%); }
 .synapse-card-icon { display: grid; width: 2.7rem; height: 2.7rem; place-items: center; border: 1px solid #fce8db; border-radius: .5rem; color: #c65a0d; background: #fff4ed; }
 .synapse-card-icon svg { width: 1.2rem; height: 1.2rem; }
 .synapse-card h2 { margin: .95rem 0 .35rem; font-family: Georgia, Cambria, serif; font-size: clamp(1.65rem, 2vw, 2rem); font-weight: 400; letter-spacing: -.02em; }

@@ -136,20 +136,21 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div v-if="alerta" class="fixed top-5 z-50 px-6 py-3 rounded-lg border-2 shadow-md font-bold" :class="alerta.tipo === 'sucesso' ? 'bg-green-50 border-green-300 text-green-700' : 'bg-red-50 border-red-300 text-red-700'">
+    <div v-if="alerta" class="fixed top-5 left-1/2 z-50 -translate-x-1/2 rounded-lg border-2 px-6 py-3 font-bold shadow-md" :class="alerta.tipo === 'sucesso' ? 'bg-green-50 border-green-300 text-green-700' : 'bg-red-50 border-red-300 text-red-700'">
       {{ alerta.mensagem }}
     </div>
-    <div class="flex flex-row min-h-screen">
-    <TheSidebar class="hidden md:flex w-[15.3%]"/>
-    <div class="flex flex-col bg-[#fdf7f3] w-[84.7%] min-h-screen">
-    <TheProcessHeader class="mb-12" />
-    <div class="flex flex-col w-full justify-center items-center font-['Tinos']">
+    <div class="tela-de-negocio min-h-[100dvh] bg-[#fdf7f3] text-[#2e1a10] lg:grid lg:h-[100dvh] lg:grid-cols-[16rem_minmax(0,1fr)] lg:overflow-hidden">
+    <TheSidebar class="hidden lg:flex"/>
+    <main class="min-w-0 lg:min-h-0 lg:overflow-y-auto">
+    <div class="flex min-w-0 flex-col bg-[#fdf7f3]">
+    <TheProcessHeader etapa-da-rota="salvar" :status-do-job="job?.status ?? null" class="mb-12" />
+    <div class="flex w-full flex-col items-center justify-center px-4 font-['Tinos'] sm:px-6">
         <div class="mb-7">
-            <h1 class="text-4xl font-bold text-center mb-3">Finalizar Regra</h1>
+            <h1 class="mb-3 text-center text-3xl font-bold sm:text-4xl">Finalizar Regra</h1>
             <p class="text-center text-[#584237]">Revise os detalhes da regra extraída e confirme o salvamento.</p>
         </div>
-        <div class="bg-white w-[70%] border-2 border-[#DFC0B2] rounded-xl flex flex-col mb-12">
-            <div class=" pt-8 px-8 pb-4">
+        <div class="mb-12 flex w-full max-w-4xl flex-col rounded-xl border-2 border-[#DFC0B2] bg-white">
+            <div class="px-4 pt-8 pb-4 sm:px-8">
                 <div>
                     <h2 class="font-bold text-2xl mb-2">{{ carregando ? 'Carregando regra...' : tituloRegra }}</h2>
                     <div class="flex flex-row gap-2">
@@ -166,7 +167,7 @@ onUnmounted(() => {
                 </div>
             </div>
             <hr class="self-center mb-4 border border-[#FFDBCD] w-[94%]">
-            <div class="mx-8 mb-8 p-6 bg-[#FFF1EC] border border-[#FFDBCD] rounded-lg text-[#584237]">
+            <div class="mx-4 mb-8 rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] p-4 text-[#584237] sm:mx-8 sm:p-6">
                 <div v-if="carregando" class="flex flex-col items-center justify-center py-8 gap-3">
                     <div class="w-7 h-7 border-4 border-[#FFDBCD] border-t-[#F47521] rounded-full animate-spin"></div>
                         <p class="text-[#584237]">Carregando dados da regra...</p>
@@ -202,12 +203,13 @@ onUnmounted(() => {
                   </div>
                 </div>
               </div>
-        <div class="flex flex-row items-center gap-4 mb-14">
+        <div class="mb-14 flex flex-col items-stretch gap-4 sm:flex-row sm:items-center">
             <button type="button" class="text-[#9D4400] px-9 py-3 rounded-lg border-2 border-[#9D4400] font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" :disabled="acaoProcessando !== null || carregando || erroCarregamento || !podeArquivar" @click="executarAcao('arquivar')">{{ acaoProcessando === 'arquivar' ? 'Processando...' : 'Arquivar' }}</button>
             <button type="button" class="bg-[#F47521] text-white font-bold px-9 py-3 rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" :disabled="acaoProcessando !== null || carregando || erroCarregamento || !podeSalvar" @click="executarAcao('salvar')">{{ acaoProcessando === 'salvar' ? 'Processando...' : 'Salvar' }}</button>
         </div>
     </div>
     </div>
+    </main>
     </div>
 </template>
 
