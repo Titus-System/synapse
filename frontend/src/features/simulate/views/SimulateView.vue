@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, onUnmounted, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { apiClient } from "@/services/api";
+import type { JobResumo } from "@/types/api";
 import { useRoute, useRouter } from "vue-router";
 import { useJobSimulacao } from "../composables/useJobSimulacao";
 import TheProcessHeader from "@/components/TheProcessHeader.vue";
@@ -8,6 +10,9 @@ import TheSidebar from "@/components/TheSidebar.vue";
 const rota = useRoute();
 const roteador = useRouter();
 const jobId = computed(() => String(rota.params.id));
+const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([]);
+const quantidadeArquivadas = ref(0);
+const quantidadeSalvas = ref(0);
 
 const {
   job,
@@ -30,6 +35,11 @@ const {
 
 const nucleo = computed(() => regra.value?.representacao.nucleo);
 
+function criarRotuloDaRegra(resumoDoJob: JobResumo): string {
+  const data = new Date(resumoDoJob.criado_em).toLocaleDateString("pt-BR");
+  return `Regra · ${data}`;
+}
+
 function seguirParaFinalizacao(): void {
   if (!podeFinalizar.value) return;
   roteador.push({
@@ -42,6 +52,46 @@ function seguirParaFinalizacao(): void {
 
 async function cancelarFluxo(): Promise<void> {
   if (await cancelar()) await roteador.push("/nova-regra");
+}
+
+async function carregarRegrasRecentes(): Promise<void> {
+  try {
+    const resumosDosJobs: JobResumo[] = [];
+    let numeroDaPagina = 0;
+    let totalDeJobs = 0;
+    let itensDaPagina: JobResumo[] = [];
+
+    do {
+      const paginaDeJobs = await apiClient.listarJobs({
+        pagina: numeroDaPagina,
+        tamanho: 100,
+      });
+
+      totalDeJobs = paginaDeJobs.total;
+      itensDaPagina = paginaDeJobs.itens;
+      resumosDosJobs.push(...itensDaPagina);
+      numeroDaPagina += 1;
+    } while (
+      resumosDosJobs.length < totalDeJobs &&
+      itensDaPagina.length > 0
+    );
+
+    regrasRecentes.value = resumosDosJobs.slice(0, 6).map((resumoDoJob) => ({
+      identificador: resumoDoJob.id,
+      rotulo: criarRotuloDaRegra(resumoDoJob),
+    }));
+
+    quantidadeArquivadas.value = resumosDosJobs.filter(
+      (resumoDoJob) => resumoDoJob.status === "arquivado",
+    ).length;
+
+    quantidadeSalvas.value =
+      resumosDosJobs.length - quantidadeArquivadas.value;
+  } catch {
+    regrasRecentes.value = [];
+    quantidadeArquivadas.value = 0;
+    quantidadeSalvas.value = 0;
+  }
 }
 
 function formatarCompetencia(valor: string): string {
@@ -137,19 +187,23 @@ watch(
   },
   { immediate: true },
 );
+onMounted(() => {
+  void carregarRegrasRecentes();
+});
+
 onUnmounted(parar);
 </script>
 
 <template>
     <div class="font-['Tinos'] bg-[#fffaf7]">
     <div class="flex flex-row min-h-screen">
-    <TheSidebar class="hidden md:flex w-[15.3%]"/>
+    <TheSidebar class="hidden md:flex" :quantidade-arquivadas="quantidadeArquivadas" :quantidade-salvas="quantidadeSalvas" :regras-recentes="regrasRecentes"/>
     <div class="flex flex-col min-h-screen w-[84.7%]">
     <TheProcessHeader class="mb-12" />
     <!-- Simulação -->
         <div class="mb-12 p-10">
             <div class="mb-11">
-                <h1 class="text-3xl text-[#2B160D] mb-2">Simulação</h1>
+                <h1 class="text-3xl text-[#2B160D] mb-2 font-semibold">Simulação</h1>
                 <div v-if="carregando">
                     <p class="text-[#584237] font-bold">Carregando processamento...</p>
                 </div>
@@ -296,9 +350,9 @@ onUnmounted(parar);
             </div>
         </div>
     <!-- Sugestão (tornar aparição dinâmica depois) -->
-        <div v-if="sugestao && (regraInviavel || aguardandoConfirmacao)" class="mb-8">
+        <div v-if="sugestao && (regraInviavel || aguardandoConfirmacao)" class="mb-8 p-10">
             <div class="mb-11">
-                <h1 class="text-3xl text-[#2B160D] mb-2">Sugestão</h1>
+                <h1 class="text-3xl text-[#2B160D] mb-2 font-semibold">Sugestão</h1>
                 <p class="text-[#584237]">A regra de negócio escolhida é inviável. Mas não se preocupe, criamos esta para você:</p>
             </div>
             <div>

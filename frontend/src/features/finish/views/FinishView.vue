@@ -145,7 +145,7 @@ onUnmounted(() => {
     <TheProcessHeader class="mb-12" />
     <div class="flex flex-col w-full justify-center items-center font-['Tinos']">
         <div class="mb-7">
-            <h1 class="text-4xl font-bold text-center mb-3">Finalizar Regra</h1>
+            <h1 class="text-4xl font-semibold text-center mb-3">Finalizar Regra</h1>
             <p class="text-center text-[#584237]">Revise os detalhes da regra extraída e confirme o salvamento.</p>
         </div>
         <div class="bg-white w-[70%] border-2 border-[#DFC0B2] rounded-xl flex flex-col mb-12">
