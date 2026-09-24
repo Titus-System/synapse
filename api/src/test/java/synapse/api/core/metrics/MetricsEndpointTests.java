@@ -11,7 +11,7 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Um erro de configuração devolveria os endpoints ao /actuator sem falhar o boot. */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "app.keycloak.enabled=true")
 @ActiveProfiles("test")
 class MetricsEndpointTests {
 

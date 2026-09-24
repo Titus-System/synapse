@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import FormularioRegraView from './FormularioRegraView.vue'
 
 vi.mock('@/services/api', () => ({
@@ -38,6 +39,7 @@ vi.mock('vue-router', () => ({
 
 const opcoesDeMontagem = {
   global: {
+    plugins: [createPinia()],
     stubs: {
       RouterLink: {
         props: ['to'],
@@ -48,6 +50,16 @@ const opcoesDeMontagem = {
 }
 
 describe('FormularioRegraView', () => {
+  it('mantém somente o título e a descrição no cabeçalho do formulário', () => {
+    const conteiner = mount(FormularioRegraView, opcoesDeMontagem)
+    const cabecalho = conteiner.get('#formulario-regra > header')
+
+    expect(conteiner.get('.tela-de-negocio').classes()).toContain('tela-de-negocio')
+    expect(cabecalho.get('h1').text()).toBe('Capture uma Regra de Negócio')
+    expect(cabecalho.findAll('p')).toHaveLength(1)
+    expect(cabecalho.get('p').text()).toContain('Escreva os parâmetros da regra.')
+  })
+
   it('carrega as regras recentes pela API', async () => {
     const conteiner = mount(FormularioRegraView, opcoesDeMontagem)
 

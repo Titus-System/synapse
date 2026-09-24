@@ -15,7 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * sem estes cabeçalhos o navegador descarta a resposta mesmo com a api respondendo 200.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "app.cors.allowed-origins=https://app.exemplo.com,http://localhost:5173")
+		properties = { "app.keycloak.enabled=true",
+				"app.cors.allowed-origins=https://app.exemplo.com,http://localhost:5173" })
 @ActiveProfiles("test")
 class CorsConfigTests {
 
@@ -37,7 +38,7 @@ class CorsConfigTests {
 			.uri("/jobs")
 			.header("Origin", ORIGEM)
 			.header("Access-Control-Request-Method", "POST")
-			.header("Access-Control-Request-Headers", "content-type")
+			.header("Access-Control-Request-Headers", "authorization, content-type")
 			.exchange()
 			.expectStatus()
 			.isOk()
@@ -47,7 +48,8 @@ class CorsConfigTests {
 			.value("Access-Control-Allow-Methods", (metodos) -> assertThat(metodos).contains("POST"))
 			.expectHeader()
 			.value("Access-Control-Allow-Headers",
-					(cabecalhos) -> assertThat(cabecalhos).containsIgnoringCase("Content-Type"));
+					(cabecalhos) -> assertThat(cabecalhos).containsIgnoringCase("Authorization")
+						.containsIgnoringCase("Content-Type"));
 	}
 
 	/** Cada origem da lista vale por si; o separador é vírgula, não um valor só. */

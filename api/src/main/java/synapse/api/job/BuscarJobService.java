@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.UUID;
 
 import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -19,7 +20,9 @@ class BuscarJobService {
 
 	private final JdbcTemplate jdbc;
 
-	private final JsonMapper json = new JsonMapper();
+	private final JsonMapper json = JsonMapper.builder()
+		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+		.build();
 
 	BuscarJobService(JdbcTemplate jdbc) {
 		this.jdbc = jdbc;
@@ -31,13 +34,14 @@ class BuscarJobService {
 					SELECT
 					    j.id,
 					    j.status,
-					    s.tipo AS origem,
+					    CASE WHEN j.job_origem_id IS NOT NULL THEN 'reprocessamento' ELSE s.tipo END AS origem,
 					    j.competencias,
 					    j.orcamento,
 					    j.criado_em,
 					    j.iniciado_em,
 					    j.finalizado_em,
 					    j.submissao_id,
+					    j.job_origem_id,
 					    regras.regras,
 
 					    sim.id AS simulacao_id,
@@ -51,7 +55,7 @@ class BuscarJobService {
 					    rs.decomposicao AS simulacao_decomposicao
 
 					FROM jobs j
-					JOIN submissoes s ON s.id = j.submissao_id
+					LEFT JOIN submissoes s ON s.id = j.submissao_id
 					JOIN LATERAL (
 					    SELECT jsonb_agg(
 					        jsonb_build_object(
@@ -87,6 +91,7 @@ class BuscarJobService {
 				Instant finalizadoEm = rs.getTimestamp("finalizado_em") != null
 						? rs.getTimestamp("finalizado_em").toInstant() : null;
 				UUID submissaoId = rs.getObject("submissao_id", UUID.class);
+				UUID jobOrigemId = rs.getObject("job_origem_id", UUID.class);
 
 				List<RegraCriadaDto> regras = regras(rs.getString("regras"));
 
@@ -125,7 +130,7 @@ class BuscarJobService {
 				}
 
 				return new JobDetalhadoDto(id, status, origem, competencias, orcamento, criadoEm, iniciadoEm,
-						finalizadoEm, submissaoId, regras, simulacao);
+						finalizadoEm, submissaoId, jobOrigemId, regras, simulacao);
 			}, jobId);
 		}
 		catch (EmptyResultDataAccessException ex) {
@@ -138,9 +143,7 @@ class BuscarJobService {
 		List<RegraCriadaDto> regras = new ArrayList<>();
 		for (JsonNode regra : raiz) {
 			NucleoRegraDto nucleo = this.json.readValue(regra.path("nucleo").toString(), NucleoRegraDto.class);
-			List<EspecificacaoRegraDto> especificacoes = this.json.readValue(regra.path("especificacoes").toString(),
-					new TypeReference<List<EspecificacaoRegraDto>>() {
-					});
+			List<JsonNode> especificacoes = regra.path("especificacoes").valueStream().toList();
 			RepresentacaoRegraDto representacao = new RepresentacaoRegraDto(nucleo, especificacoes);
 			regras.add(new RegraCriadaDto(UUID.fromString(regra.path("id").asString()), regra.path("versao").asInt(),
 					regra.path("origem").asString(), representacao, Instant.parse(regra.path("criada_em").asString())));

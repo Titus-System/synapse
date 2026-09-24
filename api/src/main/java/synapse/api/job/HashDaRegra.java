@@ -8,6 +8,7 @@ import java.util.Objects;
 
 import tools.jackson.core.StreamWriteFeature;
 import tools.jackson.databind.MapperFeature;
+import tools.jackson.databind.cfg.JsonNodeFeature;
 import tools.jackson.databind.json.JsonMapper;
 
 final class HashDaRegra {
@@ -16,6 +17,7 @@ final class HashDaRegra {
 		.enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
 		.disable(MapperFeature.SORT_CREATOR_PROPERTIES_FIRST)
 		.enable(StreamWriteFeature.WRITE_BIGDECIMAL_AS_PLAIN)
+		.enable(JsonNodeFeature.WRITE_PROPERTIES_SORTED)
 		.build();
 
 	private HashDaRegra() {

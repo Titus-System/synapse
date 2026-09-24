@@ -5,6 +5,12 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 
+import com.networknt.schema.InputFormat;
+import com.networknt.schema.JsonSchema;
+import com.networknt.schema.JsonSchemaFactory;
+import com.networknt.schema.SchemaLocation;
+import com.networknt.schema.SchemaValidatorsConfig;
+import com.networknt.schema.SpecVersion.VersionFlag;
 import org.jspecify.annotations.Nullable;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.DeserializationFeature;
@@ -23,6 +29,13 @@ record ConfirmarParametrosRequisicao(RepresentacaoRegraDto representacao, @Nulla
 	private static final List<String> MESES = List.of("2025-07", "2025-08", "2025-09", "2025-10", "2025-11", "2025-12");
 
 	private static final List<String> CAMPOS_NUCLEO = List.of("vigencia", "loja", "marca", "cargo", "percentual");
+
+	private static final JsonSchema ESPECIFICACOES = JsonSchemaFactory
+		.getInstance(VersionFlag.V202012,
+				builder -> builder.schemaMappers(mappers -> mappers.mapPrefix("https://synapse.local/contracts/domain/",
+						"classpath:static/openapi/domain/")))
+		.getSchema(SchemaLocation.of("classpath:static/openapi/domain/regra-especificacoes.schema.json"),
+				SchemaValidatorsConfig.builder().formatAssertionsEnabled(true).build());
 
 	private static final JsonMapper JSON = JsonMapper.builder()
 		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS, DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
@@ -47,7 +60,8 @@ record ConfirmarParametrosRequisicao(RepresentacaoRegraDto representacao, @Nulla
 		validarNucleo(regra.path("nucleo"));
 		validarEspecificacoes(regra.path("especificacoes"));
 		RepresentacaoRegraDto representacao = new RepresentacaoRegraDto(
-				JSON.treeToValue(regra.path("nucleo"), NucleoRegraDto.class), List.of());
+				JSON.treeToValue(regra.path("nucleo"), NucleoRegraDto.class),
+				regra.path("especificacoes").valueStream().toList());
 		return new ConfirmarParametrosRequisicao(representacao, orcamento(raiz.path("orcamento")), competencias(raiz));
 	}
 
@@ -96,12 +110,10 @@ record ConfirmarParametrosRequisicao(RepresentacaoRegraDto representacao, @Nulla
 	}
 
 	private static void validarEspecificacoes(JsonNode especificacoes) {
-		if (especificacoes.isMissingNode() || especificacoes.isNull()) {
-			return;
-		}
-		if (!especificacoes.isArray() || !especificacoes.isEmpty()) {
+		if (!especificacoes.isArray()
+				|| !ESPECIFICACOES.validate(especificacoes.toString(), InputFormat.JSON).isEmpty()) {
 			throw ConfirmarParametrosException
-				.requisicao("Na Sprint 1, regra.especificacoes deve ser uma lista vazia.");
+				.requisicao("O campo regra.especificacoes deve ser uma lista de elementos válidos da regra.");
 		}
 	}
 

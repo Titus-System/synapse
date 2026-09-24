@@ -20,7 +20,7 @@ const emitir = defineEmits<{ 'update:valor': [valor: string] }>()
         :value="valor"
         :aria-invalid="Boolean(erro)"
         :aria-describedby="erro ? `${id}-erro` : undefined"
-        class="h-[clamp(1.75rem,4vh,2.125rem)] w-full appearance-none rounded-[7px] border bg-[#faf4ef] pr-8 pl-3 text-sm text-[#2e1a10] outline-none transition focus:border-[#c2560b] focus:ring-2 focus:ring-[#f4dcc9]"
+        class="h-[2.125rem] w-full appearance-none rounded-[.4375rem] border bg-[#faf4ef] pr-8 pl-3 text-sm text-[#2e1a10] outline-none transition focus:border-[#c2560b] focus:ring-2 focus:ring-[#f4dcc9]"
         :class="[erro ? 'border-[#c0392b]' : 'border-[#e3d3c9]', compacto ? '' : 'mt-2 h-11 bg-white']"
         @change="emitir('update:valor', ($event.target as HTMLSelectElement).value)"
       >

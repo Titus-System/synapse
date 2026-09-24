@@ -28,12 +28,14 @@ import org.springframework.validation.annotation.Validated;
  * @param rabbitmq broker de mensageria
  * @param sse stream de acompanhamento do job
  * @param outbox publicação dos eventos gravados no outbox transacional
+ * @param keycloak emissor e chaves públicas dos JWTs usados pela API
  */
 @ConfigurationProperties("app")
 @Validated
 public record AppProperties(@NotBlank String environment, @NotNull @Valid Service service, @NotNull @Valid Cors cors,
 		@NotNull @Valid Observability observability, @NotNull @Valid Postgres postgres,
-		@NotNull @Valid Rabbitmq rabbitmq, @NotNull @Valid Sse sse, @NotNull @Valid Outbox outbox) {
+		@NotNull @Valid Rabbitmq rabbitmq, @NotNull @Valid Sse sse, @NotNull @Valid Outbox outbox,
+		@NotNull @Valid Keycloak keycloak) {
 
 	/**
 	 * Configura a identidade pública do serviço.
@@ -151,6 +153,14 @@ public record AppProperties(@NotBlank String environment, @NotNull @Valid Servic
 	 * é a latência somada entre o commit de um evento e sua publicação
 	 */
 	public record Outbox(boolean enabled, @NotNull Duration pollInterval) {
+	}
+
+	/**
+	 * @param enabled liga a validação dos tokens do Keycloak
+	 * @param issuerUri emissor OIDC público esperado nos tokens recebidos
+	 * @param jwkSetUri endpoint que a API usa para buscar as chaves públicas
+	 */
+	public record Keycloak(boolean enabled, @NotBlank String issuerUri, @NotBlank String jwkSetUri) {
 	}
 
 }

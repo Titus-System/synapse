@@ -2,19 +2,20 @@
 
 Este documento orienta a inicialização e operação do ambiente local do projeto **Synapse** via Docker Compose.
 
-O ambiente de infraestrutura fornece a base de persistência de dados e mensageria assíncrona para os quatro componentes de desenvolvimento (`frontend`, `api`, `codegen` e `worker`), conforme definido em [ADR-001](../docs/adrs/ADR-001.md) e [ARCHITECTURE.md](../docs/ARCHITECTURE.md).
+O ambiente de infraestrutura fornece autenticação pelo Keycloak, persistência de dados e mensageria assíncrona para os quatro componentes de desenvolvimento (`frontend`, `api`, `codegen` e `worker`), conforme definido em [ADR-001](../docs/adrs/ADR-001.md) e [ARCHITECTURE.md](../docs/ARCHITECTURE.md).
 
 ---
 
 ## 1. Serviços Contemplados
 
-A infraestrutura local é composta pelos serviços de infraestrutura e pelo codegen:
+A infraestrutura local inclui os serviços abaixo:
 
 1. **PostgreSQL 18**: Armazenamento único do sistema (armazena estado dos jobs, artefatos gerados, checkpoints e trilhas de auditoria). Configurado com volume persistente e criação automática do banco `synapse_db`.
 2. **RabbitMQ 3.13 (com Management UI)**: Broker de mensageria assíncrona para troca de eventos e comandos entre a API e os workers, com painel administrativo web exposto.
 3. **API**: aplicação Spring Boot que expõe health check e métricas de infraestrutura.
 4. **codegen**: Processo FastAPI que expõe somente os endpoints operacionais de saúde e métricas.
 5. **worker**: Processo que consome a fila de execução e sobe os containers efêmeros do sandbox. Diferente dos demais, ele precisa alcançar o **daemon do Docker do host** — ver a seção 2.1.
+6. **Keycloak 26.7.4**: Provedor OIDC de identidade. Importa o realm `synapse` e o cliente público `synapse-frontend`, com login local em `http://localhost:8081`.
 ---
 
 ## 2. Pré-requisitos
@@ -64,20 +65,26 @@ O compose não sobe sem essa variável: ela é declarada como obrigatória justa
 
 ## 3. Inicialização Rápida (Comando Único)
 
-Todo o ambiente de infraestrutura sobe com um único comando, sem necessidade de configuração manual adicional:
+Antes do primeiro uso, crie `deploy/.env` a partir de `deploy/.env.example`, caso o arquivo ainda não exista. Preencha as credenciais dos serviços, `DOCKER_GID` e `KEYCLOAK_ADMIN_PASSWORD`. O Compose exige essas variáveis mesmo em comandos que selecionam apenas um serviço.
+
+```bash
+cp deploy/.env.example deploy/.env
+```
+
+Use `--env-file deploy/.env` ao executar os comandos da raiz do repositório. A configuração de usuários da aplicação e do frontend está no [guia do Keycloak local](../deploy/keycloak/README.md).
 
 ### Antes do primeiro `up`: a imagem do sandbox
 
 O `worker` executa cada job num container criado a partir da imagem `synapse-sandbox`, e essa imagem não sobe com o `up`: ela só é construída. Construa-a uma vez, e de novo quando `worker/sandbox/` mudar. Sem ela, o `worker` sobe normalmente, mas todo comando de execução falha e acaba na fila de DLQ.
 
 ```bash
-docker compose -f deploy/docker-compose.yml --profile build build sandbox
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml --profile build build sandbox
 ```
 
 ### Opção A: A partir da raiz do repositório
 
 ```bash
-docker compose -f deploy/docker-compose.yml up -d
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d
 ```
 
 ### Opção B: A partir do diretório `deploy/`
@@ -90,7 +97,7 @@ docker compose up -d
 > **Dica:** Para que o comando aguarde até que todos os serviços passem nos seus respectivos *healthchecks* antes de liberar o terminal, utilize a flag `--wait`:
 >
 > ```bash
-> docker compose -f deploy/docker-compose.yml up -d --wait
+> docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --wait
 > ```
 
 ---
@@ -107,19 +114,20 @@ Os nomes de host, portas e credenciais abaixo são padronizados para desenvolvim
 | **codegen** | `synapse-infra-codegen-1` | `codegen` | `8001` | `8000` | — | — | — | [http://localhost:8001/health](http://localhost:8001/health) |
 | **worker** | `synapse-infra-worker-1` | `worker` | `8002` | `8000` | — | — | — | [http://localhost:8002/health](http://localhost:8002/health) |
 | **API** | `synapse-infra-api-1` | `api` | `8080` | `8080` | — | — | — | [http://localhost:8080/actuator/health](http://localhost:8080/actuator/health) |
+| **Keycloak** | `synapse-keycloak` | `keycloak` | `8081` | `8080` | `KEYCLOAK_ADMIN_USERNAME` | `KEYCLOAK_ADMIN_PASSWORD` | realm `synapse` | [http://localhost:8081/admin/](http://localhost:8081/admin/) |
 
-As variáveis de ambiente padrão estão declaradas e versionadas em `deploy/.env.example` (copie para `deploy/.env` se quiser sobrescrever os defaults do compose).
+As variáveis de ambiente estão documentadas em `deploy/.env.example`; `deploy/.env` deve fornecer as variáveis obrigatórias descritas na seção 3.
 
 ---
 
 ## 5. Verificação de Saúde (Healthcheck)
 
-Cada serviço possui um *healthcheck* configurado. O ambiente só é considerado pronto quando todos os containers estiverem com status **`healthy`**:
+Confira o status **`healthy`** dos serviços que possuem *healthcheck*. O Keycloak não tem *healthcheck* configurado no Compose; valide sua inicialização pelo endpoint OIDC abaixo. O frontend do Compose é uma tarefa de build e cópia, que termina após concluir essa operação:
 
 Execute:
 
 ```bash
-docker compose -f deploy/docker-compose.yml ps
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml ps
 ```
 
 Saída esperada:
@@ -170,7 +178,7 @@ synapse-infra-api-1 synapse-api:local                Up (healthy)             0.
    O `worker` verifica o acesso ao daemon e declara a fila durante a subida. Os dois ficam registrados no log:
 
    ```bash
-   docker compose -f deploy/docker-compose.yml logs worker | grep -E "daemon|fila"
+   docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs worker | grep -E "daemon|fila"
    ```
 
    ```json
@@ -179,6 +187,14 @@ synapse-infra-api-1 synapse-api:local                Up (healthy)             0.
    ```
 
    Se essas linhas não aparecem, o processo não subiu - confira a seção 7.
+
+6. **Keycloak**:
+
+   ```bash
+   curl --fail http://localhost:8081/realms/synapse/.well-known/openid-configuration
+   ```
+
+   O endpoint deve devolver o documento OIDC com `issuer` igual a `http://localhost:8081/realms/synapse`. Para testar login, renovação e logout pelo frontend, siga o [guia do Keycloak](../deploy/keycloak/README.md).
 
 ---
 
@@ -189,23 +205,23 @@ synapse-infra-api-1 synapse-api:local                Up (healthy)             0.
 Para interromper a infraestrutura sem perder tabelas, registros ou filas:
 
 ```bash
-docker compose -f deploy/docker-compose.yml down
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml down
 ```
 
-Os dados permanecem seguros nos volumes nomeados Docker (`synapse-postgres-data` e `synapse-rabbitmq-data`). Ao rodar `docker compose up -d` novamente, todo o estado anterior é restaurado.
+Os volumes nomeados preservam os dados de PostgreSQL (`synapse-postgres-data`), RabbitMQ (`synapse-rabbitmq-data`) e Keycloak (`keycloak-data` no Compose). Ao subir os serviços novamente, esses volumes são reutilizados, incluindo os usuários e o realm do Keycloak.
 
 ### Reiniciar os serviços
 
 ```bash
-docker compose -f deploy/docker-compose.yml restart
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml restart
 ```
 
 ### Resetar o ambiente (Destruição total de dados)
 
-Caso precise recriar os bancos e filas totalmente do zero (apagando todos os dados persistidos):
+Caso precise recriar os bancos, filas e a configuração do Keycloak totalmente do zero (apagando também seus usuários, realm e sessões persistidas):
 
 ```bash
-docker compose -f deploy/docker-compose.yml down -v
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v
 ```
 
 ---
@@ -225,7 +241,7 @@ Se o compose recusa a subida com `defina em deploy/.env; ver docs/instalacao.md`
 Se o container do `worker` sobe e morre em seguida, o log traz a causa:
 
 ```bash
-docker compose -f deploy/docker-compose.yml logs worker | tail -20
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs worker | tail -20
 ```
 
 ```text
@@ -244,11 +260,11 @@ Para acompanhar a saída de logs em tempo real:
 
 ```bash
 # Todos os serviços
-docker compose -f deploy/docker-compose.yml logs -f
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs -f
 
 # Somente Postgres
-docker compose -f deploy/docker-compose.yml logs -f postgres
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs -f postgres
 
 # Somente RabbitMQ
-docker compose -f deploy/docker-compose.yml logs -f rabbitmq
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs -f rabbitmq
 ```

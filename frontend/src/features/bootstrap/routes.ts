@@ -4,7 +4,6 @@ export default [
   {
     path: '/',
     name: 'bootstrap',
-    component: () => import('./views/BootstrapView.vue'),
-    meta: { layout: 'blank' },
+    redirect: '/nova-regra',
   },
 ] satisfies RouteRecordRaw[]

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { config } from '@/config/env'
+import { usarStoreSessao } from '@/stores/session'
 
 const modules = import.meta.glob<{ default: RouteRecordRaw[] }>('../features/*/routes.ts', {
   eager: true,
@@ -20,6 +21,15 @@ const router = createRouter({
       component: () => import('@/views/NotFoundView.vue'),
     },
   ],
+})
+
+router.beforeEach((destino) => {
+  const sessao = usarStoreSessao()
+
+  if (sessao.estaAutenticado) return true
+
+  void sessao.entrar(destino.fullPath)
+  return false
 })
 
 export default router
