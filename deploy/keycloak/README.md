@@ -13,9 +13,38 @@ O console administrativo fica em `http://localhost:8081/admin/`. As credenciais 
 administrador vêm de `KEYCLOAK_ADMIN_USERNAME` e `KEYCLOAK_ADMIN_PASSWORD` em
 `deploy/.env`.
 
-O import cria o realm `synapse` e o cliente público `synapse-frontend`. Crie os
-usuários em **synapse → Users**; não crie contas de uso da aplicação no realm
-`master`. O usuário autenticado recebe uma conta local na primeira chamada à API.
+O import cria o realm `synapse` e o cliente público `synapse-frontend`. Para
+criar uma conta manualmente, use **synapse → Users**; não crie contas de uso da
+aplicação no realm `master`. O usuário autenticado recebe uma conta local na
+primeira chamada à API.
+
+## Dados de demonstração
+
+O script `deploy/scripts/seed.py` cria `develop@synapse.pro` com o papel
+`profissional-rh` e `staging@synapse.pro` com o papel `auditor` no Keycloak.
+Também grava essas contas em `usuarios`, com `keycloak_sub` igual ao identificador
+retornado pelo Keycloak e `senha_hash` nulo. Os quatro jobs de demonstração ficam
+vinculados à conta de RH. Em uma nova execução, o script reutiliza as contas,
+redefine a senha de ambas e corrige a posse dos jobs criados por versões antigas
+do seed.
+
+Com o Keycloak e o banco já iniciados e as migrations da API aplicadas, instale
+a dependência do script e execute-o a partir da raiz:
+
+```bash
+python3 -m pip install -r deploy/scripts/requirements.txt
+python3 deploy/scripts/seed.py
+```
+
+Antes de executar, exporte `POSTGRES_PORT`, `KEYCLOAK_ADMIN_PASSWORD`,
+`SEED_USERS_PASSWORD` e `POSTGRES_PASSWORD`. A porta deve ser a publicada pelo
+Compose no host (`5433` no ambiente local deste guia), pois o seed exige esse
+valor e não usa a porta interna do container. Se seu `deploy/.env` usar outros
+valores, exporte também `POSTGRES_HOST`, `POSTGRES_DB`, `POSTGRES_USER`,
+`KEYCLOAK_PUBLIC_URL` e `KEYCLOAK_ADMIN_USERNAME` conforme esse ambiente. O
+script lê variáveis de ambiente, não o arquivo `deploy/.env` diretamente. A
+senha em `SEED_USERS_PASSWORD` permite autenticar qualquer uma das duas contas
+de demonstração no Keycloak.
 
 O cliente já aceita `http://localhost:5173/*` como retorno de login e logout. Se
 o volume `keycloak-data` já existia antes da mudança do realm, ajuste esses valores

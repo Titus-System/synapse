@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Popula um banco synapse_db local com dados de demonstração:
-#   - as contas develop@synapse.com e staging@synapse.com (usuarios);
+#   - as contas develop@synapse.pro e staging@synapse.pro no Keycloak e em usuarios;
 #   - quatro jobs de ponta a ponta (submissao -> regra -> código gerado ->
 #     resultado -> simulação), um para cada desfecho de resultados_simulacao:
 #     viável, inviável, inviável com sugestão de adaptação e assercao_violada.
@@ -13,15 +13,16 @@
 #
 # Uso:
 #   pip install -r deploy/scripts/requirements.txt
-#   POSTGRES_PASSWORD=... SEED_USERS_PASSWORD=... python deploy/scripts/seed.py
+#   POSTGRES_PORT=... POSTGRES_PASSWORD=... \
+#   KEYCLOAK_ADMIN_PASSWORD=... SEED_USERS_PASSWORD=... \
+#   python deploy/scripts/seed.py
 #
-# Idempotente: os ids são derivados deterministicamente (uuid5) da chave de
-# cada cenário, e todo INSERT usa ON CONFLICT (id) DO NOTHING. Rodar de novo
-# não duplica dados nem falha.
+# Idempotente: os ids dos cenários são derivados deterministicamente (uuid5);
+# contas existentes são reutilizadas e os demais INSERTs usam ON CONFLICT (id)
+# DO NOTHING. Rodar de novo não duplica os dados de demonstração.
 #
-# A senha de login das duas contas nunca fica hardcoded aqui: vem de
-# SEED_USERS_PASSWORD, lida em tempo de execução, seguindo a regra do
-# api/AGENTS.md que proíbe segredo real em arquivo versionado.
+# A senha das contas é definida apenas no Keycloak a partir de
+# SEED_USERS_PASSWORD; o banco armazena o sub do Keycloak, sem hash de senha.
 from __future__ import annotations
 
 import hashlib
@@ -31,16 +32,16 @@ import sys
 import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
+from urllib import error, parse, request
 
-import bcrypt
 import psycopg2
 import psycopg2.extras
 
-REQUIRED_ENV_VARS = ("SEED_USERS_PASSWORD",)
+REQUIRED_ENV_VARS = ("POSTGRES_PORT", "KEYCLOAK_ADMIN_PASSWORD", "SEED_USERS_PASSWORD")
 
 SEED_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "https://synapse.local/deploy/scripts/seed.py")
 
-# Deslocamentos, em minutos a partir de jobs.criado_em, comuns aos três
+# Deslocamentos, em minutos a partir de jobs.criado_em, comuns aos quatro
 # cenários: regra confirmada, chamada ao modelo, código extraído e início da
 # simulação sempre seguem essa mesma micro-sequência interna.
 REGRA_OFFSET = 3
@@ -50,20 +51,154 @@ CODIGO_OFFSET = 8
 SIMULACAO_OFFSET = 11
 
 UPSERT_USUARIO_SQL = """
-    INSERT INTO usuarios (login, senha_hash, nome, papel, ativo, criado_em)
-    VALUES (%(login)s, %(senha_hash)s, %(nome)s, %(papel)s, true, now())
+    INSERT INTO usuarios (login, senha_hash, keycloak_sub, nome, papel, ativo, criado_em)
+    VALUES (%(login)s, NULL, %(keycloak_sub)s, %(nome)s, %(papel)s, true, now())
     ON CONFLICT (login) DO UPDATE SET
-        senha_hash = EXCLUDED.senha_hash,
+        senha_hash = NULL,
+        keycloak_sub = EXCLUDED.keycloak_sub,
         nome = EXCLUDED.nome,
         papel = EXCLUDED.papel,
         atualizado_em = now()
+    WHERE usuarios.ativo = true
+      AND (usuarios.keycloak_sub IS NULL OR usuarios.keycloak_sub = EXCLUDED.keycloak_sub)
     RETURNING id
 """
 
 USUARIOS = (
-    {"login": "develop@synapse.com", "nome": "Desenvolvimento", "papel": "profissional_rh"},
-    {"login": "staging@synapse.com", "nome": "Staging", "papel": "auditor"},
+    {
+        "login": "develop@synapse.pro",
+        "nome": "Desenvolvimento",
+        "papel": "profissional_rh",
+        "papel_keycloak": "profissional-rh",
+    },
+    {
+        "login": "staging@synapse.pro",
+        "nome": "Staging",
+        "papel": "auditor",
+        "papel_keycloak": "auditor",
+    },
 )
+
+
+class KeycloakAdmin:
+    def __init__(self, url: str, realm: str, usuario: str, senha: str):
+        self.url = url.rstrip("/")
+        self.realm = parse.quote(realm, safe="")
+        self.token: str | None = None
+        _, resposta = self.requisitar(
+            "POST",
+            "/realms/master/protocol/openid-connect/token",
+            formulario={
+                "grant_type": "password",
+                "client_id": "admin-cli",
+                "username": usuario,
+                "password": senha,
+            },
+        )
+        if not isinstance(resposta, dict) or not resposta.get("access_token"):
+            raise RuntimeError("Keycloak não devolveu um token de administração.")
+        self.token = resposta["access_token"]
+
+    def requisitar(self, metodo: str, caminho: str, *, json_body=None, formulario=None):
+        cabecalhos = {"Accept": "application/json"}
+        if self.token:
+            cabecalhos["Authorization"] = f"Bearer {self.token}"
+        dados = None
+        if json_body is not None:
+            dados = json.dumps(json_body).encode("utf-8")
+            cabecalhos["Content-Type"] = "application/json"
+        elif formulario is not None:
+            dados = parse.urlencode(formulario).encode("utf-8")
+            cabecalhos["Content-Type"] = "application/x-www-form-urlencoded"
+        requisicao = request.Request(
+            self.url + caminho, data=dados, headers=cabecalhos, method=metodo
+        )
+        try:
+            with request.urlopen(requisicao, timeout=10) as resposta:
+                conteudo = resposta.read()
+                return resposta.status, json.loads(conteudo) if conteudo else None
+        except error.HTTPError as exc:
+            raise RuntimeError(
+                f"Keycloak recusou {metodo} {caminho}: HTTP {exc.code}."
+            ) from None
+        except error.URLError as exc:
+            raise RuntimeError(f"Keycloak indisponível em {self.url}.") from exc
+
+    def buscar_usuario(self, login: str) -> dict | None:
+        filtro = parse.urlencode({"username": login, "exact": "true"})
+        _, encontrados = self.requisitar(
+            "GET", f"/admin/realms/{self.realm}/users?{filtro}"
+        )
+        correspondentes = [
+            usuario for usuario in encontrados if usuario.get("username") == login
+        ]
+        if not correspondentes:
+            return None
+        usuario_id = parse.quote(correspondentes[0]["id"], safe="")
+        _, usuario = self.requisitar(
+            "GET", f"/admin/realms/{self.realm}/users/{usuario_id}"
+        )
+        return usuario
+
+    def provisionar_usuario(self, usuario: dict, senha: str) -> str:
+        login = usuario["login"]
+        existente = self.buscar_usuario(login)
+        if existente is None:
+            self.requisitar(
+                "POST",
+                f"/admin/realms/{self.realm}/users",
+                json_body={
+                    "username": login,
+                    "email": login,
+                    "firstName": usuario["nome"],
+                    "enabled": True,
+                },
+            )
+            existente = self.buscar_usuario(login)
+        if existente is None or not existente.get("id"):
+            raise RuntimeError(f"Keycloak não retornou o usuário {login} após a criação.")
+        if not existente.get("enabled"):
+            raise RuntimeError(f"Usuário {login} está desabilitado no Keycloak.")
+
+        usuario_id = parse.quote(existente["id"], safe="")
+        _, papeis = self.requisitar(
+            "GET", f"/admin/realms/{self.realm}/users/{usuario_id}/role-mappings/realm"
+        )
+        papel = usuario["papel_keycloak"]
+        outro_papel = "auditor" if papel == "profissional-rh" else "profissional-rh"
+        nomes = {item["name"] for item in papeis}
+        if outro_papel in nomes:
+            raise RuntimeError(f"Usuário {login} já possui o papel conflitante {outro_papel}.")
+        if papel not in nomes:
+            _, representacao = self.requisitar(
+                "GET", f"/admin/realms/{self.realm}/roles/{parse.quote(papel, safe='')}"
+            )
+            self.requisitar(
+                "POST",
+                f"/admin/realms/{self.realm}/users/{usuario_id}/role-mappings/realm",
+                json_body=[representacao],
+            )
+        self.requisitar(
+            "PUT",
+            f"/admin/realms/{self.realm}/users/{usuario_id}/reset-password",
+            json_body={"type": "password", "value": senha, "temporary": False},
+        )
+        return existente["id"]
+
+
+def seed_keycloak_usuarios() -> dict[str, str]:
+    admin = KeycloakAdmin(
+        os.environ.get("KEYCLOAK_PUBLIC_URL", "http://localhost:8081"),
+        os.environ.get("KEYCLOAK_REALM", "synapse"),
+        os.environ.get("KEYCLOAK_ADMIN_USERNAME", "admin"),
+        os.environ["KEYCLOAK_ADMIN_PASSWORD"],
+    )
+    return {
+        usuario["login"]: admin.provisionar_usuario(
+            usuario, os.environ["SEED_USERS_PASSWORD"]
+        )
+        for usuario in USUARIOS
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +275,7 @@ def cenarios() -> list[Cenario]:
 
     viavel = Cenario(
         chave="job-viavel",
-        usuario_login="develop@synapse.com",
+        usuario_login="develop@synapse.pro",
         base=datetime(2025, 11, 20, 9, 0, tzinfo=timezone.utc),
         vigencia_inicio="2025-11",
         vigencia_fim="2025-11",
@@ -225,7 +360,7 @@ def cenarios() -> list[Cenario]:
 
     inviavel = Cenario(
         chave="job-inviavel",
-        usuario_login="develop@synapse.com",
+        usuario_login="develop@synapse.pro",
         base=datetime(2025, 11, 21, 9, 0, tzinfo=timezone.utc),
         vigencia_inicio="2025-11",
         vigencia_fim="2025-11",
@@ -311,7 +446,7 @@ def cenarios() -> list[Cenario]:
 
     assercao_violada = Cenario(
         chave="job-assercao-violada",
-        usuario_login="staging@synapse.com",
+        usuario_login="develop@synapse.pro",
         base=datetime(2025, 12, 2, 9, 0, tzinfo=timezone.utc),
         vigencia_inicio="2025-12",
         vigencia_fim="2025-12",
@@ -525,7 +660,7 @@ def insert(cur, table: str, row: dict) -> None:
     )
 
 
-def seed_usuarios(cur, senha_hash: str) -> dict[str, uuid.UUID]:
+def seed_usuarios(cur, keycloak_ids: dict[str, str]) -> dict[str, uuid.UUID]:
     ids: dict[str, uuid.UUID] = {}
     for usuario in USUARIOS:
         cur.execute(
@@ -534,10 +669,15 @@ def seed_usuarios(cur, senha_hash: str) -> dict[str, uuid.UUID]:
                 "login": usuario["login"],
                 "nome": usuario["nome"],
                 "papel": usuario["papel"],
-                "senha_hash": senha_hash,
+                "keycloak_sub": keycloak_ids[usuario["login"]],
             },
         )
-        ids[usuario["login"]] = cur.fetchone()[0]
+        linha = cur.fetchone()
+        if linha is None:
+            raise RuntimeError(
+                f"Conta local {usuario['login']} está inativa ou vinculada a outro usuário Keycloak."
+            )
+        ids[usuario["login"]] = linha[0]
     return ids
 
 
@@ -588,6 +728,17 @@ def seed_cenario(cur, cenario: Cenario, usuario_ids: dict[str, uuid.UUID]) -> No
             "finalizado_em": criado_em + timedelta(minutes=cenario.transicoes[-1].minutos),
             "tentativas": 0,
         },
+    )
+
+    # Um seed anterior podia atribuir este cenário à conta de staging. Corrige
+    # a posse apenas das linhas com os ids determinísticos deste cenário.
+    cur.execute(
+        "UPDATE submissoes SET usuario_id = %s WHERE id = %s AND usuario_id IS DISTINCT FROM %s",
+        (adapt(usuario_id), adapt(ids["submissao"]), adapt(usuario_id)),
+    )
+    cur.execute(
+        "UPDATE jobs SET usuario_id = %s WHERE id = %s AND usuario_id IS DISTINCT FROM %s",
+        (adapt(usuario_id), adapt(ids["job"]), adapt(usuario_id)),
     )
 
     for transicao in cenario.transicoes:
@@ -784,10 +935,6 @@ def seed_cenario(cur, cenario: Cenario, usuario_ids: dict[str, uuid.UUID]) -> No
 # ---------------------------------------------------------------------------
 
 
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-
-
 def connect():
     return psycopg2.connect(
         host=os.environ.get("POSTGRES_HOST", "localhost"),
@@ -804,18 +951,23 @@ def main() -> None:
         print(f"seed: variáveis obrigatórias ausentes: {', '.join(missing)}", file=sys.stderr)
         raise SystemExit(1)
 
-    senha_hash = hash_password(os.environ["SEED_USERS_PASSWORD"])
     connection = connect()
     try:
+        # Confere o banco e as migrations antes de redefinir senhas no Keycloak.
+        with connection.cursor() as cur:
+            cur.execute("SELECT 1 FROM usuarios LIMIT 0")
+        connection.rollback()
+
+        keycloak_ids = seed_keycloak_usuarios()
         with connection, connection.cursor() as cur:
-            usuario_ids = seed_usuarios(cur, senha_hash)
+            usuario_ids = seed_usuarios(cur, keycloak_ids)
             for cenario in cenarios():
                 seed_cenario(cur, cenario, usuario_ids)
     finally:
         connection.close()
 
     print(
-        "seed: usuários (develop@synapse.com, staging@synapse.com) e pipeline de "
+        "seed: contas Keycloak e locais (develop@synapse.pro, staging@synapse.pro) e pipeline de "
         "demonstração prontos (4 jobs: viável, inviável, inviável com sugestão, assercao_violada)"
     )
 
