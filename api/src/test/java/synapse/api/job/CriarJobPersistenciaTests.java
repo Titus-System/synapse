@@ -38,9 +38,13 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 import synapse.api.core.outbox.Outbox;
+import synapse.api.core.security.AcessoDoUsuario;
+import synapse.api.core.security.UsuarioAtual;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -117,8 +121,7 @@ class CriarJobPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ CriarJobService.class, MaquinaDeEstadosDoJob.class, Outbox.class, CriarJobController.class,
-			CriarJobAdvice.class })
+	@Import({ CriarJobService.class, MaquinaDeEstadosDoJob.class, Outbox.class, CriarJobAdvice.class })
 	static class Config {
 
 	}
@@ -129,7 +132,9 @@ class CriarJobPersistenciaTests {
 			.replace("\"origem\"", "\"user_id\":\"99999999-9999-4999-8999-999999999999\",\"origem\"")
 			.replace("\"texto_livre\":null", "\"texto_livre\":\"Observação recebida\",\"extra\":{\"preservar\":true}")
 			.replace("0.025", "0.025000000000000000001");
-		var mvc = MockMvcBuilders.standaloneSetup(contexto.getBean(CriarJobController.class))
+		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
+		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, false));
+		var mvc = MockMvcBuilders.standaloneSetup(new CriarJobController(service, usuarioAtual))
 			.setControllerAdvice(contexto.getBean(CriarJobAdvice.class))
 			.build();
 		var resposta = mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(corpo))

@@ -3,8 +3,8 @@ package synapse.api.job;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.Objects;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 import tools.jackson.databind.json.JsonMapper;
@@ -42,7 +42,16 @@ class CriarJobService {
 		if (usuarios.isEmpty()) {
 			throw CriarJobException.semUsuarioAtivo();
 		}
-		UUID usuarioId = usuarios.getFirst();
+		return criar(requisicao, usuarios.getFirst());
+	}
+
+	@Transactional
+	JobCriadoDto criar(CriarJobRequisicao requisicao, UUID usuarioId) {
+		Integer usuariosAtivos = this.jdbc.queryForObject("SELECT count(*) FROM usuarios WHERE id = ? AND ativo = true",
+				Integer.class, usuarioId);
+		if (usuariosAtivos == null || usuariosAtivos == 0) {
+			throw CriarJobException.semUsuarioAtivo();
+		}
 		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		Timestamp timestamp = Timestamp.from(agora);
 		RepresentacaoRegraDto representacao = requisicao.representacao();

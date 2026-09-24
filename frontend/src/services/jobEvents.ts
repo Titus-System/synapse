@@ -1,4 +1,6 @@
 import { apiClient } from '@/services/api'
+import { http } from '@/services/http'
+import { consumirEventosSse } from '@/services/sse'
 import type { EventoEtapa, EventoEstado, EventoResultado, StatusJob } from '@/types/api'
 
 interface HandlersAcompanhamento {
@@ -17,7 +19,7 @@ const STATUS_TERMINAIS: ReadonlySet<StatusJob> = new Set([
 ])
 
 export function abrirAcompanhamentoJob(idJob: string, handlers: HandlersAcompanhamento) {
-  let eventSource: EventSource | null = null
+  let conexaoAtual: AbortController | null = null
   let timerReconexao: ReturnType<typeof setTimeout> | null = null
   let tentativasBackoff = 0
   let jaConectouAlgumaVez = false
@@ -25,72 +27,76 @@ export function abrirAcompanhamentoJob(idJob: string, handlers: HandlersAcompanh
   let jobEmEstadoTerminal = false
   let fechado = false
 
-  function abrirConexao() {
+  function receberEvento(evento: string, dados: string) {
+    try {
+      switch (evento) {
+        case 'estado': {
+          const estado = JSON.parse(dados) as EventoEstado
+          if (estado.job_id !== idJob) return
+          jobEmEstadoTerminal = STATUS_TERMINAIS.has(estado.status)
+          handlers.onEstado(estado)
+          break
+        }
+        case 'etapa': {
+          const etapa = JSON.parse(dados) as EventoEtapa
+          if (etapa.job_id === idJob) handlers.onEtapa(etapa)
+          break
+        }
+        case 'resultado': {
+          const resultado = JSON.parse(dados) as EventoResultado
+          if (resultado.job_id === idJob && resultado.simulacao_id !== ultimaSimulacaoIdProcessada) {
+            ultimaSimulacaoIdProcessada = resultado.simulacao_id
+            handlers.onResultado(resultado)
+          }
+          break
+        }
+      }
+    } catch {
+      // Um evento malformado não deve interromper o acompanhamento.
+    }
+  }
+
+  async function abrirConexao() {
     if (fechado) return
     if (jaConectouAlgumaVez) handlers.onReconciliar()
     else handlers.onStatusConexao('conectando')
 
-    const conexao = new EventSource(apiClient.acompanharJob(idJob))
-    eventSource = conexao
-    const ativa = () => !fechado && eventSource === conexao
+    const conexao = new AbortController()
+    conexaoAtual = conexao
+    const ativa = () => !fechado && conexaoAtual === conexao
 
-    conexao.addEventListener('estado', (evento: MessageEvent) => {
-      if (!ativa()) return
-      try {
-        const dados = JSON.parse(evento.data) as EventoEstado
-        if (dados.job_id !== idJob) return
-        jobEmEstadoTerminal = STATUS_TERMINAIS.has(dados.status)
-        handlers.onEstado(dados)
-      } catch {
-        // Um evento malformado não deve interromper o acompanhamento.
+    try {
+      const corpo = await http.stream(apiClient.acompanharJob(idJob), conexao.signal)
+      if (!ativa()) {
+        await corpo.cancel()
+        return
       }
-    })
-    conexao.addEventListener('etapa', (evento: MessageEvent) => {
-      if (!ativa()) return
-      try {
-        const dados = JSON.parse(evento.data) as EventoEtapa
-        if (dados.job_id === idJob) handlers.onEtapa(dados)
-      } catch {
-        // Um evento malformado não deve interromper o acompanhamento.
-      }
-    })
-    conexao.addEventListener('resultado', (evento: MessageEvent) => {
-      if (!ativa()) return
-      try {
-        const dados = JSON.parse(evento.data) as EventoResultado
-        if (dados.job_id === idJob && ultimaSimulacaoIdProcessada !== dados.simulacao_id) {
-          ultimaSimulacaoIdProcessada = dados.simulacao_id
-          handlers.onResultado(dados)
-        }
-      } catch {
-        // Um evento malformado não deve interromper o acompanhamento.
-      }
-    })
-    conexao.onopen = () => {
-      if (!ativa()) return
       jaConectouAlgumaVez = true
       tentativasBackoff = 0
       handlers.onStatusConexao('aberta')
+      await consumirEventosSse(corpo, (evento, dados) => {
+        if (ativa()) receberEvento(evento, dados)
+      })
+    } catch {
+      // A reconexão também recupera quedas durante a leitura do corpo da resposta.
     }
-    conexao.onerror = () => {
-      if (!ativa()) return
-      conexao.close()
-      eventSource = null
-      // O fechamento pelo servidor após um estado terminal também dispara onerror.
-      if (jobEmEstadoTerminal) return
-      handlers.onStatusConexao('reconectando')
-      const delay = Math.min(1000 * Math.pow(2, tentativasBackoff++), 30000) + Math.random() * 200
-      timerReconexao = setTimeout(abrirConexao, delay)
-    }
+
+    if (!ativa()) return
+    conexao.abort()
+    conexaoAtual = null
+    if (jobEmEstadoTerminal) return
+    handlers.onStatusConexao('reconectando')
+    const delay = Math.min(1000 * Math.pow(2, tentativasBackoff++), 30000) + Math.random() * 200
+    timerReconexao = setTimeout(() => void abrirConexao(), delay)
   }
 
   function fechar() {
     fechado = true
     if (timerReconexao) clearTimeout(timerReconexao)
-    eventSource?.close()
-    eventSource = null
+    conexaoAtual?.abort()
+    conexaoAtual = null
   }
 
-  abrirConexao()
+  void abrirConexao()
   return { fechar }
 }

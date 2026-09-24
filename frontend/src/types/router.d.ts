@@ -9,5 +9,7 @@ declare module 'vue-router' {
     navLabel?: string
     /** Position in the menu (lower first). */
     navOrder?: number
+    /** Rotas públicas não exigem uma sessão ativa. */
+    publica?: boolean
   }
 }

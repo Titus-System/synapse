@@ -4,19 +4,20 @@
 
 ## How it works
 
-Every REST call goes through `http`, so base URL, headers and error handling stay in one place. Authentication is intentionally absent in Sprint 1.
+REST and SSE requests go through `http`, which obtains the current Keycloak token after awaiting `updateToken(30)` and sends it in the `Authorization` header. Tokens remain in memory. A temporary refresh failure stops the request without clearing the session; a 401 response starts login again.
 
 ```ts
 export const http = {
   get: <TResponse>(path, signal?) => ...,
   post: <TResponse, TBody>(path, body?, signal?) => ...,
+  stream: (url, signal) => ...,
   url: (path) => ...,
 }
 ```
 
 A non-2xx response becomes an `HttpError`. Validation errors expose `fieldErrors` with a readable field name and message. Server and connection failures use user-facing messages and never expose a raw HTTP status as display text.
 
-`api.ts` maps the operations from `contracts/http/openapi.yaml` to typed calls. The `acompanharJob` entry only returns the typed stream URL; opening and consuming the SSE connection belongs to T-072.
+`api.ts` maps the operations from `contracts/http/openapi.yaml` to typed calls. The `acompanharJob` entry returns the stream URL. `jobEvents.ts` opens it through `http.stream`, consumes the SSE frames and manages reconnection, cancellation and result deduplication. Each reconnection obtains a current token.
 
 ## Do
 
