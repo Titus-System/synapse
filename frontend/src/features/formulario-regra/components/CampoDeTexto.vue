@@ -37,7 +37,7 @@ const emitir = defineEmits<{
         :placeholder="placeholder"
         :aria-describedby="[ajuda ? `${id}-ajuda` : '', erro ? `${id}-erro` : ''].filter(Boolean).join(' ') || undefined"
         :aria-invalid="Boolean(erro)"
-        class="h-[clamp(1.75rem,4vh,2.125rem)] w-full rounded-[7px] border bg-[#faf4ef] px-3 text-sm text-[#2e1a10] outline-none transition placeholder:text-[#b09a8d] focus:border-[#c2560b] focus:ring-2 focus:ring-[#f4dcc9]"
+        class="h-[2.125rem] w-full rounded-[.4375rem] border bg-[#faf4ef] px-3 text-sm text-[#2e1a10] outline-none transition placeholder:text-[#b09a8d] focus:border-[#c2560b] focus:ring-2 focus:ring-[#f4dcc9]"
         :class="[
           erro ? 'border-[#c0392b]' : 'border-[#e3d3c9]',
           prefixo ? 'pl-9' : '',

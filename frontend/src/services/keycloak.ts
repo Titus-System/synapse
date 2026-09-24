@@ -50,7 +50,10 @@ export async function iniciarLogin(caminhoDeRetorno?: string): Promise<void> {
 export async function iniciarLogout(): Promise<void> {
   const cliente = obterClienteKeycloak()
   cliente.clearToken()
-  await cliente.logout({ redirectUri: urlDeRetorno() })
+  // Depois de encerrar a sessão, voltamos para uma rota protegida. A guarda
+  // do roteador inicia o login novamente, sem deixar o usuário numa tela
+  // intermediária da aplicação.
+  await cliente.logout({ redirectUri: urlDeRetorno('/nova-regra') })
 }
 
 export function limparTokenDoKeycloak(): void {
