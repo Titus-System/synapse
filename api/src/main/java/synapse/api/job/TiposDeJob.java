@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.jspecify.annotations.Nullable;
+import tools.jackson.databind.JsonNode;
 
 record VigenciaDto(
 
@@ -46,18 +47,11 @@ record NucleoRegraDto(
 		@Nullable BigDecimal percentual) {
 }
 
-record EspecificacaoRegraDto(
-
-		String ref,
-
-		String construto) {
-}
-
 record RepresentacaoRegraDto(
 
 		NucleoRegraDto nucleo,
 
-		List<EspecificacaoRegraDto> especificacoes) {
+		List<JsonNode> especificacoes) {
 }
 
 record TotaisSimulacaoDto(

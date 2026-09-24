@@ -152,14 +152,13 @@
 			<scope>test</scope>
 		</dependency>
 
-		<!-- Valida o payload publicado contra o schema real em contracts/events/,
+		<!-- Valida especificações recebidas e payloads de eventos contra os schemas canônicos,
 		     Jackson 2 (com.fasterxml), sem conflito com o Jackson 3 (tools.jackson)
 		     usado pelo restante da aplicação. -->
 		<dependency>
 			<groupId>com.networknt</groupId>
 			<artifactId>json-schema-validator</artifactId>
 			<version>${json-schema-validator.version}</version>
-			<scope>test</scope>
 		</dependency>
 	</dependencies>
 
