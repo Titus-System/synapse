@@ -208,7 +208,8 @@ class ReprocessarJobPersistenciaTests {
 			.isEqualTo(JSON.readTree(ESPECIFICACOES));
 		assertThat(JSON.readTree(Objects.requireNonNull(regra.get("especificacoes")).toString()))
 			.isEqualTo(JSON.readTree(ESPECIFICACOES));
-		verificarEvento(novoId, UUID.fromString(novo.path("regra").path("id").asString()), List.of("2025-11"));
+		verificarEvento(novoId, UUID.fromString(novo.path("regra").path("id").asString()), List.of("2025-11"),
+				"485000.1234567890123456789");
 		assertThat(retrato(origem)).isEqualTo(antes);
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM submissoes", Integer.class)).isEqualTo(1);
 	}
@@ -225,7 +226,8 @@ class ReprocessarJobPersistenciaTests {
 		assertThat(jdbc.queryForObject("SELECT orcamento FROM jobs WHERE id = ?", BigDecimal.class, novoId))
 			.isEqualByComparingTo("600000.1234567890123456789");
 		assertThat(competencias(novoId)).containsExactly("2025-07", "2025-09", "2025-12");
-		verificarEvento(novoId, UUID.fromString(novo.path("regra").path("id").asString()), competencias(novoId));
+		verificarEvento(novoId, UUID.fromString(novo.path("regra").path("id").asString()), competencias(novoId),
+				"600000.1234567890123456789");
 		assertThat(retrato(origem)).isEqualTo(antes);
 	}
 
@@ -478,14 +480,21 @@ class ReprocessarJobPersistenciaTests {
 		return novo;
 	}
 
-	private static void verificarEvento(UUID jobId, UUID regraId, List<String> competencias) throws Exception {
+	private static void verificarEvento(UUID jobId, UUID regraId, List<String> competencias, String orcamento)
+			throws Exception {
 		Map<String, Object> evento = jdbc
 			.queryForMap("SELECT tipo, payload::text AS payload FROM outbox_events WHERE job_id = ?", jobId);
 		assertThat(evento).containsEntry("tipo", "regra-submetida");
 		String payload = Objects.requireNonNull((String) evento.get("payload"));
 		ContratoDeEvento.validar("regra-submetida", payload);
-		assertThat(JSON.readTree(payload)).isEqualTo(JSON.valueToTree(Map.of("job_id", jobId.toString(), "origem",
-				"reprocessamento", "competencias", competencias, "regra_id", regraId.toString())));
+		ObjectNode arvore = (ObjectNode) JSON.readTree(payload);
+		// Fora da comparação estrita: um valor monetário se confere por precisão, não por
+		// tipo de nó JSON.
+		assertThat(arvore.path("orcamento").isNumber()).isTrue();
+		assertThat(arvore.path("orcamento").decimalValue()).isEqualByComparingTo(orcamento);
+		arvore.remove("orcamento");
+		assertThat(arvore).isEqualTo(JSON.valueToTree(Map.of("job_id", jobId.toString(), "origem", "reprocessamento",
+				"competencias", competencias, "regra_id", regraId.toString())));
 	}
 
 	private static List<String> competencias(UUID jobId) {
