@@ -219,20 +219,20 @@ class ReprocessarJobPersistenciaTests {
 		UUID origem = criarOrigem(true);
 		String antes = retrato(origem);
 		JsonNode novo = reprocessar(origem, """
-				{"orcamento":600000.1234567890123456789,"competencias":["2025-12","2025-07","2025-09"]}
+				{"orcamento":600000.1234567890123456789,"competencias":["2025-12","2025-08","2025-09"]}
 				""");
 		UUID novoId = UUID.fromString(novo.path("id").asString());
 		assertThat(novo.path("orcamento").decimalValue()).isEqualByComparingTo("600000.1234567890123456789");
 		assertThat(jdbc.queryForObject("SELECT orcamento FROM jobs WHERE id = ?", BigDecimal.class, novoId))
 			.isEqualByComparingTo("600000.1234567890123456789");
-		assertThat(competencias(novoId)).containsExactly("2025-07", "2025-09", "2025-12");
+		assertThat(competencias(novoId)).containsExactly("2025-08", "2025-09", "2025-12");
 		verificarEvento(novoId, UUID.fromString(novo.path("regra").path("id").asString()), competencias(novoId),
 				"600000.1234567890123456789");
 		assertThat(retrato(origem)).isEqualTo(antes);
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "{\"orcamento\":-1.125}", "{\"competencias\":[\"2025-07\"]}" })
+	@ValueSource(strings = { "{\"orcamento\":-1.125}", "{\"competencias\":[\"2025-08\"]}" })
 	void overrideIsoladoPreservaOutroParametro(String corpo) throws Exception {
 		UUID origem = criarOrigem(false);
 		JsonNode novo = reprocessar(origem, corpo);
@@ -240,7 +240,7 @@ class ReprocessarJobPersistenciaTests {
 		assertThat(novo.path("orcamento").decimalValue())
 			.isEqualByComparingTo(mudaOrcamento ? "-1.125" : "485000.1234567890123456789");
 		assertThat(novo.path("competencias"))
-			.isEqualTo(JSON.readTree(mudaOrcamento ? "[\"2025-11\"]" : "[\"2025-07\"]"));
+			.isEqualTo(JSON.readTree(mudaOrcamento ? "[\"2025-11\"]" : "[\"2025-08\"]"));
 	}
 
 	@ParameterizedTest

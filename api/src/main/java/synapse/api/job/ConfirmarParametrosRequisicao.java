@@ -26,7 +26,7 @@ import tools.jackson.databind.json.JsonMapper;
 record ConfirmarParametrosRequisicao(RepresentacaoRegraDto representacao, @Nullable BigDecimal orcamento,
 		@Nullable List<String> competencias) {
 
-	private static final List<String> MESES = List.of("2025-07", "2025-08", "2025-09", "2025-10", "2025-11", "2025-12");
+	private static final List<String> MESES = List.of("2025-08", "2025-09", "2025-10", "2025-11", "2025-12");
 
 	private static final List<String> CAMPOS_NUCLEO = List.of("vigencia", "loja", "marca", "cargo", "percentual");
 
@@ -139,13 +139,13 @@ record ConfirmarParametrosRequisicao(RepresentacaoRegraDto representacao, @Nulla
 		for (JsonNode mes : meses) {
 			if (!mes.isString()) {
 				throw ConfirmarParametrosException
-					.requisicao("Cada competência precisa ser um mês entre 2025-07 e 2025-12.");
+					.requisicao("Cada competência precisa ser um mês entre 2025-08 e 2025-12.");
 			}
 			competencias.add(mes.asString());
 		}
 		if (competencias.isEmpty() || !MESES.containsAll(competencias)) {
 			throw ConfirmarParametrosException
-				.requisicao("Informe competências entre 2025-07 e 2025-12, em uma lista não vazia.");
+				.requisicao("Informe competências entre 2025-08 e 2025-12, em uma lista não vazia.");
 		}
 		if (new HashSet<>(competencias).size() != competencias.size()) {
 			throw ConfirmarParametrosException.requisicao("O campo competencias não permite meses repetidos.");
