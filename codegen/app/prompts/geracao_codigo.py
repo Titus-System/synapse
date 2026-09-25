@@ -101,6 +101,12 @@ def montar_prompt_geracao(regra: RepresentacaoRegra) -> str:
             "desse retorno: totais, asserções e decomposição são responsabilidade do "
             "harness, não o retorno direto da função gerada."
         ),
+        "formato_resposta": (
+            "Responda com um único bloco de código delimitado por ```python e ```, contendo o "
+            "arquivo regra.py completo, do início ao fim, definindo exatamente a função "
+            "aplicar_regra do contrato_regrafn. Não inclua nenhum texto fora desse bloco, nem "
+            "mais de um bloco de código na resposta."
+        ),
         "bases": simplejson.loads(_RECURSO.read_text(encoding="utf-8"), use_decimal=True),
         "convencoes": _CONVENCOES,
         "regras_base": _REGRAS_BASE,

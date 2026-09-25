@@ -228,6 +228,14 @@ def test_ambiente_de_execucao_declara_o_fato(
     assert fragmento in texto, motivo
 
 
+def test_prompt_exige_um_unico_bloco_python_com_aplicar_regra(prompt: dict[str, Any]) -> None:
+    texto = prompt["instrucoes_fixas_do_sistema"]["formato_resposta"]
+
+    assert "```python" in texto
+    assert "aplicar_regra" in texto
+    assert "único bloco" in texto
+
+
 def test_regrafn_confere_com_oraculo_independente(prompt: dict[str, Any]) -> None:
     texto = prompt["instrucoes_fixas_do_sistema"]["contrato_regrafn"]
     compacto = " ".join(texto.split())

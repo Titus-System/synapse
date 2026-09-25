@@ -50,6 +50,8 @@ Note the naming collision with the pre-existing `app/core/` (logger, metrics): t
 
 ## The shared tool-execution node
 
+**Nothing in the graph uses tools today**, so `app/graph/core/tool_dispatch.py` and the `tools` node do not exist right now: `code_generation` binds no tools, and the pipeline is one straight line with no branch. The rule below is what the first tool-using node has to build; it is not describing code you can go read.
+
 There is exactly **one** tool-execution node for the whole graph, not one per tool-using node. Executing a requested tool call ("look up the name and args, run the matching function, return the result") is generic — it doesn't vary by which node asked for it, so splitting it per node would just re-duplicate the thing centralizing `app/graph/tools/` was meant to avoid. It lives in `app/graph/core/` (alongside `tool_dispatch.py`, since dispatch-and-validate and execute-and-return are one unit), not in `nodes/` — it has no feature name of its own; it's infrastructure every tool-using node shares.
 
 Before running anything, it validates the requested tool name and arguments against the **calling node's** declared allowlist (`app/graph/core/tool_dispatch.py`) — this is the one auditable chokepoint for the "the model's own output never decides, by itself, which tool executes" rule in `AGENTS.md`.

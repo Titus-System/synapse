@@ -33,6 +33,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import synapse.api.core.security.AcessoDoUsuario;
+import synapse.api.core.security.PapelDoUsuario;
 import synapse.api.core.security.UsuarioAtual;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -97,9 +98,10 @@ class BuscarJobPersistenciaTests {
 		contexto.refresh();
 		service = contexto.getBean(BuscarJobService.class);
 		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
-		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, false));
-		mvc = MockMvcBuilders
-			.standaloneSetup(new BuscarJobController(service, contexto.getBean(AutorizadorDeJob.class), usuarioAtual))
+		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
+		mvc = MockMvcBuilders.standaloneSetup(new BuscarJobController(service))
+			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual, new AutorizadorDeJob(jdbc)))
+			.setControllerAdvice(new BuscarJobAdvice(), new AutorizacaoDeJobAdvice())
 			.build();
 	}
 

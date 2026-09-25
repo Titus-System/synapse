@@ -22,10 +22,10 @@ requirements:
 	poetry export --with dev --without-hashes --output requirements-dev.txt
 
 run: contracts
-	poetry run uvicorn app.main:criar_aplicacao --factory --log-config logging.json
+	poetry run uvicorn app.main:criar_aplicacao_padrao --factory --log-config logging.json
 
 dev: contracts
-	poetry run uvicorn app.main:criar_aplicacao --factory --reload --log-config logging.json
+	poetry run uvicorn app.main:criar_aplicacao_padrao --factory --reload --log-config logging.json
 
 lint:
 	poetry run ruff check app/

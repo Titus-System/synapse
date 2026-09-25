@@ -18,6 +18,7 @@ class ConfirmarParametrosController {
 		this.service = service;
 	}
 
+	@AutorizarJob(OperacaoJob.CONFIRMAR_PARAMETROS)
 	@PostMapping(path = "/jobs/{id}/parameters", consumes = "application/json", produces = "application/json")
 	ResponseEntity<JobCriadoDto> confirmar(@PathVariable("id") UUID id, @RequestBody String corpo) {
 		JobCriadoDto job = this.service.confirmar(id, ConfirmarParametrosRequisicao.deJson(corpo));

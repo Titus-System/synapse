@@ -36,30 +36,33 @@ public class UsuarioAtual {
 			return usuarioDeDesenvolvimento();
 		}
 
+		PapelDoUsuario papel = papelDoToken(token);
 		String subject = Objects.requireNonNull(token.getSubject());
 		String login = textoDoToken(token, "preferred_username", subject);
 		String nome = textoDoToken(token, "name", login);
-		UUID usuarioId = encontrarOuCriar(subject, login, nome);
-		return new AcessoDoUsuario(usuarioId, temPapelDeAuditor(token));
+		UUID usuarioId = encontrarOuCriar(subject, login, nome, papel);
+		return new AcessoDoUsuario(usuarioId, papel);
 	}
 
 	private AcessoDoUsuario usuarioDeDesenvolvimento() {
 		if (this.properties.keycloak().enabled()) {
 			throw new IllegalStateException("Sessão autenticada não encontrada.");
 		}
-		List<UUID> usuarios = this.jdbc
-			.queryForList("SELECT id FROM usuarios WHERE ativo = true ORDER BY criado_em, id LIMIT 1", UUID.class);
+		List<AcessoDoUsuario> usuarios = this.jdbc.query(
+				"SELECT id, papel FROM usuarios WHERE ativo = true ORDER BY criado_em, id LIMIT 1",
+				(linha, numero) -> new AcessoDoUsuario(Objects.requireNonNull(linha.getObject("id", UUID.class)),
+						PapelDoUsuario.deColuna(Objects.requireNonNull(linha.getString("papel")))));
 		if (usuarios.isEmpty()) {
 			throw new IllegalStateException("Nenhum usuário ativo disponível.");
 		}
-		return new AcessoDoUsuario(usuarios.getFirst(), false);
+		return usuarios.getFirst();
 	}
 
-	private UUID encontrarOuCriar(String subject, String login, String nome) {
+	private UUID encontrarOuCriar(String subject, String login, String nome, PapelDoUsuario papel) {
 		List<UUID> usuarios = this.jdbc.queryForList("""
 				SELECT id FROM usuarios
 				WHERE keycloak_sub = ? OR (keycloak_sub IS NULL AND login = ?)
-				ORDER BY criado_em, id LIMIT 1
+				ORDER BY CASE WHEN keycloak_sub IS NULL THEN 1 ELSE 0 END, criado_em, id LIMIT 1
 				""", UUID.class, subject, login);
 		Timestamp agora = Timestamp.from(Instant.now());
 		if (!usuarios.isEmpty()) {
@@ -75,8 +78,8 @@ public class UsuarioAtual {
 		}
 		return Objects.requireNonNull(this.jdbc.queryForObject("""
 				INSERT INTO usuarios (login, senha_hash, nome, papel, ativo, criado_em, ultimo_login_em, keycloak_sub)
-				VALUES (?, NULL, ?, 'profissional_rh', true, ?, ?, ?) RETURNING id
-				""", UUID.class, login, nome, agora, agora, subject));
+				VALUES (?, NULL, ?, ?, true, ?, ?, ?) RETURNING id
+				""", UUID.class, login, nome, papel.paraColuna(), agora, agora, subject));
 	}
 
 	private static String textoDoToken(Jwt token, String campo, String padrao) {
@@ -84,12 +87,17 @@ public class UsuarioAtual {
 		return valor == null || valor.isBlank() ? padrao : valor;
 	}
 
-	private static boolean temPapelDeAuditor(Jwt token) {
-		Map<String, Object> acessoDoRealm = token.getClaimAsMap("realm_access");
-		if (acessoDoRealm == null || !(acessoDoRealm.get("roles") instanceof List<?> papeis)) {
-			return false;
+	private static PapelDoUsuario papelDoToken(Jwt token) {
+		Object acessoDoRealm = token.getClaim("realm_access");
+		if (!(acessoDoRealm instanceof Map<?, ?> realm) || !(realm.get("roles") instanceof List<?> papeis)) {
+			throw new AccessDeniedException("Papel não reconhecido.");
 		}
-		return papeis.stream().anyMatch("auditor"::equals);
+		boolean rh = papeis.contains("profissional-rh");
+		boolean auditor = papeis.contains("auditor");
+		if (rh == auditor) {
+			throw new AccessDeniedException("Exatamente um papel de negócio é obrigatório.");
+		}
+		return rh ? PapelDoUsuario.PROFISSIONAL_RH : PapelDoUsuario.AUDITOR;
 	}
 
 }

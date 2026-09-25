@@ -67,6 +67,7 @@ class RegraSubmetida(ModeloContrato):
     competencias: list[str] = Field(min_length=1)
     submissao_id: UUID | None = None
     regra_id: UUID | None = None
+    orcamento: Decimal | None = Field(default=None, ge=0)
 
 
 class ParametrosConfirmados(ModeloContrato):

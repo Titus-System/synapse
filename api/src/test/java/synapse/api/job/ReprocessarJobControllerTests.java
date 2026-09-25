@@ -75,12 +75,12 @@ class ReprocessarJobControllerTests {
 	void overridesPreservamPrecisaoEOrdenamCompetencias() throws Exception {
 		when(this.service.reprocessar(eq(ORIGEM), any())).thenReturn(novoJob());
 		this.mvc.perform(post("/jobs/{id}/reprocessar", ORIGEM).contentType(MediaType.APPLICATION_JSON).content("""
-				{"orcamento":-0.1234567890123456789,"competencias":["2025-12","2025-07","2025-09"]}
+				{"orcamento":-0.1234567890123456789,"competencias":["2025-12","2025-08","2025-09"]}
 				""")).andExpect(status().isCreated());
 		verify(this.service).reprocessar(eq(ORIGEM),
 				argThat(r -> r.orcamento() != null
 						&& new BigDecimal("-0.1234567890123456789").compareTo(r.orcamento()) == 0
-						&& List.of("2025-07", "2025-09", "2025-12").equals(r.competencias())));
+						&& List.of("2025-08", "2025-09", "2025-12").equals(r.competencias())));
 	}
 
 	@ParameterizedTest
