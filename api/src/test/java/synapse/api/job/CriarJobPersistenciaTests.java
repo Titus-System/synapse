@@ -194,6 +194,8 @@ class CriarJobPersistenciaTests {
 		String payload = Objects.requireNonNull((String) evento.get("payload"));
 		ContratoDeEvento.validar("regra-submetida", payload);
 		var payloadNode = JSON.readTree(payload);
+		assertThat(payloadNode.path("orcamento").isNumber()).isTrue();
+		assertThat(payloadNode.path("orcamento").decimalValue()).isEqualByComparingTo("485000.1234567890123456789");
 		assertThat(payloadNode.path("job_id").asString()).isEqualTo(jobId.toString());
 		assertThat(payloadNode.path("origem").asString()).isEqualTo("formulario");
 		assertThat(payloadNode.path("competencias").valueStream().map(JsonNode::asString).toList())
@@ -217,20 +219,33 @@ class CriarJobPersistenciaTests {
 		}
 	}
 
+	/**
+	 * O caminho que o formulário percorre: a tela não tem campo de período, então nunca
+	 * envia {@code competencias} e a api preenche com o dataset inteiro. São as cinco
+	 * competências publicadas - Jul/2025 foi descartado no tratamento dos dados e não tem
+	 * baseline, então incluí-lo entregaria ao worker um mês sem o que comparar.
+	 */
 	@Test
-	void ausenciaDeCompetenciasPersisteOsSeisMeses() {
+	void ausenciaDeCompetenciasPersisteOPeriodoInteiroDoDataset() {
 		JobCriadoDto job = service.criar(CriarJobRequisicao
 			.deJson(CriarJobControllerTests.FORMULARIO.replace("\"competencias\":[\"2025-11\"],", "")));
-		assertThat(competencias(job.id())).containsExactly("2025-07", "2025-08", "2025-09", "2025-10", "2025-11",
-				"2025-12");
+		assertThat(competencias(job.id())).containsExactly("2025-08", "2025-09", "2025-10", "2025-11", "2025-12");
 		assertThat(job.competencias()).containsExactlyElementsOf(competencias(job.id()));
 	}
 
 	@Test
 	void ordenaCompetenciasAntesDePersistir() {
 		JobCriadoDto job = service.criar(CriarJobRequisicao.deJson(
-				CriarJobControllerTests.FORMULARIO.replace("[\"2025-11\"]", "[\"2025-12\",\"2025-07\",\"2025-09\"]")));
-		assertThat(competencias(job.id())).containsExactly("2025-07", "2025-09", "2025-12");
+				CriarJobControllerTests.FORMULARIO.replace("[\"2025-11\"]", "[\"2025-12\",\"2025-08\",\"2025-09\"]")));
+		assertThat(competencias(job.id())).containsExactly("2025-08", "2025-09", "2025-12");
+	}
+
+	@Test
+	void competenciaForaDoDatasetERecusada() {
+		assertThatThrownBy(() -> CriarJobRequisicao
+			.deJson(CriarJobControllerTests.FORMULARIO.replace("[\"2025-11\"]", "[\"2025-07\"]")))
+			.isInstanceOf(CriarJobException.class)
+			.hasMessageContaining("2025-08");
 	}
 
 	@Test

@@ -76,7 +76,7 @@ class ReprocessarJobService {
 							.toList()),
 				agora), jobId, timestamp, regras.getFirst()));
 		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA,
-				new RegraSubmetidaDto(jobId, "reprocessamento", competencias, null, regra.id()));
+				new RegraSubmetidaDto(jobId, "reprocessamento", competencias, orcamento, null, regra.id()));
 		return new JobCriadoDto(jobId, status.paraColuna(), "reprocessamento", competencias, orcamento, agora, null,
 				origemId, regra);
 	}

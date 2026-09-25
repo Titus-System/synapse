@@ -12,8 +12,14 @@ import tools.jackson.databind.json.JsonMapper;
 
 record CriarJobRequisicao(String origem, List<String> competencias, BigDecimal orcamento, JsonNode conteudo) {
 
-	private static final List<String> COMPETENCIAS = List.of("2025-07", "2025-08", "2025-09", "2025-10", "2025-11",
-			"2025-12");
+	/**
+	 * As competências do dataset, que é o que a ausência do campo preenche (contrato de
+	 * {@code POST /jobs}) e o que um pedido explícito pode escolher. São cinco: Jul/2025
+	 * foi recebido na base bruta mas descartado no tratamento dos dados pela decisão
+	 * {@code EXCLUDE_2025_07}, então não está no dataset embutido no sandbox nem tem
+	 * baseline congelado - um job que o inclua não tem com o que comparar.
+	 */
+	private static final List<String> COMPETENCIAS = List.of("2025-08", "2025-09", "2025-10", "2025-11", "2025-12");
 
 	private static final JsonMapper JSON = JsonMapper.builder()
 		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS, DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
@@ -25,7 +31,7 @@ record CriarJobRequisicao(String origem, List<String> competencias, BigDecimal o
 			throw CriarJobException.requisicao("O campo origem deve ser formulario.");
 		}
 		if (competencias.isEmpty() || !COMPETENCIAS.containsAll(competencias)) {
-			throw CriarJobException.requisicao("Informe competências entre 2025-07 e 2025-12, em uma lista não vazia.");
+			throw CriarJobException.requisicao("Informe competências entre 2025-08 e 2025-12, em uma lista não vazia.");
 		}
 		if (new HashSet<>(competencias).size() != competencias.size()) {
 			throw CriarJobException.requisicao("O campo competencias não permite meses repetidos.");
@@ -62,7 +68,7 @@ record CriarJobRequisicao(String origem, List<String> competencias, BigDecimal o
 			competencias = new ArrayList<>();
 			for (JsonNode mes : meses) {
 				if (!mes.isString()) {
-					throw CriarJobException.requisicao("Cada competência precisa ser um mês entre 2025-07 e 2025-12.");
+					throw CriarJobException.requisicao("Cada competência precisa ser um mês entre 2025-08 e 2025-12.");
 				}
 				competencias.add(mes.asString());
 			}

@@ -27,6 +27,11 @@ o comando `executar-codigo`. A topologia é durável, não exclusiva, sem auto-d
 e sem argumentos `x-*`. Cada lado declara as filas em que participa de forma
 idempotente. O codegen não declara nem consome `simulacao-concluida.api`.
 
+`RegraSubmetida` tem um campo opcional `orcamento` (`Decimal`, `>= 0`, vindo de
+`jobs.orcamento`), aditivo ao contrato existente. O estado do grafo o carrega como
+texto decimal (nunca `float`) e não o usa para decidir viabilidade - isso é apuração
+do worker sobre dados reais.
+
 `scripts/preparar_contratos.py` incorpora dinamicamente todos os schemas, mantendo
 os caminhos relativos e removendo cópias obsoletas. O Docker já copia `contracts/`.
 O runtime registra os schemas incorporados por `$id`, sem consulta ao monorepo
@@ -61,14 +66,40 @@ da persistência e antes do ACK. T-049 não implementa nós nem checkpointer.
 | Falha de processamento | `nack(requeue=True)` |
 | JSON/DTO/schema inválido | `reject(requeue=False)` |
 | `JobDesconhecidoError` do roteador | `reject(requeue=False)` e log correlacionado |
+| `FalhaDoJobError` do roteador | `reject(requeue=False)`, log correlacionado e `etapa-alterada` com `erro` |
 | Cancelamento | sem ACK; fechamento da conexão devolve mensagens não confirmadas |
 
 A rejeição de mensagens inválidas e jobs desconhecidos é a decisão mínima local
-da T-049 para falhas não recuperáveis. **As filas de entrada do codegen não têm DLQ;
+para falhas não recuperáveis. **As filas de entrada do codegen não têm DLQ;
 essas rejeições descartam a mensagem.** Ausência de roteador configurado não é job
 desconhecido: nesse caso nenhum consumer é iniciado e as mensagens ficam nas filas.
 Falhas transitórias usam a reentrega do broker, sem republicação/retry manual.
 Sem backoff configurado, uma falha persistente pode causar reentregas repetidas.
+
+## Falha permanente do job
+
+`FalhaDoJobError` (`app/falhas.py`) é a classe base das falhas que uma reentrega não
+corrige. O `Consumer` tem uma decisão só para todas elas — `reject(requeue=False)`,
+nunca `nack` — e cada uma declara a etapa do grafo em que aconteceu:
+
+| Exceção | Onde nasce | Etapa | Por que é permanente |
+| --- | --- | --- | --- |
+| `RegraInvalidaError` | `app/repositorio/regras.py`, no nó `load_rule` | `geracao_codigo` | a regra referenciada por `regra_id` não existe para o `job_id`, ou falha o contrato de `RepresentacaoRegra`; reentregar não a torna válida |
+| `RespostaModeloInvalidaError` | `app/graph/nodes/code_generation.py` | `geracao_codigo` | a resposta veio vazia, bloqueada ou truncada; com `temperature=0` a chamada é determinística, e reentregar só pagaria a mesma resposta inútil de novo |
+| `CodigoInvalidoError` | `app/codigo_gerado.py`, no nó `extract_code` | `geracao_codigo` | a resposta já está gravada em `respostas_modelo` e a reentrega continua do checkpoint sobre ela, que seguiria sem um `regra.py` válido |
+| `OrcamentoAusenteError` | `app/graph/nodes/dispatch_execution.py` | `delegacao_worker` | o evento não trouxe o `orcamento`, que `executar-codigo` exige, e a ausência nunca é lida como zero |
+
+Antes de rejeitar, o `GraphRouter` publica `etapa-alterada` com `status="erro"` e a etapa
+da exceção. **Sem esse aviso a `api` deixaria o job em `gerando_regra` para sempre**: a
+rejeição só afeta o broker. A `api` move o job para `erro` e grava a transição com motivo
+`erro_<etapa>`. Uma falha ao publicar o aviso não é tratada de propósito: ela sobe como
+falha comum, o consumer reenfileira e a reentrega tenta avisar de novo.
+
+Nenhuma dessas exceções carrega conteúdo de artefato, e a mensagem delas nunca vai para
+log nem para evento — só a etapa e a correlação do job.
+
+Falha transitória (banco ou broker indisponível, erro de rede do provedor) não é
+`FalhaDoJobError`: continua em `nack(requeue=True)`, porque a reentrega é a resposta certa.
 
 Para o comando de saída `executar-codigo`, a
 [DEC-091](../../docs/decisoes/dec-091.md) define retry gerenciado pela aplicação no
@@ -89,22 +120,61 @@ exceção ou traceback do processador, que podem carregar dados confidenciais.
 
 ## Ciclo de vida e configuração
 
-O lifespan abre uma conexão robusta, habilita confirmações e limita prefetch
-(padrão 1), declara topologia e disponibiliza `aplicacao.state.producers`.
-`criar_aplicacao(roteador=...)` injeta a implementação real de `RoteadorGrafo` e
-inicia os três consumers. Sem essa integração, o processo emite um aviso e mantém
-as mensagens no broker. `/health` continua sendo liveness do processo.
+O lifespan cria o engine assíncrono do banco (`app/db.py`, `asyncpg`) e o
+`async_sessionmaker`, roda `checkpointer.setup()` (idempotente), abre a conexão
+RabbitMQ robusta, habilita confirmações e limita prefetch (padrão 1), declara
+topologia e disponibiliza `aplicacao.state.producers`. `criar_aplicacao(roteador=...)`
+injeta a implementação real de `RoteadorGrafo` e inicia **só o consumer de
+regra-submetida**; `parametros-confirmados` e `simulacao-concluida` ficam com as
+mensagens preservadas no broker até a retomada com `Command(resume=...)` existir.
+Sem essa integração, o processo emite um aviso e mantém as mensagens no broker.
+`/health` continua sendo liveness do processo.
 
-O entrypoint Docker/uvicorn chama a factory sem argumentos, portanto não ativa
-consumers. A [T-050](https://github.com/Titus-System/synapse/issues/53), dependente
-da T-049, cria o esqueleto do grafo e recebe como entrada o evento dessa camada:
-é o ponto de integração previsto por essa sequência. Contudo, a issue não atribui
-explicitamente a injeção do roteador na factory; essa composição precisa ser
-confirmada no escopo da T-050. Ela deverá fornecer o adaptador real e passá-lo a
-`criar_aplicacao`, com a persistência da T-048 quando necessária para retorno seguro.
-A [T-053](https://github.com/Titus-System/synapse/issues/56) é a abstração de LLM,
-não a composição da aplicação. A interface da T-049 pode ser testada isoladamente;
-o consumo pelo entrypoint padrão permanece pendente dessa integração.
+`GraphRouter` (`app/mensageria/roteamento.py`) é o `RoteadorGrafo` real: traduz
+`RegraSubmetida` no estado inicial do grafo e chama
+`app/graph/entrypoint.py::run_to_completion`, nunca invocado diretamente pelo
+`Consumer`. Ele nasce sem `sessoes`/`producers`; o lifespan os
+atribui depois de criar o engine e conectar ao broker, porque `GraphRouter` existe
+antes de qualquer um dos dois estar pronto.
+
+Em uma reentrega, o entrypoint continua do último checkpoint do `job_id` em vez de
+recomeçar do `START`: os nós já concluídos, como a chamada ao modelo e as gravações, não
+rodam de novo.
+
+O nó `dispatch_execution` publica dois eventos, nesta ordem, depois de o prompt, a resposta
+e o código estarem gravados:
+
+1. `etapa-alterada` com `etapa="delegacao_worker"` e `status="iniciada"`, que move o job de
+   `gerando_regra` para `simulando` na `api`;
+2. `executar-codigo`, levando só `codigo_gerado_id`, nunca o código (claim-check, ADR-001).
+
+A ordem é deliberada. `etapa-alterada` é idempotente do lado da `api` — a transição só vale
+a partir de `gerando_regra`, então uma segunda cópia não faz nada —, enquanto
+`executar-codigo` não é: se o nó rodar de novo, republica o comando. Com o idempotente na
+frente, uma reexecução arrisca duplicar só o comando, e o job já está em `simulando` antes
+de o worker poder concluir; na ordem inversa, `simulacao-concluida` poderia chegar com o job
+ainda em `gerando_regra`, transição que a `api` recusa em silêncio.
+
+Antes disso, ao concluir a extração e a gravação do código, o nó `extract_code` publica
+`no-concluido` para a etapa `geracao_codigo`, com `regra_id`, `prompt_id` e
+`codigo_gerado_id`. Não é opcional nem só trilha de auditoria: é desse evento que a `api`
+cria a linha de `simulacoes`, e é ela que liga o job ao resultado que o worker vai gravar.
+Publicar antes de `executar-codigo` é o que garante essa ordem - se o resultado chegasse
+primeiro, `SimulacaoConcluidaService` não teria o que amarrar, o cliente nunca receberia o
+evento SSE `resultado` e as telas de relatório e histórico ficariam sem o desfecho.
+
+O `evento_id` é determinístico (UUID v5 de `job_id`, etapa e `codigo_gerado_id`), então uma
+reexecução do nó republica o mesmo evento e o índice único de `trilhas_auditoria.evento_id`
+na `api` reconhece a reentrega. As demais etapas do grafo ainda não publicam `no-concluido`.
+
+Em seguida, `await_execution` pausa o grafo com `interrupt()`, a `regra-submetida` recebe
+`ack` e o processo fica livre. A retomada com `simulacao-concluida` está descrita em
+[`retomada-apos-execucao.md`](retomada-apos-execucao.md).
+
+O entrypoint Docker/uvicorn chama `app.main:criar_aplicacao_padrao`, que monta um
+`GraphRouter` e o passa a `criar_aplicacao`, ativando o consumer de regra-submetida
+em produção. `criar_aplicacao` (sem roteador) continua existindo para os testes e
+para compor um roteador diferente.
 
 Ao encerrar, cancela as inscrições, aguarda handlers ativos e fecha a conexão
 (incluindo canais). Falha na abertura de canal/topologia também fecha a conexão.

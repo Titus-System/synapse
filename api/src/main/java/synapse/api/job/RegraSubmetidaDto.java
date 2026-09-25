@@ -1,5 +1,6 @@
 package synapse.api.job;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -13,8 +14,13 @@ import org.jspecify.annotations.Nullable;
  * - o schema recusa {@code null} explícito, e a condição de presença de cada um depende
  * de {@code origem} (ausente na {@code voz} para {@code regra_id}, sempre presente na
  * {@code formulario}).
+ * <p>
+ * {@code orcamento} vem de {@code jobs.orcamento} e viaja como escalar porque o codegen
+ * não tem permissão nessa tabela. Também é opcional e omitido quando nulo; ausência não
+ * significa zero. É {@code BigDecimal} de ponta a ponta - passar por {@code double}
+ * perderia precisão de um valor monetário.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-record RegraSubmetidaDto(UUID job_id, String origem, List<String> competencias, @Nullable UUID submissao_id,
-		@Nullable UUID regra_id) {
+record RegraSubmetidaDto(UUID job_id, String origem, List<String> competencias, @Nullable BigDecimal orcamento,
+		@Nullable UUID submissao_id, @Nullable UUID regra_id) {
 }
