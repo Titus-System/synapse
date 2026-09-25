@@ -3,7 +3,9 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
-import type { JobResumo, StatusJob, Veredito } from '@/types/api'
+import type { JobResumo, StatusJob } from '@/types/api'
+import { apiClient } from '@/services/api'
+import { transformarRegra } from '../../finish/composables/transformarRegra'
 import { listarTodosOsJobs } from '../services/historicoJobs.api'
 import type { TipoDeHistorico } from '../types'
 
@@ -13,6 +15,9 @@ const carregando = ref(false)
 const mensagemDeErro = ref('')
 const paginaAtual = ref(0)
 const resumosDosJobs = ref<JobResumo[]>([])
+const regrasFormatadas = ref<Map<string, ReturnType<typeof transformarRegra>>>(
+  new Map(),
+)
 
 const tipoDoHistorico = computed<TipoDeHistorico>(() =>
   rota.name === 'regras-arquivadas' ? 'arquivadas' : 'salvas',
@@ -40,13 +45,6 @@ function criarRotuloDaRegra(resumoDoJob: JobResumo): string {
   return `Regra · ${data}`
 }
 
-function formatarCompetencias(competencias: readonly string[]): string {
-  return competencias.map((competencia) => {
-    const [ano, mes] = competencia.split('-')
-    return ano && mes ? `${mes}/${ano}` : competencia
-  }).join(' · ')
-}
-
 function nomearStatus(status: StatusJob): string {
   const nomes: Record<StatusJob, string> = {
     aguardando_transcricao: 'Aguardando transcrição',
@@ -63,33 +61,70 @@ function nomearStatus(status: StatusJob): string {
   return nomes[status]
 }
 
-function nomearVeredito(veredito: Veredito | undefined): string {
-  const nomes: Record<Veredito, string> = {
-    viavel: 'Viável',
-    inviavel: 'Inviável',
-    indeterminado: 'Indeterminado',
-  }
-  return veredito ? nomes[veredito] : 'Ainda não disponível'
-}
-
 function irParaPagina(numeroDaPagina: number): void {
   if (numeroDaPagina < 0 || numeroDaPagina >= quantidadeDePaginas.value) return
   paginaAtual.value = numeroDaPagina
+}
+
+async function carregarRegrasDosJobs(jobs: JobResumo[]): Promise<void> {
+  const resultados = await Promise.all(
+    jobs.map(async (resumoDoJob) => {
+      try {
+        return await apiClient.consultarJob(resumoDoJob.id)
+      } catch {
+        return null
+      }
+    }),
+  )
+
+  const novasRegrasFormatadas = new Map<
+    string,
+    ReturnType<typeof transformarRegra>
+  >()
+
+  for (const job of resultados) {
+    if (!job) {
+      continue
+    }
+
+    const regra = job.regras[0]
+
+    if (!regra) {
+      continue
+    }
+
+    novasRegrasFormatadas.set(
+      job.id,
+      transformarRegra(regra.representacao),
+    )
+  }
+
+  regrasFormatadas.value = novasRegrasFormatadas
 }
 
 async function carregarHistorico(): Promise<void> {
   carregando.value = true
   mensagemDeErro.value = ''
   paginaAtual.value = 0
+  regrasFormatadas.value = new Map()
 
   try {
-    resumosDosJobs.value = await listarTodosOsJobs()
+    const jobs = await listarTodosOsJobs()
+    resumosDosJobs.value = jobs
+    await carregarRegrasDosJobs(jobs)
   } catch {
     resumosDosJobs.value = []
+    regrasFormatadas.value = new Map()
     mensagemDeErro.value = 'Não foi possível carregar o histórico agora. Tente novamente em alguns instantes.'
   } finally {
     carregando.value = false
   }
+}
+
+function obterRegraFormatada(
+  id: string,
+): ReturnType<typeof transformarRegra> | null {
+  return regrasFormatadas.value.get(id) ?? null
 }
 
 watch(
@@ -179,16 +214,63 @@ watch(
               <span class="rounded-full border border-[#edd0c0] bg-[#fff3ec] px-3 py-1 text-xs font-semibold text-[#8f470e]">{{ nomearStatus(resumoDoJob.status) }}</span>
             </div>
 
-            <dl class="mt-5 grid gap-4 text-sm">
-              <div class="flex items-start justify-between gap-4">
-                <dt class="text-[#80695c]">Competência</dt>
-                <dd class="text-right font-medium text-[#3a241a]">{{ formatarCompetencias(resumoDoJob.competencias) }}</dd>
-              </div>
-              <div class="flex items-center justify-between gap-4">
-                <dt class="text-[#80695c]">Veredito</dt>
-                <dd class="font-medium text-[#3a241a]">{{ nomearVeredito(resumoDoJob.veredito) }}</dd>
-              </div>
-            </dl>
+            <div v-if="obterRegraFormatada(resumoDoJob.id)" class="mt-5 rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] p-4 ">
+              <template v-if="obterRegraFormatada(resumoDoJob.id)?.se.length">
+                <p class="font-serif text-lg font-semibold text-[#3a241a]">SE</p>
+                <ul class="mt-2 space-y-1 text-sm text-[#3a241a]">
+                  <li
+                    v-for="(condicao, indice) in obterRegraFormatada(resumoDoJob.id)?.se"
+                    :key="`${indice}-${condicao}`"
+                  >
+                    {{ condicao }}
+                  </li>
+                </ul>
+              </template>
+
+              <template v-if="obterRegraFormatada(resumoDoJob.id)?.entao.length">
+                <p class="mt-4 font-serif text-lg font-semibold text-[#3a241a]">
+                  ENTÃO
+                </p>
+
+                <ul class="mt-2 space-y-1 text-sm text-[#3a241a]">
+                  <li
+                    v-for="(efeito, indice) in obterRegraFormatada(resumoDoJob.id)?.entao"
+                    :key="`${indice}-${efeito}`"
+                  >
+                    {{ efeito }}
+                  </li>
+                </ul>
+              </template>
+            </div>
+
+            <div v-if="obterRegraFormatada(resumoDoJob.id)" class="mt-5 rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] p-4 ">
+              <template v-if="obterRegraFormatada(resumoDoJob.id)?.se.length">
+                <p class="font-serif text-lg font-semibold text-[#3a241a]">SE</p>
+                <ul class="mt-2 space-y-1 text-sm text-[#3a241a]">
+                  <li
+                    v-for="(condicao, indice) in obterRegraFormatada(resumoDoJob.id)?.se"
+                    :key="`${indice}-${condicao}`"
+                  >
+                    {{ condicao }}
+                  </li>
+                </ul>
+              </template>
+
+              <template v-if="obterRegraFormatada(resumoDoJob.id)?.entao.length">
+                <p class="mt-4 font-serif text-lg font-semibold text-[#3a241a]">
+                  ENTÃO
+                </p>
+
+                <ul class="mt-2 space-y-1 text-sm text-[#3a241a]">
+                  <li
+                    v-for="(efeito, indice) in obterRegraFormatada(resumoDoJob.id)?.entao"
+                    :key="`${indice}-${efeito}`"
+                  >
+                    {{ efeito }}
+                  </li>
+                </ul>
+              </template>
+            </div>
 
             <a :href="`/jobs/${resumoDoJob.id}`" class="mt-auto pt-6 text-sm font-semibold text-[#b84e08] transition hover:text-[#843600]">
               Abrir relatório <span aria-hidden="true">→</span>

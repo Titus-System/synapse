@@ -4,6 +4,7 @@ import { apiClient } from "@/services/api";
 import type { JobResumo } from "@/types/api";
 import { useRoute, useRouter } from "vue-router";
 import { useJobSimulacao } from "../composables/useJobSimulacao";
+import { calcularProgresso } from "../composables/progressoSimulacao";
 import TheProcessHeader from "@/components/TheProcessHeader.vue";
 import TheSidebar from "@/components/TheSidebar.vue";
 
@@ -17,6 +18,7 @@ const quantidadeSalvas = ref(0);
 const {
   job,
   carregando,
+  etapaAtual,
   erro,
   erroEspecifico,
   iniciar,
@@ -32,6 +34,16 @@ const {
   podeFinalizar,
 } = useJobSimulacao(jobId);
 
+const progresso = computed(() =>
+  calcularProgresso(job.value?.status ?? null, etapaAtual.value),
+);
+
+const processando = computed(() =>
+  carregando.value ||
+  ['aguardando_transcricao', 'gerando_regra', 'simulando'].includes(
+    job.value?.status ?? '',
+  ),
+);
 
 const nucleo = computed(() => regra.value?.representacao.nucleo);
 
@@ -181,6 +193,27 @@ const assercaoViolada = computed(
 );
 
 watch(
+  simulacao,
+  (valor) => {
+    console.log("SIMULAÇÃO NA TELA:", valor);
+    console.log("TOTAIS NA TELA:", valor?.resultado?.totais);
+    console.log(
+      "TOTAL SIMULADO NA TELA:",
+      valor?.resultado?.totais?.simulado,
+    );
+  },
+  { immediate: true },
+);
+
+watch(
+  totalComissionamento,
+  (valor) => {
+    console.log("TOTAL FORMATADO:", valor);
+  },
+  { immediate: true },
+);
+
+watch(
   jobId,
   () => {
     void iniciar();
@@ -196,11 +229,10 @@ onUnmounted(parar);
 
 <template>
     <div class="font-['Tinos'] bg-[#fffaf7]">
-    <div class="flex flex-row min-h-screen">
-    <TheSidebar class="hidden md:flex" :quantidade-arquivadas="quantidadeArquivadas" :quantidade-salvas="quantidadeSalvas" :regras-recentes="regrasRecentes"/>
+    <div class="tela-de-negocio min-h-[100dvh] bg-[#fffaf7] text-[#2e1a10] lg:grid lg:h-[100dvh] lg:grid-cols-[16rem_minmax(0,1fr)] lg:overflow-hidden">
+    <TheSidebar class="sticky top-0 hidden h-screen lg:flex" :quantidade-arquivadas="quantidadeArquivadas" :quantidade-salvas="quantidadeSalvas" :regras-recentes="regrasRecentes"/>
     <main class="min-w-0 lg:min-h-0 lg:overflow-y-auto">
-    <div class="flex min-w-0 flex-col">
-    <TheProcessHeader etapa-da-rota="simulacao" :status-do-job="job?.status ?? null" class="mb-12" />
+    <TheProcessHeader etapa-da-rota="simulacao" :status-do-job="job?.status ?? null" class="mb-12 sticky top-0" />
     <!-- Simulação -->
         <div class="mx-auto mb-12 w-full max-w-6xl p-4 sm:p-6 lg:p-10">
             <div class="mb-11">
@@ -216,7 +248,40 @@ onUnmounted(parar);
                 </div>
             </div>
             <div>
-                <div v-if="erro" class="flex flex-col items-center justify-center py-16">
+                <div v-if="processando" class="flex flex-col items-center justify-center py-16">
+                    <div class="mb-6 flex h-16 w-16 items-center justify-center rounded-full border-4 border-[#FFDBCD] border-t-[#f26b0f] animate-spin" aria-label="Processando simulação">
+                        <span class="sr-only">Processando simulação</span>
+                    </div>
+
+                    <h2 class="mb-2 text-2xl font-bold text-[#2B160D]">
+                        {{ progresso.titulo }}
+                    </h2>
+
+                    <p class="mb-6 max-w-xl text-center text-[#584237]">
+                        {{ progresso.detalhe }}
+                    </p>
+
+                    <div class="w-full max-w-md">
+                        <div class="mb-2 flex items-center justify-between text-sm text-[#584237]">
+                            <span>Progresso</span>
+                            <span class="font-bold">{{ progresso.percentual }}%</span>
+                        </div>
+
+                        <div
+                            class="h-3 w-full overflow-hidden rounded-full bg-[#FFE9E1]"
+                            role="progressbar"
+                            :aria-valuenow="progresso.percentual"
+                            aria-valuemin="0"
+                            aria-valuemax="100"
+                        >
+                            <div
+                                class="h-full rounded-full bg-[#f26b0f] transition-all duration-700"
+                                :style="{ width: `${progresso.percentual}%` }"
+                            />
+                        </div>
+                    </div>
+                </div>
+                <div v-else-if="erro" class="flex flex-col items-center justify-center py-16">
                     <font-awesome-icon :icon="['fas', 'circle-exclamation']" class="text-5xl text-[#950606] mb-4"/>
                     <h2 class="text-2xl text-[#950606] font-bold mb-2">Não foi possível carregar a simulação</h2>
                     <p v-if="erroEspecifico" class="text-[#584237] text-center max-w-xl">
@@ -435,7 +500,6 @@ onUnmounted(parar);
                 </div>
             </div>
         </div>
-    </div>
     </main>
     </div>
     </div>
