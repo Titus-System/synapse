@@ -196,18 +196,11 @@ onUnmounted(parar);
 
 <template>
     <div class="font-['Tinos'] bg-[#fffaf7]">
-<<<<<<< HEAD
     <div class="flex flex-row min-h-screen">
     <TheSidebar class="hidden md:flex" :quantidade-arquivadas="quantidadeArquivadas" :quantidade-salvas="quantidadeSalvas" :regras-recentes="regrasRecentes"/>
-    <div class="flex flex-col min-h-screen w-[84.7%]">
-    <TheProcessHeader class="mb-12" />
-=======
-    <div class="tela-de-negocio min-h-[100dvh] bg-[#fffaf7] text-[#2e1a10] lg:grid lg:h-[100dvh] lg:grid-cols-[16rem_minmax(0,1fr)] lg:overflow-hidden">
-    <TheSidebar class="hidden lg:flex"/>
     <main class="min-w-0 lg:min-h-0 lg:overflow-y-auto">
     <div class="flex min-w-0 flex-col">
     <TheProcessHeader etapa-da-rota="simulacao" :status-do-job="job?.status ?? null" class="mb-12" />
->>>>>>> develop
     <!-- Simulação -->
         <div class="mx-auto mb-12 w-full max-w-6xl p-4 sm:p-6 lg:p-10">
             <div class="mb-11">
@@ -358,11 +351,7 @@ onUnmounted(parar);
             </div>
         </div>
     <!-- Sugestão (tornar aparição dinâmica depois) -->
-<<<<<<< HEAD
-        <div v-if="sugestao && (regraInviavel || aguardandoConfirmacao)" class="mb-8 p-10">
-=======
         <div v-if="sugestao && (regraInviavel || aguardandoConfirmacao)" class="mx-auto mb-8 w-full max-w-6xl px-4 sm:px-6 lg:px-10">
->>>>>>> develop
             <div class="mb-11">
                 <h1 class="text-3xl text-[#2B160D] mb-2 font-semibold">Sugestão</h1>
                 <p class="text-[#584237]">A regra de negócio escolhida é inviável. Mas não se preocupe, criamos esta para você:</p>

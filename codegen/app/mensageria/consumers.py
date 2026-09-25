@@ -8,6 +8,7 @@ from aio_pika.abc import AbstractIncomingMessage
 from app.contratos.mensagens import ParametrosConfirmados, RegraSubmetida, SimulacaoConcluida
 from app.contratos.validacao import validar
 from app.core.logger import get_logger, job_id_ctx
+from app.falhas import FalhaDoJobError
 from app.mensageria.roteamento import JobDesconhecidoError, RoteadorGrafo
 
 logger = get_logger("app.mensageria.consumers")
@@ -67,6 +68,21 @@ class Consumer:
                     extra={
                         "tipo_mensagem": self.nome,
                         "causa": "job_desconhecido",
+                        "decisao": "reject_sem_requeue",
+                    },
+                )
+                await mensagem.reject(requeue=False)
+            except FalhaDoJobError as falha:
+                # Falha permanente: reentregar não a corrige, então a rejeição não usa
+                # requeue. O roteador já avisou a `api` por `etapa-alterada`, e o job termina
+                # em erro. A etapa entra no log; a mensagem da exceção nunca, porque pode
+                # carregar regra, prompt, resposta ou código.
+                logger.warning(
+                    "processamento do job falhou de forma permanente",
+                    extra={
+                        "tipo_mensagem": self.nome,
+                        "causa": "falha_do_job",
+                        "etapa": falha.etapa,
                         "decisao": "reject_sem_requeue",
                     },
                 )

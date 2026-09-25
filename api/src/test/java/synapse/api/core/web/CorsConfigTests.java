@@ -76,7 +76,9 @@ class CorsConfigTests {
 			.expectStatus()
 			.isForbidden()
 			.expectHeader()
-			.doesNotExist("Access-Control-Allow-Origin");
+			.doesNotExist("Access-Control-Allow-Origin")
+			.expectBody(String.class)
+			.isEqualTo("Invalid CORS request");
 	}
 
 	/** O contrato em contracts/http/ só tem GET e POST. */

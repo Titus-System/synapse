@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -11,6 +13,7 @@ from aio_pika import DeliveryMode
 from jsonschema import Draft202012Validator, FormatChecker
 from referencing import Registry, Resource
 
+from app.codigo_gerado import CodigoInvalidoError
 from app.config import Settings
 from app.contratos.mensagens import (
     EtapaAlterada,
@@ -23,11 +26,15 @@ from app.contratos.mensagens import (
 )
 from app.contratos.serializacao import serializar
 from app.core.logger import job_id_ctx
+from app.falhas import FalhaDoJobError
+from app.graph.nodes.code_generation import RespostaModeloInvalidaError
+from app.graph.nodes.dispatch_execution import OrcamentoAusenteError
 from app.mensageria import broker as modulo_broker
 from app.mensageria.broker import FILA_SIMULACAO, FILAS_SIMPLES, conectar, declarar_topologia
 from app.mensageria.consumers import Consumer
 from app.mensageria.producers import Producers, ProdutorError
 from app.mensageria.roteamento import Entrada, JobDesconhecidoError
+from app.repositorio.regras import RegraInvalidaError
 
 CONTRATOS = Path(__file__).resolve().parents[3] / "contracts"
 
@@ -250,6 +257,39 @@ async def test_job_desconhecido_rejeitado_e_consumer_continua(
     assert "segredo" not in str(log.mock_calls)
 
 
+@pytest.mark.parametrize(
+    ("falha", "etapa"),
+    [
+        (RegraInvalidaError, "geracao_codigo"),
+        (RespostaModeloInvalidaError, "geracao_codigo"),
+        (CodigoInvalidoError, "geracao_codigo"),
+        (OrcamentoAusenteError, "delegacao_worker"),
+    ],
+)
+async def test_falha_permanente_rejeitada_sem_requeue(
+    monkeypatch: pytest.MonkeyPatch, falha: type[FalhaDoJobError], etapa: str
+) -> None:
+    """Toda falha permanente tem a mesma decisão, qualquer que seja o nó que a levantou.
+
+    Reentregar não corrige nenhuma delas, e o grafo retomaria do checkpoint sobre o mesmo
+    artefato inválido - com a chamada paga ao modelo repetida junto, no caso do provedor.
+    """
+    log = MagicMock()
+    monkeypatch.setattr("app.mensageria.consumers.logger", log)
+    roteador = MagicMock(entregar=AsyncMock(side_effect=falha("segredo")))
+    mensagem = AsyncMock(body=simplejson.dumps(exemplo("regra-submetida")).encode())
+
+    await Consumer(RegraSubmetida, "regra-submetida", roteador).receber(mensagem)
+
+    mensagem.reject.assert_awaited_once_with(requeue=False)
+    mensagem.nack.assert_not_awaited()
+    mensagem.ack.assert_not_awaited()
+    extra = log.warning.call_args.kwargs["extra"]
+    assert extra["causa"] == "falha_do_job"
+    assert extra["etapa"] == etapa
+    assert "segredo" not in str(log.mock_calls)
+
+
 async def test_falha_de_processamento_reentrega_sem_ack(monkeypatch: pytest.MonkeyPatch) -> None:
     log = MagicMock()
     monkeypatch.setattr("app.mensageria.consumers.logger", log)
@@ -318,7 +358,12 @@ async def test_lifespan_inicia_recursos_e_fecha_sem_grafo_falso(
 ) -> None:
     from app.main import criar_aplicacao
 
+    engine = MagicMock(dispose=AsyncMock())
+    checkpointer = AsyncMock()
     broker = MagicMock(iniciar_consumers=AsyncMock(), fechar=AsyncMock())
+    monkeypatch.setattr("app.main.criar_engine", MagicMock(return_value=engine))
+    monkeypatch.setattr("app.main.criar_sessionmaker", MagicMock(return_value=MagicMock()))
+    monkeypatch.setattr("app.main.get_checkpointer", _checkpointer_fixo(checkpointer))
     monkeypatch.setattr("app.main.conectar", AsyncMock(return_value=broker))
     monkeypatch.setattr("app.main.stop_logger", MagicMock())
     roteador = MagicMock() if com_roteador else None
@@ -331,7 +376,40 @@ async def test_lifespan_inicia_recursos_e_fecha_sem_grafo_falso(
             broker.iniciar_consumers.assert_awaited_once_with(roteador)
         else:
             broker.iniciar_consumers.assert_not_awaited()
+    checkpointer.setup.assert_awaited_once_with()
     broker.fechar.assert_awaited_once_with()
+    engine.dispose.assert_awaited_once_with()
+
+
+def _checkpointer_fixo(checkpointer: AsyncMock) -> Any:
+    @asynccontextmanager
+    async def get_checkpointer() -> AsyncIterator[AsyncMock]:
+        yield checkpointer
+
+    return get_checkpointer
+
+
+async def test_lifespan_liga_sessoes_e_producers_num_graph_router_real(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.main import criar_aplicacao
+    from app.mensageria.roteamento import GraphRouter
+
+    engine = MagicMock(dispose=AsyncMock())
+    sessoes = MagicMock()
+    checkpointer = AsyncMock()
+    broker = MagicMock(iniciar_consumers=AsyncMock(), fechar=AsyncMock())
+    monkeypatch.setattr("app.main.criar_engine", MagicMock(return_value=engine))
+    monkeypatch.setattr("app.main.criar_sessionmaker", MagicMock(return_value=sessoes))
+    monkeypatch.setattr("app.main.get_checkpointer", _checkpointer_fixo(checkpointer))
+    monkeypatch.setattr("app.main.conectar", AsyncMock(return_value=broker))
+    monkeypatch.setattr("app.main.stop_logger", MagicMock())
+    roteador = GraphRouter()
+    aplicacao = criar_aplicacao(roteador)
+
+    async with aplicacao.router.lifespan_context(aplicacao):
+        assert roteador.sessoes is sessoes
+        assert roteador.producers is broker.producers
 
 
 async def test_producer_revalida_restricao_schema_depois_de_mutacao() -> None:
@@ -359,7 +437,7 @@ async def test_broker_usa_confirms_prefetch_e_consumers_com_ack_manual(
 
     conexao.channel.assert_awaited_once_with(publisher_confirms=True, on_return_raises=True)
     canal.set_qos.assert_awaited_once_with(prefetch_count=1)
-    assert len(broker.consumidores) == 3
+    assert len(broker.consumidores) == 1
     for fila, _, _ in broker.consumidores:
         assert fila.consume.call_args.kwargs == {"no_ack": False}
     await broker.fechar()

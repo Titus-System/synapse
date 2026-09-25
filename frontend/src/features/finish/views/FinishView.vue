@@ -146,11 +146,7 @@ onUnmounted(() => {
     <TheProcessHeader etapa-da-rota="salvar" :status-do-job="job?.status ?? null" class="mb-12" />
     <div class="flex w-full flex-col items-center justify-center px-4 font-['Tinos'] sm:px-6">
         <div class="mb-7">
-<<<<<<< HEAD
-            <h1 class="text-4xl font-semibold text-center mb-3">Finalizar Regra</h1>
-=======
             <h1 class="mb-3 text-center text-3xl font-bold sm:text-4xl">Finalizar Regra</h1>
->>>>>>> develop
             <p class="text-center text-[#584237]">Revise os detalhes da regra extraída e confirme o salvamento.</p>
         </div>
         <div class="mb-12 flex w-full max-w-4xl flex-col rounded-xl border-2 border-[#DFC0B2] bg-white">

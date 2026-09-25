@@ -39,6 +39,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 import synapse.api.core.security.AcessoDoUsuario;
+import synapse.api.core.security.PapelDoUsuario;
 import synapse.api.core.security.UsuarioAtual;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -104,8 +105,9 @@ class ListarJobsPersistenciaTests {
 		contexto.refresh();
 		service = contexto.getBean(ListarJobsService.class);
 		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
-		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, false));
-		mvc = MockMvcBuilders.standaloneSetup(new ListarJobsController(service, usuarioAtual))
+		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
+		mvc = MockMvcBuilders.standaloneSetup(new ListarJobsController(service))
+			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual, new AutorizadorDeJob(jdbc)))
 			.setControllerAdvice(contexto.getBean(ListarJobsAdvice.class))
 			.build();
 	}
@@ -132,9 +134,25 @@ class ListarJobsPersistenciaTests {
 
 	}
 
+	@org.junit.jupiter.params.ParameterizedTest
+	@org.junit.jupiter.params.provider.EnumSource(PapelDoUsuario.class)
+	void consultaSempreFiltraDonoNaPaginaENoTotalMesmoComPapelAuditor(PapelDoUsuario papel) {
+		UUID proprio = criarJob("2026-01-01T10:00:00Z");
+		UUID alheio = criarJob("2026-01-02T10:00:00Z");
+		UUID outro = UUID.randomUUID();
+		jdbc.update(
+				"INSERT INTO usuarios (id, login, nome, papel, criado_em) VALUES (?, ?, 'Outro', 'profissional_rh', now())",
+				outro, outro.toString());
+		jdbc.update("UPDATE jobs SET usuario_id = ? WHERE id = ?", outro, alheio);
+		PaginaJobsDto pagina = service.listar(new ListarJobsRequisicao(0, 20), new AcessoDoUsuario(USUARIO, papel));
+		assertThat(pagina.total()).isEqualTo(1);
+		assertThat(pagina.itens()).extracting(JobResumoDto::id).containsExactly(proprio);
+	}
+
 	@Test
 	void devolveVazioComTotalZeroQuandoNaoHaJob() {
-		PaginaJobsDto pagina = service.listar(new ListarJobsRequisicao(0, 20));
+		PaginaJobsDto pagina = service.listar(new ListarJobsRequisicao(0, 20),
+				new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
 
 		assertThat(pagina.itens()).isEmpty();
 		assertThat(pagina.total()).isZero();
@@ -147,7 +165,8 @@ class ListarJobsPersistenciaTests {
 
 		List<UUID> vistos = new java.util.ArrayList<>();
 		for (int pagina = 0; pagina < 3; pagina++) {
-			PaginaJobsDto resultado = service.listar(new ListarJobsRequisicao(pagina, 2));
+			PaginaJobsDto resultado = service.listar(new ListarJobsRequisicao(pagina, 2),
+					new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
 			resultado.itens().forEach(item -> vistos.add(item.id()));
 		}
 
@@ -160,12 +179,14 @@ class ListarJobsPersistenciaTests {
 		UUID b = criarJob("2026-01-01T10:00:00Z");
 		UUID c = criarJob("2026-01-02T10:00:00Z");
 
-		List<UUID> primeiraChamada = service.listar(new ListarJobsRequisicao(0, 20))
+		List<UUID> primeiraChamada = service
+			.listar(new ListarJobsRequisicao(0, 20), new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH))
 			.itens()
 			.stream()
 			.map(JobResumoDto::id)
 			.toList();
-		List<UUID> segundaChamada = service.listar(new ListarJobsRequisicao(0, 20))
+		List<UUID> segundaChamada = service
+			.listar(new ListarJobsRequisicao(0, 20), new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH))
 			.itens()
 			.stream()
 			.map(JobResumoDto::id)
@@ -183,7 +204,8 @@ class ListarJobsPersistenciaTests {
 	void umaPaginaAlemDoFimDevolveItensVazioComOTotalCorreto() {
 		criarJob("2026-01-01T10:00:00Z");
 
-		PaginaJobsDto pagina = service.listar(new ListarJobsRequisicao(5, 20));
+		PaginaJobsDto pagina = service.listar(new ListarJobsRequisicao(5, 20),
+				new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
 
 		assertThat(pagina.itens()).isEmpty();
 		assertThat(pagina.total()).isEqualTo(1);
@@ -248,7 +270,8 @@ class ListarJobsPersistenciaTests {
 		UUID original = criarJob("2026-01-01T10:00:00Z");
 		UUID reprocessado = criarJobReprocessado("2026-01-02T10:00:00Z", original);
 
-		PaginaJobsDto pagina = service.listar(new ListarJobsRequisicao(0, 20));
+		PaginaJobsDto pagina = service.listar(new ListarJobsRequisicao(0, 20),
+				new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
 		JobResumoDto item = pagina.itens().stream().filter(i -> i.id().equals(reprocessado)).findFirst().orElseThrow();
 		assertThat(item.job_origem_id()).isEqualTo(original);
 
@@ -277,7 +300,9 @@ class ListarJobsPersistenciaTests {
 	}
 
 	private JobResumoDto itemUnico() {
-		List<JobResumoDto> itens = service.listar(new ListarJobsRequisicao(0, 20)).itens();
+		List<JobResumoDto> itens = service
+			.listar(new ListarJobsRequisicao(0, 20), new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH))
+			.itens();
 		assertThat(itens).hasSize(1);
 		return itens.getFirst();
 	}

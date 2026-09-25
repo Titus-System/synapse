@@ -39,6 +39,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 import synapse.api.core.outbox.Outbox;
 import synapse.api.core.security.AcessoDoUsuario;
+import synapse.api.core.security.PapelDoUsuario;
 import synapse.api.core.security.UsuarioAtual;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -133,8 +134,9 @@ class CriarJobPersistenciaTests {
 			.replace("\"texto_livre\":null", "\"texto_livre\":\"Observação recebida\",\"extra\":{\"preservar\":true}")
 			.replace("0.025", "0.025000000000000000001");
 		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
-		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, false));
-		var mvc = MockMvcBuilders.standaloneSetup(new CriarJobController(service, usuarioAtual))
+		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
+		var mvc = MockMvcBuilders.standaloneSetup(new CriarJobController(service))
+			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual, new AutorizadorDeJob(jdbc)))
 			.setControllerAdvice(contexto.getBean(CriarJobAdvice.class))
 			.build();
 		var resposta = mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(corpo))
@@ -194,6 +196,8 @@ class CriarJobPersistenciaTests {
 		String payload = Objects.requireNonNull((String) evento.get("payload"));
 		ContratoDeEvento.validar("regra-submetida", payload);
 		var payloadNode = JSON.readTree(payload);
+		assertThat(payloadNode.path("orcamento").isNumber()).isTrue();
+		assertThat(payloadNode.path("orcamento").decimalValue()).isEqualByComparingTo("485000.1234567890123456789");
 		assertThat(payloadNode.path("job_id").asString()).isEqualTo(jobId.toString());
 		assertThat(payloadNode.path("origem").asString()).isEqualTo("formulario");
 		assertThat(payloadNode.path("competencias").valueStream().map(JsonNode::asString).toList())
@@ -217,20 +221,33 @@ class CriarJobPersistenciaTests {
 		}
 	}
 
+	/**
+	 * O caminho que o formulário percorre: a tela não tem campo de período, então nunca
+	 * envia {@code competencias} e a api preenche com o dataset inteiro. São as cinco
+	 * competências publicadas - Jul/2025 foi descartado no tratamento dos dados e não tem
+	 * baseline, então incluí-lo entregaria ao worker um mês sem o que comparar.
+	 */
 	@Test
-	void ausenciaDeCompetenciasPersisteOsSeisMeses() {
+	void ausenciaDeCompetenciasPersisteOPeriodoInteiroDoDataset() {
 		JobCriadoDto job = service.criar(CriarJobRequisicao
 			.deJson(CriarJobControllerTests.FORMULARIO.replace("\"competencias\":[\"2025-11\"],", "")));
-		assertThat(competencias(job.id())).containsExactly("2025-07", "2025-08", "2025-09", "2025-10", "2025-11",
-				"2025-12");
+		assertThat(competencias(job.id())).containsExactly("2025-08", "2025-09", "2025-10", "2025-11", "2025-12");
 		assertThat(job.competencias()).containsExactlyElementsOf(competencias(job.id()));
 	}
 
 	@Test
 	void ordenaCompetenciasAntesDePersistir() {
 		JobCriadoDto job = service.criar(CriarJobRequisicao.deJson(
-				CriarJobControllerTests.FORMULARIO.replace("[\"2025-11\"]", "[\"2025-12\",\"2025-07\",\"2025-09\"]")));
-		assertThat(competencias(job.id())).containsExactly("2025-07", "2025-09", "2025-12");
+				CriarJobControllerTests.FORMULARIO.replace("[\"2025-11\"]", "[\"2025-12\",\"2025-08\",\"2025-09\"]")));
+		assertThat(competencias(job.id())).containsExactly("2025-08", "2025-09", "2025-12");
+	}
+
+	@Test
+	void competenciaForaDoDatasetERecusada() {
+		assertThatThrownBy(() -> CriarJobRequisicao
+			.deJson(CriarJobControllerTests.FORMULARIO.replace("[\"2025-11\"]", "[\"2025-07\"]")))
+			.isInstanceOf(CriarJobException.class)
+			.hasMessageContaining("2025-08");
 	}
 
 	@Test

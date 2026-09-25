@@ -19,8 +19,6 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
-import synapse.api.core.security.AcessoDoUsuario;
-import synapse.api.core.security.UsuarioAtual;
 import synapse.api.job.ExecutarAcaoService.AcaoAplicada;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -43,18 +41,11 @@ class ExecutarAcaoControllerTests {
 
 	private final EmissoresSse emissores = mock(EmissoresSse.class);
 
-	private final AutorizadorDeJob autorizador = mock(AutorizadorDeJob.class);
-
-	private final UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
-
 	private MockMvc mvc;
 
 	@BeforeEach
 	void preparar() {
-		when(this.usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(UUID.randomUUID(), false));
-		this.mvc = MockMvcBuilders
-			.standaloneSetup(
-					new ExecutarAcaoController(this.service, this.emissores, this.autorizador, this.usuarioAtual))
+		this.mvc = MockMvcBuilders.standaloneSetup(new ExecutarAcaoController(this.service, this.emissores))
 			.setControllerAdvice(new ExecutarAcaoAdvice())
 			.build();
 	}
