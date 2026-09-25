@@ -132,8 +132,8 @@ class SubmissaoDeRegraFimAFimTests {
 	 */
 	static boolean ambienteCompleto() {
 		return DockerClientFactory.instance().isDockerAvailable() && chaveDoProvedor() != null
-				&& imagemExiste("synapse-codegen:local") && imagemExiste("synapse-worker:local")
-				&& imagemExiste("synapse-sandbox:local");
+				&& ImagemDocker.existe("synapse-codegen:local") && ImagemDocker.existe("synapse-worker:local")
+				&& ImagemDocker.existe("synapse-sandbox:local");
 	}
 
 	@BeforeAll
@@ -390,20 +390,6 @@ class SubmissaoDeRegraFimAFimTests {
 	private static @Nullable String chaveDoProvedor() {
 		String chave = System.getenv("GOOGLE_API_KEY");
 		return chave == null || chave.isBlank() ? null : chave;
-	}
-
-	private static boolean imagemExiste(String etiqueta) {
-		try {
-			return !DockerClientFactory.instance()
-				.client()
-				.listImagesCmd()
-				.withImageNameFilter(etiqueta)
-				.exec()
-				.isEmpty();
-		}
-		catch (RuntimeException ex) {
-			return false;
-		}
 	}
 
 	private static String gidDoSocket() {
