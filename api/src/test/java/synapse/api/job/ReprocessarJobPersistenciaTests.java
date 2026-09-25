@@ -45,6 +45,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 import synapse.api.core.outbox.Outbox;
 import synapse.api.core.security.AcessoDoUsuario;
+import synapse.api.core.security.PapelDoUsuario;
 import synapse.api.core.security.UsuarioAtual;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -120,12 +121,12 @@ class ReprocessarJobPersistenciaTests {
 		contexto.refresh();
 		service = contexto.getBean(ReprocessarJobService.class);
 		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
-		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(DONO_ORIGINAL, false));
+		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(DONO_ORIGINAL, PapelDoUsuario.PROFISSIONAL_RH));
 		mvc = MockMvcBuilders
 			.standaloneSetup(contexto.getBean(ReprocessarJobController.class),
-					new BuscarJobController(contexto.getBean(BuscarJobService.class),
-							contexto.getBean(AutorizadorDeJob.class), usuarioAtual),
+					new BuscarJobController(contexto.getBean(BuscarJobService.class)),
 					contexto.getBean(ConfirmarParametrosController.class))
+			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual, new AutorizadorDeJob(jdbc)))
 			.setControllerAdvice(new ReprocessarJobAdvice(), new ConfirmarParametrosAdvice())
 			.build();
 	}

@@ -63,10 +63,13 @@ emissor é removido).
 - **Autenticação do stream.** Com Keycloak habilitado, `GET /jobs/{id}/events`
   exige JWT Bearer, como as demais rotas de jobs. O frontend usa `fetch` para enviar
   o cabeçalho e renova o token antes de abrir ou reconectar o stream.
-- **Autorização em tarefa própria.** O controller já chama `AutorizadorDeJob`;
-  preserve essa checagem ao alterar o transporte. A cobertura uniforme de posse,
-  papéis e respostas de acesso negado pertence à tarefa do middleware de
-  autorização, conforme o [ADR-006](../../../../docs/adrs/ADR-006.md).
+- **Autorização antes do stream.** O método do controller declara
+  `@AutorizarJob(OperacaoJob.ACOMPANHAR)`. O interceptor aplica `AutorizadorDeJob`
+  antes de executar o controller ou criar `SseEmitter`: somente profissional de
+  RH dono do job pode abrir o stream. Cada abertura ou reconexão repete a checagem;
+  auditor, papel inválido e não dono recebem 403 JSON. Preserve essa ordem ao
+  alterar o transporte, conforme a matriz HTTP da
+  [DEC-087](../../../../docs/decisoes/dec-087.md).
 
 ## Referências
 

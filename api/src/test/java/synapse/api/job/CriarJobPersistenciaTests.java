@@ -39,6 +39,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 import synapse.api.core.outbox.Outbox;
 import synapse.api.core.security.AcessoDoUsuario;
+import synapse.api.core.security.PapelDoUsuario;
 import synapse.api.core.security.UsuarioAtual;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -133,8 +134,9 @@ class CriarJobPersistenciaTests {
 			.replace("\"texto_livre\":null", "\"texto_livre\":\"Observação recebida\",\"extra\":{\"preservar\":true}")
 			.replace("0.025", "0.025000000000000000001");
 		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
-		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, false));
-		var mvc = MockMvcBuilders.standaloneSetup(new CriarJobController(service, usuarioAtual))
+		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
+		var mvc = MockMvcBuilders.standaloneSetup(new CriarJobController(service))
+			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual, new AutorizadorDeJob(jdbc)))
 			.setControllerAdvice(contexto.getBean(CriarJobAdvice.class))
 			.build();
 		var resposta = mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(corpo))

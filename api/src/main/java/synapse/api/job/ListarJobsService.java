@@ -27,11 +27,6 @@ class ListarJobsService {
 		this.jdbc = jdbc;
 	}
 
-	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-	PaginaJobsDto listar(ListarJobsRequisicao requisicao) {
-		return listar(requisicao, new AcessoDoUsuario(UUID.randomUUID(), true));
-	}
-
 	/**
 	 * {@code REPEATABLE_READ} faz a contagem e a página lerem o mesmo snapshot. O
 	 * veredito é o da simulação mais recente do job, e só quando ela terminou com
@@ -40,8 +35,8 @@ class ListarJobsService {
 	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 	PaginaJobsDto listar(ListarJobsRequisicao requisicao, AcessoDoUsuario acesso) {
 		long total = Objects.requireNonNull(this.jdbc.queryForObject("""
-				SELECT count(*) FROM jobs WHERE ? OR usuario_id = ?
-				""", Long.class, acesso.auditor(), acesso.usuarioId()));
+				SELECT count(*) FROM jobs WHERE usuario_id = ?
+				""", Long.class, acesso.usuarioId()));
 		List<JobResumoDto> itens = this.jdbc.query("""
 				SELECT j.id, j.status, j.competencias, j.orcamento, j.criado_em, j.finalizado_em,
 				       j.job_origem_id, rs.veredito
@@ -53,10 +48,10 @@ class ListarJobsService {
 				    LIMIT 1
 				) corrente ON true
 				LEFT JOIN resultados_simulacao rs ON rs.id = corrente.resultado_id AND rs.status = 'sucesso'
-				WHERE ? OR j.usuario_id = ?
+				WHERE j.usuario_id = ?
 				ORDER BY j.criado_em DESC, j.id DESC
 				LIMIT ? OFFSET ?
-				""", (linha, numero) -> resumo(linha), acesso.auditor(), acesso.usuarioId(), requisicao.tamanho(),
+				""", (linha, numero) -> resumo(linha), acesso.usuarioId(), requisicao.tamanho(),
 				requisicao.deslocamento());
 		return new PaginaJobsDto(itens, requisicao.pagina(), requisicao.tamanho(), total);
 	}
