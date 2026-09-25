@@ -9,8 +9,9 @@ T-097 deixa o grafo e o que a retomada precisa respeitar. Não é implementaçã
 load_rule → code_generation → persist_response → extract_code → dispatch_execution → await_execution ⏸
 ```
 
-- `dispatch_execution` publica `executar-codigo` com `job_id`, `codigo_gerado_id`, `competencias` e
-  `orcamento`.
+- `dispatch_execution` publica `etapa-alterada` (`delegacao_worker`/`iniciada`, que leva o job a
+  `simulando`) e depois `executar-codigo` com `job_id`, `codigo_gerado_id`, `competencias` e
+  `orcamento`. A ordem e o motivo estão em [`mensageria.md`](mensageria.md).
 - `await_execution` só chama `interrupt({"job_id", "codigo_gerado_id"})`. O checkpoint fica no
   Postgres (`AsyncPostgresSaver`) com `thread_id = job_id`, e `graph.astream(...)` retorna
   normalmente: `run` termina, a `regra-submetida` recebe `ack` e o processo fica livre. Nada fica

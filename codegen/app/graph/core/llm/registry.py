@@ -46,15 +46,6 @@ _MODELS: dict[str, Callable[[], BaseChatModel]] = {
         timeout=60,
         max_retries=2,
     ),
-    # `greeting` only asks for a `say_hello` call and a one-line reply, so it needs a fraction of
-    # `code_generation`'s output budget and timeout.
-    "greeting": lambda: _google(
-        "gemini-3.1-flash-lite",
-        temperature=0,
-        max_output_tokens=256,
-        timeout=30,
-        max_retries=2,
-    ),
 }
 
 # Metadata recorded alongside each call, matching `modelo-llm.schema.json`. Kept here, next to

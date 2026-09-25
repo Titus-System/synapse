@@ -3,7 +3,7 @@ import re
 from collections.abc import Callable, Iterable
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from app.config import get_settings
 from app.graph.core.state import AgentState
@@ -42,20 +42,20 @@ async def test_code_generation_sends_exactly_the_generation_prompt(
     assert [m.content for m in model.seen_messages[0]] == [esperado]
 
 
-async def test_code_generation_sends_only_its_prompt_even_after_the_greeting_exchange(
+async def test_code_generation_sends_only_its_prompt_and_ignores_the_message_history(
     scripted_model: ScriptedModel,
 ) -> None:
+    """A history left in the state by another node never rides along with this prompt.
+
+    The rule is untrusted data, so what reaches the model is exactly the prompt this node
+    built - nothing accumulated by whoever ran before it.
+    """
     model = scripted_model([AIMessage(content="```python\ndef aplicar_regra(): ...\n```")])
     state: AgentState = {
         **_REGRA,
         "messages": [
-            HumanMessage(content="greeting prompt"),
-            AIMessage(
-                content="",
-                tool_calls=[{"name": "say_hello", "args": {"name": "x"}, "id": "call_1"}],
-            ),
-            ToolMessage(content="Hello x", tool_call_id="call_1"),
-            AIMessage(content="Hello x"),
+            HumanMessage(content="pergunta anterior"),
+            AIMessage(content="resposta anterior"),
         ],
     }
 
@@ -150,11 +150,40 @@ async def test_code_generation_raises_on_an_empty_response(scripted_model: Scrip
         await code_generation(_REGRA, {"configurable": {}})
 
 
-@pytest.mark.parametrize("motivo", ["SAFETY", "RECITATION", "MAX_TOKENS", "OTHER"])
-async def test_code_generation_raises_when_the_provider_blocks_or_truncates(
+@pytest.mark.parametrize(
+    "motivo",
+    [
+        "SAFETY",
+        "RECITATION",
+        "MAX_TOKENS",
+        "OTHER",
+        # Nomes que uma lista de bloqueio não previa: o vocabulário de falha do provedor é
+        # aberto, e `UNKNOWN_<n>` é o que a biblioteca produz para um enum que ela não mapeia.
+        "BLOCKLIST",
+        "PROHIBITED_CONTENT",
+        "SPII",
+        "MALFORMED_FUNCTION_CALL",
+        "UNKNOWN_9",
+        "",
+    ],
+)
+async def test_code_generation_raises_when_the_provider_does_not_stop_cleanly(
     scripted_model: ScriptedModel, motivo: str
 ) -> None:
+    """Conteúdo parcial não salva a resposta: só `STOP` conta como conclusão limpa."""
     resposta = AIMessage(content="partial", response_metadata={"finish_reason": motivo})
+    scripted_model([resposta])
+
+    with pytest.raises(RespostaModeloInvalidaError):
+        await code_generation(_REGRA, {"configurable": {}})
+
+
+async def test_code_generation_raises_when_the_provider_reports_no_finish_reason(
+    scripted_model: ScriptedModel,
+) -> None:
+    """Campo ausente é o enum 0, `FINISH_REASON_UNSPECIFIED`, e não uma parada limpa."""
+    resposta = AIMessage(content="```python\n...\n```")
+    resposta.response_metadata["finish_reason"] = None
     scripted_model([resposta])
 
     with pytest.raises(RespostaModeloInvalidaError):

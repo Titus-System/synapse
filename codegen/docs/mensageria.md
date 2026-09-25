@@ -66,8 +66,7 @@ da persistência e antes do ACK. T-049 não implementa nós nem checkpointer.
 | Falha de processamento | `nack(requeue=True)` |
 | JSON/DTO/schema inválido | `reject(requeue=False)` |
 | `JobDesconhecidoError` do roteador | `reject(requeue=False)` e log correlacionado |
-| `RegraInvalidaError` do roteador | `reject(requeue=False)` e log correlacionado |
-| `CodigoInvalidoError` do roteador | `reject(requeue=False)` e log correlacionado |
+| `FalhaDoJobError` do roteador | `reject(requeue=False)`, log correlacionado e `etapa-alterada` com `erro` |
 | Cancelamento | sem ACK; fechamento da conexão devolve mensagens não confirmadas |
 
 A rejeição de mensagens inválidas e jobs desconhecidos é a decisão mínima local
@@ -77,17 +76,30 @@ desconhecido: nesse caso nenhum consumer é iniciado e as mensagens ficam nas fi
 Falhas transitórias usam a reentrega do broker, sem republicação/retry manual.
 Sem backoff configurado, uma falha persistente pode causar reentregas repetidas.
 
-`RegraInvalidaError` (`app/repositorio/regras.py`) sinaliza que a regra referenciada
-por `regra_id` não existe para o `job_id`, ou que falha o contrato de
-`RepresentacaoRegra`, dentro do nó `load_rule`. Reentregar não torna a regra válida,
-então essa falha é permanente como `JobDesconhecidoError`, e usa a mesma decisão:
-`reject(requeue=False)`, nunca `nack`. A exceção nunca carrega o conteúdo da regra,
-só a correlação do job.
+## Falha permanente do job
 
-`CodigoInvalidoError` (`app/codigo_gerado.py`) sinaliza, no nó `extract_code`, que a
-resposta do modelo não traz exatamente um `regra.py` válido. A resposta já está gravada
-em `respostas_modelo`, e uma reentrega continua do checkpoint sobre a mesma resposta, que
-seguiria inválida: a falha é permanente e usa `reject(requeue=False)`.
+`FalhaDoJobError` (`app/falhas.py`) é a classe base das falhas que uma reentrega não
+corrige. O `Consumer` tem uma decisão só para todas elas — `reject(requeue=False)`,
+nunca `nack` — e cada uma declara a etapa do grafo em que aconteceu:
+
+| Exceção | Onde nasce | Etapa | Por que é permanente |
+| --- | --- | --- | --- |
+| `RegraInvalidaError` | `app/repositorio/regras.py`, no nó `load_rule` | `geracao_codigo` | a regra referenciada por `regra_id` não existe para o `job_id`, ou falha o contrato de `RepresentacaoRegra`; reentregar não a torna válida |
+| `RespostaModeloInvalidaError` | `app/graph/nodes/code_generation.py` | `geracao_codigo` | a resposta veio vazia, bloqueada ou truncada; com `temperature=0` a chamada é determinística, e reentregar só pagaria a mesma resposta inútil de novo |
+| `CodigoInvalidoError` | `app/codigo_gerado.py`, no nó `extract_code` | `geracao_codigo` | a resposta já está gravada em `respostas_modelo` e a reentrega continua do checkpoint sobre ela, que seguiria sem um `regra.py` válido |
+| `OrcamentoAusenteError` | `app/graph/nodes/dispatch_execution.py` | `delegacao_worker` | o evento não trouxe o `orcamento`, que `executar-codigo` exige, e a ausência nunca é lida como zero |
+
+Antes de rejeitar, o `GraphRouter` publica `etapa-alterada` com `status="erro"` e a etapa
+da exceção. **Sem esse aviso a `api` deixaria o job em `gerando_regra` para sempre**: a
+rejeição só afeta o broker. A `api` move o job para `erro` e grava a transição com motivo
+`erro_<etapa>`. Uma falha ao publicar o aviso não é tratada de propósito: ela sobe como
+falha comum, o consumer reenfileira e a reentrega tenta avisar de novo.
+
+Nenhuma dessas exceções carrega conteúdo de artefato, e a mensagem delas nunca vai para
+log nem para evento — só a etapa e a correlação do job.
+
+Falha transitória (banco ou broker indisponível, erro de rede do provedor) não é
+`FalhaDoJobError`: continua em `nack(requeue=True)`, porque a reentrega é a resposta certa.
 
 Para o comando de saída `executar-codigo`, a
 [DEC-091](../../docs/decisoes/dec-091.md) define retry gerenciado pela aplicação no
@@ -129,11 +141,23 @@ Em uma reentrega, o entrypoint continua do último checkpoint do `job_id` em vez
 recomeçar do `START`: os nós já concluídos, como a chamada ao modelo e as gravações, não
 rodam de novo.
 
-O comando `executar-codigo` é publicado pelo nó `dispatch_execution`, depois de o
-prompt, a resposta e o código estarem gravados. Leva só `codigo_gerado_id`, nunca o
-código (claim-check, ADR-001). Em seguida, `await_execution` pausa o grafo com
-`interrupt()`, a `regra-submetida` recebe `ack` e o processo fica livre. A retomada com
-`simulacao-concluida` está descrita em [`retomada-apos-execucao.md`](retomada-apos-execucao.md).
+O nó `dispatch_execution` publica dois eventos, nesta ordem, depois de o prompt, a resposta
+e o código estarem gravados:
+
+1. `etapa-alterada` com `etapa="delegacao_worker"` e `status="iniciada"`, que move o job de
+   `gerando_regra` para `simulando` na `api`;
+2. `executar-codigo`, levando só `codigo_gerado_id`, nunca o código (claim-check, ADR-001).
+
+A ordem é deliberada. `etapa-alterada` é idempotente do lado da `api` — a transição só vale
+a partir de `gerando_regra`, então uma segunda cópia não faz nada —, enquanto
+`executar-codigo` não é: se o nó rodar de novo, republica o comando. Com o idempotente na
+frente, uma reexecução arrisca duplicar só o comando, e o job já está em `simulando` antes
+de o worker poder concluir; na ordem inversa, `simulacao-concluida` poderia chegar com o job
+ainda em `gerando_regra`, transição que a `api` recusa em silêncio.
+
+Em seguida, `await_execution` pausa o grafo com `interrupt()`, a `regra-submetida` recebe
+`ack` e o processo fica livre. A retomada com `simulacao-concluida` está descrita em
+[`retomada-apos-execucao.md`](retomada-apos-execucao.md).
 
 O entrypoint Docker/uvicorn chama `app.main:criar_aplicacao_padrao`, que monta um
 `GraphRouter` e o passa a `criar_aplicacao`, ativando o consumer de regra-submetida

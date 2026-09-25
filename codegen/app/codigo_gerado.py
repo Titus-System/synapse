@@ -7,17 +7,22 @@ executed here (AGENTS.md Security). Running it is exclusively the worker's job.
 import ast
 import re
 
+from app.falhas import FalhaDoJobError
+
 LINGUAGEM = "python"
 
 _BLOCO_PYTHON = re.compile(r"```python[ \t]*\n(.*?)```", re.DOTALL)
 _PARAMETROS_REGRA = ["bases", "apuracao_base", "competencias"]
 
 
-class CodigoInvalidoError(Exception):
+class CodigoInvalidoError(FalhaDoJobError):
     """The model's reply does not carry exactly one valid `regra.py`.
 
-    Never carries the reply or the code - only which check failed.
+    Never carries the reply or the code - only which check failed. A redelivery resumes from
+    the recorded reply, which stays invalid, so this failure is permanent.
     """
+
+    etapa = "geracao_codigo"
 
 
 def extrair_codigo(resposta: str) -> str:

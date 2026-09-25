@@ -20,7 +20,13 @@ class FakeChatModel(GenericFakeChatModel):
 
     def _generate(self, messages: list[BaseMessage], *args: Any, **kwargs: Any) -> ChatResult:
         self.seen_messages.append(list(messages))
-        return super()._generate(messages, *args, **kwargs)
+        resultado = super()._generate(messages, *args, **kwargs)
+        # O provedor real sempre reporta o motivo da parada, e num sucesso ele é `STOP`. Sem
+        # isso toda resposta roteirizada pareceria interrompida para quem valida o campo.
+        # Uma resposta que já traz o seu próprio `finish_reason` não é tocada.
+        for geracao in resultado.generations:
+            geracao.message.response_metadata.setdefault("finish_reason", "STOP")
+        return resultado
 
 
 @pytest.fixture
@@ -29,8 +35,7 @@ def scripted_model(
 ) -> Callable[[Iterable[AIMessage]], FakeChatModel]:
     """Make every model-calling node use one model that replies with `responses`, in order.
 
-    `greeting` and `code_generation` share the same fake, so a graph run consumes the
-    replies in the order the nodes call the model.
+    A graph run consumes the replies in the order the nodes call the model.
 
     Pass fresh message objects: `add_messages` stamps an id on each one, and a repeated
     object would replace itself in the history instead of being appended.
@@ -39,7 +44,6 @@ def scripted_model(
     def install(responses: Iterable[AIMessage]) -> FakeChatModel:
         replies: Iterator[AIMessage] = iter(responses)
         model = FakeChatModel(messages=replies)
-        monkeypatch.setattr("app.graph.nodes.greeting.get_model", lambda name: model)
         monkeypatch.setattr("app.graph.nodes.code_generation.get_model", lambda name: model)
         return model
 

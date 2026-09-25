@@ -100,10 +100,6 @@ def test_code_generation_is_registered_with_its_metadata() -> None:
     assert metadata["modelo"] == "gemini-3.1-flash-lite"
 
 
-def test_greeting_is_registered() -> None:
-    assert "greeting" in registry._MODELS
-
-
 def test_get_model_metadata_returns_a_copy_not_the_stored_dict() -> None:
     metadata = registry.get_model_metadata("code_generation")
     metadata["provedor"] = "adulterado"

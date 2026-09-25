@@ -4,7 +4,13 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.contratos.mensagens import ParametrosConfirmados, RegraSubmetida, SimulacaoConcluida
+from app.contratos.mensagens import (
+    EtapaAlterada,
+    ParametrosConfirmados,
+    RegraSubmetida,
+    SimulacaoConcluida,
+)
+from app.falhas import FalhaDoJobError
 from app.graph.core.state import AgentState
 from app.graph.entrypoint import run_to_completion
 from app.mensageria.producers import Producers
@@ -22,8 +28,8 @@ class RoteadorGrafo(Protocol):
 
         Resolve/cria o grafo de regra-submetida e retoma os demais pelo job_id.
         Lança JobDesconhecidoError se não houver grafo correspondente à mensagem, e
-        `app.repositorio.regras.RegraInvalidaError` se a regra referenciada não existir ou
-        for inválida.
+        `app.falhas.FalhaDoJobError` quando o processamento falha de forma permanente - depois de
+        avisar a `api`, para que o job termine em erro em vez de ficar pendurado.
         """
         ...
 
@@ -46,12 +52,22 @@ class GraphRouter:
         if self.sessoes is None or self.producers is None:
             raise RuntimeError("GraphRouter is not fully wired yet")
 
-        await run_to_completion(
-            str(job_id),
-            _estado_inicial(mensagem),
-            sessoes=self.sessoes,
-            producers=self.producers,
-        )
+        try:
+            await run_to_completion(
+                str(job_id),
+                _estado_inicial(mensagem),
+                sessoes=self.sessoes,
+                producers=self.producers,
+            )
+        except FalhaDoJobError as falha:
+            # Esta é a fronteira que sabe que o job acabou: sem este aviso, a `api` deixaria
+            # o job em `gerando_regra` para sempre. Uma falha ao publicar não é tratada de
+            # propósito - ela sobe como falha comum, o consumer reenfileira e a reentrega
+            # tenta avisar de novo. Melhor do que engolir o aviso.
+            await self.producers.etapa_alterada(
+                EtapaAlterada(job_id=job_id, etapa=falha.etapa, status="erro")
+            )
+            raise
 
 
 def _estado_inicial(mensagem: RegraSubmetida) -> AgentState:

@@ -13,6 +13,7 @@ from aio_pika import DeliveryMode
 from jsonschema import Draft202012Validator, FormatChecker
 from referencing import Registry, Resource
 
+from app.codigo_gerado import CodigoInvalidoError
 from app.config import Settings
 from app.contratos.mensagens import (
     EtapaAlterada,
@@ -25,11 +26,15 @@ from app.contratos.mensagens import (
 )
 from app.contratos.serializacao import serializar
 from app.core.logger import job_id_ctx
+from app.falhas import FalhaDoJobError
+from app.graph.nodes.code_generation import RespostaModeloInvalidaError
+from app.graph.nodes.dispatch_execution import OrcamentoAusenteError
 from app.mensageria import broker as modulo_broker
 from app.mensageria.broker import FILA_SIMULACAO, FILAS_SIMPLES, conectar, declarar_topologia
 from app.mensageria.consumers import Consumer
 from app.mensageria.producers import Producers, ProdutorError
 from app.mensageria.roteamento import Entrada, JobDesconhecidoError
+from app.repositorio.regras import RegraInvalidaError
 
 CONTRATOS = Path(__file__).resolve().parents[3] / "contracts"
 
@@ -252,14 +257,26 @@ async def test_job_desconhecido_rejeitado_e_consumer_continua(
     assert "segredo" not in str(log.mock_calls)
 
 
-async def test_codigo_gerado_invalido_rejeitado_sem_requeue(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("falha", "etapa"),
+    [
+        (RegraInvalidaError, "geracao_codigo"),
+        (RespostaModeloInvalidaError, "geracao_codigo"),
+        (CodigoInvalidoError, "geracao_codigo"),
+        (OrcamentoAusenteError, "delegacao_worker"),
+    ],
+)
+async def test_falha_permanente_rejeitada_sem_requeue(
+    monkeypatch: pytest.MonkeyPatch, falha: type[FalhaDoJobError], etapa: str
 ) -> None:
-    from app.codigo_gerado import CodigoInvalidoError
+    """Toda falha permanente tem a mesma decisão, qualquer que seja o nó que a levantou.
 
+    Reentregar não corrige nenhuma delas, e o grafo retomaria do checkpoint sobre o mesmo
+    artefato inválido - com a chamada paga ao modelo repetida junto, no caso do provedor.
+    """
     log = MagicMock()
     monkeypatch.setattr("app.mensageria.consumers.logger", log)
-    roteador = MagicMock(entregar=AsyncMock(side_effect=CodigoInvalidoError("segredo")))
+    roteador = MagicMock(entregar=AsyncMock(side_effect=falha("segredo")))
     mensagem = AsyncMock(body=simplejson.dumps(exemplo("regra-submetida")).encode())
 
     await Consumer(RegraSubmetida, "regra-submetida", roteador).receber(mensagem)
@@ -267,7 +284,9 @@ async def test_codigo_gerado_invalido_rejeitado_sem_requeue(
     mensagem.reject.assert_awaited_once_with(requeue=False)
     mensagem.nack.assert_not_awaited()
     mensagem.ack.assert_not_awaited()
-    assert log.warning.call_args.kwargs["extra"]["causa"] == "codigo_invalido"
+    extra = log.warning.call_args.kwargs["extra"]
+    assert extra["causa"] == "falha_do_job"
+    assert extra["etapa"] == etapa
     assert "segredo" not in str(log.mock_calls)
 
 

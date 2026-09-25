@@ -5,12 +5,11 @@ from uuid import UUID
 import simplejson
 from aio_pika.abc import AbstractIncomingMessage
 
-from app.codigo_gerado import CodigoInvalidoError
 from app.contratos.mensagens import ParametrosConfirmados, RegraSubmetida, SimulacaoConcluida
 from app.contratos.validacao import validar
 from app.core.logger import get_logger, job_id_ctx
+from app.falhas import FalhaDoJobError
 from app.mensageria.roteamento import JobDesconhecidoError, RoteadorGrafo
-from app.repositorio.regras import RegraInvalidaError
 
 logger = get_logger("app.mensageria.consumers")
 
@@ -73,26 +72,17 @@ class Consumer:
                     },
                 )
                 await mensagem.reject(requeue=False)
-            except RegraInvalidaError:
-                # Regra inexistente ou inválida é uma condição permanente: reentregar não a
-                # torna válida, então esta rejeição não usa requeue.
+            except FalhaDoJobError as falha:
+                # Falha permanente: reentregar não a corrige, então a rejeição não usa
+                # requeue. O roteador já avisou a `api` por `etapa-alterada`, e o job termina
+                # em erro. A etapa entra no log; a mensagem da exceção nunca, porque pode
+                # carregar regra, prompt, resposta ou código.
                 logger.warning(
-                    "regra inexistente ou inválida",
+                    "processamento do job falhou de forma permanente",
                     extra={
                         "tipo_mensagem": self.nome,
-                        "causa": "regra_invalida",
-                        "decisao": "reject_sem_requeue",
-                    },
-                )
-                await mensagem.reject(requeue=False)
-            except CodigoInvalidoError:
-                # A redelivery resumes from the recorded reply, which stays invalid: this
-                # failure is permanent, like an invalid rule.
-                logger.warning(
-                    "código gerado inválido",
-                    extra={
-                        "tipo_mensagem": self.nome,
-                        "causa": "codigo_invalido",
+                        "causa": "falha_do_job",
+                        "etapa": falha.etapa,
                         "decisao": "reject_sem_requeue",
                     },
                 )

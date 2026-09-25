@@ -9,16 +9,14 @@ config:
     curve: linear
 ---
 graph TD;
-	__start__(<p>__start__</p>)
-	greeting(greeting)
+	__start__([<p>__start__</p>]):::first
 	load_rule(load_rule)
 	code_generation(code_generation)
 	persist_response(persist_response)
 	extract_code(extract_code)
 	dispatch_execution(dispatch_execution)
 	await_execution(await_execution)
-	tools(tools)
-	__end__(<p>__end__</p>)
+	__end__([<p>__end__</p>]):::last
 	__start__ --> load_rule;
 	code_generation --> persist_response;
 	dispatch_execution --> await_execution;

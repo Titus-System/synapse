@@ -7,7 +7,7 @@ import pytest
 from langchain_core.runnables import RunnableConfig
 
 from app.codigo_gerado import CodigoInvalidoError
-from app.contratos.mensagens import ExecutarCodigo
+from app.contratos.mensagens import EtapaAlterada, ExecutarCodigo
 from app.graph.core.state import AgentState
 from app.graph.nodes.dispatch_execution import OrcamentoAusenteError, dispatch_execution
 from app.graph.nodes.extract_code import extract_code
@@ -75,7 +75,7 @@ async def test_extract_code_falha_sem_gravar_quando_a_resposta_e_invalida() -> N
 
 
 async def test_dispatch_execution_publica_so_referencias() -> None:
-    producers = MagicMock(executar_codigo=AsyncMock())
+    producers = MagicMock(executar_codigo=AsyncMock(), etapa_alterada=AsyncMock())
     codigo_gerado_id = str(uuid4())
 
     await dispatch_execution(
@@ -91,8 +91,26 @@ async def test_dispatch_execution_publica_so_referencias() -> None:
     )
 
 
+async def test_dispatch_execution_anuncia_a_delegacao_antes_de_publicar_o_comando() -> None:
+    """A ordem é a garantia: o evento idempotente vai na frente do comando que não é.
+
+    Assim uma reexecução do nó arrisca duplicar só o comando, e o job já está em `simulando`
+    antes de o worker poder concluir.
+    """
+    producers = MagicMock(executar_codigo=AsyncMock(), etapa_alterada=AsyncMock())
+
+    await dispatch_execution(_estado(codigo_gerado_id=str(uuid4())), _config(producers=producers))
+
+    assert [chamada[0] for chamada in producers.method_calls] == [
+        "etapa_alterada",
+        "executar_codigo",
+    ]
+    [evento] = producers.etapa_alterada.await_args.args
+    assert evento == EtapaAlterada(job_id=UUID(JOB_ID), etapa="delegacao_worker", status="iniciada")
+
+
 async def test_dispatch_execution_falha_sem_publicar_quando_falta_orcamento() -> None:
-    producers = MagicMock(executar_codigo=AsyncMock())
+    producers = MagicMock(executar_codigo=AsyncMock(), etapa_alterada=AsyncMock())
     estado = _estado(codigo_gerado_id=str(uuid4()))
     del estado["orcamento"]
 
@@ -100,3 +118,4 @@ async def test_dispatch_execution_falha_sem_publicar_quando_falta_orcamento() ->
         await dispatch_execution(estado, _config(producers=producers))
 
     producers.executar_codigo.assert_not_awaited()
+    producers.etapa_alterada.assert_not_awaited()

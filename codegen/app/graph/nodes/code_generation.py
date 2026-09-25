@@ -9,6 +9,7 @@ from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
 from app.core.logger import get_logger, no_ctx
+from app.falhas import FalhaDoJobError
 from app.graph.core.llm.registry import get_model, get_model_metadata
 from app.graph.core.state import AgentState
 from app.prompts.geracao_codigo import montar_prompt_geracao
@@ -19,13 +20,22 @@ logger = get_logger("app.graph.nodes.code_generation")
 # Identifies this node's model call in the log `no` field and in `prompts.no`.
 NO_GERACAO_CODIGO = "geracao_codigo"
 
-# Finish reasons the provider can report besides a clean stop; any of these means the reply is
-# not usable, even when `content` is non-empty (e.g. `MAX_TOKENS` can still carry partial text).
-_FAILURE_FINISH_REASONS = {"SAFETY", "RECITATION", "MAX_TOKENS", "OTHER"}
+# The only finish reason that means a clean stop. An allowlist, not a blocklist: the provider
+# reports the enum's name (`langchain_google_genai/chat_models.py`), and the set of failure
+# names is open - `BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII`, `MALFORMED_FUNCTION_CALL` and
+# `UNKNOWN_<n>` for an unmapped enum. A blocklist would let those through with partial text.
+# An absent field is enum 0, `FINISH_REASON_UNSPECIFIED`, which is not a clean stop either.
+_FINISH_REASON_ACEITO = "STOP"
 
 
-class RespostaModeloInvalidaError(Exception):
-    """The model call returned no usable content: empty, blocked, or truncated by a limit."""
+class RespostaModeloInvalidaError(FalhaDoJobError):
+    """The model call returned no usable content: empty, blocked, or truncated by a limit.
+
+    Permanent by design: `temperature=0` makes the call deterministic, so a redelivery would
+    resume at this same node and pay for the same unusable reply again.
+    """
+
+    etapa = "geracao_codigo"
 
 
 async def code_generation(state: AgentState, config: RunnableConfig) -> AgentState:
@@ -43,7 +53,7 @@ async def code_generation(state: AgentState, config: RunnableConfig) -> AgentSta
         response = await model.ainvoke([HumanMessage(content=prompt)])
         content, finish_reason = _extract_response(response)
 
-        if not content or finish_reason in _FAILURE_FINISH_REASONS:
+        if not content or finish_reason != _FINISH_REASON_ACEITO:
             logger.error(
                 "code_generation model call returned no usable content",
                 extra={"finish_reason": finish_reason},

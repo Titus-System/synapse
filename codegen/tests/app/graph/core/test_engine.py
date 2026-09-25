@@ -13,7 +13,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from app.codigo_gerado import CodigoInvalidoError
-from app.graph.core.engine import build_graph, route_after_greeting
+from app.graph.core.engine import build_graph
 from app.graph.core.state import AgentState
 from app.prompts.geracao_codigo import montar_prompt_geracao
 from app.representacao_regra import RepresentacaoRegra
@@ -25,14 +25,17 @@ ScriptedModel = Callable[[Iterable[AIMessage]], FakeChatModel]
 _REGRA = RepresentacaoRegra.model_validate({"nucleo": {}, "especificacoes": []})
 
 
-def test_build_graph_registers_greeting_but_leaves_it_out_of_the_run() -> None:
+def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
+    """Every registered node is reachable, in one line from START to END.
+
+    Guards against a node left in the graph without an edge, which reads as part of the
+    pipeline in `docs/graph.md` but never runs.
+    """
     graph = build_graph(InMemorySaver())
 
     drawable = graph.get_graph()
     assert set(drawable.nodes) == {
         "__start__",
-        "greeting",
-        "tools",
         "load_rule",
         "code_generation",
         "persist_response",
@@ -51,29 +54,8 @@ def test_build_graph_registers_greeting_but_leaves_it_out_of_the_run() -> None:
         ("dispatch_execution", "await_execution"),
         ("await_execution", "__end__"),
     }
-
-
-def test_routes_to_tools_when_the_last_message_requested_a_tool_call() -> None:
-    state: AgentState = {
-        "messages": [
-            AIMessage(
-                content="",
-                tool_calls=[{"name": "say_hello", "args": {"name": "x"}, "id": "call_1"}],
-            )
-        ]
-    }
-
-    assert route_after_greeting(state) == "continue"
-
-
-def test_routes_on_when_the_last_message_has_no_tool_call() -> None:
-    state: AgentState = {"messages": [AIMessage(content="Hello x")]}
-
-    assert route_after_greeting(state) == "done"
-
-
-def test_routes_on_when_there_are_no_messages_yet() -> None:
-    assert route_after_greeting({}) == "done"
+    alcancados = {no for aresta in edges for no in aresta}
+    assert set(drawable.nodes) == alcancados
 
 
 JOB_ID = "d9cf3b9e-c99e-4c1e-9f9e-2e6e3a5b0a11"
@@ -91,7 +73,7 @@ class _Execucao:
             "app.graph.nodes.load_rule.buscar_regra", AsyncMock(return_value=_REGRA)
         )
         self.banco = banco or BancoFalso()
-        self.producers = MagicMock(executar_codigo=AsyncMock())
+        self.producers = MagicMock(executar_codigo=AsyncMock(), etapa_alterada=AsyncMock())
         self.graph: CompiledStateGraph[AgentState, None, AgentState, AgentState] = build_graph(
             InMemorySaver()
         )

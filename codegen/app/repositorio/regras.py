@@ -14,15 +14,22 @@ from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.falhas import FalhaDoJobError
 from app.representacao_regra import RepresentacaoRegra
 
 
-class RegraInvalidaError(Exception):
+class RegraInvalidaError(FalhaDoJobError):
     """The rule the event points to is missing, or fails `RepresentacaoRegra`'s contract.
 
     Never carries the rule's content - only the caller's job/rule ids, which are already
-    correlation ids, not artifact data.
+    correlation ids, not artifact data. A redelivery does not make the rule valid, so this
+    failure is permanent.
+
+    `load_rule` has no etapa of its own in the closed vocabulary: reading the rule is the
+    first step of the generation the job is already in (`gerando_regra`).
     """
+
+    etapa = "geracao_codigo"
 
 
 def _como_objeto(valor: object) -> object:

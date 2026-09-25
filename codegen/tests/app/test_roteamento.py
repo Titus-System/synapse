@@ -1,10 +1,11 @@
 from decimal import Decimal
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
 
-from app.contratos.mensagens import OrigemJob, RegraSubmetida
+from app.codigo_gerado import CodigoInvalidoError
+from app.contratos.mensagens import EtapaAlterada, OrigemJob, RegraSubmetida
 from app.mensageria import roteamento as modulo
 from app.mensageria.roteamento import GraphRouter
 
@@ -76,6 +77,53 @@ async def test_entregar_omite_regra_id_e_orcamento_quando_ausentes(
     estado = run_to_completion.call_args.args[1]
     assert "regra_id" not in estado
     assert "orcamento" not in estado
+
+
+async def test_entregar_avisa_a_api_e_repropaga_quando_o_job_falha(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sem este aviso a `api` deixaria o job em `gerando_regra` para sempre.
+
+    A etapa do evento vem da própria exceção, então o motivo da transição gravado pela `api`
+    aponta o passo em que o job morreu.
+    """
+    monkeypatch.setattr(
+        modulo, "run_to_completion", AsyncMock(side_effect=CodigoInvalidoError("segredo"))
+    )
+    producers = MagicMock(etapa_alterada=AsyncMock())
+    roteador = GraphRouter(sessoes=object(), producers=producers)
+
+    with pytest.raises(CodigoInvalidoError):
+        await roteador.entregar(JOB_ID, _regra_submetida())
+
+    [evento] = producers.etapa_alterada.await_args.args
+    assert evento == EtapaAlterada(job_id=JOB_ID, etapa="geracao_codigo", status="erro")
+
+
+async def test_entregar_nao_avisa_erro_quando_o_grafo_conclui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(modulo, "run_to_completion", AsyncMock())
+    producers = MagicMock(etapa_alterada=AsyncMock())
+    roteador = GraphRouter(sessoes=object(), producers=producers)
+
+    await roteador.entregar(JOB_ID, _regra_submetida())
+
+    producers.etapa_alterada.assert_not_awaited()
+
+
+async def test_entregar_nao_avisa_erro_numa_falha_transitoria(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Falha transitória segue para a reentrega do broker; o job não morreu ainda."""
+    monkeypatch.setattr(modulo, "run_to_completion", AsyncMock(side_effect=RuntimeError("x")))
+    producers = MagicMock(etapa_alterada=AsyncMock())
+    roteador = GraphRouter(sessoes=object(), producers=producers)
+
+    with pytest.raises(RuntimeError):
+        await roteador.entregar(JOB_ID, _regra_submetida())
+
+    producers.etapa_alterada.assert_not_awaited()
 
 
 async def test_entregar_recusa_mensagens_diferentes_de_regra_submetida() -> None:
