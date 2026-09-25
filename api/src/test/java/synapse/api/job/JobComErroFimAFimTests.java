@@ -232,13 +232,20 @@ class JobComErroFimAFimTests {
 
 			codegen = iniciarCodegen();
 
-			// A etapa que falhou chega ao cliente antes da transição: é o que permite à
-			// tela
-			// dizer em que passo o job morreu, e não só que morreu.
+			// A geração começa e anuncia: a tela sabe em que passo está antes de saber
+			// que
+			// falhou.
 			assertThat(conforme("etapa", stream.aguardarBloco("event:etapa", Duration.ofMinutes(1))))
 				.contains(jobId.toString())
 				.contains("\"etapa\":\"geracao_codigo\"")
-				.contains("\"status\":\"erro\"");
+				.contains("\"status\":\"iniciada\"");
+
+			// E a etapa que falhou chega antes da transição: é o que permite à tela dizer
+			// em
+			// que passo o job morreu, e não só que morreu.
+			assertThat(conforme("etapa", stream.aguardarBloco("\"status\":\"erro\"", Duration.ofMinutes(1))))
+				.contains(jobId.toString())
+				.contains("\"etapa\":\"geracao_codigo\"");
 
 			// A razão localizada é o que a tela mostra; o vocabulário de máquina fica na
 			// trilha. O marcador é a razão porque `"status":"erro"` também aparece no
@@ -302,8 +309,9 @@ class JobComErroFimAFimTests {
 			// A geração acontece normalmente: o que falha é a execução. Este cenário só
 			// tem
 			// sentido depois de o código existir.
-			assertThat(conforme("etapa", stream.aguardarBloco("event:etapa", Duration.ofMinutes(3))))
-				.contains("\"etapa\":\"delegacao_worker\"")
+			assertThat(conforme("etapa", stream.aguardarBloco("\"etapa\":\"geracao_codigo\"", Duration.ofSeconds(30))))
+				.contains("\"status\":\"iniciada\"");
+			assertThat(conforme("etapa", stream.aguardarBloco("\"etapa\":\"delegacao_worker\"", Duration.ofMinutes(3))))
 				.contains("\"status\":\"iniciada\"");
 			assertThat(conforme("estado", stream.aguardarBloco("\"status\":\"simulando\"", Duration.ofMinutes(1))))
 				.contains("\"status_anterior\":\"gerando_regra\"");

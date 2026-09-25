@@ -272,14 +272,17 @@ class SubmissaoDeRegraFimAFimTests {
 			assertThat(evento.path("competencias").valueStream().map(JsonNode::asString).toList())
 				.isEqualTo(COMPETENCIAS_DO_DATASET);
 
-			// A geração passa pelo provedor de LLM; minutos, não segundos. Este `etapa`
-			// só
-			// existe porque o codegen publica `etapa-alterada` ao delegar ao worker, e é
-			// o
-			// único sinal de progresso que a tela recebe durante a geração.
-			assertThat(conforme("etapa", stream.aguardarBloco("event:etapa", Duration.ofMinutes(3))))
+			// O primeiro sinal de progresso, na entrada da etapa: sem ele a tela ficaria
+			// muda
+			// durante a geração, que é a parte demorada.
+			assertThat(conforme("etapa", stream.aguardarBloco("\"etapa\":\"geracao_codigo\"", Duration.ofSeconds(30))))
 				.contains(jobId.toString())
-				.contains("\"etapa\":\"delegacao_worker\"")
+				.contains("\"status\":\"iniciada\"");
+
+			// A geração passa pelo provedor de LLM; minutos, não segundos. Este segundo
+			// `etapa` é o que o codegen publica ao delegar ao worker.
+			assertThat(conforme("etapa", stream.aguardarBloco("\"etapa\":\"delegacao_worker\"", Duration.ofMinutes(3))))
+				.contains(jobId.toString())
 				.contains("\"status\":\"iniciada\"");
 
 			// O mesmo evento move o job, e a transição chega ao cliente como `estado`.
