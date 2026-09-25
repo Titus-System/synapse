@@ -8,6 +8,7 @@ from typing import Any
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
+from app.contratos.mensagens import NoGrafo
 from app.core.logger import get_logger, no_ctx
 from app.falhas import FalhaDoJobError
 from app.graph.core.llm.registry import get_model, get_model_metadata
@@ -18,7 +19,7 @@ from app.representacao_regra import RepresentacaoRegra
 logger = get_logger("app.graph.nodes.code_generation")
 
 # Identifies this node's model call in the log `no` field and in `prompts.no`.
-NO_GERACAO_CODIGO = "geracao_codigo"
+NO_GERACAO_CODIGO: NoGrafo = "geracao_codigo"
 
 # The only finish reason that means a clean stop. An allowlist, not a blocklist: the provider
 # reports the enum's name (`langchain_google_genai/chat_models.py`), and the set of failure

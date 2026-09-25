@@ -73,7 +73,9 @@ class _Execucao:
             "app.graph.nodes.load_rule.buscar_regra", AsyncMock(return_value=_REGRA)
         )
         self.banco = banco or BancoFalso()
-        self.producers = MagicMock(executar_codigo=AsyncMock(), etapa_alterada=AsyncMock())
+        self.producers = MagicMock(
+            executar_codigo=AsyncMock(), etapa_alterada=AsyncMock(), no_concluido=AsyncMock()
+        )
         self.graph: CompiledStateGraph[AgentState, None, AgentState, AgentState] = build_graph(
             InMemorySaver()
         )

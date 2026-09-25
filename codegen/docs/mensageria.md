@@ -155,6 +155,18 @@ frente, uma reexecução arrisca duplicar só o comando, e o job já está em `s
 de o worker poder concluir; na ordem inversa, `simulacao-concluida` poderia chegar com o job
 ainda em `gerando_regra`, transição que a `api` recusa em silêncio.
 
+Antes disso, ao concluir a extração e a gravação do código, o nó `extract_code` publica
+`no-concluido` para a etapa `geracao_codigo`, com `regra_id`, `prompt_id` e
+`codigo_gerado_id`. Não é opcional nem só trilha de auditoria: é desse evento que a `api`
+cria a linha de `simulacoes`, e é ela que liga o job ao resultado que o worker vai gravar.
+Publicar antes de `executar-codigo` é o que garante essa ordem - se o resultado chegasse
+primeiro, `SimulacaoConcluidaService` não teria o que amarrar, o cliente nunca receberia o
+evento SSE `resultado` e as telas de relatório e histórico ficariam sem o desfecho.
+
+O `evento_id` é determinístico (UUID v5 de `job_id`, etapa e `codigo_gerado_id`), então uma
+reexecução do nó republica o mesmo evento e o índice único de `trilhas_auditoria.evento_id`
+na `api` reconhece a reentrega. As demais etapas do grafo ainda não publicam `no-concluido`.
+
 Em seguida, `await_execution` pausa o grafo com `interrupt()`, a `regra-submetida` recebe
 `ack` e o processo fica livre. A retomada com `simulacao-concluida` está descrita em
 [`retomada-apos-execucao.md`](retomada-apos-execucao.md).

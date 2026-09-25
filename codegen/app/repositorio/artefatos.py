@@ -4,6 +4,9 @@
 row can never be corrected by an `UPDATE`. Every id is derived from the inputs (UUID v5) and
 every insert uses `ON CONFLICT DO NOTHING`: re-running a node with the same inputs, e.g. after
 the message is redelivered, writes nothing new and returns the same ids.
+
+The same derivation also produces the idempotency key of the `no-concluido` event, which
+references these rows - see `id_do_evento_de_trilha`.
 """
 
 from hashlib import sha256
@@ -48,6 +51,18 @@ def id_da_resposta(prompt_id: UUID) -> UUID:
 
 def id_do_codigo(prompt_id: UUID) -> UUID:
     return uuid5(_NAMESPACE, f"codigo:{prompt_id}")
+
+
+def id_do_evento_de_trilha(job_id: UUID, no: str, codigo_gerado_id: UUID) -> UUID:
+    """Chave de idempotência do `no-concluido` deste nó.
+
+    Derivada aqui, junto dos ids das linhas que o evento referencia, para reaproveitar o
+    mesmo namespace e o mesmo esquema de prefixo que separa um id do outro. É determinística
+    pelo mesmo motivo que os demais: republicar o evento numa reexecução do nó precisa
+    carregar o mesmo id, senão o índice único de `trilhas_auditoria.evento_id` na api não
+    tem como reconhecer a reentrega e a trilha ganharia uma linha duplicada.
+    """
+    return uuid5(_NAMESPACE, f"trilha:{job_id}:{no}:{codigo_gerado_id}")
 
 
 async def gravar_prompt_e_resposta(
