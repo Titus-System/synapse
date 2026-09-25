@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { apiClient } from '@/services/api'
 import { jobFixture, regraFixture } from '@/services/job.fixtures'
 import type { JobResumo } from '@/types/api'
 import HistoricoJobsView from './HistoricoJobsView.vue'
 
-const { listarTodosOsJobs, rota } = vi.hoisted(() => ({
+const { listarTodosOsJobs, rota, roteador } = vi.hoisted(() => ({
   listarTodosOsJobs: vi.fn<() => Promise<JobResumo[]>>(),
   rota: { name: 'regras-salvas' },
+  roteador: { push: vi.fn<(destino: unknown) => Promise<void>>() },
 }))
 
 vi.mock('../services/historicoJobs.api', () => ({ listarTodosOsJobs }))
@@ -21,6 +22,7 @@ vi.mock('@/services/api', () => ({
 
 vi.mock('vue-router', () => ({
   useRoute: () => rota,
+  useRouter: () => roteador,
 }))
 
 beforeEach(() => {
@@ -28,6 +30,12 @@ beforeEach(() => {
   rota.name = 'regras-salvas'
   vi.mocked(apiClient.consultarJob).mockImplementation(async (id) => jobFixture({ id }))
 })
+
+function botaoDeReprocessamento(conteiner: VueWrapper) {
+  return conteiner
+    .findAll('button')
+    .find((botao) => botao.text() === 'Reprocessar regra com novo orçamento')
+}
 
 function criarResumoDoJob(numero: number, status: JobResumo['status'] = 'liberado'): JobResumo {
   return {
@@ -53,6 +61,48 @@ const opcoesDeMontagem = {
 }
 
 describe('HistoricoJobsView', () => {
+  it('abre o formulário com a regra do job ao reprocessar com novo orçamento', async () => {
+    rota.name = 'regras-arquivadas'
+    const resumo = criarResumoDoJob(1, 'arquivado')
+    listarTodosOsJobs.mockResolvedValue([resumo])
+
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
+    await flushPromises()
+
+    await botaoDeReprocessamento(conteiner)?.trigger('click')
+
+    expect(roteador.push).toHaveBeenCalledWith({
+      name: 'nova-regra',
+      query: { reprocessar: resumo.id },
+    })
+    conteiner.unmount()
+  })
+
+  it('troca o selo de status pelo botão nas arquivadas', async () => {
+    rota.name = 'regras-arquivadas'
+    listarTodosOsJobs.mockResolvedValue([criarResumoDoJob(1, 'arquivado')])
+
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
+    await flushPromises()
+
+    const cartao = conteiner.get('article')
+    expect(cartao.text()).toContain('Reprocessar regra com novo orçamento')
+    expect(cartao.text()).not.toContain('Arquivado')
+    conteiner.unmount()
+  })
+
+  it('não oferece o reprocessamento nas regras salvas', async () => {
+    listarTodosOsJobs.mockResolvedValue([criarResumoDoJob(1)])
+
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
+    await flushPromises()
+
+    expect(conteiner.get('article').text()).toContain('Regra 00000001')
+    expect(conteiner.get('article').text()).toContain('Liberado')
+    expect(botaoDeReprocessamento(conteiner)).toBeUndefined()
+    conteiner.unmount()
+  })
+
   it.each([
     ['regras-salvas', 'liberado'],
     ['regras-arquivadas', 'arquivado'],

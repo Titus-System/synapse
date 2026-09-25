@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
 import type { JobResumo, StatusJob } from '@/types/api'
@@ -12,6 +12,7 @@ import type { TipoDeHistorico } from '../types'
 
 const tamanhoDaPagina = 6
 const rota = useRoute()
+const roteador = useRouter()
 const carregando = ref(false)
 const mensagemDeErro = ref('')
 const paginaAtual = ref(0)
@@ -60,6 +61,10 @@ function nomearStatus(status: StatusJob): string {
     erro: 'Processamento com erro',
   }
   return nomes[status]
+}
+
+function reprocessarComNovoOrcamento(idDoJob: string): void {
+  void roteador.push({ name: 'nova-regra', query: { reprocessar: idDoJob } })
 }
 
 function irParaPagina(numeroDaPagina: number): void {
@@ -212,7 +217,15 @@ watch(
                 <h2 class="font-serif text-2xl font-semibold">Regra {{ resumoDoJob.id.slice(0, 8) }}</h2>
                 <p class="mt-1 text-sm text-[#9c571e]">Criada em {{ new Date(resumoDoJob.criado_em).toLocaleDateString('pt-BR') }}</p>
               </div>
-              <span class="rounded-full border border-[#edd0c0] bg-[#fff3ec] px-3 py-1 text-xs font-semibold text-[#8f470e]">{{ nomearStatus(resumoDoJob.status) }}</span>
+              <button
+                v-if="tipoDoHistorico === 'arquivadas'"
+                type="button"
+                class="shrink-0 cursor-pointer rounded-full border border-[#edd0c0] bg-[#fff3ec] px-3 py-1 text-right text-xs font-medium text-[#8f470e] transition hover:bg-[#ffe6da] hover:text-[#843600]"
+                @click="reprocessarComNovoOrcamento(resumoDoJob.id)"
+              >
+                Reprocessar regra com novo orçamento
+              </button>
+              <span v-else class="rounded-full border border-[#edd0c0] bg-[#fff3ec] px-3 py-1 text-xs font-semibold text-[#8f470e]">{{ nomearStatus(resumoDoJob.status) }}</span>
             </div>
 
             <div v-if="obterRegraFormatada(resumoDoJob.id)" class="mt-5 rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] p-4 ">
