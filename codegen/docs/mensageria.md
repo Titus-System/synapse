@@ -141,31 +141,51 @@ Em uma reentrega, o entrypoint continua do último checkpoint do `job_id` em vez
 recomeçar do `START`: os nós já concluídos, como a chamada ao modelo e as gravações, não
 rodam de novo.
 
-O nó `dispatch_execution` publica dois eventos, nesta ordem, depois de o prompt, a resposta
-e o código estarem gravados:
+## Onde cada evento é publicado
 
-1. `etapa-alterada` com `etapa="delegacao_worker"` e `status="iniciada"`, que move o job de
-   `gerando_regra` para `simulando` na `api`;
-2. `executar-codigo`, levando só `codigo_gerado_id`, nunca o código (claim-check, ADR-001).
+| Evento | Onde | Papel |
+| --- | --- | --- |
+| `etapa-alterada` `geracao_codigo`/`iniciada` | `load_rule`, antes de ler a regra | progresso |
+| `no-concluido` `geracao_codigo` | `extract_code`, depois de gravar o código | estrutural + trilha |
+| `etapa-alterada` `delegacao_worker`/`iniciada` | `dispatch_execution`, antes do comando | estrutural |
+| `no-concluido` `delegacao_worker` | `dispatch_execution`, depois do comando | trilha |
+| `etapa-alterada` `status: erro` | `GraphRouter`, em qualquer `FalhaDoJobError` | estrutural |
 
-A ordem é deliberada. `etapa-alterada` é idempotente do lado da `api` — a transição só vale
-a partir de `gerando_regra`, então uma segunda cópia não faz nada —, enquanto
-`executar-codigo` não é: se o nó rodar de novo, republica o comando. Com o idempotente na
-frente, uma reexecução arrisca duplicar só o comando, e o job já está em `simulando` antes
-de o worker poder concluir; na ordem inversa, `simulacao-concluida` poderia chegar com o job
-ainda em `gerando_regra`, transição que a `api` recusa em silêncio.
+**Estrutural** quer dizer que o fluxo quebra sem o evento. `delegacao_worker`/`iniciada` é o
+único caminho que move o job de `gerando_regra` para `simulando`; o `no-concluido` da geração é
+o que faz a `api` criar a linha de `simulacoes`, sem a qual o resultado do worker não tem a que
+se amarrar e o cliente nunca recebe o evento SSE `resultado`; e o `erro` é o que impede o job
+de ficar pendurado. Os outros dois alimentam progresso e trilha, e é por isso que ficaram para
+trás até serem cobrados: nada quebra quando faltam.
 
-Antes disso, ao concluir a extração e a gravação do código, o nó `extract_code` publica
-`no-concluido` para a etapa `geracao_codigo`, com `regra_id`, `prompt_id` e
-`codigo_gerado_id`. Não é opcional nem só trilha de auditoria: é desse evento que a `api`
-cria a linha de `simulacoes`, e é ela que liga o job ao resultado que o worker vai gravar.
-Publicar antes de `executar-codigo` é o que garante essa ordem - se o resultado chegasse
-primeiro, `SimulacaoConcluidaService` não teria o que amarrar, o cliente nunca receberia o
-evento SSE `resultado` e as telas de relatório e histórico ficariam sem o desfecho.
+Os dois `etapa-alterada` disparam na **entrada** da etapa e os dois `no-concluido` na **saída**
+do nó, como os contratos definem. Só `delegacao_worker`/`iniciada` e `erro` movem o job; os
+demais a `api` apenas repassa por SSE.
 
-O `evento_id` é determinístico (UUID v5 de `job_id`, etapa e `codigo_gerado_id`), então uma
-reexecução do nó republica o mesmo evento e o índice único de `trilhas_auditoria.evento_id`
-na `api` reconhece a reentrega. As demais etapas do grafo ainda não publicam `no-concluido`.
+O `evento_id` de cada `no-concluido` é determinístico (UUID v5 de `job_id`, etapa e
+`codigo_gerado_id`), então uma reexecução do nó republica o mesmo evento e o índice único de
+`trilhas_auditoria.evento_id` reconhece a reentrega. A etapa entra na derivação, então as duas
+linhas da trilha de um mesmo job não colidem.
+
+As referências de cada `no-concluido` seguem a condição de presença declarada campo a campo no
+schema: o da geração leva `regra_id`, `prompt_id` e `codigo_gerado_id`; o da delegação leva só
+`regra_id`, porque não produziu código nem chamou modelo. Nenhum dos dois leva
+`simulacao_id` — quem cria a linha de `simulacoes` é a `api`, com id próprio, de modo que a
+linha de trilha da delegação fica sem esse vínculo. Fechar isso exigiria o codegen ditar o id
+no evento da geração, onde o mesmo campo deve estar ausente; fica para a tarefa da trilha
+completa.
+
+O `executar-codigo` leva só `codigo_gerado_id`, nunca o código (claim-check, ADR-001). Em
+`dispatch_execution` a ordem é `etapa-alterada` → `executar-codigo` → `no-concluido`. O
+primeiro vai na frente porque é idempotente do lado da `api`, enquanto o comando não é: assim
+uma reexecução arrisca duplicar só o comando, e o job já está em `simulando` antes de o worker
+poder concluir — senão `simulacao-concluida` chegaria com o job ainda em `gerando_regra`,
+transição que a `api` recusa em silêncio. O `no-concluido` vai por último porque o nó conclui
+quando o comando foi entregue; anunciar antes afirmaria algo que ainda pode falhar. Isso alarga
+a janela em que uma falha republica o comando, mas o worker descarta comando repetido pelo
+`codigo_gerado_id` já gravado.
+
+As demais seis etapas do vocabulário não existem como nós e seguem sem publicar.
 
 Em seguida, `await_execution` pausa o grafo com `interrupt()`, a `regra-submetida` recebe
 `ack` e o processo fica livre. A retomada com `simulacao-concluida` está descrita em

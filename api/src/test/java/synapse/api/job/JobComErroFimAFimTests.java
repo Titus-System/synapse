@@ -117,15 +117,15 @@ class JobComErroFimAFimTests {
 	 * manter em CI.
 	 */
 	static boolean dockerEImagemDoCodegen() {
-		return DockerClientFactory.instance().isDockerAvailable() && imagemExiste("synapse-codegen:local");
+		return DockerClientFactory.instance().isDockerAvailable() && ImagemDocker.existe("synapse-codegen:local");
 	}
 
 	/**
 	 * O segundo cenário chega até a execução, então exige o worker, o sandbox e a chave.
 	 */
 	static boolean ambienteDeExecucao() {
-		return dockerEImagemDoCodegen() && imagemExiste("synapse-worker:local") && imagemExiste("synapse-sandbox:local")
-				&& chaveDoProvedor() != null;
+		return dockerEImagemDoCodegen() && ImagemDocker.existe("synapse-worker:local")
+				&& ImagemDocker.existe("synapse-sandbox:local") && chaveDoProvedor() != null;
 	}
 
 	@BeforeAll
@@ -232,13 +232,20 @@ class JobComErroFimAFimTests {
 
 			codegen = iniciarCodegen();
 
-			// A etapa que falhou chega ao cliente antes da transição: é o que permite à
-			// tela
-			// dizer em que passo o job morreu, e não só que morreu.
+			// A geração começa e anuncia: a tela sabe em que passo está antes de saber
+			// que
+			// falhou.
 			assertThat(conforme("etapa", stream.aguardarBloco("event:etapa", Duration.ofMinutes(1))))
 				.contains(jobId.toString())
 				.contains("\"etapa\":\"geracao_codigo\"")
-				.contains("\"status\":\"erro\"");
+				.contains("\"status\":\"iniciada\"");
+
+			// E a etapa que falhou chega antes da transição: é o que permite à tela dizer
+			// em
+			// que passo o job morreu, e não só que morreu.
+			assertThat(conforme("etapa", stream.aguardarBloco("\"status\":\"erro\"", Duration.ofMinutes(1))))
+				.contains(jobId.toString())
+				.contains("\"etapa\":\"geracao_codigo\"");
 
 			// A razão localizada é o que a tela mostra; o vocabulário de máquina fica na
 			// trilha. O marcador é a razão porque `"status":"erro"` também aparece no
@@ -302,8 +309,9 @@ class JobComErroFimAFimTests {
 			// A geração acontece normalmente: o que falha é a execução. Este cenário só
 			// tem
 			// sentido depois de o código existir.
-			assertThat(conforme("etapa", stream.aguardarBloco("event:etapa", Duration.ofMinutes(3))))
-				.contains("\"etapa\":\"delegacao_worker\"")
+			assertThat(conforme("etapa", stream.aguardarBloco("\"etapa\":\"geracao_codigo\"", Duration.ofSeconds(30))))
+				.contains("\"status\":\"iniciada\"");
+			assertThat(conforme("etapa", stream.aguardarBloco("\"etapa\":\"delegacao_worker\"", Duration.ofMinutes(3))))
 				.contains("\"status\":\"iniciada\"");
 			assertThat(conforme("estado", stream.aguardarBloco("\"status\":\"simulando\"", Duration.ofMinutes(1))))
 				.contains("\"status_anterior\":\"gerando_regra\"");
@@ -461,20 +469,6 @@ class JobComErroFimAFimTests {
 	private static @Nullable String chaveDoProvedor() {
 		String chave = System.getenv("GOOGLE_API_KEY");
 		return chave == null || chave.isBlank() ? null : chave;
-	}
-
-	private static boolean imagemExiste(String etiqueta) {
-		try {
-			return !DockerClientFactory.instance()
-				.client()
-				.listImagesCmd()
-				.withImageNameFilter(etiqueta)
-				.exec()
-				.isEmpty();
-		}
-		catch (RuntimeException ex) {
-			return false;
-		}
 	}
 
 	private static String gidDoSocket() {

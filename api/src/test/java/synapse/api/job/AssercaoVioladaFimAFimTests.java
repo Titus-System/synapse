@@ -145,8 +145,8 @@ class AssercaoVioladaFimAFimTests {
 	 * que decide a asserção.
 	 */
 	static boolean ambienteDeExecucao() {
-		return DockerClientFactory.instance().isDockerAvailable() && imagemExiste("synapse-worker:local")
-				&& imagemExiste("synapse-sandbox:local");
+		return DockerClientFactory.instance().isDockerAvailable() && ImagemDocker.existe("synapse-worker:local")
+				&& ImagemDocker.existe("synapse-sandbox:local");
 	}
 
 	@BeforeAll
@@ -432,20 +432,6 @@ class AssercaoVioladaFimAFimTests {
 		return jdbc.queryForObject(
 				"SELECT motivo FROM job_transicoes WHERE job_id = ? ORDER BY ocorrido_em DESC LIMIT 1", String.class,
 				jobId);
-	}
-
-	private static boolean imagemExiste(String etiqueta) {
-		try {
-			return !DockerClientFactory.instance()
-				.client()
-				.listImagesCmd()
-				.withImageNameFilter(etiqueta)
-				.exec()
-				.isEmpty();
-		}
-		catch (RuntimeException ex) {
-			return false;
-		}
 	}
 
 	private static String gidDoSocket() {
