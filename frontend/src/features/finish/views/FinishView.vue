@@ -3,7 +3,7 @@ import {
   transformarRegra,
   transformarResultado,
 } from "../composables/transformarRegra";
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import { apiClient } from "@/services/api";
@@ -182,7 +182,7 @@ onMounted(() => {
   void carregarRegrasRecentes();
 });
 
-onUnmounted(() => {
+onBeforeUnmount(() => {
   ciclo += 1;
   limparTemporizadores();
   store.pararAcompanhamento();
@@ -196,7 +196,7 @@ onUnmounted(() => {
     <div class="tela-de-negocio min-h-[100dvh] bg-[#fdf7f3] text-[#2e1a10] lg:grid lg:h-[100dvh] lg:grid-cols-[16rem_minmax(0,1fr)] lg:overflow-hidden">
     <TheSidebar class="sticky top-0 hidden h-screen lg:flex" :quantidade-arquivadas="quantidadeArquivadas" :quantidade-salvas="quantidadeSalvas" :regras-recentes="regrasRecentes"/>
     <main class="min-w-0 lg:min-h-0 lg:overflow-y-auto">
-    <TheProcessHeader etapa-da-rota="simulacao" :status-do-job="job?.status ?? null" class="mb-12 sticky top-0" />
+    <TheProcessHeader etapa-da-rota="salvar" :status-do-job="job?.status ?? null" class="mb-12 sticky top-0" />
     <div class="flex w-full flex-col items-center justify-center px-4 font-['Tinos'] sm:px-6">
         <div class="mb-7">
             <h1 class="mb-3 text-center text-3xl font-bold sm:text-3xl">Finalizar Regra</h1>

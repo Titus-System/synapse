@@ -32,7 +32,7 @@ That stays in a `ref` inside the view itself. A store per screen is an anti-patt
 
 Para acompanhar o progresso de um job, é preciso chamar `usarStoreJobAtual()` para acessar o singleton da store localmente.
 
-O chamador (a view) é quem define o ciclo de vida desse acompanhamento e diz quando inicia e quando termina. O padrão do projeto é que inicie ao montar (`onMounted`) e pare ao desmontar (`onUnmounted`), mas o chamador pode decidir quando parar manualmente.
+O chamador (a view) define o ciclo de vida do acompanhamento. Ele pode começar em um `watch` imediato do identificador da rota e deve terminar em `onBeforeUnmount`. Encerrar antes da desmontagem impede que a limpeza da tela anterior cancele o acompanhamento iniciado pela próxima tela na mesma store.
 
 Com a store instanciada, o chamador pode iniciar o acompanhamento chamando `store.iniciarAcompanhamento(jobId)` e parar chamando `store.pararAcompanhamento()`, conforme o exemplo:
 
@@ -43,7 +43,7 @@ const store = usarStoreJobAtual() // same singleton instance everywhere this is 
 watch(() => route.params.id, (id) => {
   void store.iniciarAcompanhamento(String(id))
 }, { immediate: true })
-onUnmounted(() => store.pararAcompanhamento()) // leaving without this keeps the SSE stream open
+onBeforeUnmount(() => store.pararAcompanhamento()) // leaving without this keeps the SSE stream open
 
 ```
 

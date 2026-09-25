@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import SimulateView from './SimulateView.vue'
 import { apiClient } from '@/services/api'
+import { HttpError } from '@/services/http'
+import { usarStoreJobAtual } from '@/stores/currentJob'
 import type { Job } from '@/types/api'
 
 vi.mock('@/services/jobEvents', () => ({
@@ -15,6 +17,9 @@ vi.mock('@/services/jobEvents', () => ({
 vi.mock('@/services/api', () => ({
   apiClient: {
     consultarJob: vi.fn<(id: string, signal?: AbortSignal) => Promise<Job>>(),
+    listarJobs: vi.fn<typeof apiClient.listarJobs>().mockResolvedValue({
+      itens: [], pagina: 0, tamanho: 100, total: 0,
+    }),
   },
 }))
 
@@ -93,9 +98,69 @@ function criarJob(): Job {
   }
 }
 
+async function montarProcessamento(status: Job['status'] = 'simulando') {
+  const job = { ...criarJob(), status, simulacao: null }
+  consultarJob.mockResolvedValue(job)
+  const router = criarRouterDeTeste()
+  const pinia = createPinia()
+  await router.push('/jobs/job-1')
+  const wrapper = mount(SimulateView, {
+    global: {
+      plugins: [router, pinia],
+      stubs: { FontAwesomeIcon: true },
+    },
+  })
+  await flushPromises()
+  return { wrapper, job, store: usarStoreJobAtual(pinia) }
+}
+
 describe('SimulateView', () => {
   afterEach(() => {
     vi.clearAllMocks()
+  })
+
+  it.each([
+    ['aguardando_transcricao', 403],
+    ['aguardando_transcricao', 500],
+    ['gerando_regra', 403],
+    ['gerando_regra', 500],
+    ['simulando', 403],
+    ['simulando', 500],
+  ] as const)('exibe o erro de consulta durante %s quando a API responde %i', async (status, codigo) => {
+    const { wrapper, store } = await montarProcessamento(status)
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(true)
+
+    consultarJob.mockRejectedValueOnce(new HttpError(codigo, 'Não foi possível consultar o processamento.'))
+    await store.consultarJob()
+    await flushPromises()
+
+    expect(store.job?.status).toBe(status)
+    expect(wrapper.get('main h2').text()).toBe('Não foi possível carregar a simulação')
+    expect(wrapper.text()).toContain('Não foi possível consultar o processamento.')
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="Processando simulação"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('retoma o progresso e mostra o resultado após recuperar uma consulta com falha', async () => {
+    const { wrapper, job, store } = await montarProcessamento()
+    consultarJob.mockRejectedValueOnce(new HttpError(500, 'Não foi possível consultar o processamento.'))
+    await store.consultarJob()
+    await flushPromises()
+    expect(wrapper.get('main h2').text()).toBe('Não foi possível carregar a simulação')
+
+    consultarJob.mockResolvedValue(job)
+    await store.consultarJob()
+    await flushPromises()
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('Não foi possível carregar a simulação')
+
+    consultarJob.mockResolvedValue(criarJob())
+    await store.consultarJob()
+    await flushPromises()
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Resultado: Regra de negócio aprovada!')
+    wrapper.unmount()
   })
 
   it('renderiza a tela de simulação', async () => {

@@ -5,6 +5,7 @@ import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
 import type { JobResumo, StatusJob } from '@/types/api'
 import { apiClient } from '@/services/api'
+import { regraMaisRecente } from '@/services/job'
 import { transformarRegra } from '../../finish/composables/transformarRegra'
 import { listarTodosOsJobs } from '../services/historicoJobs.api'
 import type { TipoDeHistorico } from '../types'
@@ -87,7 +88,7 @@ async function carregarRegrasDosJobs(jobs: JobResumo[]): Promise<void> {
       continue
     }
 
-    const regra = job.regras[0]
+    const regra = regraMaisRecente(job.regras)
 
     if (!regra) {
       continue
@@ -212,35 +213,6 @@ watch(
                 <p class="mt-1 text-sm text-[#9c571e]">Criada em {{ new Date(resumoDoJob.criado_em).toLocaleDateString('pt-BR') }}</p>
               </div>
               <span class="rounded-full border border-[#edd0c0] bg-[#fff3ec] px-3 py-1 text-xs font-semibold text-[#8f470e]">{{ nomearStatus(resumoDoJob.status) }}</span>
-            </div>
-
-            <div v-if="obterRegraFormatada(resumoDoJob.id)" class="mt-5 rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] p-4 ">
-              <template v-if="obterRegraFormatada(resumoDoJob.id)?.se.length">
-                <p class="font-serif text-lg font-semibold text-[#3a241a]">SE</p>
-                <ul class="mt-2 space-y-1 text-sm text-[#3a241a]">
-                  <li
-                    v-for="(condicao, indice) in obterRegraFormatada(resumoDoJob.id)?.se"
-                    :key="`${indice}-${condicao}`"
-                  >
-                    {{ condicao }}
-                  </li>
-                </ul>
-              </template>
-
-              <template v-if="obterRegraFormatada(resumoDoJob.id)?.entao.length">
-                <p class="mt-4 font-serif text-lg font-semibold text-[#3a241a]">
-                  ENTÃO
-                </p>
-
-                <ul class="mt-2 space-y-1 text-sm text-[#3a241a]">
-                  <li
-                    v-for="(efeito, indice) in obterRegraFormatada(resumoDoJob.id)?.entao"
-                    :key="`${indice}-${efeito}`"
-                  >
-                    {{ efeito }}
-                  </li>
-                </ul>
-              </template>
             </div>
 
             <div v-if="obterRegraFormatada(resumoDoJob.id)" class="mt-5 rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] p-4 ">

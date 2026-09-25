@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { apiClient } from "@/services/api";
 import type { JobResumo } from "@/types/api";
 import { useRoute, useRouter } from "vue-router";
@@ -224,7 +224,7 @@ onMounted(() => {
   void carregarRegrasRecentes();
 });
 
-onUnmounted(parar);
+onBeforeUnmount(parar);
 </script>
 
 <template>
@@ -248,7 +248,7 @@ onUnmounted(parar);
                 </div>
             </div>
             <div>
-                <div v-if="processando" class="flex flex-col items-center justify-center py-16">
+                <div v-if="processando && !erro" class="flex flex-col items-center justify-center py-16">
                     <div class="mb-6 flex h-16 w-16 items-center justify-center rounded-full border-4 border-[#FFDBCD] border-t-[#f26b0f] animate-spin" aria-label="Processando simulação">
                         <span class="sr-only">Processando simulação</span>
                     </div>
