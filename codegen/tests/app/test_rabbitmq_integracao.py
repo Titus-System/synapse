@@ -179,9 +179,10 @@ async def test_producer_real_entrega_payload_oficial_na_fila(
 async def test_dispatch_execution_entrega_comando_persistente_e_valido(
     broker_real: ConexaoBroker,
 ) -> None:
-    job_id, codigo_gerado_id = uuid4(), uuid4()
+    job_id, codigo_gerado_id, regra_id = uuid4(), uuid4(), uuid4()
     estado = {
         "job_id": str(job_id),
+        "regra_id": str(regra_id),
         "codigo_gerado_id": str(codigo_gerado_id),
         "competencias": ["2025-11"],
         "orcamento": "485000.10",
@@ -201,3 +202,17 @@ async def test_dispatch_execution_entrega_comando_persistente_e_valido(
     }
     assert recebido.delivery_mode == DeliveryMode.PERSISTENT
     await recebido.ack()
+
+    # Os outros dois eventos do nó chegam nas filas deles, válidos no contrato: o progresso
+    # que move o job e a linha de trilha desta etapa.
+    etapa = await broker_real.filas["etapa-alterada"].get(timeout=10)
+    oficial("etapa-alterada").validate(simplejson.loads(etapa.body, use_decimal=True))
+    await etapa.ack()
+
+    trilha = await broker_real.filas["no-concluido"].get(timeout=10)
+    conclusao = simplejson.loads(trilha.body, use_decimal=True)
+    oficial("no-concluido").validate(conclusao)
+    assert conclusao["no"] == "delegacao_worker"
+    assert conclusao["regra_id"] == str(regra_id)
+    assert "codigo_gerado_id" not in conclusao
+    await trilha.ack()

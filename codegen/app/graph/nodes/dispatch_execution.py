@@ -4,21 +4,36 @@ Kept apart from `await_execution`: the paused node re-runs from its first line o
 publishing there would send the command again on every resume.
 """
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
 
-from app.contratos.mensagens import EtapaAlterada, ExecutarCodigo, NoGrafo
+from app.contratos.mensagens import (
+    ConclusaoDaTrilha,
+    EtapaAlterada,
+    ExecutarCodigo,
+    NoConcluido,
+    NoGrafo,
+)
 from app.core.logger import get_logger
 from app.falhas import FalhaDoJobError
 from app.graph.core.state import AgentState
+from app.repositorio.artefatos import id_do_evento_de_trilha
 
 logger = get_logger("app.graph.nodes.dispatch_execution")
 
 # Etapa deste nó no vocabulário de `etapa-alterada`. `iniciada` aqui é o que move o job de
 # `gerando_regra` para `simulando` na `api`.
 ETAPA: NoGrafo = "delegacao_worker"
+
+# O que este nó concluiu, em texto legível por pessoa (US04). Descreve a entrega do
+# comando, não o código: o evento leva referências, nunca artefato (ADR-001).
+RESUMO_DA_TRILHA = (
+    "Execução delegada ao worker: o comando leva a referência do código gravado e as "
+    "competências do período."
+)
 
 
 class OrcamentoAusenteError(FalhaDoJobError):
@@ -38,9 +53,10 @@ async def dispatch_execution(state: AgentState, config: RunnableConfig) -> Agent
         raise OrcamentoAusenteError("executar-codigo requires the job's orcamento")
 
     job_id = UUID(state["job_id"])
+    codigo_gerado_id = UUID(state["codigo_gerado_id"])
     comando = ExecutarCodigo(
         job_id=job_id,
-        codigo_gerado_id=UUID(state["codigo_gerado_id"]),
+        codigo_gerado_id=codigo_gerado_id,
         competencias=list(state["competencias"]),
         orcamento=Decimal(orcamento),
     )
@@ -57,4 +73,23 @@ async def dispatch_execution(state: AgentState, config: RunnableConfig) -> Agent
     logger.info(
         "execution command published", extra={"codigo_gerado_id": state["codigo_gerado_id"]}
     )
+
+    # Por último, porque o nó conclui quando o comando foi entregue: anunciar a conclusão
+    # antes seria afirmar algo que ainda pode falhar. Alarga a janela em que uma falha faz o
+    # nó reexecutar e republicar o comando, mas o worker descarta comando repetido pelo
+    # `codigo_gerado_id` já gravado.
+    #
+    # Sem `codigo_gerado_id` nem `prompt_id`: o schema os reserva ao nó que gerou o código e
+    # aos que chamam modelo, e este não é nem um nem outro.
+    await producers.no_concluido(
+        NoConcluido(
+            evento_id=id_do_evento_de_trilha(job_id, ETAPA, codigo_gerado_id),
+            job_id=job_id,
+            no=ETAPA,
+            concluido_em=datetime.now(UTC),
+            conclusao=ConclusaoDaTrilha(resumo=RESUMO_DA_TRILHA),
+            regra_id=UUID(state["regra_id"]),
+        )
+    )
+    logger.info("node conclusion published", extra={"no": ETAPA})
     return {}
