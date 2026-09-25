@@ -18,9 +18,9 @@ São catorze, num schema único. Cada uma aparece abaixo com o que guarda e, qua
 
 A identidade é autenticada pelo Keycloak, conforme o [ADR-006](../adrs/ADR-006.md). A API mantém esta conta local para relacionar o usuário às submissões, aos jobs e à trilha de auditoria. `keycloak_sub` armazena o claim `sub` e tem unicidade; `senha_hash` é um campo legado, opcional, preenchido com `NULL` nas novas contas do Keycloak.
 
-Ao resolver a identidade autenticada, a API busca o `sub` ou um registro legado com `keycloak_sub` nulo e `login` igual ao `preferred_username`. Se não encontrar uma conta, cria uma com papel local `profissional_rh`. O indicador de auditor é lido de `realm_access.roles` no token; esse processo não sincroniza o papel do realm com a coluna `papel`.
+Antes de consultar ou escrever a conta, a API exige exatamente um papel de negócio conhecido em `realm_access.roles`: `profissional-rh` ou `auditor`. Nenhum deles, ou ambos, resulta em 403; papéis técnicos adicionais são ignorados. A API busca o `sub`, com precedência sobre um registro legado com `keycloak_sub` nulo e `login` igual ao `preferred_username`. Se não encontrar uma conta, cria uma com papel local correspondente (`profissional_rh` ou `auditor`). O papel do token rege a autorização em produção; contas existentes não têm a coluna `papel` sincronizada no login. No modo de desenvolvimento sem Keycloak, a API usa o primeiro usuário ativo e lê seu papel local canônico.
 
-Usuário desativado mantém a linha porque jobs antigos a referenciam. `ativo = false` impede a resolução dessa conta local pela API, mas não encerra a sessão no Keycloak. A cobertura uniforme das operações depende do middleware de autorização descrito no ADR-006.
+Usuário desativado mantém a linha porque jobs antigos a referenciam. `ativo = false` impede a resolução dessa conta local pela API, mas não encerra a sessão no Keycloak. As operações de jobs seguem a matriz da DEC-087 e conferem a posse por `jobs.usuario_id`, conforme o ADR-006.
 
 ### `submissoes`
 

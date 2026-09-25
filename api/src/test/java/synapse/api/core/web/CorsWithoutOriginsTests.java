@@ -35,6 +35,8 @@ class CorsWithoutOriginsTests {
 			.header("Origin", "https://app.exemplo.com")
 			.header("Access-Control-Request-Method", "POST")
 			.exchange()
+			.expectStatus()
+			.isOk()
 			.expectHeader()
 			.doesNotExist("Access-Control-Allow-Origin");
 	}

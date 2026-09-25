@@ -16,6 +16,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import synapse.api.core.security.AcessoDoUsuario;
+import synapse.api.core.security.PapelDoUsuario;
 import synapse.api.core.security.UsuarioAtual;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,8 +39,11 @@ class ListarJobsControllerTests {
 
 	@BeforeEach
 	void preparar() {
-		when(this.usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(UUID.randomUUID(), false));
-		this.mvc = MockMvcBuilders.standaloneSetup(new ListarJobsController(this.service, this.usuarioAtual))
+		when(this.usuarioAtual.obter())
+			.thenReturn(new AcessoDoUsuario(UUID.randomUUID(), PapelDoUsuario.PROFISSIONAL_RH));
+		this.mvc = MockMvcBuilders.standaloneSetup(new ListarJobsController(this.service))
+			.addInterceptors(new AutorizacaoJobsInterceptor(this.usuarioAtual,
+					new AutorizadorDeJob(mock(org.springframework.jdbc.core.JdbcTemplate.class))))
 			.setControllerAdvice(new ListarJobsAdvice())
 			.build();
 	}

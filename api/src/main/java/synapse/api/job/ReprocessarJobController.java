@@ -20,6 +20,7 @@ class ReprocessarJobController {
 		this.service = service;
 	}
 
+	@AutorizarJob(OperacaoJob.REPROCESSAR)
 	@PostMapping(path = "/jobs/{id}/reprocessar", produces = "application/json")
 	ResponseEntity<JobCriadoDto> reprocessar(@PathVariable("id") UUID id,
 			@RequestBody(required = false) @Nullable String corpo) {
