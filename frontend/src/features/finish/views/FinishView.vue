@@ -3,10 +3,11 @@ import {
   transformarRegra,
   transformarResultado,
 } from "../composables/transformarRegra";
-import { computed, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import { apiClient } from "@/services/api";
+import type { JobResumo } from "@/types/api";
 import { HttpError } from "@/services/http";
 import { regraMaisRecente, simulacaoVisivel } from "@/services/job";
 import { usarStoreJobAtual } from "@/stores/currentJob";
@@ -18,6 +19,9 @@ const roteador = useRouter();
 const store = usarStoreJobAtual();
 const { job, carregando } = storeToRefs(store);
 const jobId = computed(() => String(rota.params.id));
+const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([]);
+const quantidadeArquivadas = ref(0);
+const quantidadeSalvas = ref(0);
 const regra = computed(() => regraMaisRecente(job.value?.regras ?? []));
 const simulacao = computed(() => simulacaoVisivel(job.value));
 const erroCarregamento = computed(() => store.erro !== null);
@@ -35,6 +39,11 @@ let temporizadorAlerta: ReturnType<typeof setTimeout> | null = null;
 let temporizadorNavegacao: ReturnType<typeof setTimeout> | null = null;
 let ciclo = 0;
 
+function criarRotuloDaRegra(resumoDoJob: JobResumo): string {
+  const data = new Date(resumoDoJob.criado_em).toLocaleDateString("pt-BR");
+  return `Regra · ${data}`;
+}
+
 function limparTemporizadores() {
   if (temporizadorAlerta) clearTimeout(temporizadorAlerta);
   if (temporizadorNavegacao) clearTimeout(temporizadorNavegacao);
@@ -46,6 +55,46 @@ function exibirAlerta(tipo: "sucesso" | "erro", mensagem: string) {
   temporizadorAlerta = setTimeout(() => {
     alerta.value = null;
   }, 4000);
+}
+
+async function carregarRegrasRecentes(): Promise<void> {
+  try {
+    const resumosDosJobs: JobResumo[] = [];
+    let numeroDaPagina = 0;
+    let totalDeJobs = 0;
+    let itensDaPagina: JobResumo[] = [];
+
+    do {
+      const paginaDeJobs = await apiClient.listarJobs({
+        pagina: numeroDaPagina,
+        tamanho: 100,
+      });
+
+      totalDeJobs = paginaDeJobs.total;
+      itensDaPagina = paginaDeJobs.itens;
+      resumosDosJobs.push(...itensDaPagina);
+      numeroDaPagina += 1;
+    } while (
+      resumosDosJobs.length < totalDeJobs &&
+      itensDaPagina.length > 0
+    );
+
+    regrasRecentes.value = resumosDosJobs.slice(0, 6).map((resumoDoJob) => ({
+      identificador: resumoDoJob.id,
+      rotulo: criarRotuloDaRegra(resumoDoJob),
+    }));
+
+    quantidadeArquivadas.value = resumosDosJobs.filter(
+      (resumoDoJob) => resumoDoJob.status === "arquivado",
+    ).length;
+
+    quantidadeSalvas.value =
+      resumosDosJobs.length - quantidadeArquivadas.value;
+  } catch {
+    regrasRecentes.value = [];
+    quantidadeArquivadas.value = 0;
+    quantidadeSalvas.value = 0;
+  }
 }
 
 async function executarAcao(acao: "salvar" | "arquivar"): Promise<void> {
@@ -128,7 +177,12 @@ watch(
   },
   { immediate: true },
 );
-onUnmounted(() => {
+
+onMounted(() => {
+  void carregarRegrasRecentes();
+});
+
+onBeforeUnmount(() => {
   ciclo += 1;
   limparTemporizadores();
   store.pararAcompanhamento();
@@ -140,24 +194,23 @@ onUnmounted(() => {
       {{ alerta.mensagem }}
     </div>
     <div class="tela-de-negocio min-h-[100dvh] bg-[#fdf7f3] text-[#2e1a10] lg:grid lg:h-[100dvh] lg:grid-cols-[16rem_minmax(0,1fr)] lg:overflow-hidden">
-    <TheSidebar class="hidden lg:flex"/>
+    <TheSidebar class="sticky top-0 hidden h-screen lg:flex" :quantidade-arquivadas="quantidadeArquivadas" :quantidade-salvas="quantidadeSalvas" :regras-recentes="regrasRecentes"/>
     <main class="min-w-0 lg:min-h-0 lg:overflow-y-auto">
-    <div class="flex min-w-0 flex-col bg-[#fdf7f3]">
-    <TheProcessHeader etapa-da-rota="salvar" :status-do-job="job?.status ?? null" class="mb-12" />
+    <TheProcessHeader etapa-da-rota="salvar" :status-do-job="job?.status ?? null" class="mb-12 sticky top-0" />
     <div class="flex w-full flex-col items-center justify-center px-4 font-['Tinos'] sm:px-6">
         <div class="mb-7">
-            <h1 class="mb-3 text-center text-3xl font-bold sm:text-4xl">Finalizar Regra</h1>
-            <p class="text-center text-[#584237]">Revise os detalhes da regra extraída e confirme o salvamento.</p>
+            <h1 class="mb-3 text-center text-3xl font-bold sm:text-3xl">Finalizar Regra</h1>
+            <p class="text-center text-[#6b564a] text-base">Revise os detalhes da regra extraída e confirme o salvamento.</p>
         </div>
-        <div class="mb-12 flex w-full max-w-4xl flex-col rounded-xl border-2 border-[#DFC0B2] bg-white">
+        <div class="mb-12 flex w-3xl max-w-4xl flex-col rounded-xl border-2 border-[#DFC0B2] bg-white">
             <div class="px-4 pt-8 pb-4 sm:px-8">
                 <div>
                     <h2 class="font-bold text-2xl mb-2">{{ carregando ? 'Carregando regra...' : tituloRegra }}</h2>
                     <div class="flex flex-row gap-2">
-                        <span v-if="!erroCarregamento" class="text-[#9D4400]">Extraída</span>
+                        <span v-if="!erroCarregamento" class="text-[#9D4400] text-sm">Extraída</span>
                         <template v-if="dataRegra">
-                            <p class="text-[#9D4400]">•</p>
-                            <span class="text-[#9D4400]">{{ dataRegra }}</span>
+                            <p class="text-[#9D4400] text-sm">•</p>
+                            <span class="text-[#9D4400] text-sm">{{ dataRegra }}</span>
                         </template>
                     </div>
                     <div v-if="baixaRastreabilidade" class="mt-3 px-4 py-3 rounded-lg bg-[#fdf7f3] border border-[#FFDBCD] text-[#765B1A]">
@@ -178,13 +231,13 @@ onUnmounted(() => {
                     <p class="text-lg text-[#950606]"> Por favor, tente novamente.</p>
                   </div>
                   <div v-else class="flex flex-col gap-8">
-                    <p class="text-[#584237]/70 font-bold">LÓGICA ESTRUTURADA (PRÉ-VISUALIZAÇÃO)</p>
+                    <p class="text-[#584237]/70 font-bold text-xl">LÓGICA ESTRUTURADA (PRÉ-VISUALIZAÇÃO)</p>
                     <!-- SE -->
                     <div>
                       <h3 class="font-bold text-xl mb-3">SE</h3>
 
-                      <div class="flex flex-col gap-2 pl-6">
-                        <p v-for="(linha, indice) in regraFormatada.se" :key="`se-${indice}`">
+                      <div class="flex flex-col gap-1 pl-6">
+                        <p v-for="(linha, indice) in regraFormatada.se" :key="`se-${indice}`" class='text-sm'>
                           {{ linha }}
                         </p>
                       </div>
@@ -197,7 +250,7 @@ onUnmounted(() => {
                         <p v-for="(linha, indice) in [
                             ...regraFormatada.entao,
                             ...resultadoFormatado,
-                          ]" :key="`entao-${indice}`">{{ linha }}</p>
+                          ]" :key="`entao-${indice}`" class='text-sm'>{{ linha }}</p>
                       </div>
                     </div>
                   </div>
@@ -207,7 +260,6 @@ onUnmounted(() => {
             <button type="button" class="text-[#9D4400] px-9 py-3 rounded-lg border-2 border-[#9D4400] font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" :disabled="acaoProcessando !== null || carregando || erroCarregamento || !podeArquivar" @click="executarAcao('arquivar')">{{ acaoProcessando === 'arquivar' ? 'Processando...' : 'Arquivar' }}</button>
             <button type="button" class="bg-[#F47521] text-white font-bold px-9 py-3 rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" :disabled="acaoProcessando !== null || carregando || erroCarregamento || !podeSalvar" @click="executarAcao('salvar')">{{ acaoProcessando === 'salvar' ? 'Processando...' : 'Salvar' }}</button>
         </div>
-    </div>
     </div>
     </main>
     </div>

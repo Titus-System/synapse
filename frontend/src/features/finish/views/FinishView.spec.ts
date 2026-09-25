@@ -39,7 +39,7 @@ async function montar() {
   const wrapper = mount(FinishView, {
     global: {
       plugins: [router, createPinia()],
-      stubs: { TheSidebar: true, TheProcessHeader: true },
+      stubs: { TheSidebar: true },
     },
   })
   await flushPromises()
@@ -47,6 +47,12 @@ async function montar() {
 }
 
 describe('FinishView', () => {
+  it('indica Salvar como etapa atual enquanto aguarda a decisão do usuário', async () => {
+    const { wrapper } = await montar()
+    expect(wrapper.get('header [aria-current="step"]').text()).toBe('Salvar')
+    wrapper.unmount()
+  })
+
   it('mostra a versão mais recente da resposta real de consulta', async () => {
     vi.mocked(apiClient.consultarJob).mockResolvedValue(
       jobFixture({ regras: [{ ...regraFixture(2), id: 'recente-2' }, regraFixture(1)] }),
