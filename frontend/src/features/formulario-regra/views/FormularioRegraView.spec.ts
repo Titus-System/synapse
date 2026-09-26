@@ -56,6 +56,12 @@ function valorDoCampo(conteiner: VueWrapper, seletor: string): string {
   return (conteiner.get(seletor).element as HTMLInputElement | HTMLSelectElement).value
 }
 
+// Os campos de código são dropdowns de múltipla escolha: o que eles têm
+// selecionado aparece como texto do gatilho, não como value de um input.
+function resumoDoCampo(conteiner: VueWrapper, seletor: string): string {
+  return conteiner.get(seletor).text()
+}
+
 const opcoesDeMontagem = {
   global: {
     plugins: [createPinia()],
@@ -79,9 +85,9 @@ describe('FormularioRegraView', () => {
     expect(apiClient.consultarJob).toHaveBeenCalledWith('job-9')
     expect(valorDoCampo(conteiner, '#vigencia-inicio')).toBe('2025-11')
     expect(valorDoCampo(conteiner, '#vigencia-fim')).toBe('2025-11')
-    expect(valorDoCampo(conteiner, '#loja')).toBe('13')
-    expect(valorDoCampo(conteiner, '#marca')).toBe('10')
-    expect(valorDoCampo(conteiner, '#cargo')).toBe('100')
+    expect(resumoDoCampo(conteiner, '#loja')).toBe('LOJA-13')
+    expect(resumoDoCampo(conteiner, '#marca')).toBe('PRETO (10)')
+    expect(resumoDoCampo(conteiner, '#cargo')).toBe('VENDEDOR LOJA (100)')
     expect(valorDoCampo(conteiner, '#percentual')).toBe('2,5')
     expect(valorDoCampo(conteiner, '#orcamento')).toBe('')
     expect(conteiner.get('[role="status"]').text()).toContain('Informe o novo orçamento')
@@ -93,12 +99,12 @@ describe('FormularioRegraView', () => {
 
     const conteiner = mount(FormularioRegraView, opcoesDeMontagem)
     await flushPromises()
-    expect(valorDoCampo(conteiner, '#loja')).toBe('13')
+    expect(resumoDoCampo(conteiner, '#loja')).toBe('LOJA-13')
 
     rota.atual.query = {}
     await flushPromises()
 
-    expect(valorDoCampo(conteiner, '#loja')).toBe('')
+    expect(resumoDoCampo(conteiner, '#loja')).toBe('Selecione uma opção')
     expect(valorDoCampo(conteiner, '#vigencia-inicio')).toBe('')
     expect(conteiner.find('[role="status"]').exists()).toBe(false)
   })
@@ -108,7 +114,7 @@ describe('FormularioRegraView', () => {
     await flushPromises()
 
     expect(apiClient.consultarJob).not.toHaveBeenCalled()
-    expect(valorDoCampo(conteiner, '#loja')).toBe('')
+    expect(resumoDoCampo(conteiner, '#loja')).toBe('Selecione uma opção')
   })
 
   it('mantém somente o título e a descrição no cabeçalho do formulário', () => {
@@ -131,12 +137,23 @@ describe('FormularioRegraView', () => {
     })
   })
 
+  it('escolhe a loja pelo dropdown, sem digitar o código', async () => {
+    const conteiner = mount(FormularioRegraView, opcoesDeMontagem)
+
+    await conteiner.get('#loja').trigger('click')
+    const opcoes = conteiner.get('#loja-painel').findAll('input[type="checkbox"]')
+    await opcoes[12]?.setValue(true)
+    await opcoes[20]?.setValue(true)
+
+    expect(resumoDoCampo(conteiner, '#loja')).toBe('2 lojas selecionadas')
+  })
+
   it('mostra a pendência no próprio campo ao tentar enviar dados vazios', async () => {
     const conteiner = mount(FormularioRegraView, opcoesDeMontagem)
 
     await conteiner.get('form').trigger('submit')
 
-    expect(conteiner.get('#loja-erro').text()).toBe('Informe ao menos um código de loja.')
+    expect(conteiner.get('#loja-erro').text()).toBe('Selecione ao menos uma loja.')
     expect(conteiner.get('#loja').attributes('aria-invalid')).toBe('true')
   })
 })

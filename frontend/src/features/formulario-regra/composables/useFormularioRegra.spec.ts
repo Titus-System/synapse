@@ -25,9 +25,9 @@ function preencherFormularioValido() {
   const formulario = useFormularioRegra()
   formulario.formulario.vigenciaInicio = '2025-11'
   formulario.formulario.vigenciaFim = '2025-11'
-  formulario.formulario.loja = '13, 21'
-  formulario.formulario.marca = '10'
-  formulario.formulario.cargo = '100'
+  formulario.formulario.loja = ['13', '21']
+  formulario.formulario.marca = ['10']
+  formulario.formulario.cargo = ['100']
   formulario.formulario.percentual = '2,5'
   formulario.formulario.orcamento = '485.000,00'
   return formulario
@@ -49,9 +49,9 @@ describe('useFormularioRegra', () => {
     expect(formulario.formulario).toMatchObject({
       vigenciaInicio: '2025-11',
       vigenciaFim: '2025-11',
-      loja: '13, 21',
-      marca: '10, 20',
-      cargo: '100',
+      loja: ['13', '21'],
+      marca: ['10', '20'],
+      cargo: ['100'],
       percentual: '7',
       orcamento: '',
     })
@@ -68,7 +68,7 @@ describe('useFormularioRegra', () => {
 
     await formulario.preencherComRegraDoJob('job-1')
 
-    expect(formulario.formulario.loja).toBe('21')
+    expect(formulario.formulario.loja).toEqual(['21'])
   })
 
   it('descarta a competência que não está entre as opções de vigência', async () => {
@@ -79,7 +79,7 @@ describe('useFormularioRegra', () => {
 
     expect(formulario.formulario.vigenciaInicio).toBe('')
     expect(formulario.formulario.vigenciaFim).toBe('')
-    expect(formulario.formulario.loja).toBe('13')
+    expect(formulario.formulario.loja).toEqual(['13'])
   })
 
   it.each([
@@ -94,7 +94,7 @@ describe('useFormularioRegra', () => {
     expect(formulario.mensagemDoFormulario.value).toBe(
       'Não foi possível carregar a regra selecionada. Preencha os campos manualmente.',
     )
-    expect(formulario.formulario.loja).toBe('')
+    expect(formulario.formulario.loja).toEqual([])
     expect(formulario.preenchendo.value).toBe(false)
   })
 
@@ -102,8 +102,18 @@ describe('useFormularioRegra', () => {
     const formulario = useFormularioRegra()
 
     expect(formulario.validarFormulario()).toBe(false)
+    expect(formulario.erros.loja).toBe('Selecione ao menos uma loja.')
     expect(formulario.erros.percentual).toBe('Informe o percentual de comissão.')
     expect(formulario.erros.orcamento).toBe('Informe o orçamento disponível.')
+  })
+
+  it('descarta os códigos que não existem entre as opções do quadro de RH', async () => {
+    consultarJob.mockResolvedValue(jobComNucleo({ loja: ['13', '999'], marca: ['10'], cargo: ['100'] }))
+    const formulario = useFormularioRegra()
+
+    await formulario.preencherComRegraDoJob('job-1')
+
+    expect(formulario.formulario.loja).toEqual(['13'])
   })
 
   it('envia o núcleo no formato previsto pelo contrato', async () => {

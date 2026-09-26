@@ -436,6 +436,7 @@ onBeforeUnmount(parar);
             :regra="sugestao ?? null"
             :simulacao="simulacaoSugestao"
             :status="status ?? null"
+            :meta="meta"
             :pode-aceitar="podeAceitarSugestao"
             :pode-cancelar="podeCancelar"
             @aceitar="seguirParaFinalizacao"
