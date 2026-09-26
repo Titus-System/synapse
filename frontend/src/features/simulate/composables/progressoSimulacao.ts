@@ -15,6 +15,7 @@ const etapas: Record<string, { percentual: number; titulo: string; detalhe: stri
   delegacao_worker: { percentual: 65, titulo: 'Preparando a simulação', detalhe: 'Enviando a regra para execução segura.' },
   interpretacao_resultado: { percentual: 85, titulo: 'Interpretando o resultado', detalhe: 'Consolidando os dados calculados.' },
   decisao: { percentual: 95, titulo: 'Concluindo a simulação', detalhe: 'Registrando a decisão do processamento.' },
+  sugestao_adaptacao: { percentual: 70, titulo: 'Procurando uma alternativa', detalhe: 'Ajustando a regra para caber no orçamento.' },
   explicacao: { percentual: 95, titulo: 'Concluindo a simulação', detalhe: 'Preparando a explicação do resultado.' },
 }
 

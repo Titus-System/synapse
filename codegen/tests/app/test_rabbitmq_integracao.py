@@ -27,7 +27,7 @@ from app.mensageria.broker import (
     conectar,
 )
 from app.mensageria.roteamento import Entrada
-from tests.app.test_mensageria import SAIDAS, exemplo, oficial
+from tests.app.test_mensageria import SAIDAS, exemplo, oficial, sugestao_do_exemplo
 
 pytestmark = [
     pytest.mark.rabbitmq,
@@ -190,6 +190,20 @@ async def test_producer_real_entrega_payload_oficial_na_fila(
     oficial(nome).validate(payload)
     assert payload == exemplo(nome)
     assert recebido.exchange == ""
+    assert recebido.routing_key == nome
+    await recebido.ack()
+
+
+async def test_producer_real_entrega_a_sugestao_na_fila(broker_real: ConexaoBroker) -> None:
+    """Fora da parametrização porque este DTO não tem volta por texto JSON (ver o unitário)."""
+    nome = "sugestao-adaptacao-proposta"
+
+    await broker_real.producers.sugestao_adaptacao_proposta(sugestao_do_exemplo())
+    recebido = await broker_real.filas[nome].get(timeout=10)
+
+    payload = simplejson.loads(recebido.body, use_decimal=True)
+    oficial(nome).validate(payload)
+    assert payload == exemplo(nome)
     assert recebido.routing_key == nome
     await recebido.ack()
 

@@ -23,6 +23,7 @@ from app.contratos.mensagens import (
     ParametrosConfirmados,
     RegraSubmetida,
     SimulacaoConcluida,
+    SugestaoAdaptacaoProposta,
 )
 from app.contratos.serializacao import serializar
 from app.core.logger import job_id_ctx
@@ -39,6 +40,7 @@ from app.mensageria.roteamento import (
     RetomadaIndisponivelError,
 )
 from app.repositorio.regras import RegraInvalidaError
+from app.representacao_regra import RepresentacaoRegra
 
 CONTRATOS = Path(__file__).resolve().parents[3] / "contracts"
 
@@ -76,6 +78,17 @@ SAIDAS = (
 def exemplo(nome: str) -> dict[str, Any]:
     return simplejson.loads(
         (CONTRATOS / "examples" / "events" / f"{nome}.json").read_bytes(), use_decimal=True
+    )
+
+
+def representacao_do_exemplo() -> RepresentacaoRegra:
+    """A representação do exemplo com os números como Decimal, que é como o nó a monta.
+
+    Este DTO não tem volta por texto JSON: o parser devolveria float, e os tipos da regra o
+    recusam justamente para não perder precisão. O consumidor do evento é a `api`, em Java.
+    """
+    return RepresentacaoRegra.model_validate(
+        exemplo("sugestao-adaptacao-proposta")["representacao"]
     )
 
 
@@ -211,6 +224,44 @@ async def test_producer_nao_publica_dto_adulterado(
 
     with pytest.raises(ProdutorError):
         await getattr(Producers(canal), metodo)(dto)
+
+    canal.default_exchange.publish.assert_not_awaited()
+
+
+def sugestao_do_exemplo() -> SugestaoAdaptacaoProposta:
+    payload = exemplo("sugestao-adaptacao-proposta")
+    return SugestaoAdaptacaoProposta(
+        job_id=UUID(payload["job_id"]),
+        regra_origem_id=UUID(payload["regra_origem_id"]),
+        resultado_id=UUID(payload["resultado_id"]),
+        representacao=representacao_do_exemplo(),
+    )
+
+
+async def test_producer_publica_a_sugestao_no_payload_oficial() -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+
+    await Producers(canal).sugestao_adaptacao_proposta(sugestao_do_exemplo())
+
+    args = canal.default_exchange.publish.call_args
+    assert args.kwargs == {
+        "routing_key": "sugestao-adaptacao-proposta",
+        "mandatory": True,
+    }
+    corpo = simplejson.loads(args.args[0].body, use_decimal=True)
+    oficial("sugestao-adaptacao-proposta").validate(corpo)
+    assert corpo == exemplo("sugestao-adaptacao-proposta")
+
+
+async def test_producer_nao_publica_sugestao_adulterada() -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+    dto = sugestao_do_exemplo()
+    dto.job_id = "invalido"  # type: ignore[assignment]
+
+    with pytest.raises(ProdutorError):
+        await Producers(canal).sugestao_adaptacao_proposta(dto)
 
     canal.default_exchange.publish.assert_not_awaited()
 

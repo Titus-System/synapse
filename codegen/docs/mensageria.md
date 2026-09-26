@@ -15,6 +15,7 @@ O corpo é o contrato; `type`, `correlation_id` e `message_id` são propriedades
 | `ExecutarCodigo` | saída | `executar-codigo` | padrão (`""`) |
 | `EtapaAlterada` | saída | `etapa-alterada` | padrão (`""`) |
 | `NoConcluido` | saída | `no-concluido` | padrão (`""`) |
+| `SugestaoAdaptacaoProposta` | saída | `sugestao-adaptacao-proposta` | padrão (`""`) |
 
 Os DTOs canônicos ficam em `app/contratos/mensagens.py` e são reutilizados pela
 mensageria, sem subclasses de transporte. Os nomes de mensagens e o roteamento
@@ -149,6 +150,11 @@ rodam de novo.
 | `no-concluido` `geracao_codigo` | `extract_code`, depois de gravar o código | estrutural + trilha |
 | `etapa-alterada` `delegacao_worker`/`iniciada` | `dispatch_execution`, antes do comando | estrutural |
 | `no-concluido` `delegacao_worker` | `dispatch_execution`, depois do comando | trilha |
+| `etapa-alterada` `decisao`/`iniciada` | `decision`, antes de encaminhar | progresso |
+| `no-concluido` `decisao` | `decision`, com o `encaminhamento` | trilha |
+| `etapa-alterada` `sugestao_adaptacao`/`iniciada` | `suggest_adaptation`, antes de propor | progresso |
+| `sugestao-adaptacao-proposta` | `suggest_adaptation`, quando há alternativa | estrutural |
+| `no-concluido` `sugestao_adaptacao` | `suggest_adaptation`, depois da proposta | trilha |
 | `etapa-alterada` `status: erro` | `GraphRouter`, em qualquer `FalhaDoJobError` | estrutural |
 
 **Estrutural** quer dizer que o fluxo quebra sem o evento. `delegacao_worker`/`iniciada` é o
@@ -185,7 +191,14 @@ quando o comando foi entregue; anunciar antes afirmaria algo que ainda pode falh
 a janela em que uma falha republica o comando, mas o worker descarta comando repetido pelo
 `codigo_gerado_id` já gravado.
 
-As demais seis etapas do vocabulário não existem como nós e seguem sem publicar.
+As demais cinco etapas do vocabulário não existem como nós e seguem sem publicar.
+
+A `sugestao-adaptacao-proposta` é estrutural pelo mesmo motivo da delegação: sem ela a
+alternativa não vira versão de regra e o job não volta a `gerando_regra`. Ela vai depois do
+`etapa-alterada` da etapa e antes do `no-concluido`, como em `dispatch_execution` e pela mesma
+razão. A proposta viaja no corpo, e não por referência, porque a linha em `regras` que a
+guardaria é justamente o que o evento pede para criar - quem grava é a `api`, dona da versão,
+do hash canônico e do estado do job.
 
 Em seguida, `await_execution` pausa o grafo com `interrupt()`, a `regra-submetida` recebe
 `ack` e o processo fica livre. O resultado do worker chega pela fila do fanout e

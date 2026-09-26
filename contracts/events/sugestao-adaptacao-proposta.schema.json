@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/events/sugestao-adaptacao-proposta.schema.json",
+  "title": "sugestao-adaptacao-proposta",
+  "description": "Evento publicado pelo codegen quando a simulação é inviável por orçamento e o nó de sugestão de adaptação propõe uma alternativa (US03, cenário 1). É a API que grava a versão nova da regra e reabre o ciclo: ela é dona da numeração da versão, do hash canônico e do estado do job. A alternativa ainda não foi simulada neste ponto - a arquitetura exige que ela passe de novo pela geração e pela execução antes de ser mostrada ao usuário.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "regra_origem_id",
+    "resultado_id",
+    "representacao"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job cuja simulação não coube no orçamento."
+    },
+    "regra_origem_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Versão da regra que foi simulada e não coube. A versão nova nasce derivada dela, em regras.regra_origem_id, que é o que liga a alternativa à regra que ela adapta."
+    },
+    "resultado_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Linha de resultados_simulacao que motivou a proposta. O conteúdo não viaja: os totais que embasaram o cálculo ficam no banco, e é de lá que qualquer conferência os lê."
+    },
+    "representacao": {
+      "$ref": "https://synapse.local/contracts/domain/representacao-regra.schema.json",
+      "description": "A regra proposta, inteira e no mesmo formato de regras.nucleo/especificacoes. Vai no corpo, e não por referência, porque ainda não existe linha em regras para apontar - criá-la é justamente o que este evento pede."
+    }
+  },
+  "examples": [
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "regra_origem_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
+      "resultado_id": "5e4d3c2b-1a09-4f8e-8d7c-6b5a49382716",
+      "representacao": {
+        "nucleo": {
+          "vigencia": {
+            "inicio": "2025-08",
+            "fim": "2025-12"
+          },
+          "loja": [
+            "13"
+          ],
+          "marca": [
+            "10"
+          ],
+          "cargo": [
+            "100"
+          ],
+          "percentual": 0.0197
+        },
+        "especificacoes": []
+      }
+    }
+  ]
+}

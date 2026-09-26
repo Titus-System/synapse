@@ -46,3 +46,7 @@ class AgentState(TypedDict, total=False):
     resultado_id: str
     status_simulacao: str
     veredito: str
+
+    # Para onde o nó de decisão encaminhou o fluxo. É o campo validado que a aresta
+    # condicional lê - resposta de modelo nunca escolhe o próximo nó.
+    encaminhamento: str

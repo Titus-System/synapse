@@ -16,6 +16,7 @@ from app.codigo_gerado import CodigoInvalidoError
 from app.graph.core.engine import build_graph
 from app.graph.core.state import AgentState
 from app.prompts.geracao_codigo import montar_prompt_geracao
+from app.repositorio.resultados import TotaisDaSimulacao
 from app.representacao_regra import RepresentacaoRegra
 from tests.app.banco_falso import BancoFalso
 from tests.app.graph.conftest import FakeChatModel
@@ -26,10 +27,11 @@ _REGRA = RepresentacaoRegra.model_validate({"nucleo": {}, "especificacoes": []})
 
 
 def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
-    """Every registered node is reachable, in one line from START to END.
+    """Every registered node is reachable, from START to END.
 
     Guards against a node left in the graph without an edge, which reads as part of the
-    pipeline in `docs/graph.md` but never runs.
+    pipeline in `docs/graph.md` but never runs. Uma linha reta até a pausa e uma única
+    ramificação depois dela, no nó de decisão.
     """
     graph = build_graph(InMemorySaver())
 
@@ -42,6 +44,8 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
         "extract_code",
         "dispatch_execution",
         "await_execution",
+        "decision",
+        "suggest_adaptation",
         "__end__",
     }
     edges = {(edge.source, edge.target) for edge in drawable.edges}
@@ -52,7 +56,10 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
         ("persist_response", "extract_code"),
         ("extract_code", "dispatch_execution"),
         ("dispatch_execution", "await_execution"),
-        ("await_execution", "__end__"),
+        ("await_execution", "decision"),
+        ("decision", "suggest_adaptation"),
+        ("decision", "__end__"),
+        ("suggest_adaptation", "__end__"),
     }
     alcancados = {no for aresta in edges for no in aresta}
     assert set(drawable.nodes) == alcancados
@@ -64,19 +71,26 @@ FONTE = "def aplicar_regra(bases, apuracao_base, competencias):\n    return {}\n
 RESPOSTA_VALIDA = f"```python\n{FONTE}```"
 CONFIG: RunnableConfig = {"configurable": {"thread_id": JOB_ID}}
 RESULTADO_ID = "d9cf3b9e-c99e-4c1e-9f9e-2e6e3a5b0a13"
-RETOMADA = {"resultado_id": RESULTADO_ID, "status": "sucesso", "veredito": "inviavel"}
+RETOMADA = {"resultado_id": RESULTADO_ID, "status": "sucesso", "veredito": "viavel"}
+RETOMADA_INVIAVEL = {**RETOMADA, "veredito": "inviavel"}
 
 
 class _Execucao:
     """One graph wired with in-memory checkpoints, database and producers."""
 
-    def __init__(self, monkeypatch: pytest.MonkeyPatch, banco: BancoFalso | None = None) -> None:
-        monkeypatch.setattr(
-            "app.graph.nodes.load_rule.buscar_regra", AsyncMock(return_value=_REGRA)
-        )
+    def __init__(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        banco: BancoFalso | None = None,
+        regra: RepresentacaoRegra = _REGRA,
+    ) -> None:
+        monkeypatch.setattr("app.graph.nodes.load_rule.buscar_regra", AsyncMock(return_value=regra))
         self.banco = banco or BancoFalso()
         self.producers = MagicMock(
-            executar_codigo=AsyncMock(), etapa_alterada=AsyncMock(), no_concluido=AsyncMock()
+            executar_codigo=AsyncMock(),
+            etapa_alterada=AsyncMock(),
+            no_concluido=AsyncMock(),
+            sugestao_adaptacao_proposta=AsyncMock(),
         )
         self.graph: CompiledStateGraph[AgentState, None, AgentState, AgentState] = build_graph(
             InMemorySaver()
@@ -102,8 +116,8 @@ class _Execucao:
         """What `entrypoint.run` does on a redelivery: continue from the last checkpoint."""
         return await self.graph.ainvoke(None, self.config)
 
-    async def retomar(self) -> Any:
-        return await self.graph.ainvoke(Command(resume=RETOMADA), self.config)
+    async def retomar(self, valor: dict[str, Any] = RETOMADA) -> Any:
+        return await self.graph.ainvoke(Command(resume=valor), self.config)
 
 
 async def test_graph_records_the_artifacts_publishes_and_pauses(
@@ -164,7 +178,44 @@ async def test_resuming_records_the_result_reference_in_the_state(
     valores = (await execucao.graph.aget_state(execucao.config)).values
     assert valores["resultado_id"] == RESULTADO_ID
     assert valores["status_simulacao"] == "sucesso"
-    assert valores["veredito"] == "inviavel"
+    assert valores["veredito"] == "viavel"
+
+
+async def test_an_unaffordable_result_routes_to_the_adaptation_and_proposes_one(
+    scripted_model: ScriptedModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A única ramificação do grafo: inviável por orçamento vai para a adaptação.
+
+    A proposta sai do total apurado, não do modelo - o nó de sugestão não chama LLM.
+    """
+    regra = RepresentacaoRegra.model_validate(
+        {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []}
+    )
+    monkeypatch.setattr(
+        "app.graph.nodes.suggest_adaptation.buscar_totais",
+        AsyncMock(return_value=TotaisDaSimulacao(Decimal("492100"), Decimal("485000"))),
+    )
+    scripted_model([AIMessage(content=RESPOSTA_VALIDA)])
+    execucao = _Execucao(monkeypatch, regra=regra)
+    await execucao.iniciar()
+
+    await execucao.retomar(RETOMADA_INVIAVEL)
+
+    [proposta] = execucao.producers.sugestao_adaptacao_proposta.await_args.args
+    assert proposta.representacao.para_contrato()["nucleo"]["percentual"] == Decimal("0.0246")
+    assert (await execucao.graph.aget_state(execucao.config)).next == ()
+
+
+async def test_an_affordable_result_ends_without_proposing_anything(
+    scripted_model: ScriptedModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scripted_model([AIMessage(content=RESPOSTA_VALIDA)])
+    execucao = _Execucao(monkeypatch)
+    await execucao.iniciar()
+
+    await execucao.retomar()
+
+    execucao.producers.sugestao_adaptacao_proposta.assert_not_awaited()
 
 
 async def test_a_result_without_a_verdict_leaves_the_state_without_one(

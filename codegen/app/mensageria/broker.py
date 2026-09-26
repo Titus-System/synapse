@@ -17,6 +17,7 @@ FILAS_SIMPLES = (
     "executar-codigo",
     "etapa-alterada",
     "no-concluido",
+    "sugestao-adaptacao-proposta",
 )
 EXCHANGE_SIMULACAO = "simulacao-concluida"
 FILA_SIMULACAO = "simulacao-concluida.codegen"
