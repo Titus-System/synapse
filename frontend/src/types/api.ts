@@ -125,6 +125,7 @@ export interface RegraVersionada {
 
 export interface Simulacao {
   id: string
+  regra_id?: string
   criado_em: string
   status: StatusResultado | null
   flag_baixa_rastreabilidade: boolean
@@ -153,6 +154,7 @@ export interface JobCriado extends JobBase {
 export interface Job extends JobBase {
   regras: RegraVersionada[]
   simulacao?: Simulacao | null
+  simulacoes?: Simulacao[]
 }
 
 export interface JobResumo {

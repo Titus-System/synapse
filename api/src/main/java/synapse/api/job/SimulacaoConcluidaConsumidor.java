@@ -15,21 +15,6 @@ import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
 import synapse.api.job.SimulacaoConcluidaService.DesfechoAplicado;
 
-/**
- * Consome {@code simulacao-concluida} pela fila própria da api
- * ({@code simulacao-concluida.api}, ligada à exchange fanout - ver
- * {@link RabbitTopologyConfig}) e aplica o desfecho ao job: transiciona o estado e
- * repassa ao SSE. Nunca lança: toda entrada inválida ou fora de ordem vira descarte com
- * log {@code WARN}, porque uma exceção aqui viraria requeue infinito.
- *
- * <p>
- * <strong>Idempotência sem tabela de deduplicação.</strong> Diferente de
- * {@code no-concluido}, este evento não carrega {@code evento_id}. A garantia sai do
- * grafo de {@link MaquinaDeEstadosDoJob}: uma redelivery encontra o job já fora do estado
- * de origem esperado e {@link TransicaoDeStatusInvalidaException} é o único caso
- * capturado aqui - falha de banco não é, porque essa deve virar redelivery de verdade
- * (skill {@code consumidores}).
- */
 @Component
 class SimulacaoConcluidaConsumidor {
 
@@ -75,6 +60,13 @@ class SimulacaoConcluidaConsumidor {
 					.addKeyValue("resultado_id", resultadoId)
 					.setCause(ex)
 					.log("simulacao-concluida não aplicada; job fora do estado de origem esperado (reentrega ou evento fora de ordem)");
+				return;
+			}
+
+			if (aplicado == null) {
+				log.atWarn()
+					.addKeyValue("resultado_id", resultadoId)
+					.log("resultado descartado: não pertence à versão atual do job");
 				return;
 			}
 

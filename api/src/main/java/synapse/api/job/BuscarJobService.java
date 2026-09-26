@@ -1,6 +1,8 @@
 package synapse.api.job;
 
 import java.math.BigDecimal;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,6 +16,8 @@ import tools.jackson.databind.json.JsonMapper;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 class BuscarJobService {
@@ -28,9 +32,10 @@ class BuscarJobService {
 		this.jdbc = jdbc;
 	}
 
+	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 	JobDetalhadoDto buscar(UUID jobId) {
 		try {
-			return this.jdbc.queryForObject("""
+			JobDetalhadoDto job = this.jdbc.queryForObject("""
 					SELECT
 					    j.id,
 					    j.status,
@@ -42,17 +47,7 @@ class BuscarJobService {
 					    j.finalizado_em,
 					    j.submissao_id,
 					    j.job_origem_id,
-					    regras.regras,
-
-					    sim.id AS simulacao_id,
-					    sim.criado_em AS simulacao_criada_em,
-					    sim.flag_baixa_rastreabilidade,
-
-					    rs.status AS simulacao_status,
-					    rs.veredito AS simulacao_veredito,
-					    rs.totais AS simulacao_totais,
-					    rs.assercoes AS simulacao_assercoes,
-					    rs.decomposicao AS simulacao_decomposicao
+					    regras.regras
 
 					FROM jobs j
 					LEFT JOIN submissoes s ON s.id = j.submissao_id
@@ -70,14 +65,6 @@ class BuscarJobService {
 					    FROM regras r
 					    WHERE r.job_id = j.id
 					) regras ON regras.regras IS NOT NULL
-					LEFT JOIN LATERAL (
-					    SELECT simulacao.*
-					    FROM simulacoes simulacao
-					    WHERE simulacao.job_id = j.id
-					    ORDER BY simulacao.criado_em DESC, simulacao.id DESC
-					    LIMIT 1
-					) sim ON true
-					LEFT JOIN resultados_simulacao rs ON rs.id = sim.resultado_id
 					WHERE j.id = ?
 					""", (rs, rowNum) -> {
 				UUID id = rs.getObject("id", UUID.class);
@@ -95,47 +82,45 @@ class BuscarJobService {
 
 				List<RegraCriadaDto> regras = regras(rs.getString("regras"));
 
-				UUID simulacaoId = rs.getObject("simulacao_id", UUID.class);
-
-				SimulacaoDto simulacao = null;
-
-				if (simulacaoId != null) {
-					Instant simulacaoCriadaEm = rs.getTimestamp("simulacao_criada_em").toInstant();
-					boolean flagBaixaRastreabilidade = rs.getBoolean("flag_baixa_rastreabilidade");
-
-					String simulacaoStatus = rs.getString("simulacao_status");
-					String simulacaoVeredito = rs.getString("simulacao_veredito");
-
-					ResultadoSimulacaoDto resultado = null;
-
-					if (simulacaoStatus != null) {
-						TotaisSimulacaoDto totais = rs.getString("simulacao_totais") != null
-								? this.json.readValue(rs.getString("simulacao_totais"), TotaisSimulacaoDto.class)
-								: null;
-
-						List<ResultadoAssercaoDto> assercoes = this.json.readValue(rs.getString("simulacao_assercoes"),
-								new TypeReference<List<ResultadoAssercaoDto>>() {
-								});
-
-						DecomposicaoResultadoDto decomposicao = rs.getString("simulacao_decomposicao") != null
-								? this.json.readValue(rs.getString("simulacao_decomposicao"),
-										DecomposicaoResultadoDto.class)
-								: null;
-
-						resultado = new ResultadoSimulacaoDto(totais, assercoes, decomposicao);
-					}
-
-					simulacao = new SimulacaoDto(simulacaoId, simulacaoCriadaEm, simulacaoStatus, simulacaoVeredito,
-							flagBaixaRastreabilidade, resultado);
-				}
-
 				return new JobDetalhadoDto(id, status, origem, competencias, orcamento, criadoEm, iniciadoEm,
-						finalizadoEm, submissaoId, jobOrigemId, regras, simulacao);
+						finalizadoEm, submissaoId, jobOrigemId, regras, null, List.of());
 			}, jobId);
+			List<SimulacaoDto> simulacoes = simulacoes(jobId);
+			SimulacaoDto simulacao = simulacoes.isEmpty() ? null : simulacoes.getLast();
+			return new JobDetalhadoDto(job.id(), job.status(), job.origem(), job.competencias(), job.orcamento(),
+					job.criado_em(), job.iniciado_em(), job.finalizado_em(), job.submissao_id(), job.job_origem_id(),
+					job.regras(), simulacao, simulacoes);
 		}
 		catch (EmptyResultDataAccessException ex) {
 			throw new JobNaoEncontradoException(jobId);
 		}
+	}
+
+	private List<SimulacaoDto> simulacoes(UUID jobId) {
+		return this.jdbc.query("""
+				SELECT s.id, s.regra_id, s.criado_em, s.flag_baixa_rastreabilidade,
+				       r.status, r.veredito, r.totais, r.assercoes, r.decomposicao
+				FROM simulacoes s
+				LEFT JOIN resultados_simulacao r ON r.id = s.resultado_id
+				WHERE s.job_id = ? ORDER BY s.criado_em, s.id
+				""", (rs, numero) -> simulacao(rs), jobId);
+	}
+
+	private SimulacaoDto simulacao(ResultSet rs) throws SQLException {
+		ResultadoSimulacaoDto resultado = null;
+		if (rs.getString("status") != null) {
+			TotaisSimulacaoDto totais = rs.getString("totais") == null ? null
+					: this.json.readValue(rs.getString("totais"), TotaisSimulacaoDto.class);
+			List<ResultadoAssercaoDto> assercoes = this.json.readValue(rs.getString("assercoes"),
+					new TypeReference<List<ResultadoAssercaoDto>>() {
+					});
+			DecomposicaoResultadoDto decomposicao = rs.getString("decomposicao") == null ? null
+					: this.json.readValue(rs.getString("decomposicao"), DecomposicaoResultadoDto.class);
+			resultado = new ResultadoSimulacaoDto(totais, assercoes, decomposicao);
+		}
+		return new SimulacaoDto(rs.getObject("id", UUID.class), rs.getObject("regra_id", UUID.class),
+				rs.getTimestamp("criado_em").toInstant(), rs.getString("status"), rs.getString("veredito"),
+				rs.getBoolean("flag_baixa_rastreabilidade"), resultado);
 	}
 
 	private List<RegraCriadaDto> regras(String regrasJson) {

@@ -14,17 +14,6 @@ import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
 import synapse.api.job.SugestaoAdaptacaoService.SugestaoAplicada;
 
-/**
- * Consome {@code sugestao-adaptacao-proposta}: grava a alternativa como versão nova da
- * regra e reabre o ciclo de geração. Nunca lança - toda entrada inválida ou fora de ordem
- * vira descarte com log {@code WARN}, porque uma exceção aqui viraria requeue infinito.
- *
- * <p>
- * A validação fica aqui, e não na desserialização, pelo mesmo motivo dos demais
- * consumidores: o payload vem da fila e nada nele é garantido em runtime. O conteúdo da
- * representação já foi validado contra o schema pelo publicador; o que se confere aqui é
- * a presença do que a gravação exige.
- */
 @Component
 class SugestaoAdaptacaoConsumidor {
 
@@ -47,9 +36,10 @@ class SugestaoAdaptacaoConsumidor {
 	void receber(SugestaoAdaptacaoPropostaDto evento) {
 		UUID jobId = evento.job_id();
 		UUID regraOrigemId = evento.regra_origem_id();
+		UUID resultadoId = evento.resultado_id();
 		RepresentacaoRegraDto representacao = evento.representacao();
-		if (jobId == null || regraOrigemId == null || representacao == null || representacao.nucleo() == null
-				|| representacao.especificacoes() == null) {
+		if (jobId == null || regraOrigemId == null || resultadoId == null || representacao == null
+				|| representacao.nucleo() == null || representacao.especificacoes() == null) {
 			log.atWarn().log("sugestao-adaptacao-proposta incompleta; evento descartado");
 			return;
 		}
@@ -57,13 +47,35 @@ class SugestaoAdaptacaoConsumidor {
 		try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
 			SugestaoAplicada aplicada;
 			try {
-				aplicada = this.servico.aplicar(jobId, regraOrigemId, representacao);
+				aplicada = this.servico.aplicar(jobId, regraOrigemId, resultadoId, representacao);
 			}
 			catch (TransicaoDeStatusInvalidaException ex) {
 				log.atWarn()
 					.setCause(ex)
 					.log("sugestao-adaptacao-proposta não aplicada; job fora do estado de origem esperado (reentrega ou evento fora de ordem)");
 				return;
+			}
+
+			if (aplicada == null) {
+				log.atWarn()
+					.addKeyValue("resultado_id", resultadoId)
+					.log("sugestão descartada: origem inválida ou tentativa já realizada");
+				return;
+			}
+
+			var original = aplicada.desfechoOriginal();
+			if (original != null) {
+				if (original.avancouDeGerandoRegra()) {
+					this.emissores.emitir(jobId, EventoSse.de("estado",
+							EventoEstadoDto.transicao(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO, null)));
+				}
+				UUID simulacaoId = original.simulacaoId();
+				if (simulacaoId != null) {
+					this.emissores.emitir(jobId, EventoSse.de("resultado",
+							new EventoResultadoDto(jobId, simulacaoId, "sucesso", "inviavel")));
+				}
+				this.emissores.emitir(jobId, EventoSse.de("estado", EventoEstadoDto.transicao(jobId, original.origem(),
+						JobStatus.SIMULACAO_INVIAVEL, DesfechoDaSimulacao.INVIAVEL.razaoLocalizada())));
 			}
 
 			this.emissores.emitir(jobId, EventoSse.de("estado",

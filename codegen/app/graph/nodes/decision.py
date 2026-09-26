@@ -21,6 +21,7 @@ from app.core.logger import get_logger
 from app.falhas import FalhaDoJobError
 from app.graph.core.state import AgentState
 from app.repositorio.artefatos import id_do_evento_de_trilha
+from app.repositorio.regras import tem_sugestao
 
 logger = get_logger("app.graph.nodes.decision")
 
@@ -54,7 +55,9 @@ async def decision(state: AgentState, config: RunnableConfig) -> AgentState:
     job_id = UUID(state["job_id"])
     encaminhamento = (
         ENCAMINHAMENTO_SUGESTAO
-        if state.get("veredito") == Veredito.INVIAVEL
+        if state.get("status_simulacao") == "sucesso"
+        and state.get("veredito") == Veredito.INVIAVEL
+        and not await tem_sugestao(config["configurable"]["sessoes"], job_id)
         else ENCAMINHAMENTO_FIM
     )
     producers = config["configurable"]["producers"]

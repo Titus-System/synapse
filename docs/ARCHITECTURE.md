@@ -415,6 +415,8 @@ O nível 1 **narra** o nível 2 - não o produz. É a mesma fronteira do nó 6: 
 
 **Explicação contrastiva.** Para quem decide, "por que não coube no orçamento" vale menos que "o que precisaria mudar para caber". A sugestão de adaptação (US03, nó 7) cumpre esse papel, com a exigência que a separa de um palpite: **a alternativa é simulada antes de ser mostrada** - passa pelos nós 4–6 como qualquer outra regra. O usuário lê "com 1,5% em vez de 2%, o custo fica em R$ X, dentro do orçamento", com o X apurado, não estimado pelo modelo.
 
+A implementação da sugestão, sua tentativa única e os vínculos entre versões e resultados estão em [Sugestão de adaptação ao orçamento](SUGESTAO-ADAPTACAO.md).
+
 **Explicar também o que não aconteceu.** Interrupção sem motivo é o pior caso para o usuário leigo. Todo caminho de parada devolve razão específica e localizada no elemento: regra fora do domínio (nó 2), elemento sem implementação correspondente (seção 1.5), asserção invariante violada (seção 1.4), campo obrigatório ausente (US06), conflito entre elementos da regra (US03, cenário 2). "Não foi possível processar" não é resposta aceitável em nenhum deles.
 
 **O que isso exige do contrato de resultado.** O nível 2 só existe se o código gerado emitir resultado **decomposto**, não apenas um total: por elemento da regra (o mesmo identificador da seção 1.5) e pelas dimensões de agregação do domínio. É requisito do código que o nó 4 escreve, e faz par com a conferência de cobertura - um elemento que não aparece na decomposição não teve efeito mensurável, o que ou é informação útil ao usuário ou é sintoma de implementação faltante. Continua sendo pouca coisa trafegando: dezenas de valores agregados, nunca linhas das bases.

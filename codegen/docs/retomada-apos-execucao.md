@@ -1,61 +1,56 @@
 # Retomada do grafo após a execução no worker
 
-Desenho da retomada do grafo com `simulacao-concluida`. **Já implementado**: o consumer sobe em
-`app/mensageria/broker.py::iniciar_consumers`, a triagem do checkpoint está em
-`app/graph/entrypoint.py::resume_to_completion` e a entrega ao `interrupt()` pendente em
-`GraphRouter._retomar`. O texto abaixo continua valendo como a justificativa de cada cuidado.
+O consumer de `simulacao-concluida.codegen` entrega o resultado ao checkpoint que solicitou
+sua execução. Cada versão tem seu próprio `thread_id = job_id:regra_id`; a regra é resolvida
+pelo vínculo `resultados_simulacao.codigo_gerado_id → codigos_gerados.regra_id`.
+Se não houver checkpoint versionado, o entrypoint consulta o identificador antigo `job_id`
+e só o reutiliza quando o estado contém o mesmo job e a mesma regra. A compatibilidade
+vale tanto para resultados quanto para reentregas da submissão, sem copiar checkpoints,
+repetir geração ou confundir a candidata com o ciclo original. Um checkpoint versionado
+existente tem prioridade.
 
-## Onde o grafo para
-
+```text
+load_rule → code_generation → persist_response → extract_code → dispatch_execution
+→ await_execution ⏸ → decision → suggest_adaptation → fim
+                             ↘ fim
 ```
-load_rule → code_generation → persist_response → extract_code → dispatch_execution → await_execution ⏸
-```
 
-- `dispatch_execution` publica `etapa-alterada` (`delegacao_worker`/`iniciada`, que leva o job a
-  `simulando`) e depois `executar-codigo` com `job_id`, `codigo_gerado_id`, `competencias` e
-  `orcamento`. A ordem e o motivo estão em [`mensageria.md`](mensageria.md).
-- `await_execution` só chama `interrupt({"job_id", "codigo_gerado_id"})`. O checkpoint fica no
-  Postgres (`AsyncPostgresSaver`) com `thread_id = job_id`, e `graph.astream(...)` retorna
-  normalmente: `run` termina, a `regra-submetida` recebe `ack` e o processo fica livre. Nada fica
-  esperando em memória.
-- Um grafo pausado tem `(await graph.aget_state(config)).next == ("await_execution",)`, e o valor do
-  `interrupt()` aparece em `state.tasks[0].interrupts[0].value`.
+`dispatch_execution` publica o comando com código, competências e orçamento. O nó
+`await_execution` só interrompe: efeitos anteriores ao `interrupt()` seriam repetidos
+quando o grafo fosse retomado. A retomada leva referências e status, nunca números gerados
+por modelo. O worker calcula os totais sobre os dados históricos.
 
-## Como retomar
+## Reentregas e falhas
 
-1. Consumir `simulacao-concluida.codegen`. Hoje `ConexaoBroker.iniciar_consumers` só inicia o
-   consumer de `regra-submetida`, e `GraphRouter.entregar` recusa as outras mensagens. Enquanto
-   isso, os resultados do worker ficam retidos na fila, sem perda.
-2. Em `GraphRouter.entregar`, para `SimulacaoConcluida`, chamar o grafo com o **mesmo**
-   `thread_id` (`job_id`) e `Command(resume=...)` no lugar do estado inicial:
+- Sem checkpoint: o resultado é desconhecido; a mensagem é rejeitada.
+- Checkpoint anterior à pausa: reentregar, pois o resultado pode chegar antes da persistência
+  do `interrupt()`.
+- Na pausa: entregar `Command(resume=...)`.
+- Resultado já registrado e nós posteriores pendentes: continuar com entrada `None`. Isso
+  recupera falhas transitórias na publicação da sugestão sem repetir a geração nem perder
+  o resultado recebido.
+- Grafo concluído: confirmar a reentrega sem iniciar outro ciclo.
 
-   ```python
-   graph.astream(Command(resume={"resultado_id": ..., "status": ...}), config, ...)
-   ```
+Os artefatos e eventos de auditoria têm identificadores determinísticos. O worker deduplica
+pelo par job/código, preservando a independência entre a simulação original e a alternativa.
 
-   O valor de retomada leva só referências e campos de controle (`resultado_id`, `status`). Os
-   números da simulação ficam no banco (ADR-001); a LLM nunca os produz.
-3. Dentro de `await_execution`, o mesmo `interrupt()` agora **retorna** esse valor. O nó grava
-   no estado o que recebeu (por exemplo, `resultado_id` e `status_simulacao`), e uma aresta
-   condicional em `engine.py` decide o próximo passo: análise, nova geração ou falha do job.
+## Uma alternativa por job
 
-## Cuidados
+Só `status=sucesso` com `veredito=inviavel` e sem versão de sugestão existente encaminha
+para `suggest_adaptation`. O candidato altera exclusivamente o percentual do núcleo:
+`percentual × (orçamento − baseline) / (simulado − baseline)`, truncado em quatro casas
+decimais. A estimativa só se aplica a regras sem especificações e quando
+`0 ≤ baseline < orçamento < simulado`. Ela é conservadora quando já havia comissão nas
+linhas afetadas; o veredito só existe após nova execução no worker. Percentual sem margem
+positiva, representação incoerente ou regra fora desse recorte não produz proposta.
+Ausência de proposta significa ausência de estimativa suportada, não impossibilidade
+matemática de caber no orçamento. O resultado e o caminho de revisão originais permanecem.
 
-- **O nó pausado reexecuta desde a primeira linha.** `await_execution` deve continuar sem efeito
-  colateral antes do `interrupt()`. Por isso a publicação fica em `dispatch_execution`, que já
-  foi concluído e não roda de novo.
-- **Corrida na pausa.** O worker pode publicar `simulacao-concluida` antes de o checkpoint com o
-  `interrupt()` pendente ser gravado. Antes de retomar, conferir `aget_state(config)`:
-  - sem checkpoint para o `job_id`: `JobDesconhecidoError` (rejeição definitiva);
-  - checkpoint existe, mas `next` ainda não é `("await_execution",)`: falha transitória,
-    `nack(requeue=True)`;
-  - `next` vazio (grafo já retomado e concluído): reentrega, `ack` sem retomar de novo.
-- **Resultado de outro código.** Se o grafo gerar código mais de uma vez no mesmo job, conferir
-  que o resultado corresponde ao `codigo_gerado_id` do `interrupt()` pendente antes de retomar.
-  Hoje `simulacao-concluida` não carrega `codigo_gerado_id`; o vínculo teria de vir de
-  `resultados_simulacao` no banco.
-- **Comando duplicado.** `codigo_gerado_id` é determinístico (UUID v5 do `prompt_id`), então uma
-  reexecução de `dispatch_execution` publica o mesmo comando. Ainda não foi verificado se o worker
-  tolera receber o mesmo `executar-codigo` duas vezes.
-- **Estado inicial é ignorado na retomada.** Nunca chamar `run` com um estado novo para um job
-  pausado: uma entrada que não é `Command(resume=...)` não retoma o `interrupt()` pendente.
+
+O evento `sugestao-adaptacao-proposta` entrega a candidata à API, que valida sua procedência,
+cria a versão e publica `regra-submetida` com orçamento e competências. Usar
+`parametros-confirmados` aqui não fornece esses dados, e o codegen não consulta `jobs`.
+A API confere a tentativa única sob trava do job, inclusive em reentregas tardias.
+
+O fluxo completo e sua apresentação estão em
+[`docs/SUGESTAO-ADAPTACAO.md`](../../docs/SUGESTAO-ADAPTACAO.md).

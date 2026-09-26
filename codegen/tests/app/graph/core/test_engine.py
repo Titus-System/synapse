@@ -85,6 +85,7 @@ class _Execucao:
         regra: RepresentacaoRegra = _REGRA,
     ) -> None:
         monkeypatch.setattr("app.graph.nodes.load_rule.buscar_regra", AsyncMock(return_value=regra))
+        monkeypatch.setattr("app.graph.nodes.decision.tem_sugestao", AsyncMock(return_value=False))
         self.banco = banco or BancoFalso()
         self.producers = MagicMock(
             executar_codigo=AsyncMock(),
@@ -193,7 +194,11 @@ async def test_an_unaffordable_result_routes_to_the_adaptation_and_proposes_one(
     )
     monkeypatch.setattr(
         "app.graph.nodes.suggest_adaptation.buscar_totais",
-        AsyncMock(return_value=TotaisDaSimulacao(Decimal("492100"), Decimal("485000"))),
+        AsyncMock(
+            return_value=TotaisDaSimulacao(
+                Decimal("492100"), Decimal("485000"), baseline=Decimal("480312")
+            )
+        ),
     )
     scripted_model([AIMessage(content=RESPOSTA_VALIDA)])
     execucao = _Execucao(monkeypatch, regra=regra)
@@ -202,7 +207,7 @@ async def test_an_unaffordable_result_routes_to_the_adaptation_and_proposes_one(
     await execucao.retomar(RETOMADA_INVIAVEL)
 
     [proposta] = execucao.producers.sugestao_adaptacao_proposta.await_args.args
-    assert proposta.representacao.para_contrato()["nucleo"]["percentual"] == Decimal("0.0246")
+    assert proposta.representacao.para_contrato()["nucleo"]["percentual"] == Decimal("0.0099")
     assert (await execucao.graph.aget_state(execucao.config)).next == ()
 
 

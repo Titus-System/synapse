@@ -45,12 +45,12 @@ class SugestaoAdaptacaoConsumidorTests {
 	@Test
 	void aplicaAPropostaEAnunciaAVoltaParaGerandoRegra() {
 		VersaoRegra versao = new VersaoRegra(UUID.randomUUID(), 2, "sugestao_adaptacao", java.time.Instant.EPOCH);
-		given(this.servico.aplicar(eq(JOB_ID), eq(REGRA_ORIGEM_ID), any()))
-			.willReturn(new SugestaoAplicada(JobStatus.SIMULACAO_INVIAVEL, versao));
+		given(this.servico.aplicar(eq(JOB_ID), eq(REGRA_ORIGEM_ID), eq(RESULTADO_ID), any()))
+			.willReturn(new SugestaoAplicada(JobStatus.SIMULACAO_INVIAVEL, versao, null));
 
 		this.consumidor.receber(evento(representacao()));
 
-		verify(this.servico).aplicar(eq(JOB_ID), eq(REGRA_ORIGEM_ID), any());
+		verify(this.servico).aplicar(eq(JOB_ID), eq(REGRA_ORIGEM_ID), eq(RESULTADO_ID), any());
 		verify(this.emissores).emitir(eq(JOB_ID), any());
 	}
 
@@ -66,6 +66,7 @@ class SugestaoAdaptacaoConsumidorTests {
 	static Stream<SugestaoAdaptacaoPropostaDto> eventosIncompletos() {
 		return Stream.of(new SugestaoAdaptacaoPropostaDto(null, REGRA_ORIGEM_ID, RESULTADO_ID, representacao()),
 				new SugestaoAdaptacaoPropostaDto(JOB_ID, null, RESULTADO_ID, representacao()),
+				new SugestaoAdaptacaoPropostaDto(JOB_ID, REGRA_ORIGEM_ID, null, representacao()),
 				new SugestaoAdaptacaoPropostaDto(JOB_ID, REGRA_ORIGEM_ID, RESULTADO_ID, null),
 				// Pelo JSON, porque é como o campo ausente chega de verdade: o tipo do
 				// record não admite o nulo que a desserialização produz.
@@ -80,12 +81,18 @@ class SugestaoAdaptacaoConsumidorTests {
 
 	@Test
 	void descartaPropostaParaJobForaDoEstadoEsperadoSemEmitirEstado() {
-		given(this.servico.aplicar(any(), any(), any()))
+		given(this.servico.aplicar(any(), any(), any(), any()))
 			.willThrow(new TransicaoDeStatusInvalidaException(JobStatus.GERANDO_REGRA, JobStatus.GERANDO_REGRA));
 
 		this.consumidor.receber(evento(representacao()));
 
 		verify(this.emissores, never()).emitir(any(), any());
+	}
+
+	@Test
+	void propostaIgnoradaNaoEmiteEstado() {
+		this.consumidor.receber(evento(representacao()));
+		verifyNoInteractions(this.emissores);
 	}
 
 	private static SugestaoAdaptacaoPropostaDto doJson(String json) {

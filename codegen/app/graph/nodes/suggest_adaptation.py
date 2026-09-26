@@ -48,7 +48,7 @@ async def suggest_adaptation(state: AgentState, config: RunnableConfig) -> Agent
 
     totais = await buscar_totais(sessoes, job_id, resultado_id)
     alternativa = propor_alternativa(
-        state["representacao_regra"], totais.simulado, totais.orcamento
+        state["representacao_regra"], totais.simulado, totais.orcamento, baseline=totais.baseline
     )
 
     if alternativa.representacao is not None:

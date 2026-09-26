@@ -98,7 +98,8 @@ class ConfirmarParametrosPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ CriarJobService.class, ConfirmarParametrosService.class, MaquinaDeEstadosDoJob.class, Outbox.class })
+	@Import({ CriarJobService.class, ConfirmarParametrosService.class, MaquinaDeEstadosDoJob.class, Outbox.class,
+			VersoesDaRegra.class })
 	static class Config {
 
 	}

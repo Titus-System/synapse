@@ -255,3 +255,43 @@ async def test_resume_reports_a_run_that_already_finished(
 
     assert desfecho is entrypoint.ResumeOutcome.ALREADY_FINISHED
     assert len(recebido) == 1
+
+
+async def test_resume_retries_failure_after_the_interrupt_without_losing_result(
+    saver: InMemorySaver, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempts: list[str] = []
+
+    async def pause(state: AgentState) -> AgentState:
+        value = interrupt({"job_id": state["job_id"]})
+        return {"resultado_id": value["resultado_id"]}
+
+    async def suggest(state: AgentState) -> AgentState:
+        attempts.append(state["resultado_id"])
+        if len(attempts) == 1:
+            raise RuntimeError("broker unavailable")
+        return {}
+
+    def build(checkpointer: Any) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
+        graph = StateGraph(AgentState)
+        graph.add_node("await_execution", pause)
+        graph.add_node("suggest", suggest)
+        graph.add_edge(START, "await_execution")
+        graph.add_edge("await_execution", "suggest")
+        graph.add_edge("suggest", END)
+        return graph.compile(checkpointer=checkpointer)
+
+    monkeypatch.setattr(entrypoint, "build_graph", build)
+    sessoes, producers = MagicMock(), MagicMock()
+    await entrypoint.run_to_completion(
+        "cycle", {"job_id": "job"}, sessoes=sessoes, producers=producers
+    )
+    with pytest.raises(RuntimeError, match="broker unavailable"):
+        await entrypoint.resume_to_completion(
+            "cycle", {"resultado_id": "result"}, sessoes=sessoes, producers=producers
+        )
+    outcome = await entrypoint.resume_to_completion(
+        "cycle", {"resultado_id": "result"}, sessoes=sessoes, producers=producers
+    )
+    assert outcome is entrypoint.ResumeOutcome.RESUMED
+    assert attempts == ["result", "result"]

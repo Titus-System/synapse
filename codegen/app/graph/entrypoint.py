@@ -9,7 +9,7 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import Command
+from langgraph.types import Command, StateSnapshot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.logger import get_logger
@@ -50,6 +50,25 @@ def _config(
     }
 
 
+async def _checkpoint_do_ciclo(
+    graph: Grafo, config: RunnableConfig
+) -> tuple[RunnableConfig, StateSnapshot]:
+    estado = await graph.aget_state(config)
+    job_id, separador, regra_id = config["configurable"]["thread_id"].partition(":")
+    if estado.values or not separador:
+        return config, estado
+
+    anterior: RunnableConfig = {
+        **config,
+        "configurable": {**config["configurable"], "thread_id": job_id},
+    }
+    legado = await graph.aget_state(anterior)
+    # Só o mesmo ciclo pode reutilizar um checkpoint gravado antes do versionamento.
+    if legado.values.get("job_id") == job_id and legado.values.get("regra_id") == regra_id:
+        return anterior, legado
+    return config, estado
+
+
 async def _consumir(
     graph: Grafo, entrada: Entrada, config: RunnableConfig
 ) -> AsyncIterator[tuple[str, Any]]:
@@ -88,7 +107,7 @@ async def run(
         # LangGraph starts a new run from START for any non-None input, even on a thread that
         # already has checkpoints. `None` continues from the last one instead: after a
         # redelivery, the nodes that already finished (model call, inserts) do not run again.
-        existing = await graph.aget_state(config)
+        config, existing = await _checkpoint_do_ciclo(graph, config)
         graph_input = None if existing.values else initial_state
         async for item in _consumir(graph, graph_input, config):
             yield item
@@ -112,15 +131,19 @@ async def resume_to_completion(
 
     async with get_checkpointer() as checkpointer:
         graph = build_graph(checkpointer)
-        estado = await graph.aget_state(config)
+        config, estado = await _checkpoint_do_ciclo(graph, config)
         if not estado.values:
             return ResumeOutcome.NO_CHECKPOINT
         if not estado.next:
             return ResumeOutcome.ALREADY_FINISHED
-        if estado.next != (AWAIT_EXECUTION,):
+        if estado.values.get("resultado_id") == valor.get("resultado_id"):
+            entrada: Entrada = None
+        elif estado.next == (AWAIT_EXECUTION,):
+            entrada = Command(resume=valor)
+        else:
             return ResumeOutcome.NOT_PAUSED_YET
 
-        async for _ in _consumir(graph, Command(resume=valor), config):
+        async for _ in _consumir(graph, entrada, config):
             pass
         return ResumeOutcome.RESUMED
 

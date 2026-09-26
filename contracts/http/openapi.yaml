@@ -296,6 +296,7 @@ paths:
                         criada_em: "2025-11-24T14:03:10Z"
                     simulacao:
                       id: "d4e5f607-1234-4a5b-8c9d-0e1f2a3b4c5d"
+                      regra_id: "1f2e3d4c-5b6a-4978-8d7c-6e5f4a3b2c1d"
                       criado_em: "2025-11-24T14:04:47Z"
                       status: sucesso
                       veredito: inviavel
@@ -317,6 +318,30 @@ paths:
                           marca: { "10": 11788.0 }
                           cargo: { "100": 9200.0, "150": 2588.0 }
                           competencia: { "2025-11": 11788.0 }
+                    simulacoes:
+                      - id: "d4e5f607-1234-4a5b-8c9d-0e1f2a3b4c5d"
+                        regra_id: "1f2e3d4c-5b6a-4978-8d7c-6e5f4a3b2c1d"
+                        criado_em: "2025-11-24T14:04:47Z"
+                        status: sucesso
+                        veredito: inviavel
+                        flag_baixa_rastreabilidade: false
+                        resultado:
+                          totais:
+                            baseline: 480312.0
+                            simulado: 492100.0
+                            diferenca_abs: 11788.0
+                            diferenca_pct: 0.0245
+                            orcamento: 485000.0
+                          assercoes:
+                            - nome: sem_comissao_negativa
+                              resultado: ok
+                              detalhe: null
+                          decomposicao:
+                            elemento: { "nucleo.percentual": 11788.0 }
+                            loja: { "13": 7100.0, "58": 4688.0 }
+                            marca: { "10": 11788.0 }
+                            cargo: { "100": 9200.0, "150": 2588.0 }
+                            competencia: { "2025-11": 11788.0 }
         "401":
           $ref: "#/components/responses/NaoAutenticado"
         "403":
@@ -1120,7 +1145,8 @@ components:
       description: |
         Estado corrente do job com todas as versões de regra já formadas. `regras` é
         ordenado por `versao`; `simulacao`, quando existe, representa a execução mais
-        recente do job.
+        recente do job. `simulacoes` preserva as execuções anteriores e permite
+        associar cada resultado à sua versão pelo campo `regra_id`.
       required: [id, status, origem, competencias, orcamento, criado_em, regras]
       properties:
         id:
@@ -1175,6 +1201,11 @@ components:
         simulacao:
           $ref: "#/components/schemas/Simulacao"
           description: Simulação mais recente do job. Ausente enquanto nenhuma execução existir.
+        simulacoes:
+          type: array
+          description: Execuções do job em ordem de criação, vinculadas às versões por regra_id. Opcional para compatibilidade com respostas anteriores.
+          items:
+            $ref: "#/components/schemas/Simulacao"
 
     RegraVersionada:
       type: object
@@ -1215,6 +1246,10 @@ components:
           type: string
           format: uuid
           description: Id da simulação exigido pela trilha de auditoria.
+        regra_id:
+          type: string
+          format: uuid
+          description: Versão da regra que produziu esta simulação. Opcional para compatibilidade com respostas anteriores.
         criado_em:
           type: string
           format: date-time

@@ -15,7 +15,7 @@ record JobCriadoDto(UUID id, String status, String origem, List<String> competen
 record RegraCriadaDto(UUID id, int versao, String origem, RepresentacaoRegraDto representacao, Instant criada_em) {
 }
 
-record SimulacaoDto(UUID id, Instant criado_em, @Nullable String status, @Nullable String veredito,
+record SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, @Nullable String status, @Nullable String veredito,
 		boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado) {
 }
 
@@ -23,5 +23,5 @@ record JobDetalhadoDto(UUID id, String status, String origem, List<String> compe
 		Instant criado_em, @Nullable Instant iniciado_em, @Nullable Instant finalizado_em,
 		@JsonInclude(JsonInclude.Include.NON_NULL) @Nullable UUID submissao_id,
 		@JsonInclude(JsonInclude.Include.NON_NULL) @Nullable UUID job_origem_id, List<RegraCriadaDto> regras,
-		@Nullable SimulacaoDto simulacao) {
+		@Nullable SimulacaoDto simulacao, List<SimulacaoDto> simulacoes) {
 }

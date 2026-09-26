@@ -34,11 +34,12 @@ class ResultadoIndisponivelError(FalhaDoJobError):
 
 
 class TotaisDaSimulacao:
-    """O par que a adaptação precisa: o que a regra custou e o teto que ela furou."""
+    """Totais persistidos que permitem estimar a redução de uma regra simples."""
 
-    __slots__ = ("orcamento", "simulado")
+    __slots__ = ("baseline", "orcamento", "simulado")
 
-    def __init__(self, simulado: Decimal, orcamento: Decimal) -> None:
+    def __init__(self, simulado: Decimal, orcamento: Decimal, *, baseline: Decimal) -> None:
+        self.baseline = baseline
         self.simulado = simulado
         self.orcamento = orcamento
 
@@ -54,9 +55,9 @@ def _decimal(valor: object) -> Decimal | None:
 async def buscar_totais(
     sessoes: async_sessionmaker[AsyncSession], job_id: UUID, resultado_id: UUID
 ) -> TotaisDaSimulacao:
-    """Load `totais.simulado` and `totais.orcamento` from the worker's result row.
+    """Load baseline, simulated cost and budget from the worker's result row.
 
-    Raises `ResultadoIndisponivelError` when the row is missing for that job or when either
+    Raises `ResultadoIndisponivelError` when the row is missing for that job or when any
     total is absent - o que acontece em todo desfecho que não é `sucesso`.
     """
     # `::text` pelo mesmo motivo de `buscar_regra`: sem o cast o driver decodifica o jsonb
@@ -78,11 +79,12 @@ async def buscar_totais(
     if not isinstance(totais, dict):
         raise ResultadoIndisponivelError("Simulation result has no totals")
 
+    baseline = _decimal(totais.get("baseline"))
     simulado = _decimal(totais.get("simulado"))
     orcamento = _decimal(totais.get("orcamento"))
-    if simulado is None or orcamento is None:
-        raise ResultadoIndisponivelError("Simulation result is missing simulado/orcamento")
-    return TotaisDaSimulacao(simulado, orcamento)
+    if baseline is None or simulado is None or orcamento is None:
+        raise ResultadoIndisponivelError("Simulation result is missing baseline/simulado/orcamento")
+    return TotaisDaSimulacao(simulado, orcamento, baseline=baseline)
 
 
 async def buscar_regra_do_resultado(

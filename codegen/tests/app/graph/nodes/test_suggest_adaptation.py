@@ -53,7 +53,11 @@ def _totais(monkeypatch: pytest.MonkeyPatch, simulado: str, orcamento: str) -> N
     monkeypatch.setattr(
         modulo,
         "buscar_totais",
-        AsyncMock(return_value=TotaisDaSimulacao(Decimal(simulado), Decimal(orcamento))),
+        AsyncMock(
+            return_value=TotaisDaSimulacao(
+                Decimal(simulado), Decimal(orcamento), baseline=Decimal("480312")
+            )
+        ),
     )
 
 
@@ -70,7 +74,7 @@ async def test_propoe_a_alternativa_calculada_sobre_os_totais_apurados(
     assert proposta.regra_origem_id == UUID(REGRA_ID)
     assert proposta.resultado_id == UUID(RESULTADO_ID)
     contrato = proposta.representacao.para_contrato()
-    assert contrato["nucleo"]["percentual"] == Decimal("0.0246")
+    assert contrato["nucleo"]["percentual"] == Decimal("0.0099")
     assert contrato["nucleo"]["loja"] == ["13"]
 
 
@@ -118,7 +122,7 @@ async def test_a_trilha_nao_carrega_a_proposta(monkeypatch: pytest.MonkeyPatch) 
     await modulo.suggest_adaptation(_estado(), _config(producers))
 
     [conclusao] = producers.no_concluido.await_args.args
-    assert "0.0246" not in serializar(conclusao).decode()
+    assert "0.0099" not in serializar(conclusao).decode()
 
 
 async def test_nao_propoe_quando_o_resultado_nao_tem_totais(
@@ -133,3 +137,22 @@ async def test_nao_propoe_quando_o_resultado_nao_tem_totais(
         await modulo.suggest_adaptation(_estado(), _config(producers))
 
     producers.sugestao_adaptacao_proposta.assert_not_awaited()
+
+
+async def test_regra_com_especificacao_encerra_sem_publicar_alternativa(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _totais(monkeypatch, "492100", "485000")
+    estado = _estado()
+    estado["representacao_regra"]["especificacoes"] = [
+        {"ref": "elem.1", "construto": "bonus_fixo", "valor": Decimal("250")}
+    ]
+    producers = _producers()
+
+    atualizacao = await modulo.suggest_adaptation(estado, _config(producers))
+
+    assert atualizacao == {}
+    producers.sugestao_adaptacao_proposta.assert_not_awaited()
+    [conclusao] = producers.no_concluido.await_args.args
+    assert conclusao.regra_id == UUID(REGRA_ID)
+    assert conclusao.conclusao.resumo == modulo.RESUMO_SEM_PROPOSTA

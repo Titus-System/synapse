@@ -144,8 +144,9 @@ class ReprocessarJobPersistenciaTests {
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
 	@Import({ CriarJobService.class, ReprocessarJobService.class, BuscarJobService.class,
-			ConfirmarParametrosService.class, ExecutarAcaoService.class, MaquinaDeEstadosDoJob.class, Outbox.class,
-			ReprocessarJobController.class, AutorizadorDeJob.class, ConfirmarParametrosController.class })
+			ConfirmarParametrosService.class, VersoesDaRegra.class, ExecutarAcaoService.class,
+			MaquinaDeEstadosDoJob.class, Outbox.class, ReprocessarJobController.class, AutorizadorDeJob.class,
+			ConfirmarParametrosController.class })
 	static class Config {
 
 	}

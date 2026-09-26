@@ -16,6 +16,13 @@ REGRA_ID = str(uuid4())
 RESULTADO_ID = str(uuid4())
 
 
+@pytest.fixture(autouse=True)
+def consulta_sugestao(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    consulta = AsyncMock(return_value=False)
+    monkeypatch.setattr(modulo, "tem_sugestao", consulta)
+    return consulta
+
+
 def _producers() -> Any:
     return MagicMock(etapa_alterada=AsyncMock(), no_concluido=AsyncMock())
 
@@ -107,3 +114,15 @@ async def test_recusa_decidir_sem_o_resultado_da_simulacao() -> None:
 
     with pytest.raises(modulo.DecisaoSemResultadoError):
         await modulo.decision(estado, _config(_producers()))
+
+
+async def test_nao_propoe_outra_adaptacao_no_mesmo_job(consulta_sugestao: AsyncMock) -> None:
+    consulta_sugestao.return_value = True
+    update = await modulo.decision(_estado(), _config(_producers()))
+    assert update == {"encaminhamento": "fim"}
+
+
+async def test_falha_com_veredito_antigo_nao_gera_sugestao(consulta_sugestao: AsyncMock) -> None:
+    update = await modulo.decision(_estado(status_simulacao="erro_codigo"), _config(_producers()))
+    assert update == {"encaminhamento": "fim"}
+    consulta_sugestao.assert_not_awaited()
