@@ -153,3 +153,105 @@ async def test_run_continues_a_failed_run_without_repeating_finished_nodes(
     await entrypoint.run_to_completion("job-1", {}, sessoes=MagicMock(), producers=MagicMock())
 
     assert executed == ["first", "flaky", "flaky"]
+
+
+def _pausing_graph_builder(recebido: list[Any]) -> Build:
+    """Graph that pauses in `await_execution`, like the real one."""
+
+    async def await_execution(state: AgentState, config: RunnableConfig) -> AgentState:
+        recebido.append(interrupt({"job_id": state.get("job_id", "")}))
+        return {}
+
+    def build(checkpointer: Any) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
+        graph = StateGraph(AgentState)
+        graph.add_node("await_execution", await_execution)
+        graph.add_edge(START, "await_execution")
+        graph.add_edge("await_execution", END)
+        return graph.compile(checkpointer=checkpointer)
+
+    return build
+
+
+async def test_resume_delivers_the_value_to_the_paused_node(
+    saver: InMemorySaver, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recebido: list[Any] = []
+    monkeypatch.setattr(entrypoint, "build_graph", _pausing_graph_builder(recebido))
+    sessoes, producers = MagicMock(), MagicMock()
+    await entrypoint.run_to_completion(
+        "job-1", {"job_id": "job-1"}, sessoes=sessoes, producers=producers
+    )
+
+    desfecho = await entrypoint.resume_to_completion(
+        "job-1", {"resultado_id": "r-1", "status": "sucesso"}, sessoes=sessoes, producers=producers
+    )
+
+    assert desfecho is entrypoint.ResumeOutcome.RESUMED
+    assert recebido == [{"resultado_id": "r-1", "status": "sucesso"}]
+
+
+async def test_resume_reports_a_job_without_checkpoint(
+    saver: InMemorySaver, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Resultado de um job que este serviço nunca viu: reentregar não o faria aparecer."""
+    monkeypatch.setattr(entrypoint, "build_graph", _pausing_graph_builder([]))
+
+    desfecho = await entrypoint.resume_to_completion(
+        "job-desconhecido", {"resultado_id": "r-1"}, sessoes=MagicMock(), producers=MagicMock()
+    )
+
+    assert desfecho is entrypoint.ResumeOutcome.NO_CHECKPOINT
+
+
+async def test_resume_reports_a_graph_that_has_not_paused_yet(
+    saver: InMemorySaver, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O worker pode publicar antes de o checkpoint da pausa existir - é transitório."""
+    falhas = iter([True, False])
+
+    async def first(state: AgentState, config: RunnableConfig) -> AgentState:
+        return {"regra_id": "r-1"}
+
+    async def boom(state: AgentState, config: RunnableConfig) -> AgentState:
+        if next(falhas):
+            raise RuntimeError("transient")
+        return {}
+
+    def build(checkpointer: Any) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
+        graph = StateGraph(AgentState)
+        graph.add_node("first", first)
+        graph.add_node("boom", boom)
+        graph.add_edge(START, "first")
+        graph.add_edge("first", "boom")
+        graph.add_edge("boom", END)
+        return graph.compile(checkpointer=checkpointer)
+
+    monkeypatch.setattr(entrypoint, "build_graph", build)
+    with pytest.raises(RuntimeError):
+        await entrypoint.run_to_completion("job-1", {}, sessoes=MagicMock(), producers=MagicMock())
+
+    desfecho = await entrypoint.resume_to_completion(
+        "job-1", {"resultado_id": "r-1"}, sessoes=MagicMock(), producers=MagicMock()
+    )
+
+    assert desfecho is entrypoint.ResumeOutcome.NOT_PAUSED_YET
+
+
+async def test_resume_reports_a_run_that_already_finished(
+    saver: InMemorySaver, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reentrega do mesmo resultado não retoma nada de novo."""
+    recebido: list[Any] = []
+    monkeypatch.setattr(entrypoint, "build_graph", _pausing_graph_builder(recebido))
+    sessoes, producers = MagicMock(), MagicMock()
+    await entrypoint.run_to_completion("job-1", {}, sessoes=sessoes, producers=producers)
+    await entrypoint.resume_to_completion(
+        "job-1", {"resultado_id": "r-1"}, sessoes=sessoes, producers=producers
+    )
+
+    desfecho = await entrypoint.resume_to_completion(
+        "job-1", {"resultado_id": "r-1"}, sessoes=sessoes, producers=producers
+    )
+
+    assert desfecho is entrypoint.ResumeOutcome.ALREADY_FINISHED
+    assert len(recebido) == 1

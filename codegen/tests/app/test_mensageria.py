@@ -33,7 +33,11 @@ from app.mensageria import broker as modulo_broker
 from app.mensageria.broker import FILA_SIMULACAO, FILAS_SIMPLES, conectar, declarar_topologia
 from app.mensageria.consumers import Consumer
 from app.mensageria.producers import Producers, ProdutorError
-from app.mensageria.roteamento import Entrada, JobDesconhecidoError
+from app.mensageria.roteamento import (
+    Entrada,
+    JobDesconhecidoError,
+    RetomadaIndisponivelError,
+)
 from app.repositorio.regras import RegraInvalidaError
 
 CONTRATOS = Path(__file__).resolve().parents[3] / "contracts"
@@ -437,13 +441,45 @@ async def test_broker_usa_confirms_prefetch_e_consumers_com_ack_manual(
 
     conexao.channel.assert_awaited_once_with(publisher_confirms=True, on_return_raises=True)
     canal.set_qos.assert_awaited_once_with(prefetch_count=1)
-    assert len(broker.consumidores) == 1
+    assert len(broker.consumidores) == 2
     for fila, _, _ in broker.consumidores:
         assert fila.consume.call_args.kwargs == {"no_ack": False}
     await broker.fechar()
     for fila, tag, _ in broker.consumidores:
         fila.cancel.assert_awaited_once_with(tag)
     conexao.close.assert_awaited_once_with()
+
+
+async def test_broker_consome_regra_submetida_e_o_resultado_do_worker(
+    monkeypatch: pytest.MonkeyPatch,
+    configuracoes: Settings,
+) -> None:
+    """A fila do fanout tem nome próprio; o contrato validado continua o do evento."""
+    canal = AsyncMock()
+    canal.declare_queue.side_effect = lambda nome, **kwargs: AsyncMock(name=nome)
+    conexao = MagicMock(channel=AsyncMock(return_value=canal), close=AsyncMock())
+    monkeypatch.setattr(modulo_broker, "connect_robust", AsyncMock(return_value=conexao))
+    broker = await conectar(configuracoes)
+
+    await broker.iniciar_consumers(MagicMock())
+
+    consumidos = {consumer.nome: fila for fila, _, consumer in broker.consumidores}
+    assert set(consumidos) == {"regra-submetida", "simulacao-concluida"}
+    assert consumidos["regra-submetida"] is broker.filas["regra-submetida"]
+    assert consumidos["simulacao-concluida"] is broker.filas[FILA_SIMULACAO]
+    assert "parametros-confirmados" not in consumidos
+
+
+async def test_consumer_reenfileira_quando_o_grafo_ainda_nao_pausou() -> None:
+    """A corrida entre o worker e o checkpoint não pode descartar um resultado real."""
+    roteador = MagicMock(entregar=AsyncMock(side_effect=RetomadaIndisponivelError("job-1")))
+    mensagem = AsyncMock(body=simplejson.dumps(exemplo("simulacao-concluida")).encode())
+
+    await Consumer(SimulacaoConcluida, "simulacao-concluida", roteador).receber(mensagem)
+
+    mensagem.nack.assert_awaited_once_with(requeue=True)
+    mensagem.ack.assert_not_awaited()
+    mensagem.reject.assert_not_awaited()
 
 
 async def test_encerramento_aguarda_processamento_antes_de_fechar_conexao() -> None:

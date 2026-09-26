@@ -1,7 +1,9 @@
 # Retomada do grafo após a execução no worker
 
-Nota para a tarefa que vai retomar o grafo com `simulacao-concluida`. Descreve o ponto em que a
-T-097 deixa o grafo e o que a retomada precisa respeitar. Não é implementação.
+Desenho da retomada do grafo com `simulacao-concluida`. **Já implementado**: o consumer sobe em
+`app/mensageria/broker.py::iniciar_consumers`, a triagem do checkpoint está em
+`app/graph/entrypoint.py::resume_to_completion` e a entrega ao `interrupt()` pendente em
+`GraphRouter._retomar`. O texto abaixo continua valendo como a justificativa de cada cuidado.
 
 ## Onde o grafo para
 

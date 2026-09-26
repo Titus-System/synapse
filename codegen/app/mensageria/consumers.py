@@ -9,7 +9,11 @@ from app.contratos.mensagens import ParametrosConfirmados, RegraSubmetida, Simul
 from app.contratos.validacao import validar
 from app.core.logger import get_logger, job_id_ctx
 from app.falhas import FalhaDoJobError
-from app.mensageria.roteamento import JobDesconhecidoError, RoteadorGrafo
+from app.mensageria.roteamento import (
+    JobDesconhecidoError,
+    RetomadaIndisponivelError,
+    RoteadorGrafo,
+)
 
 logger = get_logger("app.mensageria.consumers")
 
@@ -72,6 +76,18 @@ class Consumer:
                     },
                 )
                 await mensagem.reject(requeue=False)
+            except RetomadaIndisponivelError:
+                # O grafo ainda não gravou a pausa. Rejeitar aqui perderia o resultado de uma
+                # simulação que já aconteceu; a reentrega chega depois do checkpoint.
+                logger.warning(
+                    "grafo do job ainda não está pausado",
+                    extra={
+                        "tipo_mensagem": self.nome,
+                        "causa": "retomada_indisponivel",
+                        "decisao": "nack_com_requeue",
+                    },
+                )
+                await mensagem.nack(requeue=True)
             except FalhaDoJobError as falha:
                 # Falha permanente: reentregar não a corrige, então a rejeição não usa
                 # requeue. O roteador já avisou a `api` por `etapa-alterada`, e o job termina

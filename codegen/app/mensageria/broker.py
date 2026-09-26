@@ -4,7 +4,7 @@ from aio_pika import ExchangeType, connect_robust
 from aio_pika.abc import AbstractChannel, AbstractQueue, AbstractRobustConnection
 
 from app.config import Settings
-from app.contratos.mensagens import RegraSubmetida
+from app.contratos.mensagens import RegraSubmetida, SimulacaoConcluida
 from app.core.logger import get_logger
 from app.mensageria.consumers import Consumer
 from app.mensageria.producers import Producers
@@ -40,15 +40,21 @@ class ConexaoBroker:
     consumidores: list[tuple[AbstractQueue, str, Consumer]] = field(default_factory=list)
 
     async def iniciar_consumers(self, roteador: RoteadorGrafo) -> None:
-        # Só regra-submetida por enquanto: retomar parametros-confirmados/simulacao-concluida
-        # com Command(resume=...) ainda não está implementado, e as duas filas permanecem com
-        # as mensagens preservadas no broker até essa integração existir.
+        # `parametros-confirmados` segue sem consumer: retomar pela confirmação do usuário
+        # ainda não está implementado, e a fila preserva as mensagens até essa integração
+        # existir. O nome do contrato não é o da fila em `simulacao-concluida`: a validação de
+        # schema usa o do evento, e o fanout entrega numa fila própria do codegen.
         if self.consumidores:
             raise RuntimeError("Consumers já iniciados")
-        consumer = Consumer(RegraSubmetida, "regra-submetida", roteador)
-        fila = self.filas["regra-submetida"]
-        tag = await fila.consume(consumer.receber, no_ack=False)
-        self.consumidores.append((fila, tag, consumer))
+        entradas = (
+            (RegraSubmetida, "regra-submetida", "regra-submetida"),
+            (SimulacaoConcluida, "simulacao-concluida", FILA_SIMULACAO),
+        )
+        for modelo, contrato, nome_da_fila in entradas:
+            consumer = Consumer(modelo, contrato, roteador)
+            fila = self.filas[nome_da_fila]
+            tag = await fila.consume(consumer.receber, no_ack=False)
+            self.consumidores.append((fila, tag, consumer))
 
     async def fechar(self) -> None:
         try:

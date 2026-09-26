@@ -16,6 +16,10 @@ from app.graph.nodes.extract_code import extract_code
 from app.graph.nodes.load_rule import load_rule
 from app.graph.nodes.persist_response import persist_response
 
+#: Nó em que o grafo pausa à espera do worker. Quem retoma confere que a pausa é esta antes de
+#: entregar o resultado - ver `app/graph/entrypoint.py::resume_to_completion`.
+AWAIT_EXECUTION = "await_execution"
+
 
 def load_nodes(graph: StateGraph[AgentState]) -> None:
     """Load all nodes into the graph."""
@@ -24,7 +28,7 @@ def load_nodes(graph: StateGraph[AgentState]) -> None:
     graph.add_node("persist_response", persist_response)
     graph.add_node("extract_code", extract_code)
     graph.add_node("dispatch_execution", dispatch_execution)
-    graph.add_node("await_execution", await_execution)
+    graph.add_node(AWAIT_EXECUTION, await_execution)
 
 
 def load_edges(graph: StateGraph[AgentState]) -> None:
@@ -39,8 +43,8 @@ def load_edges(graph: StateGraph[AgentState]) -> None:
     graph.add_edge("code_generation", "persist_response")
     graph.add_edge("persist_response", "extract_code")
     graph.add_edge("extract_code", "dispatch_execution")
-    graph.add_edge("dispatch_execution", "await_execution")
-    graph.add_edge("await_execution", END)
+    graph.add_edge("dispatch_execution", AWAIT_EXECUTION)
+    graph.add_edge(AWAIT_EXECUTION, END)
 
 
 def build_graph(

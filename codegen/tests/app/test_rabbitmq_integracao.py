@@ -15,12 +15,19 @@ from app.config import Settings
 from app.contratos.mensagens import (
     ModeloContrato,
     RegraSubmetida,
+    SimulacaoConcluida,
 )
 from app.contratos.serializacao import serializar
 from app.graph.nodes.dispatch_execution import dispatch_execution
-from app.mensageria.broker import EXCHANGE_SIMULACAO, FILA_SIMULACAO, ConexaoBroker, conectar
+from app.mensageria.broker import (
+    EXCHANGE_SIMULACAO,
+    FILA_SIMULACAO,
+    FILAS_SIMPLES,
+    ConexaoBroker,
+    conectar,
+)
 from app.mensageria.roteamento import Entrada
-from tests.app.test_mensageria import ENTRADAS, SAIDAS, exemplo, oficial
+from tests.app.test_mensageria import SAIDAS, exemplo, oficial
 
 pytestmark = [
     pytest.mark.rabbitmq,
@@ -101,58 +108,69 @@ async def test_broker_real_entrega_ao_codegen_sem_api(broker_real: ConexaoBroker
     assert simplejson.loads(serializar(dto), use_decimal=True) == payload
 
 
-@pytest.mark.parametrize(
-    "nome", [nome for _, nome in ENTRADAS if nome != "regra-submetida"], ids=str
-)
+async def test_resultado_do_worker_chega_ao_codegen_pelo_fanout(
+    broker_real: ConexaoBroker,
+) -> None:
+    """O resultado publicado pelo worker é entregue ao roteador, que retoma o grafo."""
+    roteador = RoteadorTeste()
+    await broker_real.iniciar_consumers(roteador)
+    payload = exemplo("simulacao-concluida")
+    corpo = simplejson.dumps(payload, use_decimal=True).encode()
+    exchange = await broker_real.canal.get_exchange(EXCHANGE_SIMULACAO)
+    assert broker_real.filas[FILA_SIMULACAO].name == "simulacao-concluida.codegen"
+
+    await exchange.publish(Message(body=corpo, content_type="application/json"), routing_key="")
+
+    job_id, dto = await asyncio.wait_for(roteador.entregas.get(), timeout=10)
+    assert isinstance(dto, SimulacaoConcluida)
+    assert str(job_id) == payload["job_id"]
+    assert simplejson.loads(serializar(dto), use_decimal=True) == payload
+
+
+@pytest.mark.parametrize("nome", ["parametros-confirmados"], ids=str)
 async def test_filas_sem_consumer_preservam_as_mensagens(
     broker_real: ConexaoBroker, nome: str
 ) -> None:
-    """`parametros-confirmados` e `simulacao-concluida` ficam retidas, não descartadas.
+    """`parametros-confirmados` fica retida, não descartada.
 
-    Retomar um grafo pausado com `Command(resume=...)` ainda não existe, então
-    `iniciar_consumers` sobe só `regra-submetida`. O que esta garantia protege é o
-    resultado do worker: ele espera na fila até a retomada existir, sem perda.
+    Retomar o grafo pela confirmação do usuário ainda não existe, então `iniciar_consumers`
+    não sobe consumer nessa fila. O que esta garantia protege é a mensagem: ela espera no
+    broker até a retomada existir, sem perda.
     """
+    assert nome in FILAS_SIMPLES
     roteador = RoteadorTeste()
     await broker_real.iniciar_consumers(roteador)
     corpo = simplejson.dumps(exemplo(nome), use_decimal=True).encode()
-    if nome == "simulacao-concluida":
-        exchange = await broker_real.canal.get_exchange(EXCHANGE_SIMULACAO)
-        rota = ""
-        fila = broker_real.filas[FILA_SIMULACAO]
-        assert fila.name == "simulacao-concluida.codegen"
-    else:
-        exchange = broker_real.canal.default_exchange
-        rota = nome
-        fila = broker_real.filas[nome]
 
-    await exchange.publish(Message(body=corpo, content_type="application/json"), routing_key=rota)
+    await broker_real.canal.default_exchange.publish(
+        Message(body=corpo, content_type="application/json"), routing_key=nome
+    )
 
-    retida = await fila.get(timeout=10)
+    retida = await broker_real.filas[nome].get(timeout=10)
     assert retida.body == corpo
     await retida.ack()
     assert roteador.entregas.empty()
 
 
-async def test_fanout_mantem_copia_na_fila_api_sem_consumer(broker_real: ConexaoBroker) -> None:
+async def test_fanout_mantem_copia_na_fila_api(broker_real: ConexaoBroker) -> None:
     """Uma publicação rende duas cópias: uma para o codegen e uma para a `api`.
 
-    Nenhuma das duas é consumida aqui - o codegen ainda não sobe consumer nessa fila, e a
-    `api` não tem consumer neste teste. O que se confere é a duplicação do fanout.
+    A do codegen é consumida e entregue ao roteador; a da `api` espera o consumer dela, que
+    não existe neste teste. O que se confere é que uma cópia não come a outra.
     """
     exchange = await broker_real.canal.get_exchange(EXCHANGE_SIMULACAO)
     fila_api = await broker_real.canal.declare_queue("simulacao-concluida.api", durable=True)
     await fila_api.bind(exchange, routing_key="")
-    await broker_real.iniciar_consumers(RoteadorTeste())
+    roteador = RoteadorTeste()
+    await broker_real.iniciar_consumers(roteador)
     corpo = simplejson.dumps(exemplo("simulacao-concluida")).encode()
 
     await exchange.publish(Message(body=corpo), routing_key="")
 
-    copia_codegen = await broker_real.filas[FILA_SIMULACAO].get(timeout=10)
+    _, dto = await asyncio.wait_for(roteador.entregas.get(), timeout=10)
+    assert isinstance(dto, SimulacaoConcluida)
     copia_api = await fila_api.get(timeout=10)
-    assert copia_codegen.body == corpo
     assert copia_api.body == corpo
-    await copia_codegen.ack()
     await copia_api.ack()
 
 

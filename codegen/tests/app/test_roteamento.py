@@ -5,13 +5,26 @@ from uuid import uuid4
 import pytest
 
 from app.codigo_gerado import CodigoInvalidoError
-from app.contratos.mensagens import EtapaAlterada, OrigemJob, RegraSubmetida
+from app.contratos.mensagens import (
+    EtapaAlterada,
+    OrigemJob,
+    RegraSubmetida,
+    SimulacaoConcluida,
+    StatusSimulacao,
+    Veredito,
+)
+from app.graph.entrypoint import ResumeOutcome
 from app.mensageria import roteamento as modulo
-from app.mensageria.roteamento import GraphRouter
+from app.mensageria.roteamento import (
+    GraphRouter,
+    JobDesconhecidoError,
+    RetomadaIndisponivelError,
+)
 
 JOB_ID = uuid4()
 REGRA_ID = uuid4()
 SUBMISSAO_ID = uuid4()
+RESULTADO_ID = uuid4()
 
 
 def _regra_submetida(**sobrescritas: object) -> RegraSubmetida:
@@ -141,3 +154,110 @@ async def test_entregar_recusa_rodar_sem_sessoes_ou_producers_configurados() -> 
 
     with pytest.raises(RuntimeError):
         await roteador.entregar(JOB_ID, _regra_submetida())
+
+
+def _simulacao_concluida(**sobrescritas: object) -> SimulacaoConcluida:
+    valores: dict[str, object] = {
+        "job_id": JOB_ID,
+        "resultado_id": RESULTADO_ID,
+        "status": StatusSimulacao.SUCESSO,
+        "veredito": Veredito.INVIAVEL,
+        "total_baseline": Decimal("480000.00"),
+        "total_simulado": Decimal("492100.00"),
+    }
+    valores.update(sobrescritas)
+    return SimulacaoConcluida.model_validate(valores)
+
+
+async def test_entregar_retoma_o_grafo_sem_levar_os_numeros_da_simulacao(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retomada leva referência e controle; os totais ficam em `resultados_simulacao`."""
+    resume = AsyncMock(return_value=ResumeOutcome.RESUMED)
+    monkeypatch.setattr(modulo, "resume_to_completion", resume)
+    sessoes, producers = object(), MagicMock(etapa_alterada=AsyncMock())
+    roteador = GraphRouter(sessoes=sessoes, producers=producers)
+
+    await roteador.entregar(JOB_ID, _simulacao_concluida())
+
+    argumentos, nomeados = resume.call_args
+    assert argumentos[0] == str(JOB_ID)
+    assert argumentos[1] == {
+        "resultado_id": str(RESULTADO_ID),
+        "status": StatusSimulacao.SUCESSO,
+        "veredito": Veredito.INVIAVEL,
+    }
+    assert nomeados == {"sessoes": sessoes, "producers": producers}
+
+
+async def test_entregar_retoma_sem_veredito_quando_a_execucao_nao_teve_sucesso(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        modulo, "resume_to_completion", AsyncMock(return_value=ResumeOutcome.RESUMED)
+    )
+    roteador = GraphRouter(sessoes=object(), producers=MagicMock())
+
+    await roteador.entregar(
+        JOB_ID,
+        _simulacao_concluida(status=StatusSimulacao.ERRO_INFRA, veredito=None, total_simulado=None),
+    )
+
+    valor = modulo.resume_to_completion.call_args.args[1]  # type: ignore[attr-defined]
+    assert valor["veredito"] is None
+
+
+async def test_entregar_rejeita_resultado_de_job_sem_grafo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        modulo, "resume_to_completion", AsyncMock(return_value=ResumeOutcome.NO_CHECKPOINT)
+    )
+    roteador = GraphRouter(sessoes=object(), producers=MagicMock())
+
+    with pytest.raises(JobDesconhecidoError):
+        await roteador.entregar(JOB_ID, _simulacao_concluida())
+
+
+async def test_entregar_pede_reentrega_quando_o_grafo_ainda_nao_pausou(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Descartar aqui perderia o resultado de uma simulação que já rodou."""
+    monkeypatch.setattr(
+        modulo, "resume_to_completion", AsyncMock(return_value=ResumeOutcome.NOT_PAUSED_YET)
+    )
+    roteador = GraphRouter(sessoes=object(), producers=MagicMock())
+
+    with pytest.raises(RetomadaIndisponivelError):
+        await roteador.entregar(JOB_ID, _simulacao_concluida())
+
+
+async def test_entregar_aceita_a_reentrega_de_um_resultado_ja_consumido(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        modulo, "resume_to_completion", AsyncMock(return_value=ResumeOutcome.ALREADY_FINISHED)
+    )
+    producers = MagicMock(etapa_alterada=AsyncMock())
+    roteador = GraphRouter(sessoes=object(), producers=producers)
+
+    await roteador.entregar(JOB_ID, _simulacao_concluida())
+
+    producers.etapa_alterada.assert_not_awaited()
+
+
+async def test_entregar_avisa_a_api_quando_a_retomada_mata_o_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Falha permanente depois da retomada também precisa tirar o job de `simulando`."""
+    monkeypatch.setattr(
+        modulo, "resume_to_completion", AsyncMock(side_effect=CodigoInvalidoError("segredo"))
+    )
+    producers = MagicMock(etapa_alterada=AsyncMock())
+    roteador = GraphRouter(sessoes=object(), producers=producers)
+
+    with pytest.raises(CodigoInvalidoError):
+        await roteador.entregar(JOB_ID, _simulacao_concluida())
+
+    [evento] = producers.etapa_alterada.await_args.args
+    assert evento == EtapaAlterada(job_id=JOB_ID, etapa="geracao_codigo", status="erro")

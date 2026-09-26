@@ -63,6 +63,8 @@ REGRA_ID = "d9cf3b9e-c99e-4c1e-9f9e-2e6e3a5b0a12"
 FONTE = "def aplicar_regra(bases, apuracao_base, competencias):\n    return {}\n"
 RESPOSTA_VALIDA = f"```python\n{FONTE}```"
 CONFIG: RunnableConfig = {"configurable": {"thread_id": JOB_ID}}
+RESULTADO_ID = "d9cf3b9e-c99e-4c1e-9f9e-2e6e3a5b0a13"
+RETOMADA = {"resultado_id": RESULTADO_ID, "status": "sucesso", "veredito": "inviavel"}
 
 
 class _Execucao:
@@ -101,7 +103,7 @@ class _Execucao:
         return await self.graph.ainvoke(None, self.config)
 
     async def retomar(self) -> Any:
-        return await self.graph.ainvoke(Command(resume={"status": "concluida"}), self.config)
+        return await self.graph.ainvoke(Command(resume=RETOMADA), self.config)
 
 
 async def test_graph_records_the_artifacts_publishes_and_pauses(
@@ -143,6 +145,44 @@ async def test_resuming_the_paused_graph_does_not_publish_again(
 
     execucao.producers.executar_codigo.assert_awaited_once()
     assert (await execucao.graph.aget_state(execucao.config)).next == ()
+
+
+async def test_resuming_records_the_result_reference_in_the_state(
+    scripted_model: ScriptedModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O desfecho da execução entra no estado; os números ficam em `resultados_simulacao`.
+
+    É por estes campos que o nó de decisão vai encaminhar o job, então eles precisam
+    sobreviver à retomada - e nenhum total pode viajar junto.
+    """
+    scripted_model([AIMessage(content=RESPOSTA_VALIDA)])
+    execucao = _Execucao(monkeypatch)
+    await execucao.iniciar()
+
+    await execucao.retomar()
+
+    valores = (await execucao.graph.aget_state(execucao.config)).values
+    assert valores["resultado_id"] == RESULTADO_ID
+    assert valores["status_simulacao"] == "sucesso"
+    assert valores["veredito"] == "inviavel"
+
+
+async def test_a_result_without_a_verdict_leaves_the_state_without_one(
+    scripted_model: ScriptedModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`veredito` é ausente fora de `sucesso`: gravar um valor inventado seria pior que nada."""
+    scripted_model([AIMessage(content=RESPOSTA_VALIDA)])
+    execucao = _Execucao(monkeypatch)
+    await execucao.iniciar()
+
+    await execucao.graph.ainvoke(
+        Command(resume={"resultado_id": RESULTADO_ID, "status": "erro_infra", "veredito": None}),
+        execucao.config,
+    )
+
+    valores = (await execucao.graph.aget_state(execucao.config)).values
+    assert valores["status_simulacao"] == "erro_infra"
+    assert "veredito" not in valores
 
 
 async def test_an_invalid_reply_stays_recorded_and_nothing_is_published(
