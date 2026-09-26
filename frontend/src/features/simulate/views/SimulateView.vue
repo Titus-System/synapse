@@ -27,6 +27,8 @@ const {
   sugestao,
   simulacao,
   aguardandoConfirmacao,
+  processamentoInterrompido,
+  motivoParada,
   aceitarSugestao,
   cancelar,
   podeAceitarSugestao,
@@ -243,6 +245,9 @@ onBeforeUnmount(parar);
                 <div v-else-if="erro">
                     <p class="text-[#584237] font-bold">Ocorreu um problema ao carregar esta simulação.</p>
                 </div>
+                <div v-else-if="processamentoInterrompido">
+                    <p class="text-[#584237] font-bold">Este processamento foi interrompido antes de produzir um resultado.</p>
+                </div>
                 <div v-else>
                     <p class="text-[#584237]">Verifique a viabilidade da sua regra de negócio.</p>
                 </div>
@@ -291,6 +296,53 @@ onBeforeUnmount(parar);
                         Por favor, tente novamente.
                     </p>
                                 </div>
+                <div v-else-if="processamentoInterrompido" class="flex flex-col items-center justify-center py-16">
+                    <font-awesome-icon :icon="['fas', 'circle-exclamation']" class="mb-4 text-5xl text-[#B45309]"/>
+                    <h2 class="mb-2 text-2xl font-bold text-[#B45309]">Processamento interrompido</h2>
+                    <p class="max-w-xl text-center text-[#584237]">
+                        {{ motivoParada ?? 'Esta regra falhou antes de produzir um resultado. Nenhum valor foi calculado.' }}
+                    </p>
+
+                    <div v-if="nucleo" class="mt-10 w-full max-w-xl">
+                        <h3 class="font-bold">Regra enviada</h3>
+                        <hr class="mb-1 w-full border border-[#FFDBCD]">
+                        <dl>
+                            <div class="flex justify-between gap-4 border-b border-[#FFDBCD] py-2">
+                                <dt class="text-[#584237]">Vigência</dt>
+                                <dd class="font-bold text-[#2B160D]">{{ vigencia }}</dd>
+                            </div>
+                            <div class="flex justify-between gap-4 border-b border-[#FFDBCD] py-2">
+                                <dt class="text-[#584237]">Loja</dt>
+                                <dd class="font-bold text-[#2B160D]">{{ loja }}</dd>
+                            </div>
+                            <div class="flex justify-between gap-4 border-b border-[#FFDBCD] py-2">
+                                <dt class="text-[#584237]">Marca</dt>
+                                <dd class="font-bold text-[#2B160D]">{{ marca }}</dd>
+                            </div>
+                            <div class="flex justify-between gap-4 border-b border-[#FFDBCD] py-2">
+                                <dt class="text-[#584237]">Cargo</dt>
+                                <dd class="font-bold text-[#2B160D]">{{ cargo }}</dd>
+                            </div>
+                            <div class="flex justify-between gap-4 border-b border-[#FFDBCD] py-2">
+                                <dt class="text-[#584237]">Meta</dt>
+                                <dd class="font-bold text-[#2B160D]">{{ meta }}</dd>
+                            </div>
+                            <div class="flex justify-between gap-4 border-b border-[#FFDBCD] py-2">
+                                <dt class="text-[#584237]">Percentual</dt>
+                                <dd class="font-bold text-[#2B160D]">{{ percentual }}</dd>
+                            </div>
+                        </dl>
+                    </div>
+
+                    <div class="mt-10 flex w-full max-w-xl flex-col gap-3 sm:flex-row sm:justify-center">
+                        <RouterLink to="/nova-regra" class="flex h-11 items-center justify-center rounded-lg bg-[#c2560b] px-5 text-sm font-medium text-white transition hover:bg-[#a54809]">
+                            Começar uma nova regra
+                        </RouterLink>
+                        <RouterLink to="/salvas" class="flex h-11 items-center justify-center rounded-lg border border-[#DFC0B2] px-5 text-sm font-medium text-[#8f470e] transition hover:bg-[#FFE9E1]">
+                            Ver minhas regras
+                        </RouterLink>
+                    </div>
+                </div>
                 <div v-else class="flex flex-col gap-6 lg:flex-row">
                     <div class="min-w-0 w-full lg:w-1/2">
                         <h3 class="font-bold">Regra estruturada</h3>

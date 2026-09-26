@@ -44,6 +44,11 @@ function criarRouterDeTeste() {
         name: 'nova-regra',
         component: { template: '<div />' },
       },
+      {
+        path: '/salvas',
+        name: 'regras-salvas',
+        component: { template: '<div />' },
+      },
     ],
   })
 }
@@ -114,9 +119,70 @@ async function montarProcessamento(status: Job['status'] = 'simulando') {
   return { wrapper, job, store: usarStoreJobAtual(pinia) }
 }
 
+async function montarInterrompido(motivo: string | null = null) {
+  const job = { ...criarJob(), status: 'erro' as const, simulacao: null, motivo }
+  consultarJob.mockResolvedValue(job)
+  const router = criarRouterDeTeste()
+  const pinia = createPinia()
+  await router.push('/jobs/job-1')
+  const wrapper = mount(SimulateView, {
+    global: {
+      plugins: [router, pinia],
+      stubs: { FontAwesomeIcon: true },
+    },
+  })
+  await flushPromises()
+  return { wrapper, store: usarStoreJobAtual(pinia) }
+}
+
 describe('SimulateView', () => {
   afterEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('anuncia a parada do job como desfecho, e não como falha da tela', async () => {
+    const { wrapper } = await montarInterrompido()
+
+    expect(wrapper.get('main h2').text()).toBe('Processamento interrompido')
+    expect(wrapper.text()).toContain('Esta regra falhou antes de produzir um resultado.')
+    expect(wrapper.text()).not.toContain('Não foi possível carregar a simulação')
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Loja 1')
+
+    const acoes = wrapper
+      .findAll('main a')
+      .map((link) => ({ href: link.attributes('href'), texto: link.text() }))
+    expect(acoes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ href: '/nova-regra', texto: 'Começar uma nova regra' }),
+        expect.objectContaining({ href: '/salvas', texto: 'Ver minhas regras' }),
+      ]),
+    )
+    wrapper.unmount()
+  })
+
+  it('mostra a razão localizada da parada no lugar do texto padrão', async () => {
+    const { wrapper } = await montarInterrompido(
+      'A regra usa um elemento sem implementação correspondente.',
+    )
+
+    expect(wrapper.text()).toContain('A regra usa um elemento sem implementação correspondente.')
+    expect(wrapper.text()).not.toContain('Esta regra falhou antes de produzir um resultado.')
+    wrapper.unmount()
+  })
+
+  it('prioriza a falha de carregamento sobre o desfecho do job interrompido', async () => {
+    const { wrapper, store } = await montarInterrompido()
+
+    consultarJob.mockRejectedValueOnce(
+      new HttpError(500, 'Não foi possível consultar o processamento.'),
+    )
+    await store.consultarJob()
+    await flushPromises()
+
+    expect(wrapper.get('main h2').text()).toBe('Não foi possível carregar a simulação')
+    expect(wrapper.text()).toContain('Não foi possível consultar o processamento.')
+    wrapper.unmount()
   })
 
   it.each([

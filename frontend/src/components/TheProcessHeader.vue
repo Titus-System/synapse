@@ -26,6 +26,9 @@ const etapasPorStatus: Partial<Record<StatusJob, EtapaDoProcesso>> = {
   simulando: 'simulacao',
   simulacao_inviavel: 'simulacao',
   aguardando_decisao_usuario: 'simulacao',
+  // Um job interrompido parou em alguma etapa; deixar o cabeçalho sem nenhuma
+  // acesa faz a tela parecer quebrada, e não parada.
+  erro: 'simulacao',
   liberado: 'salvar',
 }
 
