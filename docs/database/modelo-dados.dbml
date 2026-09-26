@@ -157,7 +157,7 @@ Table trilhas_auditoria {
   evento_id uuid [not null, note: 'uuid aleatorio gerado pelo publicador e carregado na mensagem; a API grava o que recebeu. Chave de idempotencia contra reentrega do broker.']
   job_id uuid [not null, ref: > jobs.id]
   simulacao_id uuid [ref: > simulacoes.id, note: 'null p/ nos 1-2 (voz, Sprint 2)']
-  no text [not null, note: 'enum dos nos 1..8']
+  no text [not null, note: 'enum dos nos 1..8, mais sugestao_adaptacao (desvio do no decisao)']
   concluido_em timestamptz [not null, note: 'conclusao do no, vinda do evento no-concluido']
   regra_id uuid [ref: > regras.id, note: 'null enquanto a regra nao esta formada']
   conclusao jsonb [not null, note: '''
@@ -221,7 +221,7 @@ resultados_simulacao.decomposicao.
 Table prompts {
   id uuid [pk, default: `uuidv7()`]
   job_id uuid [not null, ref: > jobs.id]
-  no text [not null, note: 'no do grafo que emitiu; mesmo enum de trilhas_auditoria.no (1..8)']
+  no text [not null, note: 'no do grafo que emitiu; mesmo enum de trilhas_auditoria.no']
   conteudo text [not null]
   modelo jsonb [not null, note: '''
 Formato: contracts/domain/modelo-llm.schema.json

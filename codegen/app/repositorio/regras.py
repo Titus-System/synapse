@@ -70,3 +70,16 @@ async def buscar_regra(
         )
     except ValidationError as erro:
         raise RegraInvalidaError("Rule failed RepresentacaoRegra's contract") from erro
+
+
+async def tem_sugestao(sessoes: async_sessionmaker[AsyncSession], job_id: UUID) -> bool:
+    """Uma única tentativa automática é permitida por job, mesmo após nova confirmação."""
+    async with sessoes() as sessao:
+        resultado = await sessao.execute(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM regras"
+                " WHERE job_id = :job_id AND origem = 'sugestao_adaptacao')"
+            ),
+            {"job_id": str(job_id)},
+        )
+        return bool(resultado.scalar_one())

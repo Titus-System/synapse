@@ -53,8 +53,11 @@ def id_do_codigo(prompt_id: UUID) -> UUID:
     return uuid5(_NAMESPACE, f"codigo:{prompt_id}")
 
 
-def id_do_evento_de_trilha(job_id: UUID, no: str, codigo_gerado_id: UUID) -> UUID:
+def id_do_evento_de_trilha(job_id: UUID, no: str, referencia: UUID) -> UUID:
     """Chave de idempotência do `no-concluido` deste nó.
+
+    `referencia` é a linha que o nó aponta - o código gerado, no nó de geração, ou o
+    resultado da simulação, nos nós que decidem sobre ela.
 
     Derivada aqui, junto dos ids das linhas que o evento referencia, para reaproveitar o
     mesmo namespace e o mesmo esquema de prefixo que separa um id do outro. É determinística
@@ -62,7 +65,7 @@ def id_do_evento_de_trilha(job_id: UUID, no: str, codigo_gerado_id: UUID) -> UUI
     carregar o mesmo id, senão o índice único de `trilhas_auditoria.evento_id` na api não
     tem como reconhecer a reentrega e a trilha ganharia uma linha duplicada.
     """
-    return uuid5(_NAMESPACE, f"trilha:{job_id}:{no}:{codigo_gerado_id}")
+    return uuid5(_NAMESPACE, f"trilha:{job_id}:{no}:{referencia}")
 
 
 async def gravar_prompt_e_resposta(

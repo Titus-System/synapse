@@ -40,3 +40,13 @@ class AgentState(TypedDict, total=False):
     resposta_id: str
     codigo_fonte: str
     codigo_gerado_id: str
+
+    # Retomada depois da execução no worker: só referências e campos de controle. Os números
+    # da simulação ficam em `resultados_simulacao` (ADR-001) e são lidos de lá por quem precisar.
+    resultado_id: str
+    status_simulacao: str
+    veredito: str
+
+    # Para onde o nó de decisão encaminhou o fluxo. É o campo validado que a aresta
+    # condicional lê - resposta de modelo nunca escolhe o próximo nó.
+    encaminhamento: str

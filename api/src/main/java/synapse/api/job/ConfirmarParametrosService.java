@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import synapse.api.core.outbox.EventoOutbox;
 import synapse.api.core.outbox.Outbox;
+import synapse.api.job.VersoesDaRegra.VersaoRegra;
 
 /**
  * Confirma ou corrige a representação da regra: grava uma versão nova (imutável), publica
@@ -43,14 +44,18 @@ class ConfirmarParametrosService {
 
 	private final Outbox outbox;
 
+	private final VersoesDaRegra versoes;
+
 	private final JsonMapper json = JsonMapper.builder()
 		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
 		.build();
 
-	ConfirmarParametrosService(JdbcTemplate jdbc, MaquinaDeEstadosDoJob maquina, Outbox outbox) {
+	ConfirmarParametrosService(JdbcTemplate jdbc, MaquinaDeEstadosDoJob maquina, Outbox outbox,
+			VersoesDaRegra versoes) {
 		this.jdbc = jdbc;
 		this.maquina = maquina;
 		this.outbox = outbox;
+		this.versoes = versoes;
 	}
 
 	@Transactional
@@ -65,7 +70,8 @@ class ConfirmarParametrosService {
 
 		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		Timestamp timestamp = Timestamp.from(agora);
-		VersaoRegra versao = resolverVersao(jobId, representacao, hash, anterior, timestamp, agora);
+		VersaoRegra versao = this.versoes.resolver(jobId, representacao, hash, "confirmacao_usuario",
+				(anterior != null) ? anterior.id() : null, timestamp, agora);
 
 		BigDecimal orcamento = resolverOrcamento(jobId, requisicao, dados.orcamento());
 		List<String> competencias = resolverCompetencias(jobId, requisicao);
@@ -112,28 +118,6 @@ class ConfirmarParametrosService {
 							.toList()),
 				jobId);
 		return versoes.isEmpty() ? null : versoes.getFirst();
-	}
-
-	private VersaoRegra resolverVersao(UUID jobId, RepresentacaoRegraDto representacao, String hash,
-			@Nullable VersaoAnterior anterior, Timestamp timestamp, Instant agora) {
-		List<VersaoRegra> existentes = this.jdbc.query("""
-				SELECT id, versao, origem, criada_em FROM regras WHERE job_id = ? AND hash = ?
-				""",
-				(rs, linha) -> new VersaoRegra(Objects.requireNonNull(rs.getObject("id", UUID.class)),
-						rs.getInt("versao"), Objects.requireNonNull(rs.getString("origem")),
-						Objects.requireNonNull(rs.getTimestamp("criada_em")).toInstant()),
-				jobId, hash);
-		if (!existentes.isEmpty()) {
-			return existentes.getFirst();
-		}
-		int novaVersao = (anterior != null) ? anterior.versao() + 1 : 1;
-		UUID origemId = (anterior != null) ? anterior.id() : null;
-		UUID id = Objects.requireNonNull(this.jdbc.queryForObject("""
-				INSERT INTO regras (job_id, versao, origem, regra_origem_id, nucleo, especificacoes, hash, criada_em)
-				VALUES (?, ?, 'confirmacao_usuario', ?, ?::jsonb, ?::jsonb, ?, ?) RETURNING id
-				""", UUID.class, jobId, novaVersao, origemId, this.json.writeValueAsString(representacao.nucleo()),
-				this.json.writeValueAsString(representacao.especificacoes()), hash, timestamp));
-		return new VersaoRegra(id, novaVersao, "confirmacao_usuario", agora);
 	}
 
 	private BigDecimal resolverOrcamento(UUID jobId, ConfirmarParametrosRequisicao requisicao, BigDecimal atual) {
@@ -222,9 +206,6 @@ class ConfirmarParametrosService {
 
 	private record VersaoAnterior(UUID id, int versao, String hash, NucleoRegraDto nucleo,
 			List<JsonNode> especificacoes) {
-	}
-
-	private record VersaoRegra(UUID id, int versao, String origem, Instant criadaEm) {
 	}
 
 }

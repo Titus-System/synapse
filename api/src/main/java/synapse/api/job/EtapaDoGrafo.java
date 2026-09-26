@@ -9,13 +9,15 @@ import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Os oito nós do grafo do codegen, no mesmo vocabulário fechado de
+ * Os nós do grafo do codegen, no mesmo vocabulário fechado de
  * {@code comum.schema.json#/$defs/no_grafo}. Único lugar da api que os declara.
+ * {@code SUGESTAO_ADAPTACAO} é o desvio acionado pela decisão quando a simulação é
+ * inviável por orçamento; os demais são a sequência de 1 a 8.
  */
 enum EtapaDoGrafo {
 
 	EXTRACAO_PARAMETROS, VALIDACAO_DOMINIO, CONFIRMACAO, GERACAO_CODIGO, DELEGACAO_WORKER, INTERPRETACAO_RESULTADO,
-	DECISAO, EXPLICACAO;
+	DECISAO, SUGESTAO_ADAPTACAO, EXPLICACAO;
 
 	private static final Map<String, EtapaDoGrafo> POR_NOME_DE_EVENTO = Arrays.stream(values())
 		.collect(Collectors.toMap(EtapaDoGrafo::paraEvento, Function.identity()));

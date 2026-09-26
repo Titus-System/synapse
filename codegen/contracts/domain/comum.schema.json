@@ -81,9 +81,10 @@
         "delegacao_worker",
         "interpretacao_resultado",
         "decisao",
+        "sugestao_adaptacao",
         "explicacao"
       ],
-      "description": "Nó do grafo do codegen, na ordem de 1 a 8."
+      "description": "Nó do grafo do codegen. Os oito primeiros são a sequência de 1 a 8; sugestao_adaptacao é o desvio que o nó de decisão aciona quando a simulação é inviável por orçamento (US03, cenário 1), e que volta à geração de código com a alternativa."
     }
   }
 }

@@ -15,6 +15,7 @@ O corpo é o contrato; `type`, `correlation_id` e `message_id` são propriedades
 | `ExecutarCodigo` | saída | `executar-codigo` | padrão (`""`) |
 | `EtapaAlterada` | saída | `etapa-alterada` | padrão (`""`) |
 | `NoConcluido` | saída | `no-concluido` | padrão (`""`) |
+| `SugestaoAdaptacaoProposta` | saída | `sugestao-adaptacao-proposta` | padrão (`""`) |
 
 Os DTOs canônicos ficam em `app/contratos/mensagens.py` e são reutilizados pela
 mensageria, sem subclasses de transporte. Os nomes de mensagens e o roteamento
@@ -124,9 +125,9 @@ O lifespan cria o engine assíncrono do banco (`app/db.py`, `asyncpg`) e o
 `async_sessionmaker`, roda `checkpointer.setup()` (idempotente), abre a conexão
 RabbitMQ robusta, habilita confirmações e limita prefetch (padrão 1), declara
 topologia e disponibiliza `aplicacao.state.producers`. `criar_aplicacao(roteador=...)`
-injeta a implementação real de `RoteadorGrafo` e inicia **só o consumer de
-regra-submetida**; `parametros-confirmados` e `simulacao-concluida` ficam com as
-mensagens preservadas no broker até a retomada com `Command(resume=...)` existir.
+injeta a implementação real de `RoteadorGrafo` e inicia os consumers de
+**regra-submetida** e **simulacao-concluida**; `parametros-confirmados` fica com as
+mensagens preservadas no broker até a retomada pela confirmação do usuário existir.
 Sem essa integração, o processo emite um aviso e mantém as mensagens no broker.
 `/health` continua sendo liveness do processo.
 
@@ -149,6 +150,11 @@ rodam de novo.
 | `no-concluido` `geracao_codigo` | `extract_code`, depois de gravar o código | estrutural + trilha |
 | `etapa-alterada` `delegacao_worker`/`iniciada` | `dispatch_execution`, antes do comando | estrutural |
 | `no-concluido` `delegacao_worker` | `dispatch_execution`, depois do comando | trilha |
+| `etapa-alterada` `decisao`/`iniciada` | `decision`, antes de encaminhar | progresso |
+| `no-concluido` `decisao` | `decision`, com o `encaminhamento` | trilha |
+| `etapa-alterada` `sugestao_adaptacao`/`iniciada` | `suggest_adaptation`, antes de propor | progresso |
+| `sugestao-adaptacao-proposta` | `suggest_adaptation`, quando há alternativa | estrutural |
+| `no-concluido` `sugestao_adaptacao` | `suggest_adaptation`, depois da proposta | trilha |
 | `etapa-alterada` `status: erro` | `GraphRouter`, em qualquer `FalhaDoJobError` | estrutural |
 
 **Estrutural** quer dizer que o fluxo quebra sem o evento. `delegacao_worker`/`iniciada` é o
@@ -185,11 +191,25 @@ quando o comando foi entregue; anunciar antes afirmaria algo que ainda pode falh
 a janela em que uma falha republica o comando, mas o worker descarta comando repetido pelo
 `codigo_gerado_id` já gravado.
 
-As demais seis etapas do vocabulário não existem como nós e seguem sem publicar.
+As demais cinco etapas do vocabulário não existem como nós e seguem sem publicar.
+
+A `sugestao-adaptacao-proposta` é estrutural pelo mesmo motivo da delegação: sem ela a
+alternativa não vira versão de regra e o job não volta a `gerando_regra`. Ela vai depois do
+`etapa-alterada` da etapa e antes do `no-concluido`, como em `dispatch_execution` e pela mesma
+razão. A proposta viaja no corpo, e não por referência, porque a linha em `regras` que a
+guardaria é justamente o que o evento pede para criar - quem grava é a `api`, dona da versão,
+do hash canônico e do estado do job.
 
 Em seguida, `await_execution` pausa o grafo com `interrupt()`, a `regra-submetida` recebe
-`ack` e o processo fica livre. A retomada com `simulacao-concluida` está descrita em
+`ack` e o processo fica livre. O resultado do worker chega pela fila do fanout e
+`GraphRouter._retomar` o entrega ao `interrupt()` pendente por
+`app/graph/entrypoint.py::resume_to_completion`, que antes confere o checkpoint: job sem
+checkpoint é rejeitado sem requeue, grafo que ainda não pausou é reenfileirado, e grafo já
+concluído recebe `ack` sem retomar de novo. O desenho está em
 [`retomada-apos-execucao.md`](retomada-apos-execucao.md).
+
+O valor da retomada leva só `resultado_id`, `status` e `veredito`: os números da simulação
+ficam em `resultados_simulacao` (ADR-001) e são lidos de lá por quem precisar.
 
 O entrypoint Docker/uvicorn chama `app.main:criar_aplicacao_padrao`, que monta um
 `GraphRouter` e o passa a `criar_aplicacao`, ativando o consumer de regra-submetida
@@ -249,8 +269,8 @@ Remove-Item Env:RUN_RABBITMQ_INTEGRATION
 
 Cada teste cria e remove somente seu próprio vhost `t049-<uuid>` no RabbitMQ real,
 usando `docker compose exec ... rabbitmqctl`; não há segundo ambiente RabbitMQ.
-As credenciais precisam permitir acesso a esse vhost. São sete cenários: três
-entradas sem fila/consumer da API, fanout com cópia independente na fila API sem
-consumer, e três producers. Nenhum serviço API ou worker precisa ser iniciado.
+As credenciais precisam permitir acesso a esse vhost. São sete cenários: entrega de
+`regra-submetida` e do resultado do worker ao roteador, `parametros-confirmados` retida
+sem consumer, fanout com cópia independente na fila da API, e três producers. Nenhum serviço API ou worker precisa ser iniciado.
 Sem `RUN_RABBITMQ_INTEGRATION=1`, esses testes são explicitamente pulados;
 habilitados, ausência de broker/Docker é falha, nunca aprovação simulada.

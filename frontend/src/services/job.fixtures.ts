@@ -79,3 +79,24 @@ export function respostaPendente<T>() {
   })
   return { promise, resolve: (value: T) => resolver(value) }
 }
+
+
+export function jobComSugestaoFixture(overrides: Partial<Job> = {}): Job {
+  const original = regraFixture()
+  const sugestao = regraFixture(2, 'sugestao_adaptacao')
+  sugestao.representacao.nucleo.percentual = 0.0246
+  const resultadoOriginal = jobFixture().simulacao!
+  resultadoOriginal.regra_id = original.id
+  resultadoOriginal.veredito = 'inviavel'
+  resultadoOriginal.resultado!.totais!.simulado = 492100
+  const resultadoSugestao = jobFixture().simulacao!
+  resultadoSugestao.id = 'simulacao-2'
+  resultadoSugestao.regra_id = sugestao.id
+  resultadoSugestao.resultado!.totais!.simulado = 484226.4
+  return jobFixture({
+    regras: [sugestao, original],
+    simulacoes: [resultadoOriginal, resultadoSugestao],
+    simulacao: resultadoSugestao,
+    ...overrides,
+  })
+}

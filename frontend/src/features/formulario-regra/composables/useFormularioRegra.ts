@@ -3,10 +3,10 @@ import { apiClient } from '@/services/api'
 import { HttpError } from '@/services/http'
 import { regraMaisRecente } from '@/services/job'
 import type { CriarJobRequisicao, JobCriado, NucleoRegra } from '@/types/api'
-import type { CampoDoFormulario, FormularioDeRegra, OpcaoDeVigencia } from '../types'
+import { opcoesDeCargo, opcoesDeLoja, opcoesDeMarca } from '../opcoesDeRh'
+import type { CampoDoFormulario, FormularioDeRegra, OpcaoDeCodigo, OpcaoDeVigencia } from '../types'
 
 const opcoesDeVigencia: readonly OpcaoDeVigencia[] = [
-  { valor: '2025-07', rotulo: 'Julho de 2025' },
   { valor: '2025-08', rotulo: 'Agosto de 2025' },
   { valor: '2025-09', rotulo: 'Setembro de 2025' },
   { valor: '2025-10', rotulo: 'Outubro de 2025' },
@@ -32,9 +32,9 @@ function criarFormularioVazio(): FormularioDeRegra {
   return {
     vigenciaInicio: '',
     vigenciaFim: '',
-    loja: '',
-    marca: '',
-    cargo: '',
+    loja: [],
+    marca: [],
+    cargo: [],
     percentual: '',
     orcamento: '',
   }
@@ -50,13 +50,6 @@ function criarErrosVazios(): Record<CampoDoFormulario, string> {
     percentual: '',
     orcamento: '',
   }
-}
-
-function converterEmLista(valor: string): string[] {
-  return valor
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean)
 }
 
 function converterPercentual(valor: string): number | undefined {
@@ -92,6 +85,19 @@ function formatarPercentualDoNucleo(valor: number): string {
   return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 4 }).format(valor * 100)
 }
 
+function codigosDisponiveis(
+  codigos: readonly string[] | undefined,
+  opcoes: readonly OpcaoDeCodigo[],
+): string[] {
+  // Mesmo motivo de competenciaDisponivel: um código fora da lista ficaria
+  // selecionado sem opção correspondente para o usuário desmarcar.
+  return opcoes.map((opcao) => opcao.valor).filter((valor) => (codigos ?? []).includes(valor))
+}
+
+function campoPreenchido(valor: string | string[]): boolean {
+  return Array.isArray(valor) ? valor.length > 0 : valor.trim() !== ''
+}
+
 function competenciaDisponivel(competencia: string | undefined): string {
   if (!competencia) return ''
 
@@ -120,15 +126,15 @@ export function useFormularioRegra() {
     const obrigatorios: { campo: CampoDoFormulario; mensagem: string }[] = [
       { campo: 'vigenciaInicio', mensagem: 'Informe o início da vigência.' },
       { campo: 'vigenciaFim', mensagem: 'Informe o fim da vigência.' },
-      { campo: 'loja', mensagem: 'Informe ao menos um código de loja.' },
-      { campo: 'marca', mensagem: 'Informe ao menos um código de marca.' },
-      { campo: 'cargo', mensagem: 'Informe ao menos um código de cargo.' },
+      { campo: 'loja', mensagem: 'Selecione ao menos uma loja.' },
+      { campo: 'marca', mensagem: 'Selecione ao menos uma marca.' },
+      { campo: 'cargo', mensagem: 'Selecione ao menos um cargo.' },
       { campo: 'percentual', mensagem: 'Informe o percentual de comissão.' },
       { campo: 'orcamento', mensagem: 'Informe o orçamento disponível.' },
     ]
 
     for (const { campo, mensagem } of obrigatorios) {
-      if (!formulario[campo].trim()) erros[campo] = mensagem
+      if (!campoPreenchido(formulario[campo])) erros[campo] = mensagem
     }
 
     if (formulario.percentual && converterPercentual(formulario.percentual) === undefined) {
@@ -153,9 +159,9 @@ export function useFormularioRegra() {
       conteudo: {
         nucleo: {
           vigencia: { inicio: formulario.vigenciaInicio, fim: formulario.vigenciaFim },
-          loja: converterEmLista(formulario.loja),
-          marca: converterEmLista(formulario.marca),
-          cargo: converterEmLista(formulario.cargo),
+          loja: [...formulario.loja],
+          marca: [...formulario.marca],
+          cargo: [...formulario.cargo],
           percentual,
         },
         texto_livre: null,
@@ -179,9 +185,9 @@ export function useFormularioRegra() {
     limparErros()
     formulario.vigenciaInicio = competenciaDisponivel(nucleo.vigencia?.inicio)
     formulario.vigenciaFim = competenciaDisponivel(nucleo.vigencia?.fim)
-    formulario.loja = (nucleo.loja ?? []).join(', ')
-    formulario.marca = (nucleo.marca ?? []).join(', ')
-    formulario.cargo = (nucleo.cargo ?? []).join(', ')
+    formulario.loja = codigosDisponiveis(nucleo.loja, opcoesDeLoja)
+    formulario.marca = codigosDisponiveis(nucleo.marca, opcoesDeMarca)
+    formulario.cargo = codigosDisponiveis(nucleo.cargo, opcoesDeCargo)
     formulario.percentual =
       nucleo.percentual == null ? '' : formatarPercentualDoNucleo(nucleo.percentual)
     // O orçamento é justamente o que o reprocessamento vem trocar.
@@ -250,6 +256,9 @@ export function useFormularioRegra() {
   }
 
   return {
+    opcoesDeCargo,
+    opcoesDeLoja,
+    opcoesDeMarca,
     opcoesDeVigencia,
     enviando,
     enviarFormulario,

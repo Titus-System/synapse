@@ -19,10 +19,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Topologia do RabbitMQ da api: quatro filas simples que publica e consome, e a fila
- * própria ligada à exchange fanout de {@code simulacao-concluida}. A declaração é
- * idempotente, nunca exclusiva, porque a ordem de subida entre os três serviços não é
- * garantida.
+ * Topologia do RabbitMQ da api: as filas simples que publica e consome, e a fila própria
+ * ligada à exchange fanout de {@code simulacao-concluida}. A declaração é idempotente,
+ * nunca exclusiva, porque a ordem de subida entre os três serviços não é garantida.
  */
 @Configuration
 public class RabbitTopologyConfig {
@@ -34,6 +33,8 @@ public class RabbitTopologyConfig {
 	public static final String ETAPA_ALTERADA = "etapa-alterada";
 
 	public static final String NO_CONCLUIDO = "no-concluido";
+
+	public static final String SUGESTAO_ADAPTACAO_PROPOSTA = "sugestao-adaptacao-proposta";
 
 	public static final String SIMULACAO_CONCLUIDA_EXCHANGE = "simulacao-concluida";
 
@@ -51,8 +52,8 @@ public class RabbitTopologyConfig {
 
 		return new Declarables(QueueBuilder.durable(REGRA_SUBMETIDA).build(),
 				QueueBuilder.durable(PARAMETROS_CONFIRMADOS).build(), QueueBuilder.durable(ETAPA_ALTERADA).build(),
-				QueueBuilder.durable(NO_CONCLUIDO).build(), simulacaoConcluida, simulacaoConcluidaApi,
-				simulacaoConcluidaBinding);
+				QueueBuilder.durable(NO_CONCLUIDO).build(), QueueBuilder.durable(SUGESTAO_ADAPTACAO_PROPOSTA).build(),
+				simulacaoConcluida, simulacaoConcluidaApi, simulacaoConcluidaBinding);
 	}
 
 	/**

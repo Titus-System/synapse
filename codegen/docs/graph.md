@@ -16,14 +16,19 @@ graph TD;
 	extract_code(extract_code)
 	dispatch_execution(dispatch_execution)
 	await_execution(await_execution)
+	decision(decision)
+	suggest_adaptation(suggest_adaptation)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> load_rule;
+	await_execution --> decision;
 	code_generation --> persist_response;
+	decision -.-> __end__;
+	decision -.-> suggest_adaptation;
 	dispatch_execution --> await_execution;
 	extract_code --> dispatch_execution;
 	load_rule --> code_generation;
 	persist_response --> extract_code;
-	await_execution --> __end__;
+	suggest_adaptation --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc

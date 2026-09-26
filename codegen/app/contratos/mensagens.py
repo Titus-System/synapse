@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.representacao_regra import RepresentacaoRegra
+
 
 class ModeloContrato(BaseModel):
     model_config = ConfigDict(extra="ignore", strict=True)
@@ -38,6 +40,7 @@ NoGrafo = Literal[
     "delegacao_worker",
     "interpretacao_resultado",
     "decisao",
+    "sugestao_adaptacao",
     "explicacao",
 ]
 
@@ -84,6 +87,13 @@ class SimulacaoConcluida(ModeloContrato):
     total_simulado: Decimal | None = None
     diferenca_abs: Decimal | None = None
     diferenca_pct: Decimal | None = None
+
+
+class SugestaoAdaptacaoProposta(ModeloContrato):
+    job_id: UUID
+    regra_origem_id: UUID
+    resultado_id: UUID
+    representacao: RepresentacaoRegra
 
 
 class ExecutarCodigo(ModeloContrato):

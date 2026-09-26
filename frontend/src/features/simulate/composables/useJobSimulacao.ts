@@ -3,6 +3,7 @@ import { storeToRefs } from 'pinia'
 import { apiClient } from '@/services/api'
 import { HttpError } from '@/services/http'
 import { regraMaisRecente, simulacaoVisivel } from '@/services/job'
+import type { Simulacao } from '@/types/api'
 import { usarStoreJobAtual } from '@/stores/currentJob'
 
 export function useJobSimulacao(jobId: MaybeRefOrGetter<string>) {
@@ -13,11 +14,27 @@ export function useJobSimulacao(jobId: MaybeRefOrGetter<string>) {
   let ciclo = 0
 
   const status = computed(() => job.value?.status ?? store.statusAtual)
-  const regra = computed(() => regraMaisRecente(job.value?.regras ?? []))
-  const simulacao = computed(() => simulacaoVisivel(job.value))
+  const ultimaRegra = computed(() => regraMaisRecente(job.value?.regras ?? []))
   const sugestao = computed(() =>
-    regra.value?.origem === 'sugestao_adaptacao' ? regra.value : undefined,
+    ultimaRegra.value?.origem === 'sugestao_adaptacao' ? ultimaRegra.value : undefined,
   )
+  const regra = computed(() => sugestao.value
+    ? regraMaisRecente((job.value?.regras ?? []).filter((item) => item.versao < sugestao.value!.versao))
+    : ultimaRegra.value,
+  )
+  function simulacaoDaRegra(regraId: string | undefined): Simulacao | null {
+    if (!regraId) return null
+    const atual = job.value
+    return atual?.simulacoes?.reduce<Simulacao | null>((encontrada, item) =>
+      item.regra_id === regraId ? item : encontrada, null)
+      ?? (atual?.simulacao?.regra_id === regraId ? atual.simulacao : null)
+  }
+  const simulacao = computed(() =>
+    sugestao.value
+      ? simulacaoDaRegra(regra.value?.id)
+      : simulacaoVisivel(job.value),
+  )
+  const simulacaoSugestao = computed(() => simulacaoDaRegra(sugestao.value?.id))
   const falha = computed(() => erroAcao.value ?? store.erro)
   // Falha de carregamento e job interrompido são desfechos diferentes: o primeiro
   // é a tela que não conseguiu ler o job, o segundo é o job que parou.
@@ -33,7 +50,9 @@ export function useJobSimulacao(jobId: MaybeRefOrGetter<string>) {
     () =>
       !acaoProcessando.value &&
       !!sugestao.value &&
-      ['simulacao_inviavel', 'aguardando_confirmacao_parametros'].includes(status.value ?? ''),
+      status.value === 'aguardando_decisao_usuario' &&
+      simulacaoSugestao.value?.status === 'sucesso' &&
+      simulacaoSugestao.value.veredito === 'viavel',
   )
   const podeCancelar = computed(
     () =>
@@ -48,24 +67,16 @@ export function useJobSimulacao(jobId: MaybeRefOrGetter<string>) {
     () => status.value === 'aguardando_decisao_usuario' && !acaoProcessando.value,
   )
 
-  async function executar(acao: 'aceitar' | 'cancelar'): Promise<boolean> {
-    if (acao === 'aceitar' ? !podeAceitarSugestao.value : !podeCancelar.value) return false
+  async function cancelar(): Promise<boolean> {
+    if (!podeCancelar.value) return false
     const id = toValue(jobId)
     const atual = ciclo
     acaoProcessando.value = true
     erroAcao.value = null
     try {
-      if (acao === 'aceitar' && sugestao.value) {
-        const confirmado = await apiClient.confirmarParametros(id, {
-          regra: sugestao.value.representacao,
-        })
-        if (atual !== ciclo) return false
-        store.aplicarConfirmacao(confirmado)
-      } else {
-        const cancelado = await apiClient.executarAcao(id, { acao: 'cancelar' })
-        if (atual !== ciclo) return false
-        store.aplicarJob(cancelado)
-      }
+      const cancelado = await apiClient.executarAcao(id, { acao: 'cancelar' })
+      if (atual !== ciclo) return false
+      store.aplicarJob(cancelado)
       void store.consultarJob()
       return atual === ciclo
     } catch (falha) {
@@ -98,6 +109,7 @@ export function useJobSimulacao(jobId: MaybeRefOrGetter<string>) {
     regra,
     sugestao,
     simulacao,
+    simulacaoSugestao,
     status,
     carregando,
     erro,
@@ -115,8 +127,7 @@ export function useJobSimulacao(jobId: MaybeRefOrGetter<string>) {
     podeCancelar,
     podeFinalizar,
     acaoProcessando,
-    aceitarSugestao: () => executar('aceitar'),
-    cancelar: () => executar('cancelar'),
+    cancelar,
     consultarJob: store.consultarJob,
     iniciar,
     parar,

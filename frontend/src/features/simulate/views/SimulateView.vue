@@ -6,6 +6,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useJobSimulacao } from "../composables/useJobSimulacao";
 import { calcularProgresso } from "../composables/progressoSimulacao";
 import TheProcessHeader from "@/components/TheProcessHeader.vue";
+import SugestaoRegra from "../components/SugestaoRegra.vue";
 import TheSidebar from "@/components/TheSidebar.vue";
 
 const rota = useRoute();
@@ -26,10 +27,10 @@ const {
   regra,
   sugestao,
   simulacao,
-  aguardandoConfirmacao,
+  simulacaoSugestao,
+  status,
   processamentoInterrompido,
   motivoParada,
-  aceitarSugestao,
   cancelar,
   podeAceitarSugestao,
   podeCancelar,
@@ -170,49 +171,12 @@ const totalComissionamento = computed(() => {
   })}`;
 });
 
-const orcamentoExcedido = computed(() => {
-  const simulado = simulacao.value?.resultado?.totais?.simulado;
-  const orcamento = simulacao.value?.resultado?.totais?.orcamento;
-
-  if (simulado == null || orcamento == null || simulado <= orcamento) {
-    return "";
-  }
-
-  const excedente = simulado - orcamento;
-
-  return `R$ ${excedente.toLocaleString("pt-BR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-});
-
 const regraViavel = computed(() => simulacao.value?.veredito === "viavel");
 
 const regraInviavel = computed(() => simulacao.value?.veredito === "inviavel");
 
 const assercaoViolada = computed(
   () => simulacao.value?.status === "assercao_violada",
-);
-
-watch(
-  simulacao,
-  (valor) => {
-    console.log("SIMULAÇÃO NA TELA:", valor);
-    console.log("TOTAIS NA TELA:", valor?.resultado?.totais);
-    console.log(
-      "TOTAL SIMULADO NA TELA:",
-      valor?.resultado?.totais?.simulado,
-    );
-  },
-  { immediate: true },
-);
-
-watch(
-  totalComissionamento,
-  (valor) => {
-    console.log("TOTAL FORMATADO:", valor);
-  },
-  { immediate: true },
 );
 
 watch(
@@ -245,7 +209,7 @@ onBeforeUnmount(parar);
                 <div v-else-if="erro">
                     <p class="text-[#584237] font-bold">Ocorreu um problema ao carregar esta simulação.</p>
                 </div>
-                <div v-else-if="processamentoInterrompido">
+                <div v-else-if="processamentoInterrompido && !sugestao">
                     <p class="text-[#584237] font-bold">Este processamento foi interrompido antes de produzir um resultado.</p>
                 </div>
                 <div v-else>
@@ -253,7 +217,7 @@ onBeforeUnmount(parar);
                 </div>
             </div>
             <div>
-                <div v-if="processando && !erro" class="flex flex-col items-center justify-center py-16">
+                <div v-if="processando && !erro && !simulacao" class="flex flex-col items-center justify-center py-16">
                     <div class="mb-6 flex h-16 w-16 items-center justify-center rounded-full border-4 border-[#FFDBCD] border-t-[#f26b0f] animate-spin" aria-label="Processando simulação">
                         <span class="sr-only">Processando simulação</span>
                     </div>
@@ -296,7 +260,7 @@ onBeforeUnmount(parar);
                         Por favor, tente novamente.
                     </p>
                                 </div>
-                <div v-else-if="processamentoInterrompido" class="flex flex-col items-center justify-center py-16">
+                <div v-else-if="processamentoInterrompido && !sugestao" class="flex flex-col items-center justify-center py-16">
                     <font-awesome-icon :icon="['fas', 'circle-exclamation']" class="mb-4 text-5xl text-[#B45309]"/>
                     <h2 class="mb-2 text-2xl font-bold text-[#B45309]">Processamento interrompido</h2>
                     <p class="max-w-xl text-center text-[#584237]">
@@ -416,7 +380,7 @@ onBeforeUnmount(parar);
                             </div>
                         </div>
                         <button
-                                v-if="regraViavel && podeFinalizar"
+                                v-if="regraViavel && podeFinalizar && !sugestao"
                                 type="button"
                                 class="flex items-center justify-center cursor-pointer rounded-lg bg-[#14532D] text-white px-6 py-3 mt-4"
                                 @click="seguirParaFinalizacao"
@@ -434,7 +398,7 @@ onBeforeUnmount(parar);
                                     <h4 class="text-[#950606] mb-1 font-bold">Resultado: Regra de negócio reprovada!</h4>
                                     <ul class="list-disc list-inside">
                                         <li class="text-[#584237]">A regra de negócio NÃO cabe no seu orçamento.</li>
-                                        <li class="text-[#584237]">O orçamento foi excedido em <span class="text-[#950606] font-bold">{{ orcamentoExcedido }}</span>.</li>
+                                        <li class="text-[#584237]">Orçamento disponível: {{ meta }}.</li>
                                     </ul>
                                 </div>
                             </div>
@@ -467,91 +431,17 @@ onBeforeUnmount(parar);
                 </div>
             </div>
         </div>
-    <!-- Sugestão (tornar aparição dinâmica depois) -->
-        <div v-if="sugestao && (regraInviavel || aguardandoConfirmacao)" class="mx-auto mb-8 w-full max-w-6xl px-4 sm:px-6 lg:px-10">
-            <div class="mb-11">
-                <h1 class="text-3xl text-[#2B160D] mb-2 font-semibold">Sugestão</h1>
-                <p class="text-[#584237]">A regra de negócio escolhida é inviável. Mas não se preocupe, criamos esta para você:</p>
-            </div>
-            <div>
-                <div class="flex flex-col gap-6 lg:flex-row">
-                    <div class="min-w-0 w-full lg:w-1/2">
-                        <h3 class="font-bold">Regra estruturada</h3>
-                        <hr class="mb-4 w-full border border-[#FFDBCD]">
-                            <form class="flex flex-col gap-4 sm:flex-row sm:gap-8">
-                                <div class="flex min-w-0 flex-1 flex-col">
-                                    <div class="flex flex-col">
-                                        <label for="vigencia" class="mb-1 text-[#584237]">Vigência</label>
-                                        <input id="vigencia" type="text" readonly :value="vigencia" :class="[
-        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
-        assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
-    ]"/>
-                                    </div>
-                                    <div class="flex flex-col">
-                                        <label for="loja" class="mb-1 text-[#584237]">Loja</label>
-                                        <input id="loja" type="text" readonly :value="sugestao?.representacao.nucleo.loja?.join(', ') ?? ''" :class="[
-        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
-        assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
-    ]"/>
-                                    </div>
-
-                                    <div class="flex flex-col">
-                                        <label for="marca" class="mb-1 text-[#584237]">Marca</label>
-                                        <input id="marca" type="text" readonly :value="sugestao?.representacao.nucleo.marca?.join(', ') ?? ''" :class="[
-        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
-        assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
-    ]" />
-                                    </div>
-                                </div>
-                                <div class="flex min-w-0 flex-1 flex-col">
-                                    <label for="cargo" class="mb-1 text-[#584237]">Cargo</label>
-                                    <input id="cargo" type="text" readonly :value="sugestao?.representacao.nucleo.cargo?.join(', ') ?? ''" :class="[
-        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
-        assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
-    ]"/>
-
-                                    <label for="meta" class="mb-1 text-[#584237]">Meta</label>
-                                    <input id="meta" type="text" readonly :value="meta" :class="[
-        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
-        assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
-    ]"/>
-
-                                    <label for="percentual" class="mb-1 text-[#584237]">Percentual</label>
-                                    <input id="percentual" type="text" readonly :value="sugestao?.representacao.nucleo.percentual == null ? '' : new Intl.NumberFormat('pt-BR', { style: 'percent', maximumFractionDigits: 4 }).format(sugestao.representacao.nucleo.percentual)" :class="[
-        'w-full min-w-0 rounded-lg border-2 border-[#8B7265]/10 bg-[#FFE9E1] px-3.5 py-3',
-        assercaoViolada ? 'text-[#B45309]' : 'text-[#2B160D]'
-    ]"/>
-                                </div>
-                            </form>
-                    </div>
-                    <div class="min-w-0 w-full rounded-lg border-2 border-[#DFC0B2] p-5 lg:w-1/2">
-                        <h3 class="font-bold">Dados da simulação</h3>
-                        <hr class="mb-4 border border-[#FFDBCD]">
-                        <div class="flex flex-col mb-8">
-                            <label for="percentual" class="mb-1 text-[#584237]">Total de comissionamento</label>
-                            <input id="percentual" type="text" readonly placeholder="R$ X,00"  class="bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265] text-[#2B160D] px-3.5 py-3 w-full"/>
-                        </div>
-                        <p class="text-lg mb-3">Deseja escolher essa nova regra?</p>
-                        <div class="mb-3 flex flex-col justify-around gap-4 p-0 sm:flex-row sm:gap-6">
-                            <!-- SIM -->
-                            <button type="button" :disabled="!podeAceitarSugestao" @click="aceitarSugestao" class="flex h-fit w-full cursor-pointer flex-col items-center justify-center rounded-lg border-t border-r border-b border-l-8 border-l-[#14532D] border-r-[#14532D]/20 border-t-[#14532D]/20 border-b-[#14532D]/20 bg-[#F4ECE6]/50 p-3 sm:w-1/2">
-                                <div class="flex flex-col items-center">
-                                    <h4 class="text-[#14532D] font-bold">SIM!</h4>
-                                    <span class="text-[#584237]">Seguir para a próxima etapa.</span>
-                                </div>
-                            </button>
-                            <!-- NÃO -->
-                            <button type="button" class="flex h-fit w-full cursor-pointer flex-col items-center justify-center rounded-lg border-t border-r border-b border-l-8 border-l-[#950606] border-r-[#950606]/20 border-t-[#950606]/20 border-b-[#950606]/20 bg-[#F4ECE6]/50 p-3 sm:w-1/2" :disabled="!podeCancelar" @click="cancelarFluxo">
-                                <div class="flex flex-col items-center">
-                                    <h4 class="text-[#950606] font-bold">Não.</h4>
-                                    <span class="text-[#584237]">Cancelar este fluxo.</span>
-                                </div>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <SugestaoRegra
+            v-if="!erro && (sugestao || (status === 'simulacao_inviavel' && regraInviavel))"
+            :regra="sugestao ?? null"
+            :simulacao="simulacaoSugestao"
+            :status="status ?? null"
+            :meta="meta"
+            :pode-aceitar="podeAceitarSugestao"
+            :pode-cancelar="podeCancelar"
+            @aceitar="seguirParaFinalizacao"
+            @cancelar="cancelarFluxo"
+        />
     </main>
     </div>
     </div>

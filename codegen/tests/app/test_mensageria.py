@@ -23,6 +23,7 @@ from app.contratos.mensagens import (
     ParametrosConfirmados,
     RegraSubmetida,
     SimulacaoConcluida,
+    SugestaoAdaptacaoProposta,
 )
 from app.contratos.serializacao import serializar
 from app.core.logger import job_id_ctx
@@ -33,8 +34,13 @@ from app.mensageria import broker as modulo_broker
 from app.mensageria.broker import FILA_SIMULACAO, FILAS_SIMPLES, conectar, declarar_topologia
 from app.mensageria.consumers import Consumer
 from app.mensageria.producers import Producers, ProdutorError
-from app.mensageria.roteamento import Entrada, JobDesconhecidoError
+from app.mensageria.roteamento import (
+    Entrada,
+    JobDesconhecidoError,
+    RetomadaIndisponivelError,
+)
 from app.repositorio.regras import RegraInvalidaError
+from app.representacao_regra import RepresentacaoRegra
 
 CONTRATOS = Path(__file__).resolve().parents[3] / "contracts"
 
@@ -72,6 +78,17 @@ SAIDAS = (
 def exemplo(nome: str) -> dict[str, Any]:
     return simplejson.loads(
         (CONTRATOS / "examples" / "events" / f"{nome}.json").read_bytes(), use_decimal=True
+    )
+
+
+def representacao_do_exemplo() -> RepresentacaoRegra:
+    """A representação do exemplo com os números como Decimal, que é como o nó a monta.
+
+    Este DTO não tem volta por texto JSON: o parser devolveria float, e os tipos da regra o
+    recusam justamente para não perder precisão. O consumidor do evento é a `api`, em Java.
+    """
+    return RepresentacaoRegra.model_validate(
+        exemplo("sugestao-adaptacao-proposta")["representacao"]
     )
 
 
@@ -207,6 +224,44 @@ async def test_producer_nao_publica_dto_adulterado(
 
     with pytest.raises(ProdutorError):
         await getattr(Producers(canal), metodo)(dto)
+
+    canal.default_exchange.publish.assert_not_awaited()
+
+
+def sugestao_do_exemplo() -> SugestaoAdaptacaoProposta:
+    payload = exemplo("sugestao-adaptacao-proposta")
+    return SugestaoAdaptacaoProposta(
+        job_id=UUID(payload["job_id"]),
+        regra_origem_id=UUID(payload["regra_origem_id"]),
+        resultado_id=UUID(payload["resultado_id"]),
+        representacao=representacao_do_exemplo(),
+    )
+
+
+async def test_producer_publica_a_sugestao_no_payload_oficial() -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+
+    await Producers(canal).sugestao_adaptacao_proposta(sugestao_do_exemplo())
+
+    args = canal.default_exchange.publish.call_args
+    assert args.kwargs == {
+        "routing_key": "sugestao-adaptacao-proposta",
+        "mandatory": True,
+    }
+    corpo = simplejson.loads(args.args[0].body, use_decimal=True)
+    oficial("sugestao-adaptacao-proposta").validate(corpo)
+    assert corpo == exemplo("sugestao-adaptacao-proposta")
+
+
+async def test_producer_nao_publica_sugestao_adulterada() -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+    dto = sugestao_do_exemplo()
+    dto.job_id = "invalido"  # type: ignore[assignment]
+
+    with pytest.raises(ProdutorError):
+        await Producers(canal).sugestao_adaptacao_proposta(dto)
 
     canal.default_exchange.publish.assert_not_awaited()
 
@@ -437,13 +492,45 @@ async def test_broker_usa_confirms_prefetch_e_consumers_com_ack_manual(
 
     conexao.channel.assert_awaited_once_with(publisher_confirms=True, on_return_raises=True)
     canal.set_qos.assert_awaited_once_with(prefetch_count=1)
-    assert len(broker.consumidores) == 1
+    assert len(broker.consumidores) == 2
     for fila, _, _ in broker.consumidores:
         assert fila.consume.call_args.kwargs == {"no_ack": False}
     await broker.fechar()
     for fila, tag, _ in broker.consumidores:
         fila.cancel.assert_awaited_once_with(tag)
     conexao.close.assert_awaited_once_with()
+
+
+async def test_broker_consome_regra_submetida_e_o_resultado_do_worker(
+    monkeypatch: pytest.MonkeyPatch,
+    configuracoes: Settings,
+) -> None:
+    """A fila do fanout tem nome próprio; o contrato validado continua o do evento."""
+    canal = AsyncMock()
+    canal.declare_queue.side_effect = lambda nome, **kwargs: AsyncMock(name=nome)
+    conexao = MagicMock(channel=AsyncMock(return_value=canal), close=AsyncMock())
+    monkeypatch.setattr(modulo_broker, "connect_robust", AsyncMock(return_value=conexao))
+    broker = await conectar(configuracoes)
+
+    await broker.iniciar_consumers(MagicMock())
+
+    consumidos = {consumer.nome: fila for fila, _, consumer in broker.consumidores}
+    assert set(consumidos) == {"regra-submetida", "simulacao-concluida"}
+    assert consumidos["regra-submetida"] is broker.filas["regra-submetida"]
+    assert consumidos["simulacao-concluida"] is broker.filas[FILA_SIMULACAO]
+    assert "parametros-confirmados" not in consumidos
+
+
+async def test_consumer_reenfileira_quando_o_grafo_ainda_nao_pausou() -> None:
+    """A corrida entre o worker e o checkpoint não pode descartar um resultado real."""
+    roteador = MagicMock(entregar=AsyncMock(side_effect=RetomadaIndisponivelError("job-1")))
+    mensagem = AsyncMock(body=simplejson.dumps(exemplo("simulacao-concluida")).encode())
+
+    await Consumer(SimulacaoConcluida, "simulacao-concluida", roteador).receber(mensagem)
+
+    mensagem.nack.assert_awaited_once_with(requeue=True)
+    mensagem.ack.assert_not_awaited()
+    mensagem.reject.assert_not_awaited()
 
 
 async def test_encerramento_aguarda_processamento_antes_de_fechar_conexao() -> None:

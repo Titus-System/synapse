@@ -30,22 +30,23 @@ class SimulacaoConcluidaService {
 		this.maquina = maquina;
 	}
 
-	/**
-	 * A máquina vem primeiro porque é ela quem trava a linha do job
-	 * (<code>SELECT ... FOR UPDATE</code>), e é essa trava que serializa uma redelivery
-	 * ou um evento fora de ordem contra esta mesma chamada: a segunda entrega encontra o
-	 * job já fora do estado de origem esperado e
-	 * {@link TransicaoDeStatusInvalidaException} desfaz a transação inteira, inclusive a
-	 * amarração abaixo - uma transição só por resultado, sem tabela de deduplicação
-	 * dedicada.
-	 *
-	 * <p>
-	 * O avanço de {@code gerando_regra} a {@code simulando} cobre o resultado que chega
-	 * antes do {@code etapa-alterada} que o anunciaria (as duas filas não têm ordem entre
-	 * si, e uma api de volta de uma queda drena as duas ao mesmo tempo).
-	 */
 	@Transactional
-	DesfechoAplicado aplicar(UUID jobId, UUID resultadoId, DesfechoDaSimulacao desfecho) {
+	@Nullable DesfechoAplicado aplicar(UUID jobId, UUID resultadoId, DesfechoDaSimulacao desfecho) {
+		// A trava também protege o ciclo atual contra resultados de versões anteriores.
+		this.jdbc.queryForList("SELECT id FROM jobs WHERE id = ? FOR UPDATE", jobId);
+		Boolean atual = this.jdbc.queryForObject("""
+				SELECT EXISTS (
+				    SELECT 1 FROM resultados_simulacao rs
+				    JOIN codigos_gerados c ON c.id = rs.codigo_gerado_id AND c.job_id = rs.job_id
+				    JOIN regras r ON r.id = c.regra_id AND r.job_id = rs.job_id
+				    WHERE rs.id = ? AND rs.job_id = ?
+				      AND NOT EXISTS (SELECT 1 FROM regras nova WHERE nova.job_id = r.job_id
+				          AND nova.versao > r.versao)
+				)
+				""", Boolean.class, resultadoId, jobId);
+		if (!Boolean.TRUE.equals(atual)) {
+			return null;
+		}
 		boolean avancouDeGerandoRegra = this.maquina.avancarSeEm(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO,
 				"evento", "simulacao_concluida_antecipada");
 		JobStatus origem = this.maquina.transicionar(jobId, desfecho.destino(), "evento", desfecho.motivoDaTrilha());

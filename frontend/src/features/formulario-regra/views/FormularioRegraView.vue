@@ -5,6 +5,7 @@ import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
 import { apiClient } from '@/services/api'
 import type { JobResumo } from '@/types/api'
+import CampoDeMultiSelecao from '../components/CampoDeMultiSelecao.vue'
 import CampoDeSelecao from '../components/CampoDeSelecao.vue'
 import CampoDeTexto from '../components/CampoDeTexto.vue'
 import { useFormularioRegra } from '../composables/useFormularioRegra'
@@ -15,6 +16,9 @@ const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
 const quantidadeArquivadas = ref(0)
 const quantidadeSalvas = ref(0)
 const {
+  opcoesDeCargo,
+  opcoesDeLoja,
+  opcoesDeMarca,
   opcoesDeVigencia,
   enviando,
   enviarFormulario,
@@ -120,11 +124,11 @@ watch(
         </header>
 
         <form
-          class="mx-auto mt-6 max-w-[33.75rem] overflow-hidden rounded-xl border border-[#e7d6cb] bg-white shadow-[0_18px_45px_-24px_rgba(60,30,15,0.42)]"
+          class="mx-auto mt-6 max-w-[33.75rem] rounded-xl border border-[#e7d6cb] bg-white shadow-[0_18px_45px_-24px_rgba(60,30,15,0.42)]"
           @submit.prevent="submeterFormulario"
         >
           <div
-            class="grid grid-cols-1 gap-1 border-b border-[#eee2da] bg-[#f8f1ec] px-4 py-2.5 text-sm font-medium text-[#3a241a] sm:grid-cols-[minmax(0,1fr)_13.125rem] sm:gap-4 sm:px-5"
+            class="grid grid-cols-1 gap-1 rounded-t-xl border-b border-[#eee2da] bg-[#f8f1ec] px-4 py-2.5 text-sm font-medium text-[#3a241a] sm:grid-cols-[minmax(0,1fr)_13.125rem] sm:gap-4 sm:px-5"
           >
             <span>Parâmetro</span>
             <span>Valor</span>
@@ -155,36 +159,39 @@ watch(
             </div>
             <div class="grid grid-cols-1 gap-1 px-4 py-1.5 transition hover:bg-[#fdf9f6] sm:grid-cols-[minmax(0,1fr)_13.125rem] sm:items-center sm:gap-4 sm:px-5">
               <span class="text-sm">Loja</span>
-              <CampoDeTexto
+              <CampoDeMultiSelecao
                 id="loja"
-                v-model:valor="formulario.loja"
+                v-model:valores="formulario.loja"
                 rotulo="Loja"
-                ajuda="Informe os códigos das lojas separados por vírgula."
-                placeholder="Ex.: 13, 21"
+                ajuda="Selecione uma ou mais lojas."
+                resumo-plural="lojas selecionadas"
+                :opcoes="opcoesDeLoja"
                 :erro="erros.loja"
                 compacto
               />
             </div>
             <div class="grid grid-cols-1 gap-1 px-4 py-1.5 transition hover:bg-[#fdf9f6] sm:grid-cols-[minmax(0,1fr)_13.125rem] sm:items-center sm:gap-4 sm:px-5">
               <span class="text-sm">Marca</span>
-              <CampoDeTexto
+              <CampoDeMultiSelecao
                 id="marca"
-                v-model:valor="formulario.marca"
+                v-model:valores="formulario.marca"
                 rotulo="Marca"
-                ajuda="Informe os códigos das marcas separados por vírgula."
-                placeholder="Ex.: 10, 20"
+                ajuda="Selecione uma ou mais marcas."
+                resumo-plural="marcas selecionadas"
+                :opcoes="opcoesDeMarca"
                 :erro="erros.marca"
                 compacto
               />
             </div>
             <div class="grid grid-cols-1 gap-1 px-4 py-1.5 transition hover:bg-[#fdf9f6] sm:grid-cols-[minmax(0,1fr)_13.125rem] sm:items-center sm:gap-4 sm:px-5">
               <span class="text-sm">Cargo</span>
-              <CampoDeTexto
+              <CampoDeMultiSelecao
                 id="cargo"
-                v-model:valor="formulario.cargo"
+                v-model:valores="formulario.cargo"
                 rotulo="Cargo"
-                ajuda="Informe os códigos dos cargos separados por vírgula."
-                placeholder="Ex.: 100, 300"
+                ajuda="Selecione um ou mais cargos."
+                resumo-plural="cargos selecionados"
+                :opcoes="opcoesDeCargo"
                 :erro="erros.cargo"
                 compacto
               />
@@ -217,7 +224,7 @@ watch(
             </div>
           </div>
 
-          <div class="border-t border-[#eee2da] bg-[#fbf5f1] px-4 py-4 sm:px-5">
+          <div class="rounded-b-xl border-t border-[#eee2da] bg-[#fbf5f1] px-4 py-4 sm:px-5">
             <p v-if="mensagemDoFormulario" class="mb-3 text-sm text-[#6b564a]" role="status">
               {{ mensagemDoFormulario }}
             </p>

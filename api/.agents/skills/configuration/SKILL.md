@@ -80,6 +80,16 @@ Em produção o runtime sobrepõe qualquer arquivo; na máquina do desenvolvedor
 
 **O `.env` local vaza para os testes.** `mvnw test` carrega o `.env` do desenvolvedor no contexto dos testes. Hoje passa porque nenhum teste afirma nada sobre esses valores. O `.env.test` existe mas ainda não está ligado a nada.
 
+## Contextos de teste sem broker
+
+`src/test/resources/spring.properties` configura `spring.test.context.cache.pause=never`.
+A retomada de um contexto pausado chama `start()` no registro dos listeners Rabbit mesmo
+quando `spring.rabbitmq.listener.simple.auto-startup=false`. Os testes com perfil `test`
+não têm broker nem declaração de filas; mantê-los ativos no cache preserva essa condição.
+Essa chave é lida por `SpringProperties`, não pelo `Environment` do Boot, e por isso não
+pertence a `application-test.properties`. Os testes de consumidores continuam usando seus
+brokers reais.
+
 ## Referências
 
 - Entrada e mapeamento: [`application.yaml`](../../../src/main/resources/application.yaml)

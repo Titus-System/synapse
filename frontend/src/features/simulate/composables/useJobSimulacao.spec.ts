@@ -4,8 +4,7 @@ import { apiClient } from '@/services/api'
 import type { Job } from '@/types/api'
 import {
   jobFixture,
-  jobCriadoFixture,
-  regraFixture,
+  jobComSugestaoFixture,
   respostaPendente,
 } from '@/services/job.fixtures'
 import { HttpError } from '@/services/http'
@@ -116,28 +115,38 @@ describe('useJobSimulacao', () => {
     expect(simulacao.erroCodigo.value).toBe('job_nao_encontrado')
     expect(simulacao.erroEspecifico.value).toBe(true)
   })
-  it('aceita a sugestão mais recente e aguarda uma nova simulação', async () => {
-    const sugestao = regraFixture(3, 'sugestao_adaptacao')
-    consultarJob.mockResolvedValueOnce(
-      jobFixture({ status: 'simulacao_inviavel', regras: [sugestao, regraFixture(1)] }),
-    )
-    const confirmado = jobCriadoFixture({
-      status: 'gerando_regra',
-      regra: { ...sugestao, origem: 'confirmacao_usuario' },
-    })
-    vi.mocked(apiClient.confirmarParametros).mockResolvedValue(confirmado)
-    consultarJob.mockResolvedValueOnce(
-      jobFixture({ status: 'gerando_regra', regras: [confirmado.regra] }),
-    )
-    const simulacao = useJobSimulacao('job-1')
-    await simulacao.iniciar()
-    expect(simulacao.regra.value?.versao).toBe(3)
-    expect(await simulacao.aceitarSugestao()).toBe(true)
-    expect(apiClient.confirmarParametros).toHaveBeenCalledWith('job-1', {
-      regra: sugestao.representacao,
-    })
-    expect(simulacao.simulacao.value).toBeNull()
-    expect(simulacao.resultadoDisponivel.value).toBe(false)
+  it('separa a regra original da sugestão e permite finalizar a alternativa já simulada', async () => {
+    const job = jobComSugestaoFixture()
+    consultarJob.mockResolvedValue(job)
+    const tela = useJobSimulacao('job-1')
+    await tela.iniciar()
+    expect(tela.regra.value?.versao).toBe(1)
+    expect(tela.sugestao.value?.versao).toBe(2)
+    expect(tela.simulacao.value?.resultado?.totais?.simulado).toBe(492100)
+    expect(tela.simulacaoSugestao.value?.resultado?.totais?.simulado).toBe(484226.4)
+    expect(tela.podeAceitarSugestao.value).toBe(true)
+    expect(apiClient.confirmarParametros).not.toHaveBeenCalled()
+  })
+
+  it('mantém o resultado original durante a simulação da sugestão', async () => {
+    const job = jobComSugestaoFixture({ status: 'simulando', simulacao: null })
+    job.simulacoes = job.simulacoes!.slice(0, 1)
+    consultarJob.mockResolvedValue(job)
+    const tela = useJobSimulacao('job-1')
+    await tela.iniciar()
+    expect(tela.simulacao.value?.veredito).toBe('inviavel')
+    expect(tela.simulacaoSugestao.value).toBeNull()
+    expect(tela.podeAceitarSugestao.value).toBe(false)
+  })
+
+  it('não atribui um resultado antigo sem regra_id à sugestão', async () => {
+    const job = jobComSugestaoFixture({ simulacoes: undefined })
+    delete job.simulacao!.regra_id
+    consultarJob.mockResolvedValue(job)
+    const tela = useJobSimulacao('job-1')
+    await tela.iniciar()
+    expect(tela.simulacaoSugestao.value).toBeNull()
+    expect(tela.podeAceitarSugestao.value).toBe(false)
   })
 
   it('aguarda a persistência do cancelamento e impede chamadas duplicadas', async () => {
@@ -155,17 +164,12 @@ describe('useJobSimulacao', () => {
     expect(simulacao.status.value).toBe('cancelado')
   })
 
-  it.each([409, 422, 503])('não aceita sugestão quando a API responde %i', async (statusErro) => {
-    consultarJob.mockResolvedValue(
-      jobFixture({ status: 'simulacao_inviavel', regras: [regraFixture(2, 'sugestao_adaptacao')] }),
-    )
-    vi.mocked(apiClient.confirmarParametros).mockRejectedValue(
-      new HttpError(statusErro, 'Não foi possível confirmar.'),
-    )
-    const simulacao = useJobSimulacao('job-1')
-    await simulacao.iniciar()
-    expect(await simulacao.aceitarSugestao()).toBe(false)
-    expect(simulacao.erroStatus.value).toBe(statusErro)
-    expect(simulacao.acaoProcessando.value).toBe(false)
+  it.each(['inviavel', 'indeterminado'] as const)('não aceita alternativa com veredito %s', async (veredito) => {
+    const job = jobComSugestaoFixture()
+    job.simulacoes![1]!.veredito = veredito
+    consultarJob.mockResolvedValue(job)
+    const tela = useJobSimulacao('job-1')
+    await tela.iniciar()
+    expect(tela.podeAceitarSugestao.value).toBe(false)
   })
 })

@@ -6,11 +6,12 @@ from app.contratos.mensagens import (
     EtapaAlterada,
     ExecutarCodigo,
     NoConcluido,
+    SugestaoAdaptacaoProposta,
 )
 from app.contratos.serializacao import serializar
 from app.contratos.validacao import validar
 
-type Saida = ExecutarCodigo | EtapaAlterada | NoConcluido
+type Saida = ExecutarCodigo | EtapaAlterada | NoConcluido | SugestaoAdaptacaoProposta
 
 
 class ProdutorError(Exception):
@@ -49,3 +50,6 @@ class Producers:
 
     async def no_concluido(self, dto: NoConcluido) -> None:
         await self._publicar(dto, "no-concluido")
+
+    async def sugestao_adaptacao_proposta(self, dto: SugestaoAdaptacaoProposta) -> None:
+        await self._publicar(dto, "sugestao-adaptacao-proposta")
