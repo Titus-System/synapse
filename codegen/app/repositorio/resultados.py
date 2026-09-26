@@ -15,6 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.falhas import FalhaDoJobError
 
 
+class ResultadoDesconhecidoError(Exception):
+    """O resultado não existe para este job, ou não aponta para uma versão de regra.
+
+    Não é falha do job: um resultado que este serviço não reconhece não diz nada sobre o
+    job que o grafo conhece. Quem chama decide se rejeita a mensagem ou a reentrega.
+    """
+
+
 class ResultadoIndisponivelError(FalhaDoJobError):
     """O resultado referenciado não existe para este job, ou não tem totais utilizáveis.
 
@@ -75,3 +83,27 @@ async def buscar_totais(
     if simulado is None or orcamento is None:
         raise ResultadoIndisponivelError("Simulation result is missing simulado/orcamento")
     return TotaisDaSimulacao(simulado, orcamento)
+
+
+async def buscar_regra_do_resultado(
+    sessoes: async_sessionmaker[AsyncSession], job_id: UUID, resultado_id: UUID
+) -> UUID:
+    """Descobre qual versão de regra produziu `resultado_id`.
+
+    `simulacao-concluida` não carrega a versão, e um job com mais de um ciclo tem mais de
+    uma: o vínculo vem do código gerado que foi executado, que é de quem o resultado é.
+    Raises `ResultadoDesconhecidoError` quando não há esse caminho para o job.
+    """
+    consulta = text(
+        "SELECT c.regra_id FROM resultados_simulacao r"
+        " JOIN codigos_gerados c ON c.id = r.codigo_gerado_id"
+        " WHERE r.id = :resultado_id AND r.job_id = :job_id"
+    )
+    parametros = {"resultado_id": str(resultado_id), "job_id": str(job_id)}
+    async with sessoes() as sessao:
+        resultado = await sessao.execute(consulta, parametros)
+        linha = resultado.mappings().one_or_none()
+
+    if linha is None or linha["regra_id"] is None:
+        raise ResultadoDesconhecidoError("No rule version behind this simulation result")
+    return UUID(str(linha["regra_id"]))

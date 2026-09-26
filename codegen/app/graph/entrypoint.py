@@ -39,11 +39,11 @@ class ResumeOutcome(StrEnum):
 
 
 def _config(
-    job_id: str, *, sessoes: async_sessionmaker[AsyncSession], producers: Producers
+    thread_id: str, *, sessoes: async_sessionmaker[AsyncSession], producers: Producers
 ) -> RunnableConfig:
     return {
         "configurable": {
-            "thread_id": job_id,
+            "thread_id": thread_id,
             "sessoes": sessoes,
             "producers": producers,
         }
@@ -63,23 +63,25 @@ async def _consumir(
 
 
 async def run(
-    job_id: str,
+    thread_id: str,
     initial_state: AgentState,
     *,
     sessoes: async_sessionmaker[AsyncSession],
     producers: Producers,
 ) -> AsyncIterator[tuple[str, Any]]:
-    """Run the graph for `job_id`, yielding `(node_name, update)` as each node finishes.
+    """Run the graph on `thread_id`, yielding `(node_name, update)` as each node finishes.
 
-    `job_id` is used as the LangGraph `thread_id`: if a checkpoint already exists under it,
-    the graph resumes from that point and `initial_state` is ignored; otherwise the graph
-    starts fresh from it. When the run pauses, the last item is `("__interrupt__", ...)`
-    carrying the `interrupt()` value, and the iteration ends.
+    `thread_id` identifies the cycle, not the job: a job that adapts its rule runs the
+    pipeline once per rule version, and each run needs a checkpoint of its own (see
+    `app/mensageria/roteamento.py::thread_do_ciclo`). If a checkpoint already exists under
+    it, the graph resumes from that point and `initial_state` is ignored; otherwise the
+    graph starts fresh from it. When the run pauses, the last item is
+    `("__interrupt__", ...)` carrying the `interrupt()` value, and the iteration ends.
 
     `sessoes` and `producers` reach every node through `config["configurable"]`, as agreed
     across T-094/T-096/T-097 - see `.agents/skills/graph/SKILL.md`.
     """
-    config = _config(job_id, sessoes=sessoes, producers=producers)
+    config = _config(thread_id, sessoes=sessoes, producers=producers)
 
     async with get_checkpointer() as checkpointer:
         graph = build_graph(checkpointer)
@@ -93,20 +95,20 @@ async def run(
 
 
 async def resume_to_completion(
-    job_id: str,
+    thread_id: str,
     valor: dict[str, Any],
     *,
     sessoes: async_sessionmaker[AsyncSession],
     producers: Producers,
 ) -> ResumeOutcome:
-    """Hand `valor` to the pending `interrupt()` of `job_id` and drive the rest of the run.
+    """Hand `valor` to the pending `interrupt()` of `thread_id` and drive the rest of the run.
 
     `valor` carries references and control fields only; the simulation's numbers stay in the
     database (ADR-001). The checkpoint is inspected before resuming because the worker can
     publish its result before the paused checkpoint is written - see
     `docs/retomada-apos-execucao.md`.
     """
-    config = _config(job_id, sessoes=sessoes, producers=producers)
+    config = _config(thread_id, sessoes=sessoes, producers=producers)
 
     async with get_checkpointer() as checkpointer:
         graph = build_graph(checkpointer)
@@ -124,7 +126,7 @@ async def resume_to_completion(
 
 
 async def run_to_completion(
-    job_id: str,
+    thread_id: str,
     initial_state: AgentState,
     *,
     sessoes: async_sessionmaker[AsyncSession],
@@ -135,5 +137,5 @@ async def run_to_completion(
     Meant to be called from the message-router boundary, never directly from a message
     handler.
     """
-    async for _ in run(job_id, initial_state, sessoes=sessoes, producers=producers):
+    async for _ in run(thread_id, initial_state, sessoes=sessoes, producers=producers):
         pass

@@ -14,6 +14,7 @@ from app.falhas import FalhaDoJobError
 from app.graph.core.state import AgentState
 from app.graph.entrypoint import ResumeOutcome, resume_to_completion, run_to_completion
 from app.mensageria.producers import Producers
+from app.repositorio.resultados import ResultadoDesconhecidoError, buscar_regra_do_resultado
 
 type Entrada = RegraSubmetida | ParametrosConfirmados | SimulacaoConcluida
 
@@ -59,19 +60,22 @@ class GraphRouter:
     async def entregar(self, job_id: UUID, mensagem: Entrada) -> None:
         if self.sessoes is None or self.producers is None:
             raise RuntimeError("GraphRouter is not fully wired yet")
+
         if isinstance(mensagem, ParametrosConfirmados):
+            # Falta o que o ciclo novo precisa e o evento não carrega: `competencias` e
+            # `orcamento` estão em `jobs`, tabela em que o codegen não tem permissão.
             raise NotImplementedError("GraphRouter does not handle parametros-confirmados yet")
 
         try:
-            if isinstance(mensagem, RegraSubmetida):
+            if isinstance(mensagem, SimulacaoConcluida):
+                await self._retomar(job_id, mensagem, self.sessoes, self.producers)
+            else:
                 await run_to_completion(
-                    str(job_id),
+                    thread_do_ciclo(job_id, mensagem.regra_id),
                     _estado_inicial(mensagem),
                     sessoes=self.sessoes,
                     producers=self.producers,
                 )
-            else:
-                await self._retomar(job_id, mensagem, self.sessoes, self.producers)
         except FalhaDoJobError as falha:
             # Esta é a fronteira que sabe que o job acabou: sem este aviso, a `api` deixaria
             # o job em `gerando_regra` para sempre. Uma falha ao publicar não é tratada de
@@ -89,9 +93,14 @@ class GraphRouter:
         sessoes: async_sessionmaker[AsyncSession],
         producers: Producers,
     ) -> None:
-        """Entrega o resultado do worker ao `interrupt()` pendente do job."""
+        """Entrega o resultado do worker ao `interrupt()` pendente do ciclo que o pediu."""
+        try:
+            regra_id = await buscar_regra_do_resultado(sessoes, job_id, mensagem.resultado_id)
+        except ResultadoDesconhecidoError as erro:
+            raise JobDesconhecidoError(str(job_id)) from erro
+
         desfecho = await resume_to_completion(
-            str(job_id),
+            thread_do_ciclo(job_id, regra_id),
             _valor_da_retomada(mensagem),
             sessoes=sessoes,
             producers=producers,
@@ -102,6 +111,17 @@ class GraphRouter:
             raise RetomadaIndisponivelError(str(job_id))
         # RESUMED e ALREADY_FINISHED terminam igual: a reentrega de um resultado já consumido
         # não retoma nada de novo, e confirmar a mensagem é o que tira a duplicata da fila.
+
+
+def thread_do_ciclo(job_id: UUID, regra_id: UUID | None) -> str:
+    """Identifica o ciclo do grafo, que é por versão de regra e não por job.
+
+    Um job que adapta a regra roda o pipeline de novo para a versão nova, e a thread do
+    ciclo anterior já terminou: reaproveitá-la faria o LangGraph continuar de um
+    checkpoint concluído em vez de começar o ciclo novo. Sem versão de regra ainda não há
+    ciclo próprio, e o job responde por ele.
+    """
+    return f"{job_id}:{regra_id}" if regra_id is not None else str(job_id)
 
 
 def _valor_da_retomada(mensagem: SimulacaoConcluida) -> dict[str, str | None]:
