@@ -1,0 +1,29 @@
+[
+  {
+    "ref": "elem.1",
+    "construto": "faixa_valor",
+    "limite_inferior": 40000,
+    "limite_superior": 50000,
+    "efeito": {
+      "tipo": "bonus_fixo",
+      "valor": 3500
+    }
+  },
+  {
+    "ref": "elem.2",
+    "construto": "condicao_limiar",
+    "metrica": "venda_total",
+    "escopo_agregacao": "loja",
+    "operador": ">=",
+    "limiar": 50000
+  },
+  {
+    "ref": "elem.3",
+    "construto": "bonus_fixo",
+    "alvo": {
+      "tipo": "lista",
+      "valor": ["MATRIC-422", "MATRIC-517"]
+    },
+    "valor": 500
+  }
+]

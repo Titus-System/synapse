@@ -1,0 +1,12 @@
+# Install once: poetry run pre-commit install
+repos:
+  - repo: local
+    hooks:
+      # Delegates to the Makefile so the gate and `make pre-commit` cannot drift apart.
+      - id: make-pre-commit
+        name: ruff + mypy + pytest
+        entry: make pre-commit
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]

@@ -1,0 +1,10 @@
+{
+  "nucleo": {
+    "vigencia": { "inicio": "2025-11", "fim": "2025-11" },
+    "loja": ["13"],
+    "marca": ["10", "20"],
+    "cargo": ["100", "300"],
+    "percentual": 0.025
+  },
+  "especificacoes": []
+}

@@ -1,0 +1,17 @@
+[
+  {
+    "nome": "sem_comissao_negativa",
+    "resultado": "ok",
+    "detalhe": null
+  },
+  {
+    "nome": "sem_comissao_sem_venda",
+    "resultado": "ok",
+    "detalhe": null
+  },
+  {
+    "nome": "soma_loja_igual_soma_matricula",
+    "resultado": "ok",
+    "detalhe": null
+  }
+]

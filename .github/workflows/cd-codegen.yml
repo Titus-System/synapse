@@ -1,0 +1,50 @@
+name: cd-codegen
+
+on:
+  push:
+    # CD de staging: dispara só em push para 'staging'.
+    # NÃO roda para 'develop' - essa branch passa apenas pela CI de verificação.
+    branches:
+      - staging
+    paths:
+      - 'codegen/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Grupo compartilhado com os outros cd-*.yml: os quatro componentes rodam
+  # no mesmo droplet e fazem checkout no mesmo diretório - dois deploys
+  # concorrentes (de componentes diferentes) corromperiam o `git reset --hard`
+  # compartilhado. Serializa qualquer deploy de staging, não só o do codegen.
+  group: cd-staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Implantar codegen em staging
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.STAGING_DEPLOY_PATH }}
+            git fetch origin staging
+            git reset --hard origin/staging
+
+            # Persiste a tag no .env do servidor, para que um `docker compose up`
+            # manual futuro não regrida para a imagem :local.
+            if grep -q '^TAG=' deploy/.env; then
+              sed -i "s/^TAG=.*/TAG=${{ github.sha }}/" deploy/.env
+            else
+              echo "TAG=${{ github.sha }}" >> deploy/.env
+            fi
+
+            docker compose -f deploy/docker-compose.yml --env-file deploy/.env build codegen
+            docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d codegen

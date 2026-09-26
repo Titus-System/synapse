@@ -1,0 +1,146 @@
+# =========================
+# Python base
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Extensions compiladas
+*.so
+
+# =========================
+# Distribuição / build
+# =========================
+.Python
+build/
+dist/
+develop-eggs/
+eggs/
+.eggs/
+lib/
+lib64/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/*.json
+
+# =========================
+# Testes / coverage
+# =========================
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+pytest_cache/
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+cover/
+
+# =========================
+# Ambientes virtuais
+# =========================
+venv/
+.venv/
+env/
+ENV/
+
+# =========================
+# Variáveis de ambiente
+# =========================
+.env
+.envrc
+
+# =========================
+# Banco local (IMPORTANTE p/ FastAPI)
+# =========================
+db.sqlite3
+db.sqlite3-journal
+
+# =========================
+# Alembic / migrations (ajuste importante)
+# =========================
+# ⚠️ NÃO ignore "alembic/" se você versiona migrations
+# apenas ignore caches temporários se existirem
+
+# =========================
+# Ferramentas de qualidade
+# =========================
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# =========================
+# Jupyter / IPython
+# =========================
+.ipynb_checkpoints
+profile_default/
+ipython_config.py
+
+# =========================
+# IDEs
+# =========================
+.vscode/
+.idea/
+.spyderproject
+.spyproject
+.ropeproject
+
+# =========================
+# Docker / runtime
+# =========================
+*.pid
+
+# =========================
+# Celery / filas (se usar futuramente)
+# =========================
+celerybeat-schedule
+celerybeat.pid
+
+# =========================
+# Frameworks específicos
+# =========================
+instance/            # Flask
+.webassets-cache/    # Flask
+
+.scrapy/
+.pybuilder/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Marimo
+marimo/_static/
+marimo/_lsp/
+__marimo__/
+
+# Pixi / PDM / Poetry / UV (ajuste comum)
+.pdm-python
+.pdm-build/
+.pixi/
+
+# =========================
+# Segurança / configs locais
+# =========================
+.pypirc
+
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json

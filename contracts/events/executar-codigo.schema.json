@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/events/executar-codigo.schema.json",
+  "title": "executar-codigo",
+  "description": "Comando enviado pelo codegen ao Worker para executar o código gerado em container efêmero isolado. É comando, e não evento, porque o codegen pausa o grafo aguardando o resultado. O dataset não viaja: está embutido na imagem do sandbox.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "codigo_gerado_id",
+    "competencias",
+    "orcamento"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job ao qual a execução pertence. Chave de correlação; o Worker não tem permissão em jobs."
+    },
+    "codigo_gerado_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Linha de codigos_gerados que contém o código Python a executar. O código viaja por referência, nunca no corpo da mensagem."
+    },
+    "competencias": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "../domain/comum.schema.json#/$defs/competencia"
+      },
+      "description": "Competências que o sandbox deve processar, vindas de jobs.competencias. São processadas numa execução só, e os totais apurados são do período inteiro; a contribuição de cada mês sai na quebra por competência da decomposição.",
+      "examples": [
+        [
+          "2025-08",
+          "2025-11"
+        ]
+      ]
+    },
+    "orcamento": {
+      "allOf": [
+        {
+          "$ref": "../domain/comum.schema.json#/$defs/brl"
+        }
+      ],
+      "minimum": 0,
+      "description": "Critério de orçamento do período, vindo de jobs.orcamento. Viaja como escalar porque o Worker não tem permissão em jobs, e é gravado junto do resultado para que o insumo do veredito não possa mudar depois."
+    }
+  },
+  "examples": [
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "codigo_gerado_id": "5d4c3b2a-1f0e-4d9c-8b7a-6e5d4c3b2a19",
+      "competencias": [
+        "2025-08",
+        "2025-11"
+      ],
+      "orcamento": 485000.0
+    }
+  ]
+}

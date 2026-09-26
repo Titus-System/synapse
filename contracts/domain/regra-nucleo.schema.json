@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/regra-nucleo.schema.json",
+  "title": "Núcleo da regra",
+  "description": "Coluna regras.nucleo. Os campos que toda regra de comissionamento tem, no vocabulário canônico da DEC-084, já depois da confirmação do usuário. Matrícula não é campo do núcleo: ela identifica pessoa, e uma lista de pessoas congelada numa regra imutável estaria desatualizada na competência seguinte. Para mirar indivíduos, use o alvo do construto bonus_fixo em regra-especificacoes.",
+  "type": "object",
+  "required": [],
+  "properties": {
+    "vigencia": {
+      "$ref": "comum.schema.json#/$defs/vigencia",
+      "description": "Período em que a regra proposta vale. Ausente significa que ela vale para todas as competências do job. Competência do job fora da vigência é simulada pelas regras do baseline, entrando no total sem o efeito da regra."
+    },
+    "loja": {
+      "type": "array",
+      "items": { "$ref": "comum.schema.json#/$defs/codigo" },
+      "description": "Cod_Loja. Filtro de escopo: a regra só se aplica a estas lojas. Ausente ou vazio significa todas. Corresponde ao termo canal do backlog (DEC-084).",
+      "examples": [["13"]]
+    },
+    "marca": {
+      "type": "array",
+      "items": { "$ref": "comum.schema.json#/$defs/codigo" },
+      "description": "Cod_Marca. Filtro de escopo. Ausente ou vazio significa todas. Corresponde ao termo produto do backlog; não há granularidade de item ou SKU (DEC-084).",
+      "examples": [["10", "20"]]
+    },
+    "cargo": {
+      "type": "array",
+      "items": { "$ref": "comum.schema.json#/$defs/codigo" },
+      "description": "Cod_Cargo. Filtro de escopo. Ausente ou vazio significa todos. Corresponde ao termo equipe ou funções do backlog (DEC-084).",
+      "examples": [["100", "300"]]
+    },
+    "percentual": {
+      "$ref": "comum.schema.json#/$defs/fracao",
+      "description": "%_Comiss proposto, em fração. 0.025 são 2,5%."
+    }
+  },
+  "examples": [
+    {
+      "vigencia": { "inicio": "2025-11", "fim": "2025-11" },
+      "loja": ["13"],
+      "marca": ["10", "20"],
+      "cargo": ["100", "300"],
+      "percentual": 0.025
+    }
+  ]
+}

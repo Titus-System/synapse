@@ -1,0 +1,37 @@
+name: synapse-observability
+
+services:
+  alloy:
+    # Confira a versão estável mais recente antes de subir em produção -
+    # evite 'latest' quando a versão pinada aqui estiver definida.
+    image: grafana/alloy:v1.5.1
+    container_name: synapse-alloy
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      # Leitura do stdout dos containers via discovery.docker - somente leitura.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+    ports:
+      # UI/API de debug do Alloy - não exponha publicamente sem necessidade.
+      - '127.0.0.1:12345:12345'
+    networks:
+      - synapse-net
+
+networks:
+  synapse-net:
+    # Rede já criada pelo deploy/docker-compose.yml da aplicação.
+    # Suba a aplicação primeiro; esta rede precisa existir antes deste compose.
+    external: true
+    name: synapse-net
+
+volumes:
+  alloy-data:
+    name: synapse-alloy-data

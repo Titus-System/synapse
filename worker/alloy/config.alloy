@@ -1,0 +1,99 @@
+// Collector for this compose project: container stdout to Loki, /metrics to
+// Prometheus, OTLP traces to Tempo. The backends themselves run elsewhere.
+
+discovery.docker "containers" {
+	host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "containers" {
+	targets = discovery.docker.containers.targets
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_log_stream"]
+		target_label  = "stream"
+	}
+}
+
+loki.source.docker "containers" {
+	host       = "unix:///var/run/docker.sock"
+	targets    = discovery.relabel.containers.output
+	forward_to = [loki.process.envelope.receiver]
+}
+
+loki.process "envelope" {
+	// Only bounded fields of the envelope become labels. job_id, user_id and
+	// trace_id stay in the line and are queried with `| json`; as labels they
+	// would create a stream per value, the same cardinality trap as Prometheus.
+	stage.json {
+		expressions = {
+			level       = "level",
+			service     = "service",
+			environment = "environment",
+		}
+	}
+
+	stage.labels {
+		values = {
+			level       = "",
+			service     = "",
+			environment = "",
+		}
+	}
+
+	forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+	endpoint {
+		url = sys.env("LOKI_URL")
+	}
+}
+
+prometheus.scrape "app" {
+	targets = [{
+		__address__ = "app:8000",
+		service     = "agents",
+	}]
+
+	metrics_path    = "/metrics"
+	scrape_interval = "15s"
+	forward_to      = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+	endpoint {
+		url = sys.env("PROMETHEUS_URL")
+	}
+}
+
+// The app exports OTLP to alloy:4318 once tracing is instrumented; until then
+// this receiver simply sits idle.
+otelcol.receiver.otlp "default" {
+	grpc {
+		endpoint = "0.0.0.0:4317"
+	}
+
+	http {
+		endpoint = "0.0.0.0:4318"
+	}
+
+	output {
+		traces = [otelcol.exporter.otlp.tempo.input]
+	}
+}
+
+otelcol.exporter.otlp "tempo" {
+	client {
+		endpoint = sys.env("TEMPO_URL")
+
+		tls {
+			insecure = true
+		}
+	}
+}

@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/observability/log.schema.json",
+  "title": "Log estruturado do Synapse",
+  "description": "Envelope comum de log JSON para todos os serviços do Synapse. Um objeto é emitido por linha.",
+  "type": "object",
+  "required": [
+    "timestamp",
+    "level",
+    "message",
+    "service.name"
+  ],
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Data e hora do evento em UTC, no formato ISO 8601.",
+      "examples": ["2026-09-08T14:30:00.123Z"]
+    },
+    "level": {
+      "type": "string",
+      "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+      "description": "Nível de severidade conforme o vocabulário SeverityText do OpenTelemetry. WARN e FATAL são as grafias canônicas.",
+      "examples": ["INFO"]
+    },
+    "message": {
+      "type": "string",
+      "description": "Mensagem legível por pessoas, sem conteúdo de artefatos.",
+      "examples": ["Simulacao enviada para execucao"]
+    },
+    "service.name": {
+      "type": "string",
+      "enum": [
+        "synapse-frontend",
+        "synapse-api",
+        "synapse-codegen",
+        "synapse-worker"
+      ],
+      "description": "Atributo de recurso service.name do OpenTelemetry.",
+      "examples": ["synapse-api"]
+    },
+    "job_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identificador de correlação. Obrigatório em todo log emitido durante o processamento de um job; fica ausente em logs de inicialização e em outros logs que não pertencem a um job.",
+      "examples": ["3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"]
+    },
+    "no": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identificador do nó do LangGraph. Somente o codegen emite este campo.",
+      "examples": ["gerar_codigo"]
+    },
+    "competencia": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Competência histórica em processamento, usando a representação canônica do domínio.",
+      "examples": ["2025-11"]
+    },
+    "trace_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$",
+      "description": "Identificador de trace W3C/OpenTelemetry, serializado como 32 caracteres hexadecimais minúsculos.",
+      "examples": ["4bf92f3577b34da6a3ce929d0e0e4736"]
+    },
+    "span_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$",
+      "description": "Identificador de span W3C/OpenTelemetry, serializado como 16 caracteres hexadecimais minúsculos.",
+      "examples": ["00f067aa0ba902b7"]
+    },
+    "environment": {
+      "type": "string",
+      "minLength": 1
+    },
+    "service.version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Atributo de recurso service.version do OpenTelemetry.",
+      "examples": ["0.1.0"]
+    },
+    "host.name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Atributo de recurso host.name do OpenTelemetry.",
+      "examples": ["worker-01"]
+    },
+    "logger": {
+      "type": "string",
+      "minLength": 1
+    },
+    "code": {
+      "type": "object",
+      "description": "Metadados opcionais de localização da origem; nunca deve conter o código gerado da regra."
+    },
+    "exception": {
+      "type": "string",
+      "description": "Rastreamento da pilha ou resumo da exceção, sem prompts, código gerado ou linhas do dataset."
+    },
+    "extra": {
+      "type": "object",
+      "description": "Somente contexto operacional escalar adicional. Não deve conter artefatos."
+    }
+  },
+  "not": {
+    "anyOf": [
+      { "required": ["prompt"] },
+      { "required": ["response"] },
+      { "required": ["generated_code"] },
+      { "required": ["dataset"] },
+      { "required": ["artifact"] },
+      { "required": ["linhas"] }
+    ]
+  },
+  "additionalProperties": true
+}

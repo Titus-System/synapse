@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+#
+# Hook de pre-commit: despacha a verificacao dos componentes tocados pelo
+# commit, via .githooks/despachar-verificacao.sh (o mesmo script que a CI
+# reutiliza). Contornavel com `git commit --no-verify` e nao se instala
+# sozinho no clone — o portao real e a CI, nao este hook.
+#
+# Instalacao: docs/hooks-de-pre-commit.md
+
+set -eu
+
+diretorio_do_script="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+old_ifs=$IFS
+IFS='
+'
+set --
+for caminho in $(git diff --cached --name-only --diff-filter=ACDMR); do
+	set -- "$@" "$caminho"
+done
+IFS=$old_ifs
+
+if [ "$#" -eq 0 ]; then
+	exit 0
+fi
+
+"$diretorio_do_script/despachar-verificacao.sh" "$@"

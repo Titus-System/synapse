@@ -1,0 +1,9 @@
+# Dependências do exemplo e dos testes do contrato do harness (T-034).
+# O validador (validar-saida.py) usa jsonschema, já declarado em ../requirements.txt.
+#
+# pandas fixado em 2.x (não 3.x): é a API mais representada no material de
+# treino dos modelos de geração de código disponíveis hoje. pandas 3.x muda o
+# dtype textual padrão e liga copy-on-write por padrão - código gerado escrito
+# como se fosse 2.x roda sem erro e produz valor sutilmente diferente. Ver
+# README.md, "Bibliotecas permitidas no sandbox".
+pandas>=2.2,<3.0

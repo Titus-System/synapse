@@ -1,0 +1,90 @@
+// Config do Grafana Alloy para o droplet de staging do Synapse.
+//
+// PONTO DE ATENÇÃO: os blocos loki.write/prometheus.remote_write abaixo são
+// um ponto de partida com os nomes de variável do assistente de onboarding
+// da Grafana Cloud ("Connections" -> "Add new connection" -> "Alloy" ->
+// "Docker"). Gere o snippet oficial pra sua stack/região e confira contra
+// este arquivo antes de subir - URL e IDs variam por conta.
+//
+// O que este arquivo faz, conforme ADR-004:
+//   - lê o stdout dos containers do host (log JSON, contracts/observability/)
+//     e envia pro Loki da Grafana Cloud;
+//   - faz scrape de /metrics de api, codegen e worker (frontend é SPA, não
+//     é alvo) e envia pro Prometheus/Mimir da Grafana Cloud.
+// Nenhum serviço grava arquivo de log local - só stdout e /metrics.
+
+discovery.docker "containers" {
+	host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "containers" {
+	targets = discovery.docker.containers.targets
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/?(.*)"
+		target_label  = "container"
+	}
+}
+
+loki.source.docker "synapse" {
+	host           = "unix:///var/run/docker.sock"
+	targets        = discovery.docker.containers.targets
+	relabel_rules  = discovery.relabel.containers.rules
+	labels         = {environment = "staging", job = "synapse"}
+	forward_to     = [loki.write.grafana_cloud.receiver]
+}
+
+loki.write "grafana_cloud" {
+	endpoint {
+		url = env("GCLOUD_HOSTED_LOGS_URL")
+
+		basic_auth {
+			username = env("GCLOUD_HOSTED_LOGS_ID")
+			password = env("GCLOUD_RW_API_KEY")
+		}
+	}
+}
+
+// Hostnames internos da rede synapse-net (definidos em deploy/docker-compose.yml).
+// Portas e path de /metrics conferidos em api/src/main/resources/application.yaml
+// (management.endpoints.web.path-mapping.prometheus: metrics) e nos routers de
+// métricas do codegen e do worker.
+
+prometheus.scrape "synapse_api" {
+	targets = [{
+		__address__ = "api:8080",
+	}]
+	metrics_path = "/metrics"
+	job_name     = "synapse-api"
+	forward_to   = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+prometheus.scrape "synapse_codegen" {
+	targets = [{
+		__address__ = "codegen:8000",
+	}]
+	metrics_path = "/metrics"
+	job_name     = "synapse-codegen"
+	forward_to   = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+prometheus.scrape "synapse_worker" {
+	targets = [{
+		__address__ = "worker:8000",
+	}]
+	metrics_path = "/metrics"
+	job_name     = "synapse-worker"
+	forward_to   = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+prometheus.remote_write "grafana_cloud" {
+	endpoint {
+		url = env("GCLOUD_HOSTED_METRICS_URL")
+
+		basic_auth {
+			username = env("GCLOUD_HOSTED_METRICS_ID")
+			password = env("GCLOUD_RW_API_KEY")
+		}
+	}
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/modelo-llm.schema.json",
+  "title": "Metadados da chamada ao modelo",
+  "description": "Coluna prompts.modelo. Único registro de qual modelo produziu cada texto. Existe porque uma explicação emitida hoje precisa continuar fazendo sentido quando o provedor tiver trocado o modelo por baixo.",
+  "type": "object",
+  "required": ["provedor", "modelo", "versao"],
+  "properties": {
+    "provedor": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Quem serviu a chamada. Vocabulário aberto: o projeto prevê mais de um provedor.",
+      "examples": ["openai"]
+    },
+    "modelo": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identificador do modelo no provedor.",
+      "examples": ["gpt-4.1"]
+    },
+    "versao": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Versão ou snapshot do modelo, como o provedor a nomeia.",
+      "examples": ["2025-04-14"]
+    },
+    "parametros": {
+      "type": "object",
+      "description": "Parâmetros de geração, livres por provedor. Não são colunas tipadas porque o conjunto varia entre provedores.",
+      "examples": [{ "temperature": 0, "top_p": 1, "seed": 42 }]
+    }
+  },
+  "examples": [
+    {
+      "provedor": "openai",
+      "modelo": "gpt-4.1",
+      "versao": "2025-04-14",
+      "parametros": { "temperature": 0, "top_p": 1, "seed": 42 }
+    }
+  ]
+}

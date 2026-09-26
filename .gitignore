@@ -1,0 +1,10 @@
+.~lock.*
+deploy/.env
+.env
+*.dbdiagram
+__pycache__/
+.digital-ocean
+.claude
+tasks/
+venv/
+.venv/

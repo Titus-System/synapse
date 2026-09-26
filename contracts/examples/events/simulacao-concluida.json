@@ -1,0 +1,10 @@
+{
+  "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+  "resultado_id": "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93",
+  "status": "sucesso",
+  "veredito": "inviavel",
+  "total_baseline": 480312.0,
+  "total_simulado": 492100.0,
+  "diferenca_abs": 11788.0,
+  "diferenca_pct": 0.0245
+}

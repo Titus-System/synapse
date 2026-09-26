@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>4.1.1</version>
+		<relativePath/> <!-- lookup parent from repository -->
+	</parent>
+	<groupId>synapse</groupId>
+	<artifactId>api</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<name/>
+	<description/>
+	<url/>
+	<licenses>
+		<license/>
+	</licenses>
+	<developers>
+		<developer/>
+	</developers>
+	<scm>
+		<connection/>
+		<developerConnection/>
+		<tag/>
+		<url/>
+	</scm>
+	<properties>
+		<java.version>21</java.version>
+		<error-prone.version>2.50.0</error-prone.version>
+		<nullaway.version>0.14.1</nullaway.version>
+		<spring-javaformat.version>0.0.48</spring-javaformat.version>
+		<json-schema-validator.version>1.5.9</json-schema-validator.version>
+	</properties>
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+
+		<!-- Expõe /actuator/prometheus e /actuator/health, raspados pelo Alloy. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-prometheus</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+
+		<!-- Traz micrometer-tracing-bridge-otel + opentelemetry-exporter-otlp:
+		     preenche traceId/spanId no MDC e exporta spans para o Alloy. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-opentelemetry</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-validation</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+		</dependency>
+
+		<!-- Cliente AMQP + autoconfiguração da ConnectionFactory, do health indicator
+		     e das métricas. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-amqp</artifactId>
+		</dependency>
+
+		<!-- Serve o Swagger UI em /docs, apontado para o contrato estático copiado de
+		     contracts/http/openapi.yaml (ver o plugin de recursos abaixo) em vez de
+		     gerar um spec a partir de anotações. -->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+			<version>3.1.1</version>
+		</dependency>
+
+		<dependency>
+			<groupId>org.jspecify</groupId>
+			<artifactId>jspecify</artifactId>
+		</dependency>
+
+		<!-- DataSource + HikariCP. Não data-jpa: nenhuma entidade de negócio; 
+			só o mecanismo de migration precisa de conexão. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-jdbc</artifactId>
+		</dependency>
+
+		<!-- No Boot 4 a autoconfiguração do Liquibase mora neste módulo, fora do
+		     spring-boot-autoconfigure; ele traz o liquibase-core transitivamente.
+		     Com só o liquibase-core, spring.liquibase.* seria ignorado em silêncio e o
+		     changelog nunca rodaria na subida. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-liquibase</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.postgresql</groupId>
+			<artifactId>postgresql</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- Postgres para os testes de migration; o changelog é verificado
+		     contra a mesma imagem que o compose usa, não contra um banco em memória. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-testcontainers</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- Testcontainers 2.x prefixa os módulos com "testcontainers-"; os nomes
+		     curtos de 1.x (postgresql, junit-jupiter) não existem mais. -->
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-postgresql</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- RabbitMQ real para o teste de topologia; a mesma imagem do compose,
+		     não um broker embutido. -->
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-rabbitmq</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-junit-jupiter</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- Valida especificações recebidas e payloads de eventos contra os schemas canônicos,
+		     Jackson 2 (com.fasterxml), sem conflito com o Jackson 3 (tools.jackson)
+		     usado pelo restante da aplicação. -->
+		<dependency>
+			<groupId>com.networknt</groupId>
+			<artifactId>json-schema-validator</artifactId>
+			<version>${json-schema-validator.version}</version>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<plugin>
+				<groupId>io.spring.javaformat</groupId>
+				<artifactId>spring-javaformat-maven-plugin</artifactId>
+				<version>${spring-javaformat.version}</version>
+			</plugin>
+			<!-- copia o contrato HTTP para dentro do jar. 
+				 Mesma estrutura relativa de contracts/, porque
+			     openapi.yaml referencia domain/*.schema.json por caminho relativo. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-resources-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>copy-openapi-contract</id>
+						<phase>process-resources</phase>
+						<goals>
+							<goal>copy-resources</goal>
+						</goals>
+						<configuration>
+							<outputDirectory>${project.build.outputDirectory}/static/openapi</outputDirectory>
+							<resources>
+								<resource>
+									<directory>${project.basedir}/../contracts</directory>
+									<includes>
+										<include>http/openapi.yaml</include>
+										<include>http/synapse-openapi.html</include>
+										<include>domain/*.schema.json</include>
+									</includes>
+								</resource>
+							</resources>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- $id em contracts/domain/*.schema.json é só identificador, nunca endereço
+			     de verdade - contracts/ é insumo de build, nunca dependência de runtime
+			     (ADR-002). Um resolvedor de $ref que trata $id como URI de fetch (caso do
+			     Swagger UI) tentaria buscar https://synapse.local/... de verdade e falharia.
+			     Remove o campo só desta cópia servida; os originais não mudam. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-antrun-plugin</artifactId>
+				<version>3.2.0</version>
+				<executions>
+					<execution>
+						<id>strip-schema-ids-from-served-copy</id>
+						<phase>process-classes</phase>
+						<goals>
+							<goal>run</goal>
+						</goals>
+						<configuration>
+							<target>
+								<replaceregexp byline="false" encoding="UTF-8">
+									<regexp pattern="&quot;\$id&quot;\s*:\s*&quot;[^&quot;]*&quot;,\s*" />
+									<substitution expression="" />
+									<fileset dir="${project.build.outputDirectory}/static/openapi/domain" includes="*.schema.json" />
+								</replaceregexp>
+							</target>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<annotationProcessorPaths>
+						<!-- Gera os metadados de app.*: sem isto a IDE acusa "Unknown property". -->
+						<path>
+							<groupId>org.springframework.boot</groupId>
+							<artifactId>spring-boot-configuration-processor</artifactId>
+							<version>${project.parent.version}</version>
+						</path>
+						<path>
+							<groupId>com.google.errorprone</groupId>
+							<artifactId>error_prone_core</artifactId>
+							<version>${error-prone.version}</version>
+						</path>
+						<path>
+							<groupId>com.uber.nullaway</groupId>
+							<artifactId>nullaway</artifactId>
+							<version>${nullaway.version}</version>
+						</path>
+					</annotationProcessorPaths>
+					<compilerArgs>
+						<arg>-XDcompilePolicy=simple</arg>
+						<arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+						<arg>--should-stop=ifError=FLOW</arg>
+						<!-- Só o nosso código por ora; os pacotes do Spring ficam de fora. -->
+						<arg>-Xplugin:ErrorProne -XepOpt:NullAway:AnnotatedPackages=synapse.api -Xep:NullAway:ERROR</arg>
+					</compilerArgs>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+
+</project>

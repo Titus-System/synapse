@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<configuration>
+	<include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+	<property name="STRUCTURED_FORMAT" value="synapse.api.core.logging.JsonLogFormatter"/>
+
+	<appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+		<encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
+			<format>${STRUCTURED_FORMAT}</format>
+			<charset>UTF-8</charset>
+		</encoder>
+	</appender>
+
+	<root level="INFO">
+		<appender-ref ref="CONSOLE"/>
+	</root>
+</configuration>

@@ -1,0 +1,10 @@
+{
+  "provedor": "openai",
+  "modelo": "gpt-4.1",
+  "versao": "2025-04-14",
+  "parametros": {
+    "temperature": 0,
+    "top_p": 1,
+    "seed": 42
+  }
+}
