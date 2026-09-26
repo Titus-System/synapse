@@ -24,8 +24,11 @@ export const usarStoreJobAtual = defineStore('current-job', () => {
     if (atualizado.id !== idJob.value) return
     consulta += 1
     job.value = atualizado
+    // O motivo da parada pode chegar só pelo evento de estado, e a reconsulta
+    // disparada logo em seguida o apagaria se a resposta do job não o trouxer.
+    motivoParada.value =
+      atualizado.motivo ?? (atualizado.status === statusAtual.value ? motivoParada.value : null)
     statusAtual.value = atualizado.status
-    motivoParada.value = atualizado.motivo ?? null
     carregando.value = false
     erro.value = null
   }

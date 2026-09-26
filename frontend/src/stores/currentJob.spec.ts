@@ -66,6 +66,28 @@ describe('usarStoreJobAtual', () => {
     expect(fechar).toHaveBeenCalledOnce()
   })
 
+  it('mantém o motivo da parada que a reconsulta do mesmo status não devolve', async () => {
+    const store = usarStoreJobAtual()
+    await store.iniciarAcompanhamento('job-1')
+    vi.mocked(apiClient.consultarJob).mockResolvedValue(jobFixture({ status: 'erro' }))
+
+    handlers().onEstado({
+      job_id: 'job-1',
+      status: 'erro',
+      motivo: 'A regra usa um elemento sem implementação correspondente.',
+    })
+    await flushPromises()
+
+    expect(store.statusAtual).toBe('erro')
+    expect(store.motivoParada).toBe('A regra usa um elemento sem implementação correspondente.')
+
+    vi.mocked(apiClient.consultarJob).mockResolvedValue(jobFixture({ status: 'simulando' }))
+    handlers().onEstado({ job_id: 'job-1', status: 'simulando' })
+    await flushPromises()
+
+    expect(store.motivoParada).toBeNull()
+  })
+
   it('não sobrescreve um resultado novo com uma resposta antiga do mesmo job', async () => {
     const antiga = respostaPendente<Job>()
     vi.mocked(apiClient.consultarJob).mockReturnValueOnce(antiga.promise)

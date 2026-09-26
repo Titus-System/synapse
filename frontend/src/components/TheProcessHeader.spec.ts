@@ -26,6 +26,15 @@ describe('TheProcessHeader', () => {
     expect(conteiner.text()).not.toContain('Conversa')
   })
 
+  it('mantém a simulação acesa quando o processamento foi interrompido', () => {
+    const conteiner = mount(TheProcessHeader, {
+      ...opcoesDeMontagem,
+      props: { etapaDaRota: 'simulacao', statusDoJob: 'erro' },
+    })
+
+    expect(conteiner.get('li[aria-current="step"]').text()).toContain('Simulação')
+  })
+
   it('indica o salvamento em toda a tela de finalização, mesmo durante uma transição de status', () => {
     const conteiner = mount(TheProcessHeader, {
       ...opcoesDeMontagem,

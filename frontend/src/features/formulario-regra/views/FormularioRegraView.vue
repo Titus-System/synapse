@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
 import { apiClient } from '@/services/api'
@@ -9,6 +9,7 @@ import CampoDeSelecao from '../components/CampoDeSelecao.vue'
 import CampoDeTexto from '../components/CampoDeTexto.vue'
 import { useFormularioRegra } from '../composables/useFormularioRegra'
 
+const rota = useRoute()
 const roteador = useRouter()
 const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
 const quantidadeArquivadas = ref(0)
@@ -20,7 +21,10 @@ const {
   erros,
   formatarOrcamentoAoSair,
   formulario,
+  limparFormulario,
   mensagemDoFormulario,
+  preenchendo,
+  preencherComRegraDoJob,
 } = useFormularioRegra()
 
 function criarRotuloDaRegra(resumoDoJob: JobResumo): string {
@@ -78,6 +82,21 @@ async function submeterFormulario(): Promise<void> {
 onMounted(() => {
   void carregarRegrasRecentes()
 })
+
+// A tela continua montada ao sair do reprocessamento pelo menu, e um formulário
+// preenchido com a regra anterior não é o que "Nova regra" promete.
+watch(
+  () => rota.query.reprocessar,
+  (jobParaReprocessar) => {
+    if (typeof jobParaReprocessar === 'string' && jobParaReprocessar) {
+      void preencherComRegraDoJob(jobParaReprocessar)
+      return
+    }
+
+    limparFormulario()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -204,7 +223,7 @@ onMounted(() => {
             </p>
             <button
               type="submit"
-              :disabled="enviando"
+              :disabled="enviando || preenchendo"
               class="ml-auto flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-[#c2560b] px-5 text-sm font-medium text-white shadow-[0_8px_16px_-8px_rgba(157,68,0,0.8)] transition hover:-translate-y-px hover:bg-[#a54809] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
               {{ enviando ? 'Iniciando processamento…' : 'Continuar para revisão' }}

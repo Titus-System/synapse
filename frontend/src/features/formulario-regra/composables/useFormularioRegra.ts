@@ -1,7 +1,8 @@
 import { reactive, ref } from 'vue'
 import { apiClient } from '@/services/api'
 import { HttpError } from '@/services/http'
-import type { CriarJobRequisicao, JobCriado } from '@/types/api'
+import { regraMaisRecente } from '@/services/job'
+import type { CriarJobRequisicao, JobCriado, NucleoRegra } from '@/types/api'
 import type { CampoDoFormulario, FormularioDeRegra, OpcaoDeVigencia } from '../types'
 
 const opcoesDeVigencia: readonly OpcaoDeVigencia[] = [
@@ -12,6 +13,9 @@ const opcoesDeVigencia: readonly OpcaoDeVigencia[] = [
   { valor: '2025-11', rotulo: 'Novembro de 2025' },
   { valor: '2025-12', rotulo: 'Dezembro de 2025' },
 ]
+
+const mensagemDeRegraIndisponivel =
+  'Não foi possível carregar a regra selecionada. Preencha os campos manualmente.'
 
 const nomesDeCampo: Record<string, CampoDoFormulario[]> = {
   Vigência: ['vigenciaInicio', 'vigenciaFim'],
@@ -82,11 +86,27 @@ function formatarOrcamento(valor: string): string {
   }).format(numero)
 }
 
+function formatarPercentualDoNucleo(valor: number): string {
+  // Inverso de converterPercentual. O Intl também descarta o ruído de ponto
+  // flutuante: 0.07 * 100 resulta em 7.000000000000001 em JavaScript.
+  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 4 }).format(valor * 100)
+}
+
+function competenciaDisponivel(competencia: string | undefined): string {
+  if (!competencia) return ''
+
+  // Uma competência fora das opções deixaria o select mostrando "Selecione uma
+  // opção" enquanto a validação considera o campo preenchido.
+  return opcoesDeVigencia.some((opcao) => opcao.valor === competencia) ? competencia : ''
+}
+
 export function useFormularioRegra() {
   const formulario = reactive(criarFormularioVazio())
   const erros = reactive(criarErrosVazios())
   const mensagemDoFormulario = ref('')
   const enviando = ref(false)
+  const preenchendo = ref(false)
+  let cicloDePreenchimento = 0
 
   function limparErros(): void {
     for (const campo of Object.keys(erros) as CampoDoFormulario[]) {
@@ -155,6 +175,53 @@ export function useFormularioRegra() {
     formulario.orcamento = formatarOrcamento(formulario.orcamento)
   }
 
+  function preencherComNucleo(nucleo: NucleoRegra): void {
+    limparErros()
+    formulario.vigenciaInicio = competenciaDisponivel(nucleo.vigencia?.inicio)
+    formulario.vigenciaFim = competenciaDisponivel(nucleo.vigencia?.fim)
+    formulario.loja = (nucleo.loja ?? []).join(', ')
+    formulario.marca = (nucleo.marca ?? []).join(', ')
+    formulario.cargo = (nucleo.cargo ?? []).join(', ')
+    formulario.percentual =
+      nucleo.percentual == null ? '' : formatarPercentualDoNucleo(nucleo.percentual)
+    // O orçamento é justamente o que o reprocessamento vem trocar.
+    formulario.orcamento = ''
+  }
+
+  async function preencherComRegraDoJob(jobId: string): Promise<void> {
+    // A consulta anterior não pode sobrescrever um formulário que já pertence a
+    // outra regra, ou que o usuário acabou de zerar.
+    const ciclo = (cicloDePreenchimento += 1)
+    preenchendo.value = true
+    mensagemDoFormulario.value = 'Carregando a regra para reprocessamento…'
+    try {
+      const job = await apiClient.consultarJob(jobId)
+      if (ciclo !== cicloDePreenchimento) return
+
+      const regra = regraMaisRecente(job.regras)
+      if (!regra) {
+        mensagemDoFormulario.value = mensagemDeRegraIndisponivel
+        return
+      }
+
+      preencherComNucleo(regra.representacao.nucleo)
+      mensagemDoFormulario.value =
+        'Campos preenchidos com a regra selecionada. Informe o novo orçamento.'
+    } catch {
+      if (ciclo === cicloDePreenchimento) mensagemDoFormulario.value = mensagemDeRegraIndisponivel
+    } finally {
+      if (ciclo === cicloDePreenchimento) preenchendo.value = false
+    }
+  }
+
+  function limparFormulario(): void {
+    cicloDePreenchimento += 1
+    preenchendo.value = false
+    limparErros()
+    Object.assign(formulario, criarFormularioVazio())
+    mensagemDoFormulario.value = ''
+  }
+
   async function enviarFormulario(): Promise<JobCriado | undefined> {
     if (enviando.value) return undefined
     mensagemDoFormulario.value = ''
@@ -189,7 +256,10 @@ export function useFormularioRegra() {
     erros,
     formatarOrcamentoAoSair,
     formulario,
+    limparFormulario,
     mensagemDoFormulario,
+    preenchendo,
+    preencherComRegraDoJob,
     validarFormulario,
   }
 }

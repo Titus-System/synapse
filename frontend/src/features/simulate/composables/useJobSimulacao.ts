@@ -7,7 +7,7 @@ import { usarStoreJobAtual } from '@/stores/currentJob'
 
 export function useJobSimulacao(jobId: MaybeRefOrGetter<string>) {
   const store = usarStoreJobAtual()
-  const { job, carregando, etapaAtual, estadoConexao } = storeToRefs(store)
+  const { job, carregando, etapaAtual, estadoConexao, motivoParada } = storeToRefs(store)
   const erroAcao = ref<HttpError | null>(null)
   const acaoProcessando = ref(false)
   let ciclo = 0
@@ -19,11 +19,10 @@ export function useJobSimulacao(jobId: MaybeRefOrGetter<string>) {
     regra.value?.origem === 'sugestao_adaptacao' ? regra.value : undefined,
   )
   const falha = computed(() => erroAcao.value ?? store.erro)
-  const erro = computed(
-    () =>
-      falha.value?.message ??
-      (status.value === 'erro' ? 'Não foi possível concluir o processamento desta regra.' : null),
-  )
+  // Falha de carregamento e job interrompido são desfechos diferentes: o primeiro
+  // é a tela que não conseguiu ler o job, o segundo é o job que parou.
+  const erro = computed(() => falha.value?.message ?? null)
+  const processamentoInterrompido = computed(() => status.value === 'erro')
   const erroStatus = computed(() => falha.value?.status ?? null)
   const erroCodigo = computed(() => falha.value?.code ?? null)
   const erroEspecifico = computed(() => erro.value !== null)
@@ -108,6 +107,8 @@ export function useJobSimulacao(jobId: MaybeRefOrGetter<string>) {
     etapaAtual,
     estadoConexao,
     aguardandoConfirmacao,
+    processamentoInterrompido,
+    motivoParada,
     simulacaoInviavel,
     resultadoDisponivel,
     podeAceitarSugestao,

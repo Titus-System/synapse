@@ -80,8 +80,6 @@ describe('integração da tela com HTTP e SSE', () => {
       expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer token-da-sessao')
     }
     expect(Stream.atual.url).toBe('/api/jobs/job-1/events')
-    expect(wrapper.get('#loja').element).toHaveProperty('value', 'Loja mais recente')
-    expect(wrapper.get('#totalComissionamento').element).toHaveProperty('value', '')
 
     resposta = { ...resposta, status: 'aguardando_decisao_usuario' }
     Stream.atual.emitir('estado', { job_id: 'job-1', status: resposta.status })
@@ -92,6 +90,7 @@ describe('integração da tela com HTTP e SSE', () => {
       veredito: 'viavel',
     })
     await flushPromises()
+    expect(wrapper.get('#loja').element).toHaveProperty('value', 'Loja mais recente')
     expect(wrapper.get('#totalComissionamento').element).toHaveProperty('value', 'R$ 482.000,00')
     expect(wrapper.text()).toContain('Resultado: Regra de negócio aprovada!')
     wrapper.unmount()

@@ -65,6 +65,7 @@ record ReprocessarJobRequisicao(@Nullable BigDecimal orcamento, @Nullable List<S
 		if (competencias.isEmpty() || !MESES.containsAll(competencias)) {
 			throw ReprocessarJobException
 				.requisicao("Informe competências entre 2025-08 e 2025-12, em uma lista não vazia.");
+
 		}
 		if (new HashSet<>(competencias).size() != competencias.size()) {
 			throw ReprocessarJobException.requisicao("O campo competencias não permite meses repetidos.");

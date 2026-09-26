@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import SimulateView from './SimulateView.vue'
 import { apiClient } from '@/services/api'
+import { HttpError } from '@/services/http'
+import { usarStoreJobAtual } from '@/stores/currentJob'
 import type { Job } from '@/types/api'
 
 vi.mock('@/services/jobEvents', () => ({
@@ -15,6 +17,9 @@ vi.mock('@/services/jobEvents', () => ({
 vi.mock('@/services/api', () => ({
   apiClient: {
     consultarJob: vi.fn<(id: string, signal?: AbortSignal) => Promise<Job>>(),
+    listarJobs: vi.fn<typeof apiClient.listarJobs>().mockResolvedValue({
+      itens: [], pagina: 0, tamanho: 100, total: 0,
+    }),
   },
 }))
 
@@ -37,6 +42,11 @@ function criarRouterDeTeste() {
       {
         path: '/nova-regra',
         name: 'nova-regra',
+        component: { template: '<div />' },
+      },
+      {
+        path: '/salvas',
+        name: 'regras-salvas',
         component: { template: '<div />' },
       },
     ],
@@ -93,9 +103,130 @@ function criarJob(): Job {
   }
 }
 
+async function montarProcessamento(status: Job['status'] = 'simulando') {
+  const job = { ...criarJob(), status, simulacao: null }
+  consultarJob.mockResolvedValue(job)
+  const router = criarRouterDeTeste()
+  const pinia = createPinia()
+  await router.push('/jobs/job-1')
+  const wrapper = mount(SimulateView, {
+    global: {
+      plugins: [router, pinia],
+      stubs: { FontAwesomeIcon: true },
+    },
+  })
+  await flushPromises()
+  return { wrapper, job, store: usarStoreJobAtual(pinia) }
+}
+
+async function montarInterrompido(motivo: string | null = null) {
+  const job = { ...criarJob(), status: 'erro' as const, simulacao: null, motivo }
+  consultarJob.mockResolvedValue(job)
+  const router = criarRouterDeTeste()
+  const pinia = createPinia()
+  await router.push('/jobs/job-1')
+  const wrapper = mount(SimulateView, {
+    global: {
+      plugins: [router, pinia],
+      stubs: { FontAwesomeIcon: true },
+    },
+  })
+  await flushPromises()
+  return { wrapper, store: usarStoreJobAtual(pinia) }
+}
+
 describe('SimulateView', () => {
   afterEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('anuncia a parada do job como desfecho, e não como falha da tela', async () => {
+    const { wrapper } = await montarInterrompido()
+
+    expect(wrapper.get('main h2').text()).toBe('Processamento interrompido')
+    expect(wrapper.text()).toContain('Esta regra falhou antes de produzir um resultado.')
+    expect(wrapper.text()).not.toContain('Não foi possível carregar a simulação')
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Loja 1')
+
+    const acoes = wrapper
+      .findAll('main a')
+      .map((link) => ({ href: link.attributes('href'), texto: link.text() }))
+    expect(acoes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ href: '/nova-regra', texto: 'Começar uma nova regra' }),
+        expect.objectContaining({ href: '/salvas', texto: 'Ver minhas regras' }),
+      ]),
+    )
+    wrapper.unmount()
+  })
+
+  it('mostra a razão localizada da parada no lugar do texto padrão', async () => {
+    const { wrapper } = await montarInterrompido(
+      'A regra usa um elemento sem implementação correspondente.',
+    )
+
+    expect(wrapper.text()).toContain('A regra usa um elemento sem implementação correspondente.')
+    expect(wrapper.text()).not.toContain('Esta regra falhou antes de produzir um resultado.')
+    wrapper.unmount()
+  })
+
+  it('prioriza a falha de carregamento sobre o desfecho do job interrompido', async () => {
+    const { wrapper, store } = await montarInterrompido()
+
+    consultarJob.mockRejectedValueOnce(
+      new HttpError(500, 'Não foi possível consultar o processamento.'),
+    )
+    await store.consultarJob()
+    await flushPromises()
+
+    expect(wrapper.get('main h2').text()).toBe('Não foi possível carregar a simulação')
+    expect(wrapper.text()).toContain('Não foi possível consultar o processamento.')
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['aguardando_transcricao', 403],
+    ['aguardando_transcricao', 500],
+    ['gerando_regra', 403],
+    ['gerando_regra', 500],
+    ['simulando', 403],
+    ['simulando', 500],
+  ] as const)('exibe o erro de consulta durante %s quando a API responde %i', async (status, codigo) => {
+    const { wrapper, store } = await montarProcessamento(status)
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(true)
+
+    consultarJob.mockRejectedValueOnce(new HttpError(codigo, 'Não foi possível consultar o processamento.'))
+    await store.consultarJob()
+    await flushPromises()
+
+    expect(store.job?.status).toBe(status)
+    expect(wrapper.get('main h2').text()).toBe('Não foi possível carregar a simulação')
+    expect(wrapper.text()).toContain('Não foi possível consultar o processamento.')
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="Processando simulação"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('retoma o progresso e mostra o resultado após recuperar uma consulta com falha', async () => {
+    const { wrapper, job, store } = await montarProcessamento()
+    consultarJob.mockRejectedValueOnce(new HttpError(500, 'Não foi possível consultar o processamento.'))
+    await store.consultarJob()
+    await flushPromises()
+    expect(wrapper.get('main h2').text()).toBe('Não foi possível carregar a simulação')
+
+    consultarJob.mockResolvedValue(job)
+    await store.consultarJob()
+    await flushPromises()
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('Não foi possível carregar a simulação')
+
+    consultarJob.mockResolvedValue(criarJob())
+    await store.consultarJob()
+    await flushPromises()
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Resultado: Regra de negócio aprovada!')
+    wrapper.unmount()
   })
 
   it('renderiza a tela de simulação', async () => {
