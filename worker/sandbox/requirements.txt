@@ -1,0 +1,17 @@
+# Bibliotecas da imagem do sandbox (T-033): exatamente a lista permitida pela T-034
+# (contracts/harness/README.md, "Bibliotecas permitidas no sandbox"), e nada além, porque
+# cada pacote a mais é superfície de ataque num container que roda código não confiável.
+#
+# A T-034 permite `pandas >=2.2,<3.0` e a biblioteca padrão. O que segue é pandas mais o
+# fecho transitivo que ele exige, pinado em versão exata para a imagem ser reprodutível.
+# pandas 3.x muda o dtype textual padrão e liga copy-on-write por padrão, o que produziria
+# código plausível e sutilmente errado para um modelo treinado majoritariamente em 2.x.
+#
+# As mesmas versões estão em worker/poetry.lock (grupo dev), e um teste confere que as
+# duas listas não divergem: o ambiente de teste e a imagem precisam calcular igual.
+pandas==2.3.3
+numpy==2.5.3
+python-dateutil==2.9.0.post0
+pytz==2026.3.post1
+six==1.17.0
+tzdata==2026.4

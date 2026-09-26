@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/events/simulacao-concluida.schema.json",
+  "title": "simulacao-concluida",
+  "description": "Evento publicado pelo Worker quando a execução termina, com sucesso ou erro, numa exchange fanout consumida por API e codegen de forma independente. Carrega a referência da linha de resultado e os escalares apurados; a decomposição e o desfecho das asserções ficam no Postgres. Se o evento se perder, o resultado não se perde junto: a linha é consultável e reconciliável depois.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "resultado_id",
+    "status"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job ao qual o resultado pertence."
+    },
+    "resultado_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Linha de resultados_simulacao gravada pelo Worker. O evento não carrega o resultado completo."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "sucesso",
+        "assercao_violada",
+        "erro_codigo",
+        "erro_infra"
+      ],
+      "description": "Desfecho da execução, no mesmo vocabulário de resultados_simulacao.status. assercao_violada é o caso em que o código rodou e produziu números, mas uma invariante foi violada e o número não vale: é erro do código gerado, não inviabilidade da regra, e os dois precisam chegar distinguidos ao codegen."
+    },
+    "veredito": {
+      "type": "string",
+      "enum": [
+        "viavel",
+        "inviavel",
+        "indeterminado"
+      ],
+      "description": "Viabilidade orçamentária, derivada do total simulado contra o orçamento aplicado. Ausente quando o status não é sucesso, porque aí não há número que sustente veredito."
+    },
+    "total_baseline": {
+      "$ref": "../domain/comum.schema.json#/$defs/brl",
+      "description": "Comissionamento apurado pelas regras vigentes, somado no período. Ausente quando o status não é sucesso."
+    },
+    "total_simulado": {
+      "$ref": "../domain/comum.schema.json#/$defs/brl",
+      "description": "Comissionamento apurado pela regra proposta, somado no período. Ausente quando o status não é sucesso."
+    },
+    "diferenca_abs": {
+      "$ref": "../domain/comum.schema.json#/$defs/brl",
+      "description": "Total simulado menos total baseline, no mesmo nome usado em resultado-totais. É este número que a decomposição gravada no banco quebra por dimensão."
+    },
+    "diferenca_pct": {
+      "$ref": "../domain/comum.schema.json#/$defs/fracao",
+      "description": "Diferença absoluta sobre o baseline, expressa como fração e nunca como porcentagem: 0.025 são 2,5%."
+    }
+  },
+  "examples": [
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "resultado_id": "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93",
+      "status": "sucesso",
+      "veredito": "inviavel",
+      "total_baseline": 480312.0,
+      "total_simulado": 492100.0,
+      "diferenca_abs": 11788.0,
+      "diferenca_pct": 0.0245
+    }
+  ]
+}

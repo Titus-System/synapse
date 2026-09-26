@@ -1,0 +1,24 @@
+@import 'tailwindcss';
+
+html,
+body,
+#app {
+  width: 100%;
+  min-width: 100%;
+  min-height: 100%;
+  margin: 0;
+  overflow-x: clip;
+}
+
+/*
+ * O monitor de referência tem 1920px CSS (120rem a 16px). Um notebook com
+ * escala de 125% normalmente disponibiliza entre 1200px e 1600px CSS; ao
+ * tornar o rem proporcional nessa faixa, a composição ganha a mesma presença
+ * visual do desktop de referência e continua fluida, sem canvas fixo ou
+ * rolagem horizontal.
+ */
+@media (min-resolution: 1.25dppx) and (min-width: 75rem) and (max-width: 100rem) {
+  html {
+    font-size: calc(100vw / 110);
+  }
+}

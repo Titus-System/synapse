@@ -1,0 +1,154 @@
+name: Auto-move Unblocked Issues to Ready
+
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited, deleted]
+  workflow_dispatch:
+
+concurrency:
+  group: auto-move-issues
+  cancel-in-progress: false
+
+jobs:
+  check-and-move-issues:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      # Ajuste aqui se os nomes das colunas do Project mudarem.
+      BLOCKED_STATUS: Blocked
+      READY_STATUS: Ready
+    steps:
+      - name: Validar token do Project
+        run: |
+          if [ -z "${{ secrets.PROJECTS_TOKEN }}" ]; then
+            echo "::error::Secret PROJECTS_TOKEN ausente. Crie um PAT (classic) com escopo 'project' e salve como PROJECTS_TOKEN."
+            exit 1
+          fi
+
+      - name: Check blocked issues and move to Ready
+        uses: actions/github-script@v7
+        with:
+          # O GITHUB_TOKEN padrão não acessa Projects v2 de organização.
+          github-token: ${{ secrets.PROJECTS_TOKEN }}
+          script: |
+            const org = 'Titus-System';
+            const projectNumber = 13;
+            const BLOCKED_STATUS = process.env.BLOCKED_STATUS || 'Blocked';
+            const READY_STATUS = process.env.READY_STATUS || 'Ready';
+
+            // Heurística de "ainda bloqueada": referências textuais no corpo da issue.
+            const blockedRe = /blocked\s+by|depends\s+on|blocked:/i;
+
+            const query = `
+              query($org: String!, $number: Int!, $cursor: String) {
+                organization(login: $org) {
+                  projectV2(number: $number) {
+                    id
+                    field(name: "Status") {
+                      ... on ProjectV2SingleSelectField {
+                        id
+                        options { id name }
+                      }
+                    }
+                    items(first: 100, after: $cursor) {
+                      pageInfo { hasNextPage endCursor }
+                      nodes {
+                        id
+                        fieldValueByName(name: "Status") {
+                          ... on ProjectV2ItemFieldSingleSelectValue { name }
+                        }
+                        content {
+                          ... on Issue {
+                            number
+                            title
+                            body
+                            state
+                            url
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+
+            const mutation = `
+              mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: $projectId
+                  itemId: $itemId
+                  fieldId: $fieldId
+                  value: { singleSelectOptionId: $optionId }
+                }) {
+                  projectV2Item { id }
+                }
+              }
+            `;
+
+            try {
+              let cursor = null;
+              let projectId = null;
+              let statusFieldId = null;
+              let readyOptionId = null;
+              const items = [];
+
+              do {
+                const result = await github.graphql(query, { org, number: projectNumber, cursor });
+                const project = result.organization && result.organization.projectV2;
+                if (!project) {
+                  throw new Error(`Project #${projectNumber} da org ${org} não encontrado ou token sem acesso a Projects v2.`);
+                }
+
+                projectId = project.id;
+
+                const statusField = project.field;
+                if (!statusField || !statusField.options) {
+                  throw new Error('Campo "Status" (single select) não encontrado no Project.');
+                }
+                statusFieldId = statusField.id;
+
+                const readyOption = statusField.options.find(o => o.name === READY_STATUS);
+                if (!readyOption) {
+                  throw new Error(`Opção "${READY_STATUS}" não existe no campo Status. Opções: ${statusField.options.map(o => o.name).join(', ')}`);
+                }
+                readyOptionId = readyOption.id;
+
+                for (const node of project.items.nodes) items.push(node);
+
+                cursor = project.items.pageInfo.hasNextPage ? project.items.pageInfo.endCursor : null;
+              } while (cursor);
+
+              core.info(`${items.length} itens no Project #${projectNumber}`);
+
+              let moved = 0;
+              for (const item of items) {
+                const issue = item.content;
+                if (!issue || !issue.number) continue; // draft item ou PR
+
+                const status = (item.fieldValueByName && item.fieldValueByName.name) || null;
+                if (status !== BLOCKED_STATUS) continue; // só mexe no que está em "Blocked"
+                if (issue.state === 'CLOSED') continue;
+
+                if (blockedRe.test(issue.body || '')) {
+                  core.info(`#${issue.number} continua bloqueada — mantém em ${BLOCKED_STATUS}`);
+                  continue;
+                }
+
+                await github.graphql(mutation, {
+                  projectId,
+                  itemId: item.id,
+                  fieldId: statusFieldId,
+                  optionId: readyOptionId,
+                });
+                core.info(`#${issue.number} "${issue.title}" → ${READY_STATUS}`);
+                moved++;
+              }
+
+              core.info(`Concluído: ${moved} issue(s) movida(s) para ${READY_STATUS}`);
+            } catch (error) {
+              core.setFailed(`Erro ao processar issues: ${error.message}`);
+            }
