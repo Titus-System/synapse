@@ -28,7 +28,7 @@ O **Synapse** é uma aplicação web inteligente criada para solucionar esse pro
 
 ## 🎥 Demonstração Sprint 1
 
-Adicionar vídeo aqui.
+https://github.com/user-attachments/assets/4031c0ad-1c23-4672-8da4-0ac0ffbc73ed
 
 ## ✅ Critérios de Aceitação
 
