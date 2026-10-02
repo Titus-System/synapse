@@ -3,6 +3,7 @@ package synapse.api.job;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +44,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
+import synapse.api.core.logging.CorrelationContext;
 import synapse.api.core.outbox.Outbox;
 import synapse.api.core.security.AcessoDoUsuario;
 import synapse.api.core.security.PapelDoUsuario;
@@ -146,7 +148,7 @@ class ReprocessarJobPersistenciaTests {
 	@Import({ CriarJobService.class, ReprocessarJobService.class, BuscarJobService.class,
 			ConfirmarParametrosService.class, VersoesDaRegra.class, ExecutarAcaoService.class,
 			MaquinaDeEstadosDoJob.class, Outbox.class, ReprocessarJobController.class, AutorizadorDeJob.class,
-			ConfirmarParametrosController.class })
+			ConfirmarParametrosController.class, CorrelationContext.class })
 	static class Config {
 
 	}
@@ -316,6 +318,7 @@ class ReprocessarJobPersistenciaTests {
 		JsonNode novo = reprocessar(origem, "");
 		UUID novoId = UUID.fromString(novo.path("id").asString());
 		Map<String, Object> semeada = jdbc.queryForMap("SELECT * FROM regras WHERE job_id = ?", novoId);
+		assertThat(jdbc.queryForObject("SELECT iniciado_em FROM jobs WHERE id = ?", Timestamp.class, novoId)).isNull();
 		JsonNode representacaoOriginal = consultar(novoId).path("regras").path(0).path("representacao");
 		ObjectNode enviada = (ObjectNode) representacaoOriginal.deepCopy();
 		boolean mudaNucleo = edicao.equals("nucleo") || edicao.equals("ambos");
@@ -363,6 +366,11 @@ class ReprocessarJobPersistenciaTests {
 		assertThat(jdbc.queryForMap("SELECT * FROM regras WHERE job_id = ? AND versao = 1", novoId)).isEqualTo(semeada);
 		assertThat(jdbc.queryForObject("SELECT status FROM jobs WHERE id = ?", String.class, novoId))
 			.isEqualTo("gerando_regra");
+		assertThat(jdbc.queryForObject("SELECT iniciado_em FROM jobs WHERE id = ?", Timestamp.class, novoId))
+			.isNotNull()
+			.isEqualTo(jdbc.queryForObject(
+					"SELECT ocorrido_em FROM job_transicoes WHERE job_id = ? AND status_novo = 'gerando_regra'",
+					Timestamp.class, novoId));
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM regras WHERE job_id = ?", Integer.class, novoId))
 			.isEqualTo(editado ? 2 : 1);
 		Map<String, Object> utilizada = jdbc.queryForMap("SELECT * FROM regras WHERE job_id = ? AND versao = ?", novoId,

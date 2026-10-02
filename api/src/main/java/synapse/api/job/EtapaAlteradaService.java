@@ -22,8 +22,6 @@ class EtapaAlteradaService {
 
 	private static final String STATUS_ERRO = "erro";
 
-	private static final String RAZAO_ERRO = "Falha durante o processamento da regra, antes da simulação.";
-
 	private final MaquinaDeEstadosDoJob maquina;
 
 	EtapaAlteradaService(MaquinaDeEstadosDoJob maquina) {
@@ -40,7 +38,8 @@ class EtapaAlteradaService {
 			return avancarDeGerandoRegra(jobId, JobStatus.SIMULANDO, null, null);
 		}
 		if (STATUS_ERRO.equals(status)) {
-			return avancarDeGerandoRegra(jobId, JobStatus.ERRO, "erro_" + etapa.paraEvento(), RAZAO_ERRO);
+			return avancarDeGerandoRegra(jobId, JobStatus.ERRO, MotivoDaParada.falhaNaEtapa(etapa),
+					MotivoDaParada.FALHA_ANTES_DA_SIMULACAO);
 		}
 		return null;
 	}

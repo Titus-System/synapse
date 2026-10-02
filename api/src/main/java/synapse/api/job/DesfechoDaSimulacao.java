@@ -53,6 +53,20 @@ enum DesfechoDaSimulacao {
 	}
 
 	/**
+	 * O inverso de {@link #motivoDaTrilha()}: o desfecho cujo token foi gravado em
+	 * {@code job_transicoes.motivo}. {@code null} para um token que não é de desfecho,
+	 * como os de falha anterior à simulação ou de transição sem parada.
+	 */
+	static @Nullable DesfechoDaSimulacao peloMotivoDaTrilha(String motivo) {
+		for (DesfechoDaSimulacao desfecho : values()) {
+			if (motivo.equals(desfecho.motivoDaTrilha())) {
+				return desfecho;
+			}
+		}
+		return null;
+	}
+
+	/**
 	 * O que vai para o campo {@code motivo} do evento SSE {@code estado}: a razão
 	 * localizada da parada, como o contrato HTTP a descreve. {@code null} fora de uma
 	 * parada.

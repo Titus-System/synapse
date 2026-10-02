@@ -3,6 +3,7 @@ package synapse.api.job;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -164,9 +165,12 @@ class CriarJobPersistenciaTests {
 			.containsEntry("submissao_id", submissaoId)
 			.containsEntry("status", "gerando_regra")
 			.containsEntry("tentativas", 0)
-			.containsEntry("iniciado_em", null)
 			.containsEntry("finalizado_em", null)
 			.containsEntry("job_origem_id", null);
+		assertThat(persistido.get("iniciado_em")).isNotNull()
+			.isEqualTo(jdbc.queryForObject(
+					"SELECT ocorrido_em FROM job_transicoes WHERE job_id = ? AND status_anterior IS NULL",
+					Timestamp.class, jobId));
 		assertThat(persistido.get("orcamento")).isEqualTo(new BigDecimal("485000.1234567890123456789"));
 		assertThat(job.path("orcamento").decimalValue()).isEqualByComparingTo("485000.1234567890123456789");
 		assertThat(competencias(jobId)).containsExactly("2025-11");

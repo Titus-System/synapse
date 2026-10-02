@@ -110,4 +110,16 @@ class JobStatusTests {
 		return visitados;
 	}
 
+	@ParameterizedTest
+	@EnumSource(value = JobStatus.class, names = { "GERANDO_REGRA", "SIMULANDO" })
+	void soGerandoRegraESimulandoEstaoEmProcessamento(JobStatus status) {
+		assertThat(status.emProcessamento()).isTrue();
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = JobStatus.class, mode = EnumSource.Mode.EXCLUDE, names = { "GERANDO_REGRA", "SIMULANDO" })
+	void osDemaisEstadosNaoEstaoEmProcessamento(JobStatus status) {
+		assertThat(status.emProcessamento()).isFalse();
+	}
+
 }

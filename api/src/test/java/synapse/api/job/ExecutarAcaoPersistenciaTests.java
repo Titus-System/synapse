@@ -1,5 +1,6 @@
 package synapse.api.job;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Timestamp;
@@ -25,19 +26,30 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.support.SqlArrayValue;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
+import synapse.api.core.logging.CorrelationContext;
+import synapse.api.core.sse.EmissoresSse;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.mockito.Mockito.mock;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Roda contra um Postgres de verdade, como o usuário {@code synapse_api}: prova que a
@@ -48,6 +60,14 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 class ExecutarAcaoPersistenciaTests {
 
 	private static final UUID USUARIO = UUID.fromString("44444444-4444-4444-8444-444444444444");
+
+	/**
+	 * Um núcleo completo, como o de toda regra gravada: a resposta o devolve no contrato.
+	 */
+	private static final String NUCLEO = """
+			{"vigencia":{"inicio":"2025-11","fim":"2025-11"},"loja":["13"],"marca":["10"],"cargo":["100"],"percentual":0.02}
+			"""
+		.strip();
 
 	private static PostgreSQLContainer postgres;
 
@@ -119,7 +139,8 @@ class ExecutarAcaoPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ ExecutarAcaoService.class, MaquinaDeEstadosDoJob.class, BuscarJobService.class })
+	@Import({ ExecutarAcaoService.class, MaquinaDeEstadosDoJob.class, BuscarJobService.class,
+			CorrelationContext.class })
 	static class Config {
 
 	}
@@ -149,6 +170,33 @@ class ExecutarAcaoPersistenciaTests {
 		assertThat(transicao).containsEntry("ator", "usuario")
 			.containsEntry("status_anterior", "aguardando_decisao_usuario");
 		assertThat(transicao.get("ocorrido_em")).isNotNull();
+	}
+
+	/**
+	 * {@code POST /jobs/{id}/actions} responde {@code JobDetalhado}, como a consulta:
+	 * mesmo DTO, mesmo contrato.
+	 */
+	@ParameterizedTest
+	@EnumSource(AcaoJob.class)
+	void aRespostaDaAcaoValidaContraJobDetalhado(AcaoJob acao) throws Exception {
+		UUID jobId = criarJobComRegra(JobStatus.AGUARDANDO_DECISAO_USUARIO);
+		MockMvc mvc = MockMvcBuilders.standaloneSetup(new ExecutarAcaoController(service, mock(EmissoresSse.class)))
+			.setControllerAdvice(new ExecutarAcaoAdvice())
+			.build();
+
+		String corpo = mvc
+			.perform(post("/jobs/{id}/actions", jobId).contentType(MediaType.APPLICATION_JSON)
+				.content("{\"acao\":\"" + acao.paraColuna() + "\"}"))
+			.andExpect(status().isOk())
+			.andReturn()
+			.getResponse()
+			.getContentAsString(StandardCharsets.UTF_8);
+
+		ContratoDeEvento.validarRespostaHttp("JobDetalhado", corpo);
+		JsonNode job = new JsonMapper().readTree(corpo);
+		assertThat(job.path("status").asString())
+			.isEqualTo(jdbc.queryForObject("SELECT status FROM jobs WHERE id = ?", String.class, jobId));
+		assertThat(job.propertyNames()).contains("finalizado_em").doesNotContain("motivo", "simulacao");
 	}
 
 	@Test
@@ -234,8 +282,8 @@ class ExecutarAcaoPersistenciaTests {
 				new SqlArrayValue("text", List.of("2025-11").toArray())));
 		jdbc.update("""
 				INSERT INTO regras (job_id, versao, origem, nucleo, especificacoes, hash, criada_em)
-				VALUES (?, 1, 'confirmacao_usuario', '{}'::jsonb, '[]'::jsonb, 'hash', now())
-				""", jobId);
+				VALUES (?, 1, 'confirmacao_usuario', ?::jsonb, '[]'::jsonb, 'hash', now())
+				""", jobId, NUCLEO);
 		jdbc.update("""
 				INSERT INTO job_transicoes (job_id, status_anterior, status_novo, ocorrido_em, ator)
 				VALUES (?, NULL, ?, now(), 'sistema')

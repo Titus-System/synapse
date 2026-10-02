@@ -24,9 +24,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.rabbitmq.RabbitMQContainer;
+import tools.jackson.databind.JsonNode;
 
 import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.core.Binding;
@@ -66,6 +69,12 @@ class SimulacaoConcluidaConsumidorTests {
 	private static final String USUARIO_ID = "55555555-5555-4555-8555-555555555555";
 
 	private static final String FILA_CODEGEN = "simulacao-concluida.codegen";
+
+	/** Um núcleo completo: a consulta do job o devolve no contrato, sem campo nulo. */
+	private static final String NUCLEO = """
+			{"vigencia":{"inicio":"2025-08","fim":"2025-08"},"loja":["13"],"marca":["10"],"cargo":["100"],"percentual":0.02}
+			"""
+		.strip();
 
 	private static final HttpClient HTTP = HttpClient.newHttpClient();
 
@@ -246,6 +255,56 @@ class SimulacaoConcluidaConsumidorTests {
 
 		cliente.aguardarBloco("\"status\":\"erro\"", Duration.ofSeconds(10));
 		cliente.aguardarFimDoStream(Duration.ofSeconds(10));
+	}
+
+	// --- Consulta do job depois da parada ---------------------------------------------
+
+	/**
+	 * O motivo que o usuário viu no stream tem de ser o que a consulta devolve depois de
+	 * reconectar: a tela recarregada não perde a explicação da parada.
+	 */
+	@ParameterizedTest
+	@CsvSource({ "sucesso,inviavel", "assercao_violada,", "erro_codigo,", "erro_infra," })
+	void aConsultaDoJobDevolveOMesmoMotivoQueOSseAnunciou(String status, @Nullable String veredito) throws Exception {
+		UUID jobId = criarJob(JobStatus.SIMULANDO);
+		StreamCliente cliente = conectar(jobId);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
+		UUID resultadoId = criarResultadoOrfao(jobId, status, veredito);
+
+		publicar(jobId, resultadoId, status, veredito);
+
+		String bloco = cliente.aguardarBloco("\"status_anterior\":\"simulando\"", Duration.ofSeconds(10));
+		String motivoDoSse = ClienteDoJob.dadosDoBloco(bloco).path("motivo").asString();
+		assertThat(motivoDoSse).isNotBlank();
+
+		JsonNode job = ClienteDoJob.consultar(porta, jobId);
+
+		assertThat(job.path("motivo").asString()).isEqualTo(motivoDoSse);
+		assertThat(job.path("status").asString()).isEqualTo(statusPersistido(jobId));
+	}
+
+	@Test
+	void reentregaDeUmDesfechoTerminalNaoAlteraOsTimestampsDaConsulta() throws Exception {
+		UUID jobId = criarJob(JobStatus.SIMULANDO);
+		UUID resultadoId = criarResultadoOrfao(jobId, "erro_infra", null);
+		publicar(jobId, resultadoId, "erro_infra", null);
+		await().atMost(Duration.ofSeconds(10))
+			.untilAsserted(() -> assertThat(statusPersistido(jobId)).isEqualTo("erro"));
+		JsonNode primeira = ClienteDoJob.consultar(porta, jobId);
+		String finalizadoEm = primeira.path("finalizado_em").asString();
+		assertThat(finalizadoEm).isNotBlank();
+
+		publicar(jobId, resultadoId, "erro_infra", null);
+
+		await().atMost(Duration.ofSeconds(10))
+			.untilAsserted(() -> assertThat(infoDaFila(RabbitTopologyConfig.SIMULACAO_CONCLUIDA_API).getMessageCount())
+				.isZero());
+		await().during(Duration.ofMillis(500))
+			.atMost(Duration.ofSeconds(5))
+			.untilAsserted(() -> assertThat(ClienteDoJob.consultar(porta, jobId).path("finalizado_em").asString())
+				.isEqualTo(finalizadoEm));
+		assertThat(ClienteDoJob.consultar(porta, jobId).path("motivo").asString())
+			.isEqualTo(primeira.path("motivo").asString());
 	}
 
 	// --- Idempotência e isolamento entre consumidores --------------------------------
@@ -456,11 +515,17 @@ class SimulacaoConcluidaConsumidorTests {
 
 	private static UUID criarJob(JobStatus status) throws SQLException {
 		UUID jobId = UUID.randomUUID();
+		UUID submissaoId = UUID.randomUUID();
 		try (Connection connection = comoDono(); Statement statement = connection.createStatement()) {
+			// Todo job tem uma procedência: a consulta a devolve como `origem`.
 			statement.execute("""
-					INSERT INTO jobs (id, status, usuario_id, competencias, orcamento, criado_em)
-					VALUES ('%s', '%s', '%s', '{2025-08}', 1000, now())
-					""".formatted(jobId, status.paraColuna(), USUARIO_ID));
+					INSERT INTO submissoes (id, usuario_id, tipo, conteudo, criado_em)
+					VALUES ('%s', '%s', 'formulario', '{}'::jsonb, now())
+					""".formatted(submissaoId, USUARIO_ID));
+			statement.execute("""
+					INSERT INTO jobs (id, status, usuario_id, submissao_id, competencias, orcamento, criado_em)
+					VALUES ('%s', '%s', '%s', '%s', '{2025-08}', 1000, now())
+					""".formatted(jobId, status.paraColuna(), USUARIO_ID, submissaoId));
 		}
 		return jobId;
 	}
@@ -470,8 +535,8 @@ class SimulacaoConcluidaConsumidorTests {
 		try (Connection connection = comoDono(); Statement statement = connection.createStatement()) {
 			statement.execute("""
 					INSERT INTO regras (id, job_id, versao, origem, nucleo, especificacoes, hash, criada_em)
-					VALUES ('%s', '%s', 1, 'confirmacao_usuario', '{}'::jsonb, '[]'::jsonb, '%s', now())
-					""".formatted(regraId, jobId, "0".repeat(64)));
+					VALUES ('%s', '%s', 1, 'confirmacao_usuario', '%s'::jsonb, '[]'::jsonb, '%s', now())
+					""".formatted(regraId, jobId, NUCLEO, "0".repeat(64)));
 		}
 		return regraId;
 	}

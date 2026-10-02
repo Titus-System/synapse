@@ -33,8 +33,8 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
-import synapse.api.core.outbox.Outbox;
 import synapse.api.core.logging.CorrelationContext;
+import synapse.api.core.outbox.Outbox;
 import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -117,7 +117,7 @@ class SugestaoAdaptacaoPersistenciaTests {
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
 	@Import({ CriarJobService.class, SugestaoAdaptacaoService.class, MaquinaDeEstadosDoJob.class, Outbox.class,
-			VersoesDaRegra.class, SimulacaoConcluidaService.class, BuscarJobService.class })
+			VersoesDaRegra.class, SimulacaoConcluidaService.class, BuscarJobService.class, CorrelationContext.class })
 	static class Config {
 
 	}
@@ -187,6 +187,8 @@ class SugestaoAdaptacaoPersistenciaTests {
 			.isNull();
 		assertThat(versoes(jobId)).isEqualTo(2);
 		assertThat(status(jobId)).isEqualTo("simulacao_inviavel");
+		assertThat(contexto.getBean(BuscarJobService.class).buscar(jobId).motivo())
+			.isEqualTo(DesfechoDaSimulacao.INVIAVEL.razaoLocalizada());
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE job_id = ?", Integer.class, jobId))
 			.isEqualTo(2);
 	}
@@ -199,6 +201,9 @@ class SugestaoAdaptacaoPersistenciaTests {
 		UUID resultado = resultado(jobId, origem, "inviavel", "492100");
 		assertThat(sugestaoService.aplicar(jobId, origem, resultado, representacao("0.0246"))).isNotNull();
 		assertThat(status(jobId)).isEqualTo("gerando_regra");
+		// A inviabilidade e a reabertura confirmam juntas: o estado corrente é o do novo
+		// ciclo, e a causa do ciclo anterior não vira o seu motivo.
+		assertThat(contexto.getBean(BuscarJobService.class).buscar(jobId).motivo()).isNull();
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM job_transicoes WHERE job_id = ? AND motivo = 'inviavel'",
 				Integer.class, jobId))
 			.isEqualTo(1);

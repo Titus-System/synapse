@@ -46,6 +46,10 @@ public enum JobStatus {
 		return TRANSICOES_PERMITIDAS.getOrDefault(this, Set.of()).isEmpty();
 	}
 
+	public boolean emProcessamento() {
+		return this == GERANDO_REGRA || this == SIMULANDO;
+	}
+
 	/**
 	 * Os estados de origem a partir dos quais {@code destino} é alcançável - o inverso do
 	 * grafo declarado acima. Usado para nomear, na recusa de uma ação inválida, qual

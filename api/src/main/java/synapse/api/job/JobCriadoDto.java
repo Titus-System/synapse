@@ -15,13 +15,14 @@ record JobCriadoDto(UUID id, String status, String origem, List<String> competen
 record RegraCriadaDto(UUID id, int versao, String origem, RepresentacaoRegraDto representacao, Instant criada_em) {
 }
 
-record SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, @Nullable String status, @Nullable String veredito,
+@JsonInclude(JsonInclude.Include.NON_NULL)
+record SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, String status, @Nullable String veredito,
 		boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado) {
 }
 
+@JsonInclude(JsonInclude.Include.NON_NULL)
 record JobDetalhadoDto(UUID id, String status, String origem, List<String> competencias, BigDecimal orcamento,
-		Instant criado_em, @Nullable Instant iniciado_em, @Nullable Instant finalizado_em,
-		@JsonInclude(JsonInclude.Include.NON_NULL) @Nullable UUID submissao_id,
-		@JsonInclude(JsonInclude.Include.NON_NULL) @Nullable UUID job_origem_id, List<RegraCriadaDto> regras,
+		Instant criado_em, @Nullable Instant iniciado_em, @Nullable Instant finalizado_em, @Nullable UUID submissao_id,
+		@Nullable UUID job_origem_id, @Nullable String motivo, List<RegraCriadaDto> regras,
 		@Nullable SimulacaoDto simulacao, List<SimulacaoDto> simulacoes) {
 }

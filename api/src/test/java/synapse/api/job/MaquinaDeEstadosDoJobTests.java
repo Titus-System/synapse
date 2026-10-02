@@ -165,6 +165,86 @@ class MaquinaDeEstadosDoJobTests {
 		assertThat(finalizadoEmPersistido(jobId)).isNull();
 	}
 
+	@Test
+	void reentregaAposEstadoTerminalNaoAlteraOsTimestampsRegistrados() throws SQLException {
+		UUID jobId = criarJob();
+		maquina.registrarCriacao(jobId, JobStatus.GERANDO_REGRA, "sistema");
+		maquina.transicionar(jobId, JobStatus.SIMULANDO, "evento", null);
+		maquina.transicionar(jobId, JobStatus.ERRO, "evento", "erro_infra");
+		Timestamp iniciadoEm = timestampDoJob(jobId, "iniciado_em");
+		Timestamp finalizadoEm = timestampDoJob(jobId, "finalizado_em");
+
+		boolean avancou = maquina.avancarSeEm(jobId, JobStatus.SIMULANDO, JobStatus.ERRO, "evento", "erro_infra");
+		assertThatExceptionOfType(TransicaoDeStatusInvalidaException.class)
+			.isThrownBy(() -> maquina.transicionar(jobId, JobStatus.ERRO, "evento", "erro_infra"));
+
+		assertThat(avancou).isFalse();
+		assertThat(timestampDoJob(jobId, "iniciado_em")).isEqualTo(iniciadoEm);
+		assertThat(timestampDoJob(jobId, "finalizado_em")).isEqualTo(finalizadoEm);
+		assertThat(transicoesRegistradas(jobId)).hasSize(3);
+	}
+
+	// --- iniciado_em -------------------------------------------------------------------
+
+	/**
+	 * O job de formulário já nasce em {@code gerando_regra}: não há transição para
+	 * {@code gerando_regra} depois da criação, então é a própria transição inicial que
+	 * marca o começo do processamento.
+	 */
+	@Test
+	void criacaoDiretamenteEmGerandoRegraGravaIniciadoEmComOInstanteDaTransicaoInicial() throws SQLException {
+		UUID jobId = criarJob();
+		Instant antes = Instant.now();
+
+		maquina.registrarCriacao(jobId, JobStatus.GERANDO_REGRA, "usuario");
+
+		Instant depois = Instant.now();
+		Timestamp iniciadoEm = timestampDoJob(jobId, "iniciado_em");
+		assertThat(iniciadoEm).isNotNull();
+		assertThat(iniciadoEm.toInstant()).isBetween(antes, depois);
+		assertThat(iniciadoEm).isEqualTo(ocorridoEmDaUltimaTransicao(jobId));
+		assertThat(timestampDoJob(jobId, "finalizado_em")).isNull();
+	}
+
+	@Test
+	void jobQueAguardaConfirmacaoSoGanhaIniciadoEmQuandoAConfirmacaoOLevaAGerandoRegra() throws SQLException {
+		UUID jobId = criarJob();
+
+		maquina.registrarCriacao(jobId, "usuario");
+		assertThat(timestampDoJob(jobId, "iniciado_em")).isNull();
+
+		maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "usuario", null);
+
+		assertThat(timestampDoJob(jobId, "iniciado_em")).isNotNull().isEqualTo(ocorridoEmDaUltimaTransicao(jobId));
+	}
+
+	@Test
+	void oInicioNaoMudaNasTransicoesPosterioresNemQuandoOCicloReabre() throws SQLException {
+		UUID jobId = criarJob();
+		maquina.registrarCriacao(jobId, JobStatus.GERANDO_REGRA, "usuario");
+		Timestamp iniciadoEm = timestampDoJob(jobId, "iniciado_em");
+
+		maquina.transicionar(jobId, JobStatus.SIMULANDO, "evento", null);
+		maquina.transicionar(jobId, JobStatus.SIMULACAO_INVIAVEL, "evento", "inviavel");
+		maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "evento", "sugestao_adaptacao_proposta");
+		maquina.transicionar(jobId, JobStatus.SIMULANDO, "evento", null);
+		maquina.transicionar(jobId, JobStatus.AGUARDANDO_DECISAO_USUARIO, "evento", null);
+
+		assertThat(timestampDoJob(jobId, "iniciado_em")).isEqualTo(iniciadoEm);
+		assertThat(timestampDoJob(jobId, "finalizado_em")).isNull();
+	}
+
+	@Test
+	void transicaoParaEstadoSemProcessamentoNaoGravaIniciadoEm() throws SQLException {
+		UUID jobId = criarJob();
+		maquina.registrarCriacao(jobId, "usuario");
+
+		maquina.transicionar(jobId, JobStatus.CANCELADO, "usuario", null);
+
+		assertThat(timestampDoJob(jobId, "iniciado_em")).isNull();
+		assertThat(timestampDoJob(jobId, "finalizado_em")).isNotNull();
+	}
+
 	// --- avancarSeEm -------------------------------------------------------------------
 
 	@Test
@@ -275,6 +355,26 @@ class MaquinaDeEstadosDoJobTests {
 				ResultSet rs = statement.executeQuery("SELECT status FROM jobs WHERE id = '%s'".formatted(jobId))) {
 			assertThat(rs.next()).isTrue();
 			return rs.getString("status");
+		}
+	}
+
+	private static Timestamp timestampDoJob(UUID jobId, String coluna) throws SQLException {
+		try (Connection connection = comoDono();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("SELECT %s FROM jobs WHERE id = '%s'".formatted(coluna, jobId))) {
+			assertThat(rs.next()).isTrue();
+			return rs.getTimestamp(coluna);
+		}
+	}
+
+	private static Timestamp ocorridoEmDaUltimaTransicao(UUID jobId) throws SQLException {
+		try (Connection connection = comoDono();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery(
+						"SELECT ocorrido_em FROM job_transicoes WHERE job_id = '%s' ORDER BY ocorrido_em DESC LIMIT 1"
+							.formatted(jobId))) {
+			assertThat(rs.next()).isTrue();
+			return rs.getTimestamp("ocorrido_em");
 		}
 	}
 

@@ -13,8 +13,9 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Único ponto do código autorizado a escrever {@code jobs.status}. Toda transição,
  * inclusive a inicial, é gravada em {@code job_transicoes} com timestamp na mesma
- * transação que atualiza o job. Uma transição para status terminal também grava
- * {@code jobs.finalizado_em} com o mesmo instante.
+ * transação que atualiza o job. A primeira transição para um status de processamento
+ * grava {@code jobs.iniciado_em}, e a transição para status terminal grava
+ * {@code jobs.finalizado_em}, ambas com o mesmo instante da transição.
  *
  * <p>
  * Quem dispara cada transição - eventos consumidos do RabbitMQ ou ações do usuário - é
@@ -102,6 +103,10 @@ public class MaquinaDeEstadosDoJob {
 		if (destino.terminal()) {
 			this.jdbcTemplate.update("UPDATE jobs SET status = ?, finalizado_em = ? WHERE id = ?", destino.paraColuna(),
 					agora, jobId);
+		}
+		else if (destino.emProcessamento()) {
+			this.jdbcTemplate.update("UPDATE jobs SET status = ?, iniciado_em = COALESCE(iniciado_em, ?) WHERE id = ?",
+					destino.paraColuna(), agora, jobId);
 		}
 		else {
 			this.jdbcTemplate.update("UPDATE jobs SET status = ? WHERE id = ?", destino.paraColuna(), jobId);
