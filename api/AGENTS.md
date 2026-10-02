@@ -2,7 +2,7 @@
 
 ## As convenções moram em `.agents/skills/`
 
-Toda convenção deste repositório é um skill. Leia o que cobre o que você vai tocar, e quando uma regra mudar, mude-a no skill dela — nada aqui é documentado duas vezes.
+As convenções de stack vivem nas skills; os critérios obrigatórios de entrega estão neste guia e no `AGENTS.md` da raiz. Leia as skills que cobrem o comportamento alterado, incluindo logging e metrics ao tocar um fluxo da aplicação.
 
 | Skill | Leia antes de |
 | --- | --- |
@@ -16,7 +16,17 @@ Toda convenção deste repositório é um skill. Leia o que cobre o que você va
 | [`outbox`](.agents/skills/outbox/SKILL.md) | Publicar um evento novo pela api, ou mexer no outbox transacional em si. |
 | [`consumidores`](.agents/skills/consumidores/SKILL.md) | Escrever um `@RabbitListener` novo, ou investigar por que uma mensagem some ou volta em loop. |
 
-O envelope de log é contrato entre serviços e está especificado no repositório `agents`, em `.agents/skills/observability/SKILL.md`. Mudar um campo de topo aqui exige mudar os outros serviços junto.
+O envelope de log é contrato entre serviços, definido em [`../contracts/observability/log.schema.json`](../contracts/observability/log.schema.json). As regras compartilhadas estão na [skill de observabilidade da raiz](../.agents/skills/observability/SKILL.md). Mudanças no envelope seguem a autorização e a compatibilidade exigidas pelo guia da raiz.
+
+## Observabilidade obrigatória dos fluxos
+
+- Leia as skills locais de [logging](.agents/skills/logging/SKILL.md) e [metrics](.agents/skills/metrics/SKILL.md) antes de alterar endpoints, serviços de job, consumidores, outbox ou integrações externas. Aplique os critérios de entrega da raiz ao fluxo alterado.
+- Registre criação do job, transições efetivadas, ações, publicação e consumo de eventos e falhas relevantes. Diferencie uma tentativa de escrita/publicação de uma operação confirmada; um rollback ou uma publicação malsucedida não deve aparecer como sucesso.
+- Abra e feche o `CorrelationContext` nos pontos de entrada com job conhecido. Propague o contexto explicitamente em `@Async`, executores e tarefas agendadas; verifique que a reutilização de threads não vaza o `job_id` anterior.
+- Ligue `AppMetrics` ao código que efetivamente executa a operação. Definir o bean ou registrar um meter sem uso no fluxo não atende à entrega. Diferencie duração de requisição HTTP, duração de uma operação local e duração do job assíncrono; o retorno de `POST /jobs` não significa que o job terminou.
+- As métricas de transição e conclusão refletem operações confirmadas e a semântica de deduplicação dos consumidores. Contabilize tentativas e falhas de outbox sem tratar redelivery ou republicação como um segundo resultado de negócio.
+- Reaproveite as métricas HTTP, JVM e processo do Micrometer. Tags de domínio devem ter conjunto limitado e seguir a skill local, sem IDs de job, usuário ou recurso.
+- Exercite o serviço ou handler real em sucesso e falha, confira logs serializados e os meters no `MeterRegistry` e valide a exposição em `/metrics`. Testar apenas `AppMetrics` isoladamente não prova que o fluxo o utiliza.
 
 ## O portão
 

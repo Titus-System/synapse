@@ -5,7 +5,7 @@ description: How the LangGraph state graph is driven and organized — the core/
 
 # Graph
 
-This supersedes the RabbitMQ-based description of the graph in `docs/ARCHITECTURE.md` §3.3. That document is stale on transport, persistence, and the node list itself — the actual set of nodes has not been finalized and will very likely not match the eight it names. Its per-node responsibility descriptions are still a reasonable *starting reference* for what a step does, nothing more.
+The implemented graph is driven by RabbitMQ consumers through `GraphRouter` and `app/graph/entrypoint.py`. Read `docs/ARCHITECTURE.md` §3.3 for current responsibilities and `docs/FLUXO-SPRINT-2.md` for approved work that is not yet implemented. This skill describes local graph conventions; it does not override the repository's transport or ownership rules.
 
 ## Module layout
 
@@ -15,7 +15,7 @@ Everything lives inside `app/graph/`, not at the top level of `app/` — this is
 
 ```
 app/graph/
-  entrypoint.py      # public run(id, prompt) -> astream — the one file meant to be
+  entrypoint.py      # public run/resume entry points -> astream — the one file meant to be
                      # imported from outside app/graph/
   core/
     engine.py        # StateGraph assembly: every edge and conditional-edge/routing function lives here
@@ -24,12 +24,11 @@ app/graph/
     llm/               # named model registry — see below
     tool_dispatch.py    # allowlist validation + the shared tool-execution node — see below
   nodes/
-    parameter_extraction.py
+    load_rule.py
     code_generation.py
     ...                # one file per node; a node graduates to its own folder only once
                         # it accumulates enough of its own helpers to need one
   prompts/
-    parameter_extraction.py
     code_generation.py
     ...                # one file per node that has a prompt; centralized rather than
                         # colocated with its node, since prompts are a first-class audit
@@ -42,7 +41,7 @@ app/graph/
 
 Note the naming collision with the pre-existing `app/core/` (logger, metrics): that one is service-wide infrastructure unrelated to the graph. `app/graph/core/` is the graph's own engine layer. Don't merge them and don't move logger/metrics into `app/graph/core/`.
 
-`entrypoint.py` sits at `app/graph/`, not inside `core/` — it's the one function anything outside the graph subsystem is allowed to import (`app.main`, eventually). Everything in `core/` is internal to the graph and should never be imported from outside `app/graph/`; keeping the entrypoint one level up from `core/` makes that boundary visible in the import path itself, the same way `app/main.py` sits outside `app/core/` at the service level.
+`entrypoint.py` sits at `app/graph/`, not inside `core/` — it's the one function anything outside the graph subsystem is allowed to import (`GraphRouter`, through the application wiring). Everything in `core/` is internal to the graph and should never be imported from outside `app/graph/`; keeping the entrypoint one level up from `core/` makes that boundary visible in the import path itself, the same way `app/main.py` sits outside `app/core/` at the service level.
 
 **Rule: all edges and routing live in `app/graph/core/engine.py`, never inside a node's own file.** A node's position in the pipeline — what precedes it, what follows it, which branch a routing decision sends it down — is graph-topology knowledge, not something the node itself should encode. This keeps the full shape of the graph readable in one place and keeps a node's own file limited to its actual logic: building its input from state, calling its model/tools, parsing the result back into a state update.
 
@@ -50,7 +49,7 @@ Note the naming collision with the pre-existing `app/core/` (logger, metrics): t
 
 ## The shared tool-execution node
 
-**Nothing in the graph uses tools today**, so `app/graph/core/tool_dispatch.py` and the `tools` node do not exist right now: `code_generation` binds no tools, and the pipeline is one straight line with no branch. The rule below is what the first tool-using node has to build; it is not describing code you can go read.
+**Nothing in the graph uses tools today**, so `app/graph/core/tool_dispatch.py` and the `tools` node do not exist. `code_generation` binds no tools. The graph does have conditional routing after `decision` to `suggest_adaptation` or `END`. The rule below is a convention for future tool use, not an implemented node.
 
 There is exactly **one** tool-execution node for the whole graph, not one per tool-using node. Executing a requested tool call ("look up the name and args, run the matching function, return the result") is generic — it doesn't vary by which node asked for it, so splitting it per node would just re-duplicate the thing centralizing `app/graph/tools/` was meant to avoid. It lives in `app/graph/core/` (alongside `tool_dispatch.py`, since dispatch-and-validate and execute-and-return are one unit), not in `nodes/` — it has no feature name of its own; it's infrastructure every tool-using node shares.
 
@@ -66,17 +65,17 @@ Before running anything, it validates the requested tool name and arguments agai
 
 `docs/graph.md` holds a Mermaid diagram of the compiled graph, generated by `app/graph/diagram.py`. After changing a node or an edge in `app/graph/core/engine.py`, run `make graph`. `tests/app/graph/test_diagram.py` fails while the file is stale, so `make pre-commit` refuses a commit that changes the graph without it. The diagram is Mermaid text, never PNG: it diffs in review, and the PNG renderer sends the graph's structure to an external service.
 
-## No RabbitMQ
+## RabbitMQ entry and cycle identity
 
-The graph is no longer entered by consuming a queue message. The caller — another service in this system — provides a unique id and the user's prompt. That id **is** the LangGraph `thread_id`: there is no separate manual fetch of "previous state" before running the graph. LangGraph resolves it internally from the checkpointer.
+RabbitMQ consumers enter the graph through `GraphRouter`. `regra-submetida` starts or continues a cycle; `simulacao-concluida.codegen` resumes execution. Do not add internal HTTP calls.
+
+The current cycle id comes from `thread_do_ciclo(job_id, regra_id)` and is `job_id:regra_id`. A suggested rule has its own thread. Legacy lookup by job is allowed only for a checkpoint of the same rule.
 
 ```python
-config = {"configurable": {"thread_id": job_id}}
+config = {"configurable": {"thread_id": thread_do_ciclo(job_id, regra_id)}}
 ```
 
-If a checkpoint already exists under that id, invoking with it resumes; if not, invoking with the initial input starts fresh. Do not write a bespoke "load state, then decide whether to run from scratch" step — pass the id straight through.
-
-**Open / not yet decided:** the concrete transport that hands `(id, prompt)` to the graph (HTTP route, internal call, etc.). Whatever it is, its only job is to obtain `(id, prompt)` and call the graph — it must not reimplement resume logic.
+The entrypoint inspects checkpoints to distinguish a fresh cycle, an early result, a paused cycle and an already finished cycle. Existing cycles continue without a new initial input. Resume uses `Command(resume=...)`; do not bypass these guards or erase the checkpoint-based duplicate protection.
 
 ## `astream`, not `invoke`/`stream`
 
@@ -97,11 +96,11 @@ Whatever consumes the `astream` loop is responsible for turning these chunks int
 
 Persistence uses `langgraph-checkpoint-postgres`'s `AsyncPostgresSaver`, added via Poetry (see `pyproject.toml`). This is a deliberate exception to the rest of the service's stack:
 
-- It depends on `psycopg` 3 + `psycopg-pool`, **not** `asyncpg`. The rest of `codegen` (SQLAlchemy, when wired) uses `asyncpg`. Expect a second driver/pool living alongside the SQLAlchemy one — there is no way to make the checkpointer reuse an `asyncpg` connection.
+- It depends on `psycopg` 3 + `psycopg-pool`, **not** `asyncpg`. The rest of `codegen` uses SQLAlchemy with `asyncpg`. Expect a second driver/pool living alongside the SQLAlchemy one — there is no way to make the checkpointer reuse an `asyncpg` connection.
 - `AsyncPostgresSaver` can point at the same Postgres server/database as the rest of the system, but it does **not** support a custom schema or table names in the Python client (unlike the JS client). It creates four fixed, unqualified tables on `await checkpointer.setup()`: `checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations`. `setup()` must be called once (idempotent) before the graph is used with that checkpointer — this is the library's own migration mechanism, not something Liquibase/Alembic manages.
 - Checkpointing itself is automatic on every superstep once the graph is compiled with `compile(checkpointer=...)`. No node needs to opt in, and there is no per-node "save now" tool to write — a node that wants state visible outside LangGraph's own tables (e.g. a plain column another service polls) is a separate, deliberate write, not a substitute for the checkpointer.
 
-**Open / not yet decided:** how the checkpointer's connection is configured relative to `Settings` (a dedicated `.env` variable vs. reusing `POSTGRES_*` with a different driver prefix), and whether `setup()` runs at app startup or via a separate one-off command.
+`Settings` supplies the database connection configuration. The lifespan in `app/main.py` opens the psycopg pool and runs `setup()` at startup before consumers start. Domain migrations remain owned by the API through Liquibase.
 
 ## `interrupt()` and `Command(resume=...)`
 
@@ -115,7 +114,7 @@ Both are called directly in application code — they are not framework-internal
 - Anything a node does *before* its `interrupt()` call runs again on every resume. It must be idempotent or side-effect-free (no re-publishing an event, no duplicate row insert) unless duplication is genuinely harmless.
 - Do not make whether `interrupt()` is called, or how many times, depend on data that can differ between the original run and the resumed run — that changes the call order and breaks the positional matching.
 
-Use this for the pause points the graph actually needs: user confirmation of extracted parameters, and delegation to the worker awaiting its result.
+The implemented pause waits for the worker's result. Sprint 2 adds conditional correction rounds only when validation finds problems; it does not require manual confirmation for every valid rule. Checkpoint cleanup is not implemented and must preserve terminal-cycle deduplication.
 
 ## Naming
 
@@ -123,5 +122,6 @@ Node names, tool names, module/file names, the values that appear in `stream_mod
 
 ## References
 
-- Superseded description of node responsibilities, the node list, and the old RabbitMQ-driven entry point: `docs/ARCHITECTURE.md` §3.3 (transport, persistence, and the specific node list are stale; treat the general shape of "what a step does" as a loose starting point only).
+- Current responsibilities and RabbitMQ entry point: `docs/ARCHITECTURE.md` §3.3.
+- Approved Sprint 2 evolution: `docs/FLUXO-SPRINT-2.md`.
 - Implementation: `app/graph/core/`, `app/graph/nodes/`, `app/graph/prompts/`, `app/graph/tools/`.

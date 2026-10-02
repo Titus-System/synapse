@@ -1,4 +1,4 @@
-// Synapse - Modelo de dados da Sprint 1 (T-086)
+// Synapse - Modelo de dados
 // Documento oficial de modelagem: este arquivo é a fonte canônica do modelo -
 // entidades, atributos e relacionamentos. Contexto de arquitetura em
 // docs/ARCHITECTURE.md; contratos entre serviços em contracts/.
@@ -37,15 +37,20 @@
 
 Table usuarios {
   id uuid [pk, default: `uuidv7()`]
-  login text [not null, unique, note: 'identificador exibido da conta no Keycloak']
-  senha_hash text [note: 'legado de autenticação local; nulo para contas do Keycloak']
-  keycloak_sub text [unique, note: 'claim sub do Keycloak; identifica a conta de forma estável']
+  login text [not null, note: 'identificador exibido da conta; no provisionamento, usa preferred_username com fallback para sub']
+  senha_hash text [null, note: 'credencial local opcional; nao utilizada na autenticacao OIDC. Contas provisionadas pelo Keycloak recebem NULL']
+  keycloak_sub text [null, note: 'claim sub do Keycloak; identificador estavel e unico quando preenchido. NULL identifica uma conta local sem vinculo ao Keycloak']
   nome text [not null, note: 'nome de exibicao']
   papel text [not null, note: 'profissional_rh | auditor (DEC-087)']
   ativo bool [not null, default: true, note: 'desativacao logica; false impede a resolucao da conta local pela API, sem encerrar a sessao no Keycloak']
   criado_em timestamptz [not null]
   atualizado_em timestamptz [note: 'null ate a primeira alteracao']
   ultimo_login_em timestamptz [note: 'null ate o primeiro acesso']
+
+  indexes {
+    (login) [unique, name: 'uq_usuarios_login']
+    (keycloak_sub) [unique, name: 'uq_usuarios_keycloak_sub', note: 'indice PARCIAL: WHERE keycloak_sub IS NOT NULL. O DBML nao expressa o predicado; permite varias contas locais sem vinculo ao Keycloak']
+  }
 }
 
 // ─────────────── Grupo 1 - Estado e decisões (escrita exclusiva da API) ───────────────
@@ -57,10 +62,7 @@ Table submissoes {
   conteudo jsonb [note: '''
 Formato: contracts/domain/submissao-conteudo.schema.json
 NULL quando tipo = voz - ali o que o usuario enviou e o audio.
-E a ENTRADA do fluxo. Tudo a jusante e derivado: regras.nucleo ja passou pela
-confirmacao, e trilhas_auditoria.conclusao registra so o que cada no concluiu. Sem esta
-linha nao ha como conferir o que o sistema recebeu contra o que ele produziu.
-Append-only: nunca sofre UPDATE.
+Entrada original do fluxo; regras.nucleo e a representacao derivada, e trilhas_auditoria.conclusao registra o que cada no concluiu. O conteudo original nao e sobrescrito; a API pode preencher transcricao e transcrito_em depois do envio de voz. As rodadas de correcao da Sprint 2 serao armazenadas separadamente.
 ''']
   binario bytea [null, note: 'null quando tipo = formulario. O audio enviado pelo usuario']
   formato text [null, note: 'null quando tipo = formulario. ex. webm | ogg | wav']
@@ -77,17 +79,13 @@ Table jobs {
 NULL quando o job nasceu de reprocessamento - ali a procedencia e job_origem_id.
 De qual submissao este job nasceu. N-1: uma submissao pode gerar varios jobs, e um job
 nunca vem de mais de uma.
-Determina o ponto de entrada do grafo, sem precisar de coluna propria:
-null -> reprocessamento, entra direto no no de confirmacao;
-senao submissoes.tipo diz formulario (aguardando_confirmacao_parametros) ou voz
-(aguardando_transcricao).
+Procedencia original, preservada durante as correcoes. Formulario atual inicia geracao com regra estruturada; reprocessamento usa aguardando_confirmacao_parametros. Voz e aguardando_transcricao sao fluxo planejado da Sprint 2; as referencias de correcoes ficam nas rodadas.
 ''']
   competencias text[] [not null, note: '''
 Competencias a simular, formato AAAA-MM. O job cobre o periodo inteiro em UMA simulacao,
 com os meses agregados - nao existe uma simulacao por competencia. A quebra mensal sai
 em resultados_simulacao.decomposicao, na quebra competencia.
-["2025-07" ... "2025-12"] = periodo todo. Subconjunto qualquer = fatia, e nao precisa
-ser contiguo (ex. ["2025-08", "2025-11"]).
+["2025-08" ... "2025-12"] = periodo canonico publicado. Subconjuntos podem ser nao contiguos, como ["2025-08", "2025-11"].
 DEFAULT = periodo inteiro: nao informado na requisicao, a API preenche com todas as
 competencias do dataset. Nunca vazio - array vazio seria um job que nao simula nada.
 Forma canonica: ordem crescente, sem repeticao.
@@ -117,7 +115,7 @@ Table job_transicoes {
   status_novo text [not null]
   ocorrido_em timestamptz [not null]
   ator text [not null, note: 'usuario | sistema | evento']
-  motivo text [note: 'null fora de paradas; razao localizada de parada (§3.3)']
+  motivo text [note: 'null fora de paradas; codigo do motivo, traduzido pela API para exibicao']
 
   indexes {
     (job_id, ocorrido_em)
@@ -154,10 +152,10 @@ Table simulacoes {
 
 Table trilhas_auditoria {
   id uuid [pk, default: `uuidv7()`]
-  evento_id uuid [not null, note: 'uuid aleatorio gerado pelo publicador e carregado na mensagem; a API grava o que recebeu. Chave de idempotencia contra reentrega do broker.']
+  evento_id uuid [not null, note: 'UUIDv5 deterministico do job, no e referencia do artefato, gerado pelo codegen; a API grava o recebido. Idempotencia contra reentrega e republicacao do mesmo evento logico.']
   job_id uuid [not null, ref: > jobs.id]
   simulacao_id uuid [ref: > simulacoes.id, note: 'null p/ nos 1-2 (voz, Sprint 2)']
-  no text [not null, note: 'enum dos nos 1..8, mais sugestao_adaptacao (desvio do no decisao)']
+  no text [not null, note: 'nome do no concluido, conforme o contrato no-concluido; inclui suggest_adaptation']
   concluido_em timestamptz [not null, note: 'conclusao do no, vinda do evento no-concluido']
   regra_id uuid [ref: > regras.id, note: 'null enquanto a regra nao esta formada']
   conclusao jsonb [not null, note: '''

@@ -2,7 +2,7 @@
 
 ## Conventions live in `.agents/skills/`
 
-Every convention in this repo is a skill. Read the one that covers what you are about to touch, and when a rule changes, change it in its skill — nothing here is documented twice.
+Stack conventions live in skills; mandatory delivery criteria live here and in the root `AGENTS.md`. Read the skills covering the changed behavior, including logging and metrics whenever changing an application flow.
 
 | Skill | Read before |
 | --- | --- |
@@ -14,6 +14,16 @@ Every convention in this repo is a skill. Read the one that covers what you are 
 | [`commit-and-comments`](.agents/skills/commit-and-comments/SKILL.md) | Writing a commit message or a code comment. |
 
 Design sketches that are not yet code live in [`docs/`](docs/).
+
+## Observability is required for delivery
+
+- Apply the root observability criteria whenever changing a consumer, graph node, pause/resume path, model call or artifact publication. Read the local logging and metrics skills; the shared [log schema](../contracts/observability/log.schema.json) is the authority for the envelope.
+- Log relevant node starts and outcomes, interruption, resumption, retries and terminal failures with the job context and `no` when inside a node. A graph waiting for correction or worker execution is paused, not completed. Log references and sanitized reasons, never prompts, transcriptions, model responses or generated code.
+- Establish correlation at the consumer entry point and scope node context to the node execution. Reset context variables in `finally`, including on cancellation or error, and preserve correlation across async tasks without leaking it to another job.
+- Load metric collectors during application composition into the registry exposed by `/metrics` and increment or observe them in the actual graph and consumer paths. An unused `global_metrics.py`, an uncalled helper or process metrics alone do not instrument the business flow.
+- Measure actual processing attempts and node executions according to explicit semantics. Separate active execution time from persisted waiting time; an `interrupt()` is not a failure. Resume reexecutes interrupted nodes, so repeated side effects must not inflate unique completion counts.
+- Record durations on success and failure, distinguish model/provider failures from rule validation outcomes and duplicate messages, and use only bounded operation/outcome labels. Job, rule and artifact identifiers stay in logs, not metric labels.
+- Verify observability through the actual graph or router path, with success, failure and affected pause/resume or redelivery cases. Inspect serialized logs, correlation cleanup and the exposed registry; tests of a metric helper alone are insufficient. Report any runtime export or collection check that was not performed.
 
 ## Code quality
 

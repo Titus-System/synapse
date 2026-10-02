@@ -1,45 +1,76 @@
 # codegen
 
-Processo Python responsável pela geração assistida do Synapse. A lógica de negócio roda
-como um grafo LangGraph; a comunicação com os outros serviços ocorre pelo RabbitMQ. A
-aplicação FastAPI existe para observabilidade operacional, não como API de negócio.
+Processo Python responsável pela geração assistida do Synapse. A lógica de negócio roda como um grafo LangGraph; a comunicação com os outros serviços ocorre pelo RabbitMQ. FastAPI expõe a observabilidade operacional.
 
 ## Stack
 
-| | |
+| Camada | Tecnologia |
 | --- | --- |
 | Runtime | Python 3.12 |
-| Web | FastAPI, Uvicorn |
-| Agentes | LangGraph (`astream`, checkpointer `AsyncPostgresSaver`) |
-| Settings | Pydantic Settings, lido de `.env` |
-| Banco | PostgreSQL via SQLAlchemy 2 (async, asyncpg) e Alembic; o checkpointer do LangGraph usa uma conexão `psycopg` 3 separada no mesmo servidor, pois essa biblioteca não suporta `asyncpg` |
-| Mensageria | RabbitMQ via `aio-pika` |
-| Telemetria | Logs JSON estruturados, `prometheus-client`, OpenTelemetry SDK |
-| Empacotamento | Poetry, com `requirements*.txt` exportado para pip |
-| Qualidade | Ruff, mypy (strict), Bandit, pytest |
-| Container | Build multi-estágio Docker, Compose com Grafana Alloy |
+| Web operacional | FastAPI, Uvicorn |
+| Grafo | LangGraph assíncrono, com `AsyncPostgresSaver` |
+| Settings | Pydantic Settings |
+| Artefatos | PostgreSQL via SQLAlchemy 2 e asyncpg |
+| Checkpoints | PostgreSQL via psycopg 3 e psycopg-pool |
+| Mensageria | RabbitMQ via aio-pika |
+| Telemetria | Logs JSON, prometheus-client e OpenTelemetry |
+| Qualidade | Ruff, mypy, Bandit e pytest |
 
-As tabelas de checkpoint do LangGraph (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`,
-`checkpoint_migrations`) são criadas por `AsyncPostgresSaver.setup()`, não pelo Alembic.
+As migrations de domínio pertencem à API, via Liquibase. As quatro tabelas internas de checkpoint são criadas por `AsyncPostgresSaver.setup()` no início da aplicação.
 
 ## Endpoints
 
 | Método | Caminho | Finalidade |
 | --- | --- | --- |
-| GET | `/health` | Verifica se o processo está disponível. |
-| GET | `/metrics` | Expõe métricas no formato de texto do Prometheus. |
+| GET | `/health` | Disponibilidade do processo |
+| GET | `/metrics` | Métricas Prometheus |
 
-Não há outros endpoints, documentação OpenAPI ou rotas de negócio.
+Não há interface HTTP de negócio entre o codegen, a API e o worker.
 
-## Mensageria
+## Mensageria e inicialização
 
-Os seis DTOs, consumers/producers, política de confirmações, configuração do broker
-e testes reais do compose estão descritos em [Mensageria T-049](docs/mensageria.md).
-O lifespan declara a topologia e disponibiliza producers; inicia o consumo quando
-`criar_aplicacao(roteador=...)` recebe a integração real com o grafo. Sem roteador,
-as mensagens permanecem no broker e o processo registra um aviso.
+A montagem padrão em `app/main.py::criar_aplicacao_padrao()` conecta o `GraphRouter` ao grafo. O lifespan prepara conexões, checkpointer e producers e inicia os consumers reais.
 
-## Execução local
+- `regra-submetida` inicia ou continua um ciclo.
+- `simulacao-concluida.codegen` retoma a espera pela execução, independentemente do consumer da API.
+- `parametros-confirmados` tem fila e publicador na API, mas seu consumo ainda não está implementado no codegen.
+
+Topologia, confirmações e integração estão em [Mensageria](docs/mensageria.md); o comportamento de retomada está em [Retomada após execução](docs/retomada-apos-execucao.md).
+
+## Grafo implementado
+
+```text
+load_rule → code_generation → persist_response → extract_code
+→ dispatch_execution → await_execution → decision
+                                        ├─ suggest_adaptation → END
+                                        └─ END
+```
+
+O grafo recebe referências de uma regra já estruturada. Não há nó ativo de extração inicial de texto ou áudio. A validação de domínio existente é usada no caminho de adaptação; sua aplicação no pipeline principal e o loop do chatbot são trabalho da Sprint 2.
+
+O código gerado é persistido e delegado ao worker, que o executa em sandbox. O codegen não executa esse código nem produz números de simulação pela LLM.
+
+A alternativa automática tem recorte de núcleo, sem especificações, e uma tentativa por job. A API persiste a versão proposta e inicia outro ciclo para executá-la antes de uma aceitação.
+
+## Estado e persistência
+
+O estado ativo é o `AgentState` definido em `app/graph/core/state.py`. Ele guarda identificação do ciclo, competências, orçamento em representação decimal textual, referências de artefatos e os dados temporários necessários aos nós. `app/estado.py::EstadoGrafo` não é o estado usado pelo engine atual.
+
+O orçamento já é enviado pela API em `regra-submetida`. O campo é opcional no schema por compatibilidade; quando ausente, não pode ser buscado em `jobs`, pois o codegen não possui essa permissão. A delegação ao worker exige esse valor.
+
+O `thread_id` é `job_id:regra_id`, produzido por `thread_do_ciclo`. Há compatibilidade com checkpoints antigos por job somente quando correspondem à mesma regra. Sugestões geram ciclos separados.
+
+A pausa de execução usa `interrupt()`; a retomada usa `Command(resume=...)`. Um checkpoint já existente não deve ser reiniciado com uma entrada nova. O tratamento distingue resultado antecipado, ausência de checkpoint, ciclo concluído e retomada efetiva.
+
+Os identificadores de eventos de trilha são determinísticos por job, nó e artefato. Checkpoints finais também participam da deduplicação; sua limpeza ainda não está implementada e precisa preservar essa proteção.
+
+## Contratos
+
+`scripts/preparar_contratos.py` incorpora os schemas do monorepo ao componente, preservando os diretórios. O runtime lê essa cópia local, sem depender da raiz do repositório. No Docker, os contratos entram na imagem durante o build.
+
+A representação da regra é definida pelos [contratos de domínio](../contracts/domain/README.md). Usar o schema completo não comprova que a geração já implementa corretamente todos os construtos; essa prova faz parte da Sprint 2.
+
+## Execução e verificação
 
 Requer Python 3.12 e Poetry:
 
@@ -49,112 +80,32 @@ poetry run python scripts/preparar_contratos.py
 make dev
 ```
 
-O serviço fica disponível em `http://localhost:8000`. Os testes e verificações de
-qualidade são executados por:
+O serviço fica em `http://localhost:8000`. Execute o gate do componente:
 
 ```bash
 ./verify.sh
 ```
 
-Sem `make`, prepare os contratos com o comando acima e execute `poetry run pytest`,
-`poetry run ruff check app/`, `poetry run ruff format --check app/`,
-`poetry run mypy app/` e `poetry run bandit -r app/`.
+Sem `make`, prepare os contratos e execute `poetry run pytest`, `poetry run ruff check app/`, `poetry run ruff format --check app/`, `poetry run mypy app/` e `poetry run bandit -r app/`.
 
-## Estado do grafo
-
-`app/estado.py` define `EstadoGrafo` como modelo Pydantic, com validação em runtime.
-`job_id` (UUID), `origem` e `competencias` são obrigatórios: são os dados comuns
-do evento `regra-submetida`. O nome plural preserva o contrato: um job abrange uma
-lista não vazia de meses `AAAA-MM`, inclusive meses não contíguos.
-
-Orçamento, representação da regra, código, referência do resultado e veredito
-começam em `None`. O orçamento existe no job da API, mas não vem no evento inicial;
-seu carregamento pertence à integração. A referência do resultado é o UUID de
-`resultados_simulacao`, sem totais ou linhas de bases. `codigo_gerado` é texto
-interno, nunca executado pelo codegen nem enviado em uma mensagem de negócio.
-
-O histórico começa com uma lista independente por instância. Cada item é uma
-proposta no mesmo formato `RepresentacaoRegra` da regra principal. Esta é a forma
-mínima do histórico de sugestões da US03; não define decisões do usuário, fluxos
-de adaptação ou resultados de novas simulações.
-
-`RepresentacaoRegra` envolve a estrutura original da T-004 e a valida diretamente
-com `jsonschema` (draft 2020-12, incluindo formatos e referências locais).
-Não há outro schema da regra. `scripts/preparar_contratos.py` copia todos os
-`contracts/**/*.schema.json` para `codegen/contracts/`, preservando diretórios,
-um artefato ignorado pelo Git. A descoberta recursiva inclui eventos, comandos
-(armazenados em `events/` pela T-003) e suas referências sem listas de arquivos.
-Os alvos de instalação, execução e testes do Makefile fazem essa preparação.
-No Docker, o `COPY contracts ./contracts` existente incorpora os schemas na imagem.
-Runtime lê somente essa cópia do componente, sem consultar a raiz do monorepo.
-Todos os schemas de domínio incorporados são registrados dinamicamente; apenas
-`representacao-regra.schema.json` identifica o schema raiz. Os objetos permanecem
-extensíveis conforme as [convenções canônicas da T-004](../contracts/domain/README.md#convenções).
-
-Ao ler uma regra JSON, use `json.loads(texto, parse_float=Decimal)` para preservar
-os números como decimais desde a entrada. O modelo recusa `float`; aceita números
-inteiros e `Decimal`, e datas ISO ou objetos `date`. Não interpreta textos
-arbitrários como datas. `para_contrato()` fornece a estrutura para validação JSON
-Schema: datas nativas viram ISO e `Decimal` continua numérico. Cada chamada revalida
-a estrutura atual, inclusive mutações aninhadas. Falhas estruturais e de contrato
-produzem erros sanitizados, sem valores ou caminhos extraídos do conteúdo da regra.
-
-```python
-from decimal import Decimal
-from uuid import UUID
-
-from app.estado import EstadoGrafo, desserializar_estado, serializar_estado
-
-estado = EstadoGrafo(
-    job_id=UUID("3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"),
-    origem="voz",
-    competencias=["2025-08", "2025-11"],
-    orcamento=Decimal("1234567890.123456789"),
-)
-tipo, dados = serializar_estado(estado)
-restaurado = desserializar_estado((tipo, dados))
-assert restaurado == estado
-```
-
-A representação persistível é `("msgpack", bytes)`, produzida pelo
-`JsonPlusSerializer` de `langgraph-checkpoint`, com pickle desabilitado e sem
-permitir reconstrução de classes da aplicação. O payload contém o dicionário
-`model_dump(mode="python")`, preservando `Decimal`, `date` e `UUID` com os codecs
-oficiais. A desserialização revalida o estado e a T-004. A serialização também
-revalida alterações em listas e objetos aninhados. Use essas funções para o
-round-trip; `model_dump_json()` converte Decimal em texto e não é esse formato.
-
-Os testes cobrem a camada de serialização usada pelo checkpointer e a retomada
-em outro processo. A conexão PostgreSQL, o grafo e seus canais ficam para as
-respectivas tarefas de integração; não são implementados pelo schema de estado.
-
-## Docker Compose
-
-Na raiz do repositório:
+Na raiz do repositório, para Compose:
 
 ```bash
 docker compose -f deploy/docker-compose.yml up -d --build --wait codegen
 ```
 
-O serviço é publicado em `http://localhost:8001`. Os logs são objetos JSON emitidos
-somente no stdout, com `service.name` igual a `synapse-codegen`.
+O Compose publica o serviço em `http://localhost:8001`. Logs são JSON no stdout, com `service.name=synapse-codegen`; não devem incluir prompts, transcrições, código ou linhas de dataset.
 
-## Estrutura
+## Organização
 
-```text
-app/
-  main.py          casca FastAPI operacional
-  config.py        Settings
-  mensageria/      integração RabbitMQ
-  graph/           subsistema do grafo — veja .agents/skills/graph/SKILL.md
-    entrypoint.py    única fronteira pública de app/graph/
-    core/            engine, state, checkpointer, registry de modelos, tool dispatch
-    nodes/           um arquivo por nó do grafo
-    prompts/         um arquivo por nó que tem prompt, centralizado
-    tools/           um arquivo por ferramenta (ou grupo coeso), compartilhado entre nós
-  core/            logs e métricas transversais
-tests/             espelha app/
-```
+- `app/main.py`: aplicação operacional e montagem das integrações.
+- `app/config.py`: settings.
+- `app/mensageria/`: transporte RabbitMQ e roteamento.
+- `app/graph/entrypoint.py`: fronteira pública do grafo.
+- `app/graph/core/`: engine, estado, checkpointer e registro de modelos.
+- `app/graph/nodes/`: um arquivo por nó.
+- `app/graph/prompts/`: prompts centralizados.
+- `app/core/`: infraestrutura transversal de logs e métricas.
+- `tests/`: verificações do componente.
 
-`app/core/` (logger, métricas — nível do serviço) e `app/graph/core/` (camada de engine do grafo)
-são pastas de mesmo nome em níveis distintos — não confundir.
+`app/core/` e `app/graph/core/` são camadas distintas. Convenções do grafo estão em [.agents/skills/graph/SKILL.md](.agents/skills/graph/SKILL.md). O fluxo aprovado para a próxima entrega está em [Fluxo e decisões da Sprint 2](../docs/FLUXO-SPRINT-2.md).

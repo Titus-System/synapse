@@ -4,11 +4,13 @@
 
 * Não há aqui detalhamento extensivo das regras de negócio da aplicação, apenas o suficiente para entender a modelagem de dados.
 
-* O principal guia de decisões foram as US-05 e US-04, que exigem auditabilidade e explicabilidade do sistema.
+* As US-05 e US-04 orientam a modelagem e exigem auditabilidade e explicabilidade do sistema.
 
 O arquivo [`modelo-dados.dbml`](modelo-dados.dbml) é a fonte canônica e define tabelas, colunas, tipos, nulidade, chaves e índices; as convenções do esquema estão no cabeçalho dele. Se os dois divergirem, vale o DBML.
 
 O formato das colunas `jsonb` é definido pelos schemas em [`contracts/domain/`](../../contracts/domain/), que dizem quais chaves são obrigatórias, que tipo cada uma tem e que valores aceita. Os exemplos deste documento são ilustrativos e servem para leitura; o que vale para implementar é o schema.
+
+O esquema abaixo é o existente. As extensões aprovadas para a Sprint 2 estão na seção 6 e em [Fluxo e decisões da Sprint 2](../FLUXO-SPRINT-2.md); não são tabelas ou colunas já disponíveis.
 
 ## 1. As tabelas
 
@@ -16,9 +18,19 @@ São catorze, num schema único. Cada uma aparece abaixo com o que guarda e, qua
 
 ### `usuarios`
 
-A identidade é autenticada pelo Keycloak, conforme o [ADR-006](../adrs/ADR-006.md). A API mantém esta conta local para relacionar o usuário às submissões, aos jobs e à trilha de auditoria. `keycloak_sub` armazena o claim `sub` e tem unicidade; `senha_hash` é um campo legado, opcional, preenchido com `NULL` nas novas contas do Keycloak.
+A identidade é autenticada pelo Keycloak, conforme o [ADR-006](../adrs/ADR-006.md). A API mantém esta conta local para relacionar o usuário às submissões, aos jobs e à trilha de auditoria.
 
-Antes de consultar ou escrever a conta, a API exige exatamente um papel de negócio conhecido em `realm_access.roles`: `profissional-rh` ou `auditor`. Nenhum deles, ou ambos, resulta em 403; papéis técnicos adicionais são ignorados. A API busca o `sub`, com precedência sobre um registro legado com `keycloak_sub` nulo e `login` igual ao `preferred_username`. Se não encontrar uma conta, cria uma com papel local correspondente (`profissional_rh` ou `auditor`). O papel do token rege a autorização em produção; contas existentes não têm a coluna `papel` sincronizada no login. No modo de desenvolvimento sem Keycloak, a API usa o primeiro usuário ativo e lê seu papel local canônico.
+#### Identidade e restrições
+
+- `id` é a identidade local referenciada por `submissoes.usuario_id` e `jobs.usuario_id`. O vínculo ao Keycloak preserva esse identificador e a posse dos dados.
+- `login` é obrigatório e único pelo índice `uq_usuarios_login`. No provisionamento, a API usa `preferred_username`, com fallback para `sub` quando o claim está ausente ou vazio.
+- `keycloak_sub` é um `text` nullable que armazena o claim `sub`, identificador estável da conta no Keycloak. `NULL` indica uma conta local sem vínculo ao provedor.
+- `uq_usuarios_keycloak_sub` é um índice único parcial com `WHERE keycloak_sub IS NOT NULL`: um mesmo `sub` identifica no máximo uma conta local, e várias contas sem vínculo podem ter `NULL`. O DBML registra o predicado na nota do índice.
+- `senha_hash` é uma credencial local opcional, não utilizada na autenticação OIDC. A API insere `NULL` ao provisionar uma conta pelo Keycloak; as senhas são geridas pelo provedor.
+
+#### Provisionamento e autorização
+
+Antes de consultar ou escrever a conta, a API exige exatamente um papel de negócio conhecido em `realm_access.roles`: `profissional-rh` ou `auditor`. Nenhum deles, ou ambos, resulta em 403; papéis técnicos adicionais são ignorados. A API procura primeiro a conta pelo `sub`; se não houver vínculo, procura uma conta com `keycloak_sub` nulo e o mesmo `login` resolvido do token. Ao encontrar uma conta ativa, preenche `keycloak_sub` e atualiza `nome` e `ultimo_login_em`. Se não encontrar uma conta, cria uma com papel local correspondente (`profissional_rh` ou `auditor`). O papel do token rege a autorização em produção; contas existentes não têm a coluna `papel` sincronizada no login. No modo de desenvolvimento sem Keycloak, a API usa o primeiro usuário ativo e lê seu papel local canônico.
 
 Usuário desativado mantém a linha porque jobs antigos a referenciam. `ativo = false` impede a resolução dessa conta local pela API, mas não encerra a sessão no Keycloak. As operações de jobs seguem a matriz da DEC-087 e conferem a posse por `jobs.usuario_id`, conforme o ADR-006.
 
@@ -57,16 +69,16 @@ O processamento de uma submissão do início ao fim. O `id` desta tabela é a ch
 A coluna `competencias` é um array de texto com os meses a simular.
 
 ```
-["2025-07", "2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
+["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
 ```
 
-O job cobre o período inteiro em uma simulação, com os meses agregados, e não uma simulação por competência. Qualquer subconjunto das seis competências do dataset é válido, contíguo ou não, e a lista nunca fica vazia. A forma canônica é ordem crescente sem repetição, senão o mesmo conjunto de meses vira dois valores distintos. O formato é `AAAA-MM` porque as bases só trazem competência mensal.
+O job cobre o período inteiro em uma simulação, com os meses agregados. Qualquer subconjunto das cinco competências canônicas de agosto a dezembro de 2025 é válido, contíguo ou não, e a lista nunca fica vazia. A forma canônica é ordem crescente sem repetição. Competência usa `AAAA-MM`; datas diárias de vendas existem somente na particularidade de novembro/Black Friday.
 
 A procedência é `submissao_id` ou `job_origem_id`, nunca as duas. É dela que se deduz o ponto de entrada no grafo, sem precisar de coluna dedicada.
 
 ### `regras`
 
-A representação estruturada da regra, que é o artefato que o usuário confirma antes de qualquer código ser gerado. A regra vive em duas colunas: `nucleo`, com os campos que toda regra tem, e `especificacoes`, com tudo o mais que ela tiver.
+A representação estruturada da regra, armazenada em `nucleo` e `especificacoes`. O fluxo atual de formulário gera versões com especificações vazias. Na Sprint 2, extração e reextração produzem a regra completa; validação sem problemas permite geração automática, enquanto problemas acionam o chatbot.
 
 ```json
 {
@@ -97,7 +109,7 @@ São esses cinco campos e nenhum outro, no vocabulário da DEC-084. Matrícula n
 ]
 ```
 
-Todo item tem a mesma anatomia: `ref` identifica, `construto` diz de que forma o elemento é, e o resto são os campos que aquela forma exige. Sem o construto não há como validar, porque é ele que diz que `elem.1` é uma faixa e portanto precisa de limite superior. Elemento que não corresponde a nenhuma forma conhecida entra como `generico`. A ordem do array é a ordem de exibição na tela de confirmação.
+Todo item tem a mesma anatomia: `ref` identifica, `construto` diz de que forma o elemento é, e o resto são os campos que aquela forma exige. Sem o construto não há como validar, porque é ele que diz que `elem.1` é uma faixa e portanto precisa de limite superior. Elemento que não corresponde a nenhuma forma conhecida entra como `generico`. A ordem do array é a ordem de exibição dos elementos da regra.
 
 #### Identificação das partes da regra
 
@@ -115,7 +127,7 @@ O que garante isso não é disciplina de código: nenhum usuário de banco tem `
 
 ### `job_transicoes`
 
-Uma linha por mudança de status do job. É a trilha da máquina de estados da API, coisa diferente da trilha por nó do grafo. Só recebe `INSERT`.
+Uma linha por mudança de status do job. É a trilha da máquina de estados da API, diferente da trilha por nó do grafo. Só recebe `INSERT`. `motivo` guarda o código da razão; a API o traduz para a mensagem exibida. A exposição consistente desse motivo em consulta e SSE é parte da T-201.
 
 ### `job_acoes`
 
@@ -152,7 +164,7 @@ A coluna `conclusao` guarda o que o nó concluiu, e a forma muda de nó para nó
 
 Só `resumo` é comum aos três. Achatar essa variação em colunas produziria dezenas delas quase sempre nulas. O objeto não repete o que a linha já alcança: o nome do nó está na coluna `no`, o veredito em `resultados_simulacao` e a razão de uma parada em `job_transicoes.motivo`.
 
-A coluna `evento_id` é a chave de idempotência, com índice único. O broker entrega ao menos uma vez, e uma reentrega duplicaria a trilha. O valor é um uuid aleatório que o codegen gera ao publicar e carrega na mensagem, e precisa vir de fora porque qualquer valor gerado na recepção seria diferente nas duas entregas. Não cobre republicação pelo produtor, que geraria um uuid novo.
+A coluna `evento_id` é a chave de idempotência, com índice único. O codegen usa UUIDv5 derivado do job, nó e referência do artefato em `id_do_evento_de_trilha`. Reentregas e republicações do mesmo evento lógico conservam a identidade; a API grava o identificador recebido e evita duplicação da trilha.
 
 ### `prompts`
 
@@ -187,7 +199,7 @@ A narrativa em linguagem de negócio sobre o que a simulação mostrou, uma por 
 
 ### `resultados_simulacao`
 
-O que o sandbox apurou. É escrita pelo worker num único `INSERT` e nunca alterada depois, e por isso as três colunas de conteúdo são `jsonb`: chegam juntas, são lidas inteiras e nenhuma serve de critério de busca.
+O artefato produzido pela execução e pela verificação do worker, persistido com `INSERT` e sem alteração posterior. No sucesso, contém totais, asserções e decomposição. Falha de execução ou asserção violada não produz valores financeiros válidos. O diagnóstico persistente das falhas é uma extensão ainda prevista nas T-202–T-204.
 
 A coluna `totais` traz os agregados do período inteiro, somando todas as competências do job, e é nula quando `status` não é `sucesso`.
 
@@ -224,9 +236,9 @@ A coluna `decomposicao` traz a quebra da diferença em relação ao baseline, co
 
 São sempre diferença, nunca total: somar qualquer quebra dá `totais.diferenca_abs`. As duas lojas fecham em 11.788,00, e o mesmo vale para marca, cargo e competência.
 
-Zero e ausência dizem coisas diferentes. `2025-08` com zero é um mês que foi simulado e que a regra não afetou. Ausente da quebra por elemento significa efeito não mensurável ou implementação faltante.
+Zero e ausência dizem coisas diferentes. `2025-08` com zero é um mês que foi simulado e que a regra não afetou. Um elemento com efeito zero permanece representado com zero; ausência de elemento exigido é falha de cobertura, não resultado parcial aceitável.
 
-As chaves de `elemento` são os identificadores definidos em `regras`.
+As chaves de `elemento` são os identificadores definidos em `regras`. Essas quebras são mapas independentes de diferenças: não incluem matrícula, não preservam os dataframes da apuração e não permitem reconstruir linhas de colaborador × loja × competência. A extensão com valores absolutos e o detalhamento estão previstos na Sprint 2.
 
 ### `outbox_events`
 
@@ -236,16 +248,17 @@ A coluna `payload` é o corpo do evento, carregando referências e nunca o conte
 
 ```json
 { "job_id": "b3f1…", "submissao_id": "9ac2…", "origem": "formulario",
-  "competencias": ["2025-08", "2025-11"], "regra_id": "77de…" }
+  "competencias": ["2025-08", "2025-11"], "regra_id": "77de…",
+  "orcamento": 485000.00 }
 ```
 
-`origem` e `competencias` viajam como valor mesmo existindo no banco, porque nem codegen nem worker têm permissão em `jobs`: o `job_id` é chave de correlação e não ponteiro que o consumidor consiga seguir. O formato ainda é provisório e será reconciliado com os schemas em `contracts/events/`.
+`origem` e `competencias` viajam como valor mesmo existindo no banco, porque nem codegen nem worker têm permissão em `jobs`: o `job_id` é chave de correlação e não ponteiro que o consumidor consiga seguir. O formato é definido pelo schema da mensagem em `contracts/events/`. `orcamento` é opcional no evento por compatibilidade aditiva e já é enviado pela API.
 
 ## 2. Quem escreve o quê
 
 A API escreve `usuarios`, `submissoes`, `jobs`, `job_transicoes`, `job_acoes`, `simulacoes`, `trilhas_auditoria` e `outbox_events`. O codegen insere `prompts`, `respostas_modelo`, `codigos_gerados` e `explicacoes`. O worker insere só `resultados_simulacao`.
 
-`regras` é a única escrita pelos dois: o codegen insere a versão que extrai, a API insere a versão que o usuário confirma. Nenhum dos dois tem `UPDATE` ou `DELETE` — é aí que a imutabilidade da regra deixa de ser convenção e vira permissão, e editar uma regra significa inserir uma versão nova encadeada por `regra_origem_id`.
+`regras` permite inserção pela API e pelo codegen. O fluxo implementado usa a API para versões submetidas, confirmadas ou propostas na adaptação; a extração inicial pelo codegen ainda precisa ser construída. Nenhum dos dois tem `UPDATE` ou `DELETE`: editar significa inserir uma versão nova encadeada por `regra_origem_id`.
 
 O que impõe isso é a permissão do usuário de banco com que cada serviço conecta, definida nas migrations e portanto ausente do DBML. Quem insere também recebe `SELECT` na mesma tabela, porque o id nasce de `DEFAULT uuidv7()` no servidor e o `INSERT` o lê de volta no próprio comando.
 
@@ -277,7 +290,7 @@ Partindo de um job, chega-se a tudo. A procedência leva a `submissoes` e à ent
 
 O caminho inverso, de um resultado até a submissão, são dois saltos: `job_id` até `jobs` e `submissao_id` até `submissoes`. Em job de reprocessamento `submissao_id` é nulo, e o percurso sobe por `job_origem_id` até encontrar o job que tem submissão, o que faz disso uma consulta recursiva e não um join fixo. Há um caminho redundante que serve de conferência, por `codigo_gerado_id` até `codigos_gerados` e daí por `regra_id` até `regras`, que também carrega `job_id`; os dois têm que dar no mesmo job.
 
-Para saber o que o usuário editou, compare `submissoes.conteudo` com `regras.nucleo`. A linha de confirmação na trilha lista os campos corrigidos.
+No fluxo atual, a entrada e as versões permitem comparar parâmetros. Para o chatbot da Sprint 2, a relação entre versão analisada, conflito, submissão de correção e versão resultante será preservada em uma tabela de rodadas; o esquema existente não registra sozinho essa sequência.
 
 Duas coisas o esquema não reconstrói. Qual simulação foi liberada, porque `job_acoes` registra a ação sem apontar simulação, e num job com várias alternativas isso só se infere pela ordem dos timestamps. E um nó cujo evento se perdeu entre a gravação dos artefatos e a publicação: os artefatos continuam alcançáveis pelo `job_id`, mas a sequência de nós fica com um buraco que nada denuncia.
 
@@ -285,12 +298,45 @@ Duas coisas o esquema não reconstrói. Qual simulação foi liberada, porque `j
 
 O dataset e os baselines são estáticos e vivem embutidos na imagem do sandbox, sem versionamento no banco. A consequência aceita é que dois resultados apurados sobre imagens diferentes ficam indistinguíveis.
 
-As tabelas de checkpoint do LangGraph são criadas e migradas pela própria biblioteca, ficam no mesmo schema e só o codegen as acessa. Nenhuma chave estrangeira atravessa essa fronteira, e a correlação com o resto é o `job_id` usado como `thread_id`.
+As tabelas de checkpoint do LangGraph são criadas e migradas pela própria biblioteca, ficam no mesmo schema e só o codegen as acessa. Nenhuma chave estrangeira atravessa essa fronteira, e a correlação usa `thread_id = job_id:regra_id`, com fallback legado por job somente para o mesmo ciclo. A limpeza ainda não foi implementada; checkpoints concluídos participam da deduplicação.
 
 Os `GRANT` que sustentam tanto o isolamento entre serviços quanto a imutabilidade da regra são migration, escritos junto ao changeset que cria cada tabela.
 
 Os enums do DBML são vocabulário documentado e não `CHECK`. Exclusão mútua entre colunas, formato de competência e completude por construto são validados no código de cada stack, com `contracts/` como autoridade compartilhada do vocabulário.
 
-## 6. Em aberto
+## 6. Extensões aprovadas para a Sprint 2
 
-O evento que alimenta a trilha precisa carregar `evento_id`, que já está no catálogo de mensagens da arquitetura e da ADR-003 mas ainda não tem schema em `contracts/events/`. O `payload` do outbox segue provisório e precisa ser reconciliado com esses schemas antes de a migration congelar o formato. Nada no esquema aponta qual simulação foi liberada. E `job_transicoes` recebe um `INSERT` por evento consumido sem ter chave de idempotência, o mesmo problema que `evento_id` resolve na trilha.
+Esta seção descreve trabalho planejado. As migrations e os schemas correspondentes devem acompanhar a implementação; as estruturas ainda não fazem parte do DBML existente.
+
+### Rodadas de validação e correção
+
+Tabela própria relacionada a `jobs` e à versão de `regras` analisada, com lista de conflitos em `jsonb`, referência à submissão de correção e à versão resultante. `rodada_anterior_id` encadeia as rodadas. Cada correção textual ou de voz é uma submissão separada; não incorpora nem sobrescreve as anteriores.
+
+O histórico completo será consultável. Sair do chatbot preserva o estado do job e a rodada pendente, e não há limite de correções. O SSE não substitui esse armazenamento.
+
+### Nome do job e apresentação como campanha
+
+Uma coluna nullable `jobs.nome` atenderá tanto `JobResumo` quanto `JobDetalhado`. O fallback usa até 50 caracteres da entrada textual inicial ou da transcrição inicial; correções posteriores não alteram a origem. O nome pertence ao job, compartilhado por todas as versões da regra.
+
+Campanha é a apresentação de um job com resultado viável. Não há nova tabela de campanhas nem agrupamento de vários jobs neste escopo. Versões anteriores continuam alcançáveis como histórico.
+
+### Resultados e diagnóstico
+
+E9 acrescenta matrícula e valores absolutos, preservando as quebras atuais de diferença. Preservar os dataframes resultantes também faz parte do planejamento. A granularidade ainda depende de confirmar se são suficientes totais independentes ou se é necessário cruzar matrícula, loja e competência.
+
+O worker escreve o resultado e a API consulta e expõe o conteúdo. As T-202–T-204 especificam contrato, coluna e gravação do diagnóstico de falhas; não estão implementadas apenas por existirem como tarefas.
+
+### Áudio e identidade
+
+`submissoes.binario`, `formato`, `transcricao` e `transcrito_em` já cobrem o armazenamento inicial e das correções por voz. A API chama o ASR e grava a transcrição; o codegen lê somente o texto. Não é necessário criar novas colunas para guardar esses artefatos.
+
+Cadastro e recuperação de senha usam Keycloak. Não exigem armazenamento próprio de senha ou token de recuperação na API; o vínculo local por `keycloak_sub` permanece.
+
+## 7. Limites e pontos ainda em aberto
+
+- A granularidade dos resultados e seu formato de armazenamento precisam ser definidos para atender à rastreabilidade pedida.
+- O esquema não contém uma referência explícita na ação de liberação à simulação escolhida. A leitura precisa respeitar a versão e o resultado efetivamente vigentes, sem depender apenas de um timestamp.
+- A publicação dos artefatos do codegen e seus eventos não usa o outbox da API; persistir um artefato não comprova por si só que seu evento foi entregue.
+- A limpeza de checkpoints após encerramento precisa preservar a deduplicação. Um mecanismo específico de encerramento ainda depende da revisão da proposta.
+
+O schema de `no-concluido` define `evento_id`, e os payloads de outbox seguem os contratos em `contracts/events/`.
