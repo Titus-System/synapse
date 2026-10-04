@@ -12,7 +12,7 @@ from uuid import uuid4
 
 import pytest
 
-from tests.app.esquemas import erros_do_log
+from tests.app.esquemas import erros_do_dominio, erros_do_log
 from tests.e2e import regras
 from tests.e2e.apoio import Ambiente, Worker
 
@@ -53,6 +53,9 @@ async def test_sucesso_grava_a_linha_e_publica_o_evento_nas_duas_filas(
         regras.SIMULADO_DO_EXEMPLO,
     )
     assert totais["orcamento"] == orcamento
+    assert linha["diagnostico"] is None
+    (gravado,) = worker.mensagens("resultado gravado")
+    assert gravado["extra"]["com_diagnostico"] is False
     assert da_api == do_codegen
     assert da_api["resultado_id"] == str(linha["id"])
     assert (da_api["status"], da_api["veredito"]) == ("sucesso", veredito)
@@ -90,6 +93,7 @@ async def test_assercao_violada_e_categoria_propria_e_sem_veredito(ambiente: Amb
     (linha,) = await ambiente.linhas(semente["job_id"])
     assert linha["status"] == "assercao_violada"
     assert (linha["veredito"], linha["totais"], linha["decomposicao"]) == (None, None, None)
+    assert linha["diagnostico"] is None
     assert [a["resultado"] for a in json.loads(linha["assercoes"])] == ["violada"]
     assert set(evento) == CAMPOS_DO_EVENTO_DE_ERRO and evento["status"] == "assercao_violada"
     assert await ambiente.corretor.evento(ambiente.corretor.codegen) == evento
@@ -99,8 +103,9 @@ async def test_assercao_violada_e_categoria_propria_e_sem_veredito(ambiente: Amb
 async def test_erro_do_codigo_e_erro_codigo_e_nada_da_regra_chega_ao_log(
     ambiente: Ambiente,
 ) -> None:
-    """A exceção, o stdout, o stderr e a própria fonte da regra são conteúdo não confiável: ficam
-    no container, e o worker não os copia para o log. O orçamento também não."""
+    """A exceção, o stdout, o stderr e a própria fonte da regra são conteúdo não confiável: o
+    worker não os copia para o log. O orçamento também não. A exceção que o sandbox capturou vai
+    para o diagnóstico da linha, que é onde ela é artefato (T-204)."""
     orcamento = 487123.45
     worker = await ambiente.iniciar_worker()
     semente = await ambiente.semear(regras.LEVANTA_COM_SEGREDOS, orcamento=orcamento)
@@ -113,6 +118,16 @@ async def test_erro_do_codigo_e_erro_codigo_e_nada_da_regra_chega_ao_log(
     assert evento["status"] == "erro_codigo" and set(evento) == CAMPOS_DO_EVENTO_DE_ERRO
     (julgada,) = worker.mensagens("execução julgada")
     assert julgada["extra"]["motivo"] == "excecao"
+    diagnostico = json.loads(linha["diagnostico"])
+    assert erros_do_dominio("resultado-diagnostico", diagnostico) == []
+    assert diagnostico["causa"] == "excecao"
+    assert (diagnostico["falha"]["tipo"], diagnostico["falha"]["mensagem"]) == (
+        "ValueError",
+        "SEGREDO-NA-MENSAGEM",
+    )
+    assert 'File "regra.py"' in diagnostico["falha"]["traceback"]
+    (gravado,) = worker.mensagens("resultado gravado")
+    assert gravado["extra"]["com_diagnostico"] is True
     await fechar_o_ciclo(ambiente, worker, semente)
 
     log = worker.texto_do_log()
@@ -145,6 +160,7 @@ async def test_codigo_que_nao_termina_e_morto_no_prazo_e_o_ciclo_fecha(
     assert 55 <= concluida["extra"]["duracao_s"] <= 90
     (julgada,) = worker.mensagens("execução julgada")
     assert julgada["extra"]["motivo"] == "timeout"
+    assert json.loads(linha["diagnostico"]) == {"causa": "timeout"}, "sem exceção, sem falha"
     await fechar_o_ciclo(ambiente, worker, semente)
 
 
@@ -163,6 +179,7 @@ async def test_infra_esgotada_grava_e_publica_erro_infra_e_so_entao_vai_a_dlq(
     (linha,) = await ambiente.linhas(semente["job_id"])
     assert linha["status"] == "erro_infra"
     assert (linha["veredito"], linha["totais"], linha["decomposicao"]) == (None, None, None)
+    assert linha["diagnostico"] is None
     assert json.loads(linha["assercoes"]) == []
     assert da_api == do_codegen
     assert da_api["status"] == "erro_infra" and da_api["resultado_id"] == str(linha["id"])

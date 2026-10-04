@@ -28,7 +28,7 @@ public class Outbox {
 
 	private final JsonMapper json = new JsonMapper();
 
-	Outbox(JdbcTemplate jdbc) {
+	public Outbox(JdbcTemplate jdbc) {
 		this.jdbc = jdbc;
 	}
 

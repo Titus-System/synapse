@@ -1,4 +1,5 @@
-"""Valida o resultado que saiu do container contra o schema da T-034.
+"""Valida o resultado que saiu do container contra o schema da T-034, e o diagnóstico que o
+worker grava quando ele falha (T-204).
 
 A validação roda no processo do worker, fora do container: a imagem do sandbox só admite
 pandas e a biblioteca padrão, e quem escreveu o resultado é código não confiável, que não
@@ -13,7 +14,7 @@ import json
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from jsonschema import Draft202012Validator, FormatChecker
 from referencing import Registry, Resource
@@ -21,6 +22,18 @@ from referencing.jsonschema import DRAFT202012
 
 ESQUEMA_RESULTADO = "resultado-simulacao.schema.json"
 ESQUEMA_ASSERCOES = "resultado-assercoes.schema.json"
+ESQUEMA_DIAGNOSTICO = "resultado-diagnostico.schema.json"
+
+
+class Problema(TypedDict):
+    """Onde um valor falhou num schema: o caminho e a palavra-chave que o reprovou, nunca o valor.
+
+    É o item de ``problemas`` em ``resultado-diagnostico.schema.json``. As chaves do caminho vêm do
+    que foi validado, e no resultado do container são dado não confiável.
+    """
+
+    caminho: str
+    palavra_chave: str
 
 
 class ContratosIndisponiveisError(RuntimeError):
@@ -59,9 +72,10 @@ def carregar_contratos() -> None:
     """Falha na subida, e não no primeiro job, se algum schema usado não estiver ao alcance."""
     validador(ESQUEMA_RESULTADO)
     validador(ESQUEMA_ASSERCOES)
+    validador(ESQUEMA_DIAGNOSTICO)
 
 
-def validar_resultado(resultado: Mapping[str, Any], orcamento: float) -> list[str]:
+def validar_resultado(resultado: Mapping[str, Any], orcamento: float) -> list[Problema]:
     """Erros do resultado contra ``resultado-simulacao.schema.json`` (vazio = válido).
 
     O container não recebe o orçamento, então ``totais`` chega sem ``orcamento`` e o schema,
@@ -70,7 +84,7 @@ def validar_resultado(resultado: Mapping[str, Any], orcamento: float) -> list[st
     ``totais.orcamento`` já presente na saída é reprovado: o harness não o produz, então
     alguém o fabricou, e ele não pode chegar ao veredito parecendo dado do container.
 
-    Cada erro é ``<caminho>: <palavra-chave do schema>``, nunca o valor nem a mensagem do
+    Cada problema é o caminho e a palavra-chave do schema, nunca o valor nem a mensagem do
     validador: o conteúdo veio de código não confiável e não pode chegar a um log.
     """
     candidato: dict[str, Any] = dict(resultado)
@@ -81,21 +95,31 @@ def validar_resultado(resultado: Mapping[str, Any], orcamento: float) -> list[st
         candidato["totais"] = {**totais, "orcamento": orcamento}
     erros = _erros(validador(ESQUEMA_RESULTADO), candidato)
     if fabricado:
-        erros.insert(0, "$.totais.orcamento: fornecido_pelo_container")
+        erros.insert(
+            0, Problema(caminho="$.totais.orcamento", palavra_chave="fornecido_pelo_container")
+        )
     return erros
 
 
-def validar_assercoes(assercoes: object) -> list[str]:
+def validar_assercoes(assercoes: object) -> list[Problema]:
     """Erros de uma lista de desfechos contra ``resultado-assercoes.schema.json``."""
     return _erros(validador(ESQUEMA_ASSERCOES), assercoes)
 
 
-def _erros(esquema: Draft202012Validator, instancia: object) -> list[str]:
+def validar_diagnostico(diagnostico: Mapping[str, object]) -> list[Problema]:
+    """Erros do diagnóstico montado pelo worker contra ``resultado-diagnostico.schema.json``."""
+    return _erros(validador(ESQUEMA_DIAGNOSTICO), diagnostico)
+
+
+def _erros(esquema: Draft202012Validator, instancia: object) -> list[Problema]:
     erros = sorted(
         esquema.iter_errors(instancia),
         key=lambda erro: tuple(str(parte) for parte in erro.absolute_path),
     )
-    return [f"{_caminho(list(erro.absolute_path))}: {erro.validator}" for erro in erros]
+    return [
+        Problema(caminho=_caminho(list(erro.absolute_path)), palavra_chave=str(erro.validator))
+        for erro in erros
+    ]
 
 
 def _caminho(partes: list[Any]) -> str:

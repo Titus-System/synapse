@@ -57,6 +57,23 @@ Logs são estruturados em JSON e seguem `contracts/observability/log.schema.json
 
 Não registre em logs prompts, respostas de modelos, código gerado, linhas de dataset ou outros artefatos. O log registra contexto operacional e referências; o conteúdo auditável permanece no armazenamento definido pela arquitetura.
 
+### Observabilidade faz parte da entrega
+
+- Ao criar ou alterar um fluxo executado pela aplicação, implemente e verifique seus logs e métricas na mesma entrega. Isso vale para endpoints, consumidores, nós do grafo, integrações externas e execução em sandbox; instrumentação necessária não fica para uma tarefa futura depois de considerar o comportamento concluído.
+- Antes de editar, identifique os pontos de início, conclusão, falha e, quando aplicável, pausa, retomada, retry e descarte. Defina qual pergunta operacional cada log ou métrica responde e reaproveite a instrumentação existente.
+- Registre eventos operacionais relevantes com mensagem estável, nível adequado, resultado ou motivo sanitizado e referências suficientes para localizar o processamento. Evite um log por função ou por linha de dado e a repetição da mesma exceção em várias camadas.
+- Estabeleça a correlação na entrada do processamento e preserve-a nas tarefas assíncronas. Restaure ou limpe o contexto ao terminar, inclusive em falha, para que jobs processados em sequência não compartilhem identificadores por engano. A correlação por `job_id` funciona mesmo sem tracing.
+- Métricas devem medir volume de processamento, falhas e duração nos caminhos realmente executados. Documente se cada medida conta tentativas, etapas ou jobs únicos; uma reentrega sem novo processamento não pode ser contada como outra conclusão de negócio.
+- Declarar um contador, importar um módulo, criar um helper ou disponibilizar `/metrics` não comprova instrumentação. Confirme que o fluxo chama o instrumento, que ele está registrado no registry exposto e que as amostras mudam após o processamento.
+- Registre duração também quando o processamento falhar. Uma gauge de operações ativas precisa voltar ao valor correto em sucesso, exceção, cancelamento e timeout. Métricas de espera devem ser distintas das de execução quando essa diferença afetar a leitura.
+- Labels e tags usam conjuntos limitados, como operação, etapa, resultado e classe de falha. Nunca use `job_id`, IDs de usuário ou artefato, matrícula, trace, URL com identificadores, mensagem de exceção ou texto livre. Identificadores de negócio pertencem aos logs; métricas HTTP e de runtime já fornecidas pela stack não devem ser duplicadas.
+- Use motivos e classes de falha seguros. Não passe automaticamente uma exceção, traceback, payload, stdout ou stderr ao logger quando puderem conter entrada do usuário, artefatos ou credenciais. A mesma restrição vale para spans e eventos de telemetria.
+- Testes de observabilidade devem executar o fluxo instrumentado e conferir a emissão em sucesso e falha. Verifique logs serializados contra o schema, campos de correlação e ausência de conteúdo proibido; confira contadores e observações no registry, sem se limitar a testar que um mock de logger ou helper foi chamado.
+- Nos serviços que expõem `/metrics`, verifique a saída Prometheus depois de exercitar o fluxo, por teste de integração ou execução local. HTTP 200, métricas de CPU e um painel configurado não provam que as métricas de domínio estão presentes.
+- Ao encerrar, informe quais eventos e medidas foram verificados, como foram exercitados e quais verificações não puderam ser executadas. Se a exportação ou coleta não foi verificada, declare esse limite; não afirme que o painel recebe os dados apenas por existir instrumentação no código.
+
+As convenções de stack estão nas skills locais de logging e metrics. Nomes, unidades, labels existentes e envelope compartilhado continuam sujeitos às regras de compatibilidade e autorização; observabilidade não autoriza mudar um contrato ou criar infraestrutura sem seguir essas regras.
+
 ## Como trabalhar
 
 1. Identifique o componente dono do comportamento e leia suas instruções locais.
@@ -107,6 +124,7 @@ Não reverta alterações existentes de outros autores. Não faça refatoraçõe
 - Alterações em `contracts/` exigem validar todos os consumidores relevantes, além dos exemplos e schemas.
 - Alterações de imagem devem ser verificadas com o contexto de build na raiz: `docker build -f <componente>/Dockerfile .`.
 - A verificação deve cobrir compilação ou type-check, lint, testes e, quando aplicável, build da imagem.
+- Mudanças em fluxos da aplicação também exigem a verificação de observabilidade descrita acima. Um gate verde sem evidência dos logs e métricas do comportamento alterado não satisfaz esse critério de entrega.
 - Informe sempre os comandos executados, seus resultados e as verificações que não puderam ser executadas.
 
 

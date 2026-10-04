@@ -16,22 +16,23 @@ O **Synapse** é uma aplicação web inteligente criada para solucionar esse pro
 
 | Ranking | Prioridade | User Story (US) | Estimativa | Sprint |
 | :---: | :---: | :--- | :---: | :---: |
-| **01** | Alta | Como gestor de negócios, quero a simulação dos futuros resultados da regra de negócio processada, para verificar sua viabilidade. | 13 | 01 |
-| **02** | Alta | Como analista de RH, quero a captura de voz e transcrição do conteúdo recebido, para que o início do fluxo no sistema seja prático. | 8 | 02 |
-| **03** | Alta | Como gerente comercial, quero a sugestão automática de possível adaptação da regra de negócio, para evitar inviabilidade por incompatibilidade dos parâmetros. | 8 | 02 |
+| **01** | Alta | Como profissional de recursos humanos, quero a simulação dos futuros resultados da regra de negócio* processada, para verificar sua viabilidade. | 13 | 01 |
+| **02** | Alta | Como profissional de recursos humanos, quero a captura de voz e transcrição do conteúdo recebido, para que o início do fluxo no sistema seja prático. | 8 | 02 |
+| **03** | Alta | Como profissional de recursos humanos, quero a sugestão automática de possível adaptação da regra de negócio*, para evitar inviabilidade por incompatibilidade dos parâmetros. | 8 | 02 |
 | **04** | Média | Como auditor, quero o registro dos dados processados durante o fluxo principal de simulação, para averiguar as fontes dos dados obtidos ao final do processo. | 5 | 03 |
 | **05** | Média | Como auditor, quero que o sistema seja capaz de explicar todas as decisões tomadas durante o processo de simulação, para transparência dos resultados. | 8 | 03 |
-| **06** | Média | Como analista de gente e gestão, quero um relatório após a finalização de cada processo, identificando a regra de negócio finalizada e sua simulação, para gravar meu histórico e facilitar o acesso posterior. | 3 | 01 |
-| **07** | Baixa | Como profissional de recursos humanos, quero a validação dos dados obtidos por voz, a fim de confirmar se os parâmetros da regra de negócio foram recebidos e serão simulados de maneira correta. | 5 | 02 |
+| **06** | Média | Como profissional de recursos humanos, quero a validação dos dados obtidos por voz, a fim de confirmar se os parâmetros da regra de negócio* foram recebidos e serão simulados de maneira correta. | 5 | 02 |
+| **07** | Baixa | Como profissional de recursos humanos, quero um relatório após a finalização de cada processo, identificando a regra de negócio finalizada e sua simulação, para gravar meu histórico e facilitar o acesso posterior. | 3 | 01 |
 
-> **Nota:** *Regra de negócio* é definida como o conjunto de parâmetros que definem as regras para o comissionamento após uma meta de vendas alcançada.
+> **Nota:** *Regra de negócio: Conjunto de parâmetros que definem as regras para o comissionamento após uma meta de vendas alcançada.
 
+## 🎥 Demonstração Sprint 1
+
+https://github.com/user-attachments/assets/4031c0ad-1c23-4672-8da4-0ac0ffbc73ed
 
 ## ✅ Critérios de Aceitação
 
-Aqui estão os critérios de aceitação revisados e formatados para facilitar a leitura e organização no seu projeto:
-
-### US 01: Como usuário, quero a simulação dos futuros resultados da regra de negócio processada, para verificar sua viabilidade.
+### US 01: Como profissional de recursos humanos, quero a simulação dos futuros resultados da regra de negócio* processada, para verificar sua viabilidade.
 * **Cenário 1: Comparação de simulação viável com o cenário atual (Caminho Feliz)**
   * **Dado** que o sistema recebeu e processou uma nova regra de negócio em formato de código
   * **Quando** eu solicitar a simulação dos futuros resultados
@@ -43,7 +44,7 @@ Aqui estão os critérios de aceitação revisados e formatados para facilitar a
   * **Então** a interface deve alertar visualmente (ex: em vermelho) que a regra não cabe no orçamento
   * **E** bloquear a liberação direta para produção até que seja ajustada.
 
-### US 02: Como usuário, quero a captura de voz e transcrição do conteúdo recebido, para que o início do fluxo no sistema seja prático.
+### US 02: Como profissional de recursos humanos, quero a captura de voz e transcrição do conteúdo recebido, para que o início do fluxo no sistema seja prático.
 * **Cenário 1: Conversão de linguagem natural falada para código processável (Caminho Feliz)**
   * **Dado** que gravo um áudio com as condições desejadas da regra
   * **Quando** o sistema finalizar a escuta
@@ -60,7 +61,7 @@ Aqui estão os critérios de aceitação revisados e formatados para facilitar a
   * **Então** o sistema deve interromper o fluxo
   * **E** informar ao usuário que não foi possível capturar o contexto ou especificar a intenção relacionada a comissionamentos ou vendas.
 
-### US 03: Como usuário, quero a sugestão automática de possível adaptação da regra de negócio, para evitar inviabilidade por incompatibilidade dos parâmetros.
+### US 03: Como profissional de recursos humanos, quero a sugestão automática de possível adaptação da regra de negócio*, para evitar inviabilidade por incompatibilidade dos parâmetros.
 * **Cenário 1: Reformulação sugerida por ultrapassar o orçamento (Caminho Feliz)**
   * **Dado** que a regra original não cabe no orçamento
   * **Quando** a análise de incompatibilidade for concluída
@@ -106,7 +107,7 @@ Aqui estão os critérios de aceitação revisados e formatados para facilitar a
   * **Então** o sistema deve registrar o resultado no banco
   * **E** deve gravar uma flag (alerta) no banco de dados indicando que aquela simulação específica possui "baixa rastreabilidade de explicabilidade", sinalizando a falha para auditorias futuras.
 
-### US 06: Como usuário, quero a validação dos dados obtidos por voz, a fim de confirmar se os parâmetros da regra de negócio foram recebidos e serão simulados de maneira correta.
+### US 06: Como profissional de recursos humanos, quero a validação dos dados obtidos por voz, a fim de confirmar se os parâmetros da regra de negócio* foram recebidos e serão simulados de maneira correta.
 * **Cenário 1: Confirmação dos parâmetros extraídos (Caminho Feliz)**
   * **Dado** que o sistema realizou a transcrição por voz
   * **Quando** for finalizada a extração
@@ -123,7 +124,7 @@ Aqui estão os critérios de aceitação revisados e formatados para facilitar a
   * **Então** o sistema deve permitir que o usuário edite manualmente os valores inferidos
   * **E** deve registrar essa correção para auditoria futura.
 
-### US 07: Como usuário, quero um relatório após a finalização de cada processo, identificando a regra de negócio finalizada e sua simulação, para gravar meu histórico e facilitar o acesso posterior.
+### US 07: Como profissional de recursos humanos, quero um relatório após a finalização de cada processo, identificando a regra de negócio finalizada e sua simulação, para gravar meu histórico e facilitar o acesso posterior.
 * **Cenário 1: Emissão de relatório e ações (Caminho Feliz)**
   * **Dado** que a simulação terminou com sucesso
   * **Quando** eu solicitar a finalização do processo
@@ -142,24 +143,26 @@ Aqui estão os critérios de aceitação revisados e formatados para facilitar a
 
 
 ## 🎯 DoR - Definition of Ready
-- [x] Título claro, descrição definida e objetivo compreendido.
-- [x] Critérios de aceitação escritos.
-- [x] Regras de negócio claras.
-- [x] Foi estimada pela equipe.
-- [x] Sem dependências bloqueadoras.
-- [x] Compreensão validada com o time.
-- [x] Mockup disponível.
-- [x] Os dados de treinamento estão disponíveis.
+- [ ] Título claro, descrição definida e objetivo compreendido;
+- [ ] Critérios de aceitação escritos;
+- [ ] Regras de negócio claras;
+- [ ] Foi estimada pela equipe;
+- [ ] Sem dependências bloqueadoras;
+- [ ] Compreensão validada com o time;
+- [ ] Mockup disponível;
+- [ ] Diagrama de macrofluxo acessível;
+- [ ] Os dados de treinamento estão disponíveis;
+- [ ] Modelo de dados acessível.
 
 
 ## 🏁 DoD - Definition of Done
-- [ ] Atende aos critérios de aceitação.
-- [ ] Atende aos requisitos funcionais.
-- [ ] Code review feita e validada.
-- [ ] Documentação de instalação finalizada.
-- [ ] Código fonte disponível e executável.
-- [ ] Teste de código realizado.
-- [ ] Aprovado pela P.O.
+- [ ] Atende aos critérios de aceitação;
+- [ ] Atende aos requisitos funcionais;
+- [ ] Code review feita e validada;
+- [ ] Documentação de instalação finalizada;
+- [ ] Código fonte disponível e executável;
+- [ ] Teste de código realizado;
+- [ ] Teste realizado na visão do cliente pela P.O.;
 - [ ] Vídeo dos incrementos da Sprint no repositório do github.
 
 

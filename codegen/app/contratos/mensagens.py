@@ -26,6 +26,15 @@ class StatusSimulacao(StrEnum):
     ERRO_INFRA = "erro_infra"
 
 
+class StatusTerminal(StrEnum):
+    """Os estados em que o job não volta a processar: o vocabulário de `job-encerrado`."""
+
+    LIBERADO = "liberado"
+    CANCELADO = "cancelado"
+    ARQUIVADO = "arquivado"
+    ERRO = "erro"
+
+
 class Veredito(StrEnum):
     VIAVEL = "viavel"
     INVIAVEL = "inviavel"
@@ -87,6 +96,13 @@ class SimulacaoConcluida(ModeloContrato):
     total_simulado: Decimal | None = None
     diferenca_abs: Decimal | None = None
     diferenca_pct: Decimal | None = None
+
+
+class JobEncerrado(ModeloContrato):
+    evento_id: UUID
+    job_id: UUID
+    status: StatusTerminal
+    encerrado_em: datetime
 
 
 class SugestaoAdaptacaoProposta(ModeloContrato):

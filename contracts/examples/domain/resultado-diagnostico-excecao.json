@@ -1,0 +1,8 @@
+{
+  "causa": "excecao",
+  "falha": {
+    "tipo": "KeyError",
+    "mensagem": "'vlr_vendas'",
+    "traceback": "  File \"regra.py\", line 31, in aplicar_regra\n    )[\"vlr_vendas\"].sum()\n"
+  }
+}

@@ -12,7 +12,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import synapse.api.core.logging.CorrelationContext;
 import synapse.api.core.sse.EmissoresSse;
-import synapse.api.job.SugestaoAdaptacaoService.SugestaoAplicada;
+import synapse.api.job.JobEventosService.SugestaoAplicada;
 import synapse.api.job.VersoesDaRegra.VersaoRegra;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -35,7 +35,7 @@ class SugestaoAdaptacaoConsumidorTests {
 
 	private static final UUID RESULTADO_ID = UUID.fromString("55555555-5555-4555-8555-555555555555");
 
-	private final SugestaoAdaptacaoService servico = mock(SugestaoAdaptacaoService.class);
+	private final JobEventosService servico = mock(JobEventosService.class);
 
 	private final EmissoresSse emissores = mock(EmissoresSse.class);
 
@@ -45,12 +45,12 @@ class SugestaoAdaptacaoConsumidorTests {
 	@Test
 	void aplicaAPropostaEAnunciaAVoltaParaGerandoRegra() {
 		VersaoRegra versao = new VersaoRegra(UUID.randomUUID(), 2, "sugestao_adaptacao", java.time.Instant.EPOCH);
-		given(this.servico.aplicar(eq(JOB_ID), eq(REGRA_ORIGEM_ID), eq(RESULTADO_ID), any()))
+		given(this.servico.aplicarSugestaoAdaptacao(eq(JOB_ID), eq(REGRA_ORIGEM_ID), eq(RESULTADO_ID), any()))
 			.willReturn(new SugestaoAplicada(JobStatus.SIMULACAO_INVIAVEL, versao, null));
 
 		this.consumidor.receber(evento(representacao()));
 
-		verify(this.servico).aplicar(eq(JOB_ID), eq(REGRA_ORIGEM_ID), eq(RESULTADO_ID), any());
+		verify(this.servico).aplicarSugestaoAdaptacao(eq(JOB_ID), eq(REGRA_ORIGEM_ID), eq(RESULTADO_ID), any());
 		verify(this.emissores).emitir(eq(JOB_ID), any());
 	}
 
@@ -81,7 +81,7 @@ class SugestaoAdaptacaoConsumidorTests {
 
 	@Test
 	void descartaPropostaParaJobForaDoEstadoEsperadoSemEmitirEstado() {
-		given(this.servico.aplicar(any(), any(), any(), any()))
+		given(this.servico.aplicarSugestaoAdaptacao(any(), any(), any(), any()))
 			.willThrow(new TransicaoDeStatusInvalidaException(JobStatus.GERANDO_REGRA, JobStatus.GERANDO_REGRA));
 
 		this.consumidor.receber(evento(representacao()));

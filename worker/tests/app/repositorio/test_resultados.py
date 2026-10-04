@@ -33,6 +33,15 @@ DECOMPOSICAO = {
     "cargo": {"100": 9200.0},
     "competencia": {"2025-08": 0.0, "2025-11": 11788.0},
 }
+# Aspas, quebra de linha e acento: o texto da regra chega ao jsonb sem ser reescrito.
+DIAGNOSTICO = {
+    "causa": "excecao",
+    "falha": {
+        "tipo": "KeyError",
+        "mensagem": "'cód_loja'",
+        "traceback": '  File "regra.py", line 3, in aplicar_regra\n    linha["cód_loja"]\n',
+    },
+}
 
 
 async def gravar(seed: dict[str, object], **mudancas: Any) -> UUID:
@@ -44,6 +53,7 @@ async def gravar(seed: dict[str, object], **mudancas: Any) -> UUID:
         "totais": TOTAIS,
         "assercoes": ASSERCOES,
         "decomposicao": DECOMPOSICAO,
+        "diagnostico": None,
     }
     async with get_sessionmaker()() as sessao, sessao.begin():
         gravado = await gravar_resultado(sessao, **(campos | mudancas))
@@ -72,7 +82,27 @@ async def test_grava_a_linha_com_todas_as_colunas(
     assert json.loads(linha["totais"]) == TOTAIS
     assert json.loads(linha["assercoes"]) == ASSERCOES
     assert json.loads(linha["decomposicao"]) == DECOMPOSICAO
+    assert linha["diagnostico"] is None
     assert linha["criado_em"] is not None
+
+
+async def test_grava_o_diagnostico_de_um_erro_codigo_na_mesma_linha(
+    codigo_gerado_seed: dict[str, object], conexao_dono: Any
+) -> None:
+    resultado_id = await gravar(
+        codigo_gerado_seed,
+        status="erro_codigo",
+        veredito=None,
+        totais=None,
+        assercoes=[],
+        decomposicao=None,
+        diagnostico=DIAGNOSTICO,
+    )
+
+    linha = await ler_como_dono(conexao_dono, resultado_id)
+
+    assert linha["status"] == "erro_codigo"
+    assert json.loads(linha["diagnostico"]) == DIAGNOSTICO
 
 
 async def test_o_id_devolvido_e_o_da_linha_gravada(
@@ -117,6 +147,7 @@ async def test_a_linha_nao_existe_para_outros_ate_a_transacao_confirmar(
             totais=TOTAIS,
             assercoes=ASSERCOES,
             decomposicao=DECOMPOSICAO,
+            diagnostico=None,
         )
         assert await ler_como_dono(conexao_dono, gravado.id) is None
         await sessao_tx.rollback()
@@ -222,9 +253,10 @@ async def test_a_busca_devolve_a_linha_mais_antiga_quando_ha_mais_de_uma(
     "instrucao",
     [
         "UPDATE resultados_simulacao SET status = 'sucesso' WHERE id = :id",
+        "UPDATE resultados_simulacao SET diagnostico = NULL WHERE id = :id",
         "DELETE FROM resultados_simulacao WHERE id = :id",
     ],
-    ids=["update", "delete"],
+    ids=["update", "update do diagnostico", "delete"],
 )
 async def test_worker_nao_altera_nem_apaga_resultado(
     codigo_gerado_seed: dict[str, object], instrucao: str

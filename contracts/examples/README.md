@@ -10,6 +10,11 @@ Como todo `contracts/`, isto é insumo de build e nunca dependência de runtime.
 | [domain/representacao-regra-elementos.json](domain/representacao-regra-elementos.json) | `domain/representacao-regra.schema.json` | Faixa de valor, janela de datas e exclusão, sem alteração do schema |
 | [domain/representacao-regra-generico.json](domain/representacao-regra-generico.json) | `domain/representacao-regra.schema.json` | Elemento que não corresponde a nenhum construto reconhecido |
 | [domain/resultado-simulacao.json](domain/resultado-simulacao.json) | `domain/resultado-simulacao.schema.json` | Totais, asserções e as cinco quebras da decomposição |
+| [domain/resultado-diagnostico-excecao.json](domain/resultado-diagnostico-excecao.json) | `domain/resultado-diagnostico.schema.json` | Exceção da regra, com a falha estruturada que o sandbox capturou |
+| [domain/resultado-diagnostico-timeout.json](domain/resultado-diagnostico-timeout.json) | `domain/resultado-diagnostico.schema.json` | Execução encerrada por prazo: só a causa, sem falha nem traceback |
+| [domain/resultado-diagnostico-fora-do-schema.json](domain/resultado-diagnostico-fora-do-schema.json) | `domain/resultado-diagnostico.schema.json` | Resultado que não valida contra o schema: caminhos e palavras-chave, sem os valores rejeitados |
+| [events/job-encerrado.json](events/job-encerrado.json) | `events/job-encerrado.schema.json` | Encerramento por decisão do usuário (`liberado`) |
+| [events/job-encerrado-erro.json](events/job-encerrado-erro.json) | `events/job-encerrado.schema.json` | Encerramento por falha (`erro`) |
 
 Schema alterado mantém pelo menos um exemplo válido atualizado na mesma mudança.
 

@@ -10,6 +10,7 @@ from app.core.metrics.prometheus import prometheus
 from app.db import criar_engine, criar_sessionmaker
 from app.graph.core.checkpointer import get_checkpointer
 from app.mensageria.broker import conectar
+from app.mensageria.limpeza import LimpezaDeCheckpoints
 from app.mensageria.roteamento import GraphRouter, RoteadorGrafo
 
 
@@ -20,11 +21,17 @@ async def ciclo_de_vida(aplicacao: FastAPI) -> AsyncGenerator[None, None]:
     engine = criar_engine(get_settings())
     try:
         sessoes = criar_sessionmaker(engine)
+        limpeza = LimpezaDeCheckpoints(sessoes)
         if isinstance(aplicacao.state.roteador, GraphRouter):
             aplicacao.state.roteador.sessoes = sessoes
+            aplicacao.state.roteador.limpeza = limpeza
 
         async with get_checkpointer() as checkpointer:
             await checkpointer.setup()
+
+        if isinstance(aplicacao.state.roteador, GraphRouter):
+            # Antes dos consumers: uma limpeza que caiu no meio termina sem esperar outro evento.
+            await limpeza.retomar_pendentes()
 
         broker = await conectar(get_settings())
         aplicacao.state.producers = broker.producers

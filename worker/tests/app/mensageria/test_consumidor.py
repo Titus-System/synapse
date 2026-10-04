@@ -14,6 +14,7 @@ from aio_pika.exceptions import DeliveryError
 from pamqp.commands import Basic
 from sqlalchemy.exc import IntegrityError, OperationalError
 
+from app.execucao.coleta import DesfechoClassificado
 from app.execucao.container import SaidaBruta, SandboxCanceladoError, SandboxInfraError
 from app.execucao.preparo import PayloadContainer
 from app.mensageria import consumidor
@@ -22,8 +23,8 @@ from app.mensageria.consumidor import consumir_fila_execucao
 from app.mensageria.retry import HEADER_RETRY
 from app.repositorio.codigos_gerados import CodigoGerado, CodigoNaoEncontradoError
 from app.repositorio.resultados import ResultadoGravado
-from tests.app.esquemas import erros_do_evento
-from tests.app.execucao.envelopes import resultado_para
+from tests.app.esquemas import erros_do_dominio, erros_do_evento
+from tests.app.execucao.envelopes import FALHA, resultado_para
 from tests.app.execucao.envelopes import saida as _saida
 from tests.app.mensageria.resultado_falso import DIARIO, BancoDeResultadosFalso, ExchangeFalsa
 from tests.app.mensageria.sandbox_falso import SandboxFalso, saida_para
@@ -590,6 +591,144 @@ async def test_o_que_nao_e_sucesso_e_gravado_e_publicado_sem_veredito(
     assert evento["status"] == status
 
 
+# ---- o diagnóstico de um erro_codigo vai na linha, e só nela ----
+
+
+def _sem_a_quebra_por_loja(payload: PayloadContainer) -> dict[str, object]:
+    resultado = resultado_para(payload.competencias)
+    del resultado["decomposicao"]["loja"]  # type: ignore[attr-defined]
+    return resultado
+
+
+@pytest.mark.parametrize(
+    ("resposta", "diagnostico"),
+    [
+        (lambda p: saida_para(p, "erro_codigo"), {"causa": "excecao", "falha": FALHA}),
+        (lambda _p: _saida(b"", 137, estourou_timeout=True), {"causa": "timeout"}),
+        (lambda _p: _saida(b"", 137, oom_killed=True), {"causa": "memoria"}),
+        (lambda _p: _saida(b"", 1), {"causa": "sem_envelope"}),
+        (
+            lambda p: saida_para(p, resultado=_sem_a_quebra_por_loja(p)),
+            {
+                "causa": "resultado_fora_do_schema",
+                "problemas": [{"caminho": "$.decomposicao", "palavra_chave": "required"}],
+            },
+        ),
+        (
+            lambda p: saida_para(p, resultado=_com_baseline_adulterado(p)),
+            {"causa": "baseline_divergente"},
+        ),
+        (saida_para, None),
+        (lambda p: saida_para(p, "assercao_violada"), None),
+    ],
+    ids=[
+        "excecao",
+        "timeout",
+        "memoria",
+        "sem_envelope",
+        "resultado_fora_do_schema",
+        "baseline_divergente",
+        "sucesso",
+        "assercao_violada",
+    ],
+)
+async def test_o_diagnostico_e_gravado_com_o_resultado(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    resposta: Callable[[PayloadContainer], SaidaBruta],
+    diagnostico: dict[str, object] | None,
+) -> None:
+    sandbox.resposta = resposta
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=_corpo_comando())], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    (linha,) = banco.gravados
+    assert linha["diagnostico"] == diagnostico
+    if diagnostico is not None:
+        assert erros_do_dominio("resultado-diagnostico", linha["diagnostico"]) == []
+    (evento,) = _publicados(broker)
+    assert not {"diagnostico", "falha", "problemas", "causa"} & set(evento)
+    assert DIARIO == ["gravar", "publicar", "ack"]
+
+
+async def test_a_falha_da_regra_vai_para_a_linha_e_nao_para_o_log(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    falha = {"tipo": "ValueError", "mensagem": "MENSAGEM-DA-REGRA", "traceback": "TRACE-DA-REGRA"}
+    sandbox.resposta = lambda p: saida_para(p, "erro_codigo", erro=falha)
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=_corpo_comando())], _codigo())
+    caplog.set_level(logging.DEBUG)
+
+    await consumir_fila_execucao(broker)
+
+    (linha,) = banco.gravados
+    assert linha["diagnostico"] == {"causa": "excecao", "falha": falha}
+    gravado = next(r for r in caplog.records if r.getMessage() == "resultado gravado")
+    assert gravado.com_diagnostico is True  # type: ignore[attr-defined]
+    for conteudo in ("MENSAGEM-DA-REGRA", "TRACE-DA-REGRA"):
+        assert conteudo not in caplog.text
+        assert conteudo not in _publicados(broker)[0].values()
+
+
+async def test_o_log_diz_que_o_sucesso_foi_gravado_sem_diagnostico(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=_corpo_comando())], _codigo())
+    caplog.set_level(logging.INFO)
+
+    await consumir_fila_execucao(broker)
+
+    gravado = next(r for r in caplog.records if r.getMessage() == "resultado gravado")
+    assert gravado.com_diagnostico is False  # type: ignore[attr-defined]
+
+
+async def test_diagnostico_fora_do_contrato_vai_a_dlq_sem_gravar_nem_publicar(
+    monkeypatch: pytest.MonkeyPatch,
+    banco: BancoDeResultadosFalso,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Uma exceção sem a falha que a sustenta é incoerência do worker: gravar sem diagnóstico
+    perderia o que ele existe para guardar, e repetir daria o mesmo."""
+    monkeypatch.setattr(
+        consumidor, "classificar", lambda *_: DesfechoClassificado("erro_codigo", "excecao")
+    )
+    broker, canal = _preparar(monkeypatch, [MensagemFalsa(body=_corpo_comando())], _codigo())
+    caplog.set_level(logging.INFO)
+
+    await consumir_fila_execucao(broker)
+
+    assert banco.gravados == [] and _publicados(broker) == []
+    assert _rota_da_republicacao(canal) == "executar-codigo.dlq"
+    (registro,) = [
+        r
+        for r in caplog.records
+        if r.getMessage() == "diagnóstico fora do contrato; encaminhando para DLQ"
+    ]
+    assert registro.levelno == logging.ERROR
+    assert registro.problemas == ["$: required"]  # type: ignore[attr-defined]
+
+
+async def test_falha_transitoria_ao_gravar_o_diagnostico_nao_publica_nada(
+    monkeypatch: pytest.MonkeyPatch, sandbox: SandboxFalso, banco: BancoDeResultadosFalso
+) -> None:
+    """A linha e o diagnóstico entram juntos ou não entram: sem a transação confirmada, não há
+    evento que os referencie."""
+    sandbox.resposta = lambda p: saida_para(p, "erro_codigo")
+    banco.erro_gravacao = OperationalError("INSERT", {}, Exception("conexão caiu"))
+    broker, canal = _preparar(monkeypatch, [MensagemFalsa(body=_corpo_comando())], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    assert "publicar" not in DIARIO
+    assert _publicados(broker) == []
+    assert _rota_da_republicacao(canal) == "executar-codigo"
+
+
 # ---- as falhas: cada uma vai para onde a DEC-091 manda ----
 
 
@@ -646,7 +785,7 @@ async def test_falha_de_publicacao_repete_o_comando_com_a_linha_ja_gravada(
 # ---- a reentrega não executa de novo ----
 
 
-@pytest.mark.parametrize("status", ["sucesso", "assercao_violada"])
+@pytest.mark.parametrize("status", ["sucesso", "assercao_violada", "erro_codigo"])
 async def test_resultado_ja_gravado_republica_o_evento_sem_executar_de_novo(
     monkeypatch: pytest.MonkeyPatch,
     sandbox: SandboxFalso,

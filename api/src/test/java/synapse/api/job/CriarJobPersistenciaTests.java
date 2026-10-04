@@ -3,6 +3,7 @@ package synapse.api.job;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -25,8 +26,8 @@ import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.MediaType;
@@ -37,10 +38,12 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
+import synapse.api.core.logging.CorrelationContext;
 import synapse.api.core.outbox.Outbox;
 import synapse.api.core.security.AcessoDoUsuario;
 import synapse.api.core.security.PapelDoUsuario;
 import synapse.api.core.security.UsuarioAtual;
+import synapse.api.core.sse.EmissoresSse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -66,7 +69,7 @@ class CriarJobPersistenciaTests {
 
 	private static JdbcTemplate dono;
 
-	private static CriarJobService service;
+	private static JobService service;
 
 	static boolean dockerIsAvailable() {
 		return DockerClientFactory.instance().isDockerAvailable();
@@ -105,9 +108,10 @@ class CriarJobPersistenciaTests {
 		contexto.registerBean(DataSource.class, () -> dataSource);
 		contexto.registerBean(JdbcTemplate.class, () -> jdbc);
 		contexto.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
+		contexto.registerBean(EmissoresSse.class, () -> mock(EmissoresSse.class));
 		contexto.register(Config.class);
 		contexto.refresh();
-		service = contexto.getBean(CriarJobService.class);
+		service = contexto.getBean(JobService.class);
 	}
 
 	@AfterAll
@@ -122,7 +126,8 @@ class CriarJobPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ CriarJobService.class, MaquinaDeEstadosDoJob.class, Outbox.class, CriarJobAdvice.class })
+	@Import({ JobRepository.class, JobService.class, MaquinaDeEstadosDoJob.class, Outbox.class, JobAdvice.class,
+			VersoesDaRegra.class, CorrelationContext.class })
 	static class Config {
 
 	}
@@ -135,9 +140,11 @@ class CriarJobPersistenciaTests {
 			.replace("0.025", "0.025000000000000000001");
 		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
 		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
-		var mvc = MockMvcBuilders.standaloneSetup(new CriarJobController(service))
-			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual, new AutorizadorDeJob(jdbc)))
-			.setControllerAdvice(contexto.getBean(CriarJobAdvice.class))
+		var mvc = MockMvcBuilders
+			.standaloneSetup(new JobController(service, mock(EmissoresSse.class), new CorrelationContext()))
+			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual,
+					new AutorizadorDeJob(contexto.getBean(JobRepository.class))))
+			.setControllerAdvice(contexto.getBean(JobAdvice.class))
 			.build();
 		var resposta = mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(corpo))
 			.andExpect(status().isCreated())
@@ -164,9 +171,12 @@ class CriarJobPersistenciaTests {
 			.containsEntry("submissao_id", submissaoId)
 			.containsEntry("status", "gerando_regra")
 			.containsEntry("tentativas", 0)
-			.containsEntry("iniciado_em", null)
 			.containsEntry("finalizado_em", null)
 			.containsEntry("job_origem_id", null);
+		assertThat(persistido.get("iniciado_em")).isNotNull()
+			.isEqualTo(jdbc.queryForObject(
+					"SELECT ocorrido_em FROM job_transicoes WHERE job_id = ? AND status_anterior IS NULL",
+					Timestamp.class, jobId));
 		assertThat(persistido.get("orcamento")).isEqualTo(new BigDecimal("485000.1234567890123456789"));
 		assertThat(job.path("orcamento").decimalValue()).isEqualByComparingTo("485000.1234567890123456789");
 		assertThat(competencias(jobId)).containsExactly("2025-11");

@@ -1,0 +1,17 @@
+{
+  "causa": "resultado_fora_do_schema",
+  "problemas": [
+    {
+      "caminho": "$.decomposicao",
+      "palavra_chave": "required"
+    },
+    {
+      "caminho": "$.totais.diferenca_pct",
+      "palavra_chave": "type"
+    },
+    {
+      "caminho": "$.totais.orcamento",
+      "palavra_chave": "fornecido_pelo_container"
+    }
+  ]
+}

@@ -10,10 +10,10 @@ Dois schemas não descrevem uma coluna: descrevem um artefato inteiro, compondo 
 
 | Schema | Artefato |
 | --- | --- |
-| [representacao-regra.schema.json](representacao-regra.schema.json) | A regra que o usuário confirma e que o código gerado implementa: `regras.nucleo` mais `regras.especificacoes` |
+| [representacao-regra.schema.json](representacao-regra.schema.json) | A regra estruturada que é validada e que o código gerado deve implementar: `regras.nucleo` mais `regras.especificacoes` |
 | [resultado-simulacao.schema.json](resultado-simulacao.schema.json) | A saída que o código gerado produz no sandbox: `totais`, `assercoes` e `decomposicao` de `resultados_simulacao` |
 
-A composição existe porque a exigência mora no par, não na parte. A representação só é regra com núcleo e especificações juntos; o resultado só é resultado com totais e decomposição juntos, porque um total sem a quebra não diz de onde veio a diferença nem permite conferir que todo elemento teve efeito. Cada schema de coluna continua valendo isoladamente, para quem lê ou escreve aquela coluna.
+A composição existe porque a exigência mora no par, não na parte. A representação só é regra com núcleo e especificações juntos; a saída de sucesso reúne totais e decomposição. A quebra permite conferir cobertura e conciliação, mas não prova sozinha a correção semântica de cada elemento nem preserva todas as linhas da apuração. Cada schema de coluna continua valendo isoladamente, para quem lê ou escreve aquela coluna.
 
 Os exemplos válidos estão em [`contracts/examples/domain/`](../examples/domain/), e é o que os testes de cada componente consomem.
 
@@ -31,6 +31,7 @@ Os exemplos válidos estão em [`contracts/examples/domain/`](../examples/domain
 | [resultado-totais.schema.json](resultado-totais.schema.json) | `resultados_simulacao.totais` |
 | [resultado-assercoes.schema.json](resultado-assercoes.schema.json) | `resultados_simulacao.assercoes` |
 | [resultado-decomposicao.schema.json](resultado-decomposicao.schema.json) | `resultados_simulacao.decomposicao` |
+| [resultado-diagnostico.schema.json](resultado-diagnostico.schema.json) | `resultados_simulacao.diagnostico` |
 
 `outbox_events.payload` não está aqui: é corpo de mensagem, e seu lugar é `contracts/events/`.
 
@@ -46,10 +47,18 @@ Código de loja, marca e cargo é sempre string, na mesma forma em qualquer estr
 
 Percentual e diferença percentual são fração, nunca porcentagem. `0.025` são 2,5%.
 
-Competência é `AAAA-MM`. As bases só têm granularidade mensal. A única exceção é o construto `janela_datas`, que usa data completa porque a base de vendas de novembro carrega data real.
+Competência é `AAAA-MM`. As vendas têm granularidade mensal, com exceção das datas reais da janela de Black Friday em novembro. Admissão e demissão também têm datas completas no RH. `janela_datas` usa data completa para os recortes que os dados efetivamente sustentam.
 
 ## Identificação das partes da regra
 
 Campos do núcleo e elementos de `especificacoes` compartilham um espaço único de identificação, definido em `comum.schema.json` como `elemento_ref`. Campo do núcleo usa `nucleo.<campo>`; item de `especificacoes` usa o `ref` dele, sequencial, como `elem.1`.
 
 O espaço é único porque as mesmas listas citam os dois lado a lado: a declaração de cobertura do código gerado e a quebra por elemento em `resultado-decomposicao`. O identificador não carrega o construto, que já tem campo próprio e mudaria se o elemento fosse reclassificado.
+
+## Estado existente e evolução planejada
+
+Os schemas descrevem formatos compartilhados; sua existência não comprova que a extração ou a geração de todos os construtos já esteja implementada.
+
+A decomposição atual exige cinco mapas de diferenças: `elemento`, `loja`, `marca`, `cargo` e `competencia`. Não contém matrícula, valores absolutos por dimensão ou dataframes resultantes. A Sprint 2 prevê matrícula e valores absolutos; o cruzamento matrícula × loja × competência e a persistência dos detalhes dependem da granularidade confirmada.
+
+Os conflitos do chatbot e as extensões de resultado são trabalho de contratos separado da documentação. Os schemas atuais permanecem a autoridade até serem evoluídos e validados com seus consumidores. Ver [Fluxo e decisões da Sprint 2](../../docs/FLUXO-SPRINT-2.md).

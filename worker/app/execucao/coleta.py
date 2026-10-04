@@ -25,7 +25,7 @@ from typing import Any, Literal, cast
 
 from app.execucao.container import SaidaBruta
 from app.execucao.preparo import PayloadContainer
-from app.execucao.schema import validar_assercoes, validar_resultado
+from app.execucao.schema import Problema, validar_assercoes, validar_resultado
 from app.sandbox.assercoes import Desfecho
 from app.sandbox.envelope import SAIDA_POR_STATUS, VERSAO, Envelope, Falha
 from app.sandbox.resultado import ResultadoSimulacao
@@ -67,7 +67,7 @@ class DesfechoClassificado:
     # usuário, nunca instrução para um agente.
     erro: Falha | None = field(default=None, repr=False)
     # Onde o resultado falhou no schema: caminho e palavra-chave, sem valores.
-    problemas: tuple[str, ...] = ()
+    problemas: tuple[Problema, ...] = ()
     # O que o container escreveu, capturado em toda execução. None em erro_infra, em que
     # nada rodou.
     saida: SaidaBruta | None = field(default=None, repr=False)

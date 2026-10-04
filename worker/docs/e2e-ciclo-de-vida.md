@@ -31,12 +31,13 @@ Docker e a imagem do sandbox, que a fixture `imagem` constrói uma vez (ou reusa
 | --- | --- |
 | `sucesso` grava **uma** linha e publica o mesmo evento nas duas filas, com o veredito pelo orçamento do comando | `test_desfechos::test_sucesso_grava_a_linha_e_publica_o_evento_nas_duas_filas` |
 | asserção violada é categoria própria, sem veredito | `test_assercao_violada_e_categoria_propria_e_sem_veredito` |
-| erro da regra é `erro_codigo` e **nada da regra** (exceção, stdout, stderr, fonte) nem o orçamento chega ao log | `test_erro_do_codigo_e_erro_codigo_e_nada_da_regra_chega_ao_log` |
-| código que não termina é morto no prazo real de 60 s e o ciclo fecha | `test_codigo_que_nao_termina_e_morto_no_prazo_e_o_ciclo_fecha` |
+| erro da regra é `erro_codigo`, a exceção vai para o diagnóstico da linha e **nada da regra** (exceção, stdout, stderr, fonte) nem o orçamento chega ao log | `test_erro_do_codigo_e_erro_codigo_e_nada_da_regra_chega_ao_log` |
+| código que não termina é morto no prazo real de 60 s, o diagnóstico guarda só a causa `timeout` e o ciclo fecha | `test_codigo_que_nao_termina_e_morto_no_prazo_e_o_ciclo_fecha` |
 | sem a imagem do sandbox: três tentativas, `erro_infra` gravado e publicado uma vez, comando na DLQ (DEC-094) | `test_infra_esgotada_grava_e_publica_erro_infra_e_so_entao_vai_a_dlq` |
 | comando inválido, código inexistente e par job/código incoerente vão à DLQ sem linha nem evento, e não travam a fila | `test_comando_ruim_vai_a_dlq_e_nao_trava_a_fila` |
 | todo log do processamento carrega o `job_id` | `test_todo_log_do_processamento_carrega_o_job_id` |
 | comando duplicado republica o evento, sem segunda linha nem segunda execução | `test_reentrega::test_comando_duplicado_nao_duplica_a_linha_nem_executa_de_novo` |
+| o diagnóstico de um `erro_codigo` sobrevive ao worker: um processo novo reentregue encontra a linha, republica o mesmo evento e não executa de novo | `test_o_diagnostico_sobrevive_ao_worker_e_a_reentrega_nao_o_troca` |
 | `kill -9` no meio da execução: o comando volta, um segundo worker o conclui, uma linha e um evento | `test_worker_morto_no_meio_da_execucao_nao_perde_o_comando` |
 | SIGTERM no meio da execução: o comando não se perde e o job termina com uma linha | `test_processo::test_sigterm_no_meio_da_execucao_nao_perde_o_comando` |
 | SIGTERM no meio da execução: o container é morto e removido, dentro dos 10 s do `docker stop` | `test_sigterm_no_meio_da_execucao_mata_e_remove_o_container_dentro_do_prazo_do_docker_stop` |

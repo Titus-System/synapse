@@ -5,6 +5,7 @@ import java.util.Objects;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -107,6 +108,22 @@ class DesfechoDaSimulacaoTests {
 	@NullSource
 	void statusNuloNaoResolve(String status) {
 		assertThat(DesfechoDaSimulacao.de(status, "viavel")).isNull();
+	}
+
+	// --- Token da trilha --------------------------------------------------------------
+
+	@ParameterizedTest
+	@EnumSource(value = DesfechoDaSimulacao.class,
+			names = { "INVIAVEL", "ASSERCAO_VIOLADA", "ERRO_CODIGO", "ERRO_INFRA" })
+	void oTokenDaTrilhaResolveDeVoltaParaOMesmoDesfecho(DesfechoDaSimulacao desfecho) {
+		assertThat(DesfechoDaSimulacao.peloMotivoDaTrilha(Objects.requireNonNull(desfecho.motivoDaTrilha())))
+			.isEqualTo(desfecho);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "viavel", "indeterminado", "erro_geracao_codigo", "sugestao_adaptacao_proposta", "" })
+	void tokenQueNaoEDeDesfechoNaoResolve(String token) {
+		assertThat(DesfechoDaSimulacao.peloMotivoDaTrilha(token)).isNull();
 	}
 
 }

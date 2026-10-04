@@ -26,6 +26,7 @@ import org.junit.jupiter.api.condition.EnabledIf;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.rabbitmq.RabbitMQContainer;
+import tools.jackson.databind.JsonNode;
 
 import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.core.Message;
@@ -214,6 +215,14 @@ class EtapaAlteradaConsumidorTests {
 			.isLessThan(cliente.conteudo().indexOf("\"status_anterior\""));
 		assertThat(statusPersistido(jobId)).isEqualTo("erro");
 		assertThat(motivoDaUltimaTransicao(jobId)).isEqualTo("erro_geracao_codigo");
+
+		// Depois do fim do stream, a consulta traz a mesma explicação que ele anunciou.
+		criarRegra(jobId);
+		JsonNode job = ClienteDoJob.consultar(porta, jobId);
+		assertThat(job.path("motivo").asString())
+			.isEqualTo(ClienteDoJob.dadosDoBloco(blocoEstado).path("motivo").asString())
+			.isNotBlank();
+		assertThat(job.propertyNames()).contains("finalizado_em").doesNotContain("simulacao");
 	}
 
 	@Test
@@ -321,13 +330,33 @@ class EtapaAlteradaConsumidorTests {
 
 	private static UUID criarJob(JobStatus status) throws SQLException {
 		UUID jobId = UUID.randomUUID();
+		UUID submissaoId = UUID.randomUUID();
 		try (Connection connection = comoDono(); Statement statement = connection.createStatement()) {
+			// Todo job tem uma procedência: a consulta a devolve como `origem`.
 			statement.execute("""
-					INSERT INTO jobs (id, status, usuario_id, competencias, orcamento, criado_em)
-					VALUES ('%s', '%s', '%s', '{2025-08}', 1000, now())
-					""".formatted(jobId, status.paraColuna(), USUARIO_ID));
+					INSERT INTO submissoes (id, usuario_id, tipo, conteudo, criado_em)
+					VALUES ('%s', '%s', 'formulario', '{}'::jsonb, now())
+					""".formatted(submissaoId, USUARIO_ID));
+			statement.execute("""
+					INSERT INTO jobs (id, status, usuario_id, submissao_id, competencias, orcamento, criado_em)
+					VALUES ('%s', '%s', '%s', '%s', '{2025-08}', 1000, now())
+					""".formatted(jobId, status.paraColuna(), USUARIO_ID, submissaoId));
 		}
 		return jobId;
+	}
+
+	/** A consulta do job exige ao menos uma versão de regra, com o núcleo completo. */
+	private static void criarRegra(UUID jobId) throws SQLException {
+		try (Connection connection = comoDono(); Statement statement = connection.createStatement()) {
+			statement.execute(
+					"""
+							INSERT INTO regras (job_id, versao, origem, nucleo, especificacoes, hash, criada_em)
+							VALUES ('%s', 1, 'confirmacao_usuario',
+							        '{"vigencia":{"inicio":"2025-08","fim":"2025-08"},"loja":["13"],"marca":["10"],"cargo":["100"],"percentual":0.02}'::jsonb,
+							        '[]'::jsonb, '%s', now())
+							"""
+						.formatted(jobId, "0".repeat(64)));
+		}
 	}
 
 	private static String statusPersistido(UUID jobId) throws SQLException {

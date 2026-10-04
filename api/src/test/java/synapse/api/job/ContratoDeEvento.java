@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -86,12 +87,36 @@ final class ContratoDeEvento {
 	static void validarEventoDoStream(String nomeDoEvento, String dataJson) throws IOException {
 		String componente = SCHEMA_POR_EVENTO.get(nomeDoEvento);
 		assertThat(componente).as("evento \"%s\" não tem schema no contrato do stream", nomeDoEvento).isNotNull();
+		validarComponenteHttp(Objects.requireNonNull(componente), dataJson);
+	}
+
+	/**
+	 * Valida o corpo de uma resposta HTTP contra um componente de
+	 * {@code contracts/http/openapi.yaml}, resolvendo os {@code $ref} internos e os de
+	 * {@code ../domain/} do mesmo jeito que o stream.
+	 */
+	static void validarRespostaHttp(String componente, String corpoJson) throws IOException {
+		validarComponenteHttp(componente, corpoJson);
+	}
+
+	/**
+	 * Valida uma linha de log já serializada contra o envelope compartilhado entre os
+	 * serviços, em {@code contracts/observability/log.schema.json}.
+	 */
+	static void validarLog(String linhaJson) throws IOException {
+		Path caminho = DIRETORIO_CONTRATOS.resolve("observability/log.schema.json");
+		JsonSchema schema = FACTORY.getSchema(JSON.readTree(Files.readString(caminho)));
+		Set<ValidationMessage> erros = schema.validate(JSON.readTree(linhaJson));
+		assertThat(erros).as("log não conforme ao envelope: %s", erros).isEmpty();
+	}
+
+	private static void validarComponenteHttp(String componente, String json) throws IOException {
 		ObjectNode raiz = (ObjectNode) YAML
 			.readTree(Files.readString(DIRETORIO_CONTRATOS.resolve("http/openapi.yaml")));
 		raiz.put("$id", "https://synapse.local/contracts/http/openapi.yaml");
 		raiz.put("$ref", "#/components/schemas/" + componente);
-		Set<ValidationMessage> erros = FACTORY.getSchema(raiz).validate(JSON.readTree(dataJson));
-		assertThat(erros).as("evento \"%s\" não conforme a %s: %s", nomeDoEvento, componente, erros).isEmpty();
+		Set<ValidationMessage> erros = FACTORY.getSchema(raiz).validate(JSON.readTree(json));
+		assertThat(erros).as("payload não conforme a %s: %s", componente, erros).isEmpty();
 	}
 
 	private static Path localizarDiretorioContratos() {

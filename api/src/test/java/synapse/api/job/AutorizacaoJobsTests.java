@@ -46,21 +46,9 @@ class AutorizacaoJobsTests {
 
 	static final UUID JOB = UUID.randomUUID();
 
+	private final JobService service = mock(JobService.class);
+
 	private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
-
-	private final CriarJobService criar = mock(CriarJobService.class);
-
-	private final ListarJobsService listar = mock(ListarJobsService.class);
-
-	private final BuscarJobService buscar = mock(BuscarJobService.class);
-
-	private final AcompanharJobService acompanhar = mock(AcompanharJobService.class);
-
-	private final ConfirmarParametrosService confirmar = mock(ConfirmarParametrosService.class);
-
-	private final ExecutarAcaoService executar = mock(ExecutarAcaoService.class);
-
-	private final ReprocessarJobService reprocessar = mock(ReprocessarJobService.class);
 
 	private final EmissoresSse emissores = mock(EmissoresSse.class);
 
@@ -74,16 +62,11 @@ class AutorizacaoJobsTests {
 		when(this.jdbc.queryForList(contains("FROM jobs"), eq(UUID.class), eq(JOB))).thenReturn(List.of(USUARIO));
 		UsuarioAtual usuario = new UsuarioAtual(this.jdbc, mock(AppProperties.class));
 		this.mvc = MockMvcBuilders
-			.standaloneSetup(new CriarJobController(this.criar), new ListarJobsController(this.listar),
-					new BuscarJobController(this.buscar),
-					new AcompanharJobController(this.acompanhar, new CorrelationContext()),
-					new ConfirmarParametrosController(this.confirmar),
-					new ExecutarAcaoController(this.executar, this.emissores),
-					new ReprocessarJobController(this.reprocessar), new RotaSemPolitica())
-			.addInterceptors(new AutorizacaoJobsInterceptor(usuario, new AutorizadorDeJob(this.jdbc)))
-			.setControllerAdvice(new AutorizacaoDeJobAdvice(), new BuscarJobAdvice(), new AcompanharJobAdvice(),
-					new ConfirmarParametrosAdvice(), new ReprocessarJobAdvice(), new CriarJobAdvice(),
-					new ExecutarAcaoAdvice())
+			.standaloneSetup(new JobController(this.service, this.emissores, new CorrelationContext()),
+					new RotaSemPolitica())
+			.addInterceptors(
+					new AutorizacaoJobsInterceptor(usuario, new AutorizadorDeJob(new JobRepository(this.jdbc))))
+			.setControllerAdvice(new JobAdvice(), new AutorizacaoDeJobAdvice())
 			.build();
 	}
 
@@ -164,8 +147,7 @@ class AutorizacaoJobsTests {
 				.andExpect(content().contentType(MediaType.APPLICATION_JSON))
 				.andExpect(jsonPath("$.codigo").value("sem_permissao"))
 				.andExpect(jsonPath("$.mensagem").value("Você não tem permissão para esta ação."));
-			verifyNoInteractions(this.criar, this.listar, this.buscar, this.acompanhar, this.confirmar, this.executar,
-					this.reprocessar, this.emissores);
+			verifyNoInteractions(this.service, this.emissores);
 			if (papeis.isEmpty() || papeis.containsAll(List.of("profissional-rh", "auditor"))) {
 				verifyNoInteractions(this.jdbc);
 			}
@@ -186,18 +168,18 @@ class AutorizacaoJobsTests {
 		this.mvc.perform(get("/jobs/{id}", JOB))
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.codigo").value("job_nao_encontrado"));
-		verifyNoInteractions(this.buscar);
+		verifyNoInteractions(this.service);
 	}
 
 	@Test
 	void reconexaoSseConsultaPosseNovamenteAntesDeAbrirEmissor() throws Exception {
 		autenticar(List.of("profissional-rh"));
-		when(this.acompanhar.acompanhar(JOB)).thenReturn(new SseEmitter());
+		when(this.service.acompanhar(JOB)).thenReturn(new SseEmitter());
 		this.mvc.perform(pedido("events")).andExpect(status().isOk()).andExpect(request().asyncStarted());
 		when(this.jdbc.queryForList(contains("FROM jobs"), eq(UUID.class), eq(JOB)))
 			.thenReturn(List.of(UUID.randomUUID()));
 		this.mvc.perform(pedido("events").header("Last-Event-ID", "1")).andExpect(status().isForbidden());
-		verify(this.acompanhar, times(1)).acompanhar(JOB);
+		verify(this.service, times(1)).acompanhar(JOB);
 		verify(this.jdbc, times(2)).queryForList(contains("FROM jobs"), eq(UUID.class), eq(JOB));
 	}
 
@@ -213,7 +195,7 @@ class AutorizacaoJobsTests {
 				.param("usuario_id", outro)
 				.header("X-Usuario-Id", outro))
 			.andExpect(status().isCreated());
-		verify(this.criar).criar(any(), eq(USUARIO));
+		verify(this.service).criar(any(), eq(USUARIO));
 	}
 
 	@ParameterizedTest
@@ -221,8 +203,7 @@ class AutorizacaoJobsTests {
 	void negacaoPrecedeInterpretacaoDoCorpo(String rota) throws Exception {
 		autenticar(List.of("auditor"));
 		this.mvc.perform(pedido(rota).content("{")).andExpect(status().isForbidden());
-		verifyNoInteractions(this.criar, this.listar, this.buscar, this.acompanhar, this.confirmar, this.executar,
-				this.reprocessar);
+		verifyNoInteractions(this.service);
 	}
 
 	private void prepararRespostas() {
@@ -231,27 +212,28 @@ class AutorizacaoJobsTests {
 		JobCriadoDto criado = new JobCriadoDto(JOB, "gerando_regra", "formulario", List.of("2025-11"), BigDecimal.TEN,
 				Instant.now(), UUID.randomUUID(), null, regra);
 		JobDetalhadoDto detalhe = new JobDetalhadoDto(JOB, "gerando_regra", "formulario", List.of("2025-11"),
-				BigDecimal.TEN, Instant.now(), null, null, UUID.randomUUID(), null, List.of(regra), null, List.of());
-		when(this.criar.criar(any(), any())).thenReturn(criado);
-		when(this.listar.listar(any(), any())).thenReturn(new PaginaJobsDto(List.of(), 0, 20, 0));
-		when(this.buscar.buscar(JOB)).thenReturn(detalhe);
-		when(this.acompanhar.acompanhar(JOB)).thenReturn(new SseEmitter());
-		when(this.confirmar.confirmar(eq(JOB), any())).thenReturn(criado);
-		when(this.reprocessar.reprocessar(eq(JOB), any())).thenReturn(criado);
-		when(this.executar.aplicar(eq(JOB), any())).thenReturn(new ExecutarAcaoService.AcaoAplicada(
+				BigDecimal.TEN, Instant.now(), null, null, UUID.randomUUID(), null, null, List.of(regra), null,
+				List.of());
+		when(this.service.criar(any(), any())).thenReturn(criado);
+		when(this.service.listar(any(), any())).thenReturn(new PaginaJobsDto(List.of(), 0, 20, 0));
+		when(this.service.buscar(JOB)).thenReturn(detalhe);
+		when(this.service.acompanhar(JOB)).thenReturn(new SseEmitter());
+		when(this.service.confirmar(eq(JOB), any())).thenReturn(criado);
+		when(this.service.reprocessar(eq(JOB), any())).thenReturn(criado);
+		when(this.service.executarAcao(eq(JOB), any())).thenReturn(new JobService.AcaoAplicada(
 				EventoEstadoDto.transicao(JOB, JobStatus.AGUARDANDO_DECISAO_USUARIO, JobStatus.LIBERADO, null),
 				detalhe));
 	}
 
 	private void verificarServico(String rota) {
 		switch (rota) {
-			case "criar" -> verify(this.criar).criar(any(), eq(USUARIO));
-			case "listar" -> verify(this.listar).listar(any(), argThat(acesso -> acesso.usuarioId().equals(USUARIO)));
-			case "buscar" -> verify(this.buscar).buscar(JOB);
-			case "events" -> verify(this.acompanhar).acompanhar(JOB);
-			case "parameters" -> verify(this.confirmar).confirmar(eq(JOB), any());
-			case "reprocessar" -> verify(this.reprocessar).reprocessar(eq(JOB), any());
-			default -> verify(this.executar).aplicar(JOB, AcaoJob.deColuna(rota));
+			case "criar" -> verify(this.service).criar(any(), eq(USUARIO));
+			case "listar" -> verify(this.service).listar(any(), argThat(acesso -> acesso.usuarioId().equals(USUARIO)));
+			case "buscar" -> verify(this.service).buscar(JOB);
+			case "events" -> verify(this.service).acompanhar(JOB);
+			case "parameters" -> verify(this.service).confirmar(eq(JOB), any());
+			case "reprocessar" -> verify(this.service).reprocessar(eq(JOB), any());
+			default -> verify(this.service).executarAcao(JOB, AcaoJob.deColuna(rota));
 		}
 	}
 

@@ -31,7 +31,7 @@ from app.execucao.preparo import PayloadContainer
 from app.mensageria import consumidor
 from app.mensageria.broker import ConexaoBroker
 from app.mensageria.retry import HEADER_RETRY
-from tests.app.esquemas import erros_do_evento
+from tests.app.esquemas import erros_do_dominio, erros_do_evento
 from tests.app.mensageria.test_publicador_integration import (
     FILA_API,
     FILA_CODEGEN,
@@ -229,6 +229,7 @@ async def test_comando_no_rabbitmq_vira_linha_no_banco_e_evento_nas_duas_filas(
     assert totais["orcamento"] == orcamento
     assert json.loads(linha["decomposicao"]) is not None
     assert [a["resultado"] for a in json.loads(linha["assercoes"])] == ["ok"]
+    assert linha["diagnostico"] is None
 
     # O evento: o mesmo nas duas filas, referenciando a linha, e a linha já existia ao recebê-lo.
     assert len(recebidos) == 1
@@ -289,6 +290,66 @@ async def test_evento_perdido_nao_perde_a_linha_e_a_reentrega_nao_a_duplica(
     assert await _retirar(broker_real, broker_real.fila.name) is None
 
 
+# Levanta dentro do container. A mensagem é o marcador do que não pode chegar ao log nem ao evento.
+REGRA_QUE_LEVANTA = """
+def aplicar_regra(bases, apuracao_base, competencias):
+    raise ValueError("MENSAGEM-DA-REGRA")
+"""
+
+
+@pytest.mark.parametrize("fonte_do_codigo_seed", [REGRA_QUE_LEVANTA])
+async def test_a_excecao_da_regra_e_gravada_como_diagnostico_e_a_reentrega_o_preserva(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    broker_real: ConexaoBroker,
+    filas: tuple[AbstractQueue, AbstractQueue],
+    conexao_dono: Any,
+    codigo_gerado_seed: dict[str, Any],
+    imagem: str,
+) -> None:
+    """A falha que o sandbox capturou vai para a linha, no mesmo INSERT do resultado, e o evento
+    só a referencia. O mesmo comando de novo encontra a linha: não executa o container nem grava
+    outra, e o diagnóstico continua o que era."""
+    fila_api, fila_codegen = filas
+    caplog.set_level(logging.DEBUG)
+    execucoes = _espia_do_container(monkeypatch, imagem)
+    job_id = codigo_gerado_seed["job_id"]
+
+    for _ in range(2):
+        concluido = _observar_processamento(monkeypatch, total=1)
+        await broker_real.canal.default_exchange.publish(
+            _comando(codigo_gerado_seed), routing_key=broker_real.fila.name
+        )
+        await _consumir_ate(broker_real, concluido)
+
+    assert len(execucoes) == 1, "a reentrega executou o container de novo"
+    (linha,) = await _linhas_do_job(conexao_dono, job_id)
+    assert (linha["status"], linha["veredito"]) == ("erro_codigo", None)
+    diagnostico = json.loads(linha["diagnostico"])
+    assert erros_do_dominio("resultado-diagnostico", diagnostico) == []
+    assert diagnostico["causa"] == "excecao"
+    assert (diagnostico["falha"]["tipo"], diagnostico["falha"]["mensagem"]) == (
+        "ValueError",
+        "MENSAGEM-DA-REGRA",
+    )
+    assert 'File "regra.py", line 3, in aplicar_regra' in diagnostico["falha"]["traceback"]
+
+    for fila in (fila_api, fila_codegen):
+        eventos = [await retirar(fila), await retirar(fila)]
+        assert all(evento is not None for evento in eventos), "faltou um evento"
+        corpos = [json.loads(evento.body) for evento in eventos if evento is not None]
+        assert corpos[0] == corpos[1], "a reentrega tem de republicar o mesmo evento"
+        assert corpos[0] == {
+            "job_id": str(job_id),
+            "resultado_id": str(linha["id"]),
+            "status": "erro_codigo",
+        }
+    assert "MENSAGEM-DA-REGRA" not in caplog.text
+    gravados = [r for r in caplog.records if r.getMessage() == "resultado gravado"]
+    assert [r.com_diagnostico for r in gravados] == [True]  # type: ignore[attr-defined]
+    assert await _retirar(broker_real, f"{broker_real.fila.name}.dlq") is None
+
+
 async def test_falha_de_infraestrutura_no_container_esgota_o_retry_grava_o_erro_e_chega_a_dlq(
     monkeypatch: pytest.MonkeyPatch,
     broker_real: ConexaoBroker,
@@ -328,6 +389,7 @@ async def test_falha_de_infraestrutura_no_container_esgota_o_retry_grava_o_erro_
     (linha,) = await _linhas_do_job(conexao_dono, codigo_gerado_seed["job_id"])
     assert linha["status"] == "erro_infra"
     assert (linha["veredito"], linha["totais"], linha["decomposicao"]) == (None, None, None)
+    assert linha["diagnostico"] is None
     assert json.loads(linha["assercoes"]) == []
     for fila in (fila_api, fila_codegen):
         evento = await retirar(fila)

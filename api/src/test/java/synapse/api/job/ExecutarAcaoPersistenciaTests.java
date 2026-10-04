@@ -1,5 +1,6 @@
 package synapse.api.job;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Timestamp;
@@ -23,21 +24,44 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.support.SqlArrayValue;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+import synapse.api.core.logging.CorrelationContext;
+import synapse.api.core.outbox.Outbox;
+import synapse.api.core.sse.EmissoresSse;
+import synapse.api.core.sse.EventoSse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Roda contra um Postgres de verdade, como o usuário {@code synapse_api}: prova que a
@@ -49,6 +73,14 @@ class ExecutarAcaoPersistenciaTests {
 
 	private static final UUID USUARIO = UUID.fromString("44444444-4444-4444-8444-444444444444");
 
+	/**
+	 * Um núcleo completo, como o de toda regra gravada: a resposta o devolve no contrato.
+	 */
+	private static final String NUCLEO = """
+			{"vigencia":{"inicio":"2025-11","fim":"2025-11"},"loja":["13"],"marca":["10"],"cargo":["100"],"percentual":0.02}
+			"""
+		.strip();
+
 	private static PostgreSQLContainer postgres;
 
 	private static AnnotationConfigApplicationContext contexto;
@@ -57,9 +89,7 @@ class ExecutarAcaoPersistenciaTests {
 
 	private static JdbcTemplate dono;
 
-	private static ExecutarAcaoService service;
-
-	private static BuscarJobService buscarJob;
+	private static JobService service;
 
 	static boolean dockerIsAvailable() {
 		return DockerClientFactory.instance().isDockerAvailable();
@@ -92,10 +122,11 @@ class ExecutarAcaoPersistenciaTests {
 		contexto.registerBean(DataSource.class, () -> dataSource);
 		contexto.registerBean(JdbcTemplate.class, () -> jdbc);
 		contexto.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
+		contexto.registerBean(JobRepository.class, () -> spy(new JobRepository(jdbc)));
+		contexto.registerBean(EmissoresSse.class, () -> mock(EmissoresSse.class));
 		contexto.register(Config.class);
 		contexto.refresh();
-		service = contexto.getBean(ExecutarAcaoService.class);
-		buscarJob = contexto.getBean(BuscarJobService.class);
+		service = contexto.getBean(JobService.class);
 	}
 
 	@AfterAll
@@ -110,6 +141,8 @@ class ExecutarAcaoPersistenciaTests {
 
 	@BeforeEach
 	void limparJobs() {
+		// As transições terminais gravam job-encerrado no outbox, que referencia o job.
+		dono.update("DELETE FROM outbox_events");
 		dono.update("DELETE FROM job_acoes");
 		dono.update("DELETE FROM job_transicoes");
 		dono.update("DELETE FROM regras");
@@ -119,7 +152,8 @@ class ExecutarAcaoPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ ExecutarAcaoService.class, MaquinaDeEstadosDoJob.class, BuscarJobService.class })
+	@Import({ JobService.class, MaquinaDeEstadosDoJob.class, CorrelationContext.class, Outbox.class,
+			VersoesDaRegra.class })
 	static class Config {
 
 	}
@@ -129,7 +163,7 @@ class ExecutarAcaoPersistenciaTests {
 		UUID jobId = criarJobComRegra(JobStatus.AGUARDANDO_DECISAO_USUARIO);
 		Instant antes = Instant.now();
 
-		JobDetalhadoDto job = service.aplicar(jobId, AcaoJob.CONFIRMAR_LIBERAR).job();
+		JobDetalhadoDto job = service.executarAcao(jobId, AcaoJob.CONFIRMAR_LIBERAR).job();
 
 		Instant depois = Instant.now();
 		assertThat(job.status()).isEqualTo("liberado");
@@ -151,11 +185,48 @@ class ExecutarAcaoPersistenciaTests {
 		assertThat(transicao.get("ocorrido_em")).isNotNull();
 	}
 
+	/**
+	 * {@code POST /jobs/{id}/actions} responde {@code JobDetalhado}, como a consulta:
+	 * mesmo DTO, mesmo contrato.
+	 */
+	@ParameterizedTest
+	@EnumSource(AcaoJob.class)
+	void aRespostaDaAcaoValidaContraJobDetalhado(AcaoJob acao) throws Exception {
+		UUID jobId = criarJobComRegra(JobStatus.AGUARDANDO_DECISAO_USUARIO);
+		EmissoresSse emissores = mock(EmissoresSse.class);
+		doAnswer(chamada -> {
+			assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+			assertThat(dono.queryForObject("SELECT status FROM jobs WHERE id = ?", String.class, jobId))
+				.isEqualTo(acao.destino().paraColuna());
+			assertThat(chamada.getArgument(1, EventoSse.class)).isEqualTo(EventoSse.ultimo("estado",
+					EventoEstadoDto.transicao(jobId, JobStatus.AGUARDANDO_DECISAO_USUARIO, acao.destino(), null)));
+			return null;
+		}).when(emissores).emitir(eq(jobId), any());
+		MockMvc mvc = MockMvcBuilders.standaloneSetup(new JobController(service, emissores, new CorrelationContext()))
+			.setControllerAdvice(new JobAdvice())
+			.build();
+
+		String corpo = mvc
+			.perform(post("/jobs/{id}/actions", jobId).contentType(MediaType.APPLICATION_JSON)
+				.content("{\"acao\":\"" + acao.paraColuna() + "\"}"))
+			.andExpect(status().isOk())
+			.andReturn()
+			.getResponse()
+			.getContentAsString(StandardCharsets.UTF_8);
+
+		verify(emissores).emitir(eq(jobId), any());
+		ContratoDeEvento.validarRespostaHttp("JobDetalhado", corpo);
+		JsonNode job = new JsonMapper().readTree(corpo);
+		assertThat(job.path("status").asString())
+			.isEqualTo(jdbc.queryForObject("SELECT status FROM jobs WHERE id = ?", String.class, jobId));
+		assertThat(job.propertyNames()).contains("finalizado_em").doesNotContain("motivo", "simulacao");
+	}
+
 	@Test
 	void salvarGravaOLiteralSalvarMasTransicionaComoLiberar() {
 		UUID jobId = criarJobComRegra(JobStatus.AGUARDANDO_DECISAO_USUARIO);
 
-		JobDetalhadoDto job = service.aplicar(jobId, AcaoJob.SALVAR).job();
+		JobDetalhadoDto job = service.executarAcao(jobId, AcaoJob.SALVAR).job();
 
 		assertThat(job.status()).isEqualTo("liberado");
 		assertThat(jdbc.queryForObject("SELECT acao FROM job_acoes WHERE job_id = ?", String.class, jobId))
@@ -167,7 +238,7 @@ class ExecutarAcaoPersistenciaTests {
 		UUID jobId = criarJobComRegra(JobStatus.SIMULACAO_INVIAVEL);
 
 		assertThatExceptionOfType(ExecutarAcaoException.class)
-			.isThrownBy(() -> service.aplicar(jobId, AcaoJob.CONFIRMAR_LIBERAR))
+			.isThrownBy(() -> service.executarAcao(jobId, AcaoJob.CONFIRMAR_LIBERAR))
 			.satisfies(ex -> assertThat(ex.erro().codigo()).isEqualTo("simulacao_inviavel"));
 
 		assertThat(jdbc.queryForObject("SELECT status FROM jobs WHERE id = ?", String.class, jobId))
@@ -184,7 +255,7 @@ class ExecutarAcaoPersistenciaTests {
 	void cancelarLevaAoEstadoCancelado(JobStatus origem) {
 		UUID jobId = criarJobComRegra(origem);
 
-		JobDetalhadoDto job = service.aplicar(jobId, AcaoJob.CANCELAR).job();
+		JobDetalhadoDto job = service.executarAcao(jobId, AcaoJob.CANCELAR).job();
 
 		assertThat(job.status()).isEqualTo("cancelado");
 	}
@@ -194,9 +265,9 @@ class ExecutarAcaoPersistenciaTests {
 	void arquivarLevaAoEstadoArquivadoEMantemOJobEATrilhaConsultaveis(JobStatus origem) {
 		UUID jobId = criarJobComRegra(origem);
 
-		service.aplicar(jobId, AcaoJob.ARQUIVAR);
+		service.executarAcao(jobId, AcaoJob.ARQUIVAR);
 
-		JobDetalhadoDto job = buscarJob.buscar(jobId);
+		JobDetalhadoDto job = service.buscar(jobId);
 		assertThat(job.status()).isEqualTo("arquivado");
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM job_transicoes WHERE job_id = ?", Integer.class, jobId))
 			.isEqualTo(2);
@@ -207,7 +278,7 @@ class ExecutarAcaoPersistenciaTests {
 	@Test
 	void acaoSobreJobInexistenteLancaJobNaoEncontrado() {
 		assertThatExceptionOfType(JobNaoEncontradoException.class)
-			.isThrownBy(() -> service.aplicar(UUID.randomUUID(), AcaoJob.CANCELAR));
+			.isThrownBy(() -> service.executarAcao(UUID.randomUUID(), AcaoJob.CANCELAR));
 	}
 
 	@Test
@@ -215,11 +286,62 @@ class ExecutarAcaoPersistenciaTests {
 		UUID jobId = criarJobComRegra(JobStatus.LIBERADO);
 
 		assertThatExceptionOfType(ExecutarAcaoException.class)
-			.isThrownBy(() -> service.aplicar(jobId, AcaoJob.CANCELAR))
+			.isThrownBy(() -> service.executarAcao(jobId, AcaoJob.CANCELAR))
 			.satisfies(ex -> {
 				assertThat(ex.erro().codigo()).isEqualTo("estado_invalido");
 				assertThat(ex.erro().mensagem()).contains("aguardando_decisao_usuario").contains("liberado");
 			});
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = { false, true })
+	void consultaPreservaTransacaoIndependenteOuDaAcao(boolean duranteAcao) {
+		UUID jobId = criarJobComRegra(JobStatus.AGUARDANDO_DECISAO_USUARIO);
+		JobRepository repository = contexto.getBean(JobRepository.class);
+		reset(repository);
+		doAnswer(chamada -> {
+			assertThat(jdbc.queryForObject("SHOW transaction_isolation", String.class))
+				.isEqualTo(duranteAcao ? "read committed" : "repeatable read");
+			assertThat(jdbc.queryForObject("SHOW transaction_read_only", String.class))
+				.isEqualTo(duranteAcao ? "off" : "on");
+			return chamada.callRealMethod();
+		}).when(repository).consultarJob(jobId);
+		try {
+			JobDetalhadoDto job = duranteAcao ? service.executarAcao(jobId, AcaoJob.CANCELAR).job()
+					: service.buscar(jobId);
+			assertThat(job.status()).isEqualTo(duranteAcao ? "cancelado" : "aguardando_decisao_usuario");
+			verify(repository).consultarJob(jobId);
+		}
+		finally {
+			reset(repository);
+		}
+	}
+
+	@Test
+	void falhaNaConsultaFinalReverteAcaoETransicaoSemEmitirSse() throws Exception {
+		UUID jobId = criarJobComRegra(JobStatus.AGUARDANDO_DECISAO_USUARIO);
+		EmissoresSse emissores = mock(EmissoresSse.class);
+		MockMvc mvc = MockMvcBuilders.standaloneSetup(new JobController(service, emissores, new CorrelationContext()))
+			.setControllerAdvice(new JobAdvice())
+			.build();
+		dono.execute("REVOKE SELECT ON simulacoes FROM synapse_api");
+		try {
+			mvc.perform(post("/jobs/{id}/actions", jobId).contentType(MediaType.APPLICATION_JSON)
+				.content("{\"acao\":\"cancelar\"}"))
+				.andExpect(status().isInternalServerError())
+				.andExpect(content().string(""));
+		}
+		finally {
+			dono.execute("GRANT SELECT ON simulacoes TO synapse_api");
+		}
+		assertThat(jdbc.queryForObject("SELECT status FROM jobs WHERE id = ?", String.class, jobId))
+			.isEqualTo("aguardando_decisao_usuario");
+		assertThat(jdbc.queryForObject("SELECT finalizado_em FROM jobs WHERE id = ?", Timestamp.class, jobId)).isNull();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM job_acoes WHERE job_id = ?", Integer.class, jobId))
+			.isZero();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM job_transicoes WHERE job_id = ?", Integer.class, jobId))
+			.isEqualTo(1);
+		verifyNoInteractions(emissores);
 	}
 
 	private static UUID criarJobComRegra(JobStatus status) {
@@ -234,8 +356,8 @@ class ExecutarAcaoPersistenciaTests {
 				new SqlArrayValue("text", List.of("2025-11").toArray())));
 		jdbc.update("""
 				INSERT INTO regras (job_id, versao, origem, nucleo, especificacoes, hash, criada_em)
-				VALUES (?, 1, 'confirmacao_usuario', '{}'::jsonb, '[]'::jsonb, 'hash', now())
-				""", jobId);
+				VALUES (?, 1, 'confirmacao_usuario', ?::jsonb, '[]'::jsonb, 'hash', now())
+				""", jobId, NUCLEO);
 		jdbc.update("""
 				INSERT INTO job_transicoes (job_id, status_anterior, status_novo, ocorrido_em, ator)
 				VALUES (?, NULL, ?, now(), 'sistema')

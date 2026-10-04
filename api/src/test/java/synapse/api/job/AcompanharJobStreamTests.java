@@ -18,6 +18,7 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -255,6 +257,99 @@ class AcompanharJobStreamTests {
 		this.abertos.removeAll(clientes);
 
 		await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(emissoresSse.conexoesAtivas()).isZero());
+	}
+
+	@Test
+	void consultaPreservaErroPadraoDoServidorQuandoPersistenciaFalha() throws Exception {
+		UUID jobId = criarJob(JobStatus.GERANDO_REGRA);
+		try (Connection connection = comoDono(); Statement statement = connection.createStatement()) {
+			statement.execute("REVOKE SELECT ON jobs FROM synapse_api");
+			try {
+				HttpResponse<String> resposta = consultar("/jobs/" + jobId);
+				assertThat(resposta.statusCode()).isEqualTo(500);
+				assertThat(resposta.headers().firstValue("Content-Type")).contains("application/json");
+				var erro = new JsonMapper().readTree(resposta.body());
+				assertThat(erro.propertyNames()).containsExactlyInAnyOrder("timestamp", "status", "error", "path");
+				assertThat(erro.path("status").asInt()).isEqualTo(500);
+				assertThat(erro.path("error").asString()).isEqualTo("Internal Server Error");
+				assertThat(erro.path("path").asString()).isEqualTo("/jobs/" + jobId);
+			}
+			finally {
+				statement.execute("GRANT SELECT ON jobs TO synapse_api");
+			}
+		}
+	}
+
+	@Test
+	void metricasHttpDaConsultaPreservamRotaStatusContagemEDuracaoNoScrape() throws Exception {
+		HttpRequest criacao = HttpRequest.newBuilder(URI.create("http://localhost:" + porta + "/jobs"))
+			.header("Content-Type", "application/json")
+			.POST(HttpRequest.BodyPublishers.ofString(CriarJobControllerTests.FORMULARIO))
+			.build();
+		HttpResponse<String> criado = HTTP.send(criacao, HttpResponse.BodyHandlers.ofString());
+		assertThat(criado.statusCode()).isEqualTo(201);
+		UUID existente = UUID.fromString(new JsonMapper().readTree(criado.body()).path("id").asString());
+		UUID inexistente = UUID.randomUUID();
+		for (String status : List.of("200", "404")) {
+			long antes = contagemDeConsultas(status);
+			double duracaoAntes = duracaoDeConsultas(status);
+			UUID jobId = status.equals("200") ? existente : inexistente;
+			assertThat(consultar("/jobs/" + jobId).statusCode()).isEqualTo(Integer.parseInt(status));
+			await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+				assertThat(contagemDeConsultas(status)).isEqualTo(antes + 1);
+				assertThat(duracaoDeConsultas(status)).isGreaterThan(duracaoAntes);
+				HttpResponse<String> resposta = consultar("/metrics");
+				assertThat(resposta.statusCode()).isEqualTo(200);
+				List<String> amostras = resposta.body()
+					.lines()
+					.filter(linha -> linha.startsWith("http_server_requests_seconds_count{"))
+					.filter(linha -> linha.contains("uri=\"/jobs/{id}\"") && linha.contains("method=\"GET\"")
+							&& linha.contains("status=\"" + status + "\""))
+					.toList();
+				assertThat(amostras).hasSize(1);
+				String amostra = amostras.getFirst();
+				assertThat(Double.parseDouble(amostra.substring(amostra.indexOf("} ") + 2))).isEqualTo(antes + 1);
+				assertThat(amostra).doesNotContain(existente.toString(), inexistente.toString());
+				List<String> duracoes = resposta.body()
+					.lines()
+					.filter(linha -> linha.startsWith("http_server_requests_seconds_sum{"))
+					.filter(linha -> linha.contains("uri=\"/jobs/{id}\"") && linha.contains("method=\"GET\"")
+							&& linha.contains("status=\"" + status + "\""))
+					.toList();
+				assertThat(duracoes).hasSize(1);
+				String duracao = duracoes.getFirst();
+				assertThat(Double.parseDouble(duracao.substring(duracao.indexOf("} ") + 2)))
+					.isGreaterThan(duracaoAntes);
+				assertThat(duracao).doesNotContain(existente.toString(), inexistente.toString());
+			});
+		}
+	}
+
+	private static long contagemDeConsultas(String status) {
+		return contexto.getBean(MeterRegistry.class)
+			.find("http.server.requests")
+			.tags("method", "GET", "uri", "/jobs/{id}", "status", status)
+			.timers()
+			.stream()
+			.mapToLong(io.micrometer.core.instrument.Timer::count)
+			.sum();
+	}
+
+	private static double duracaoDeConsultas(String status) {
+		return contexto.getBean(MeterRegistry.class)
+			.find("http.server.requests")
+			.tags("method", "GET", "uri", "/jobs/{id}", "status", status)
+			.timers()
+			.stream()
+			.mapToDouble(timer -> timer.totalTime(java.util.concurrent.TimeUnit.SECONDS))
+			.sum();
+	}
+
+	private static HttpResponse<String> consultar(String caminho) throws IOException, InterruptedException {
+		HttpRequest requisicao = HttpRequest.newBuilder(URI.create("http://localhost:" + porta + caminho))
+			.GET()
+			.build();
+		return HTTP.send(requisicao, HttpResponse.BodyHandlers.ofString());
 	}
 
 	// --- Apoio ----------------------------------------------------------------------

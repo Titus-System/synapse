@@ -1,8 +1,8 @@
 package synapse.api.job;
 
 import java.sql.Connection;
-import java.util.ArrayList;
 import java.sql.DriverManager;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -17,34 +17,39 @@ import liquibase.resource.ClassLoaderResourceAccessor;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.junit.jupiter.api.condition.EnabledIf;
+import org.slf4j.MDC;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import synapse.api.core.outbox.Outbox;
 import synapse.api.core.logging.CorrelationContext;
+import synapse.api.core.outbox.Outbox;
 import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
-import synapse.api.job.SugestaoAdaptacaoService.SugestaoAplicada;
+import synapse.api.job.JobEventosService.SugestaoAplicada;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.doAnswer;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * A adaptação do lado da api: a versão proposta é gravada e o job volta a
@@ -63,9 +68,9 @@ class SugestaoAdaptacaoPersistenciaTests {
 
 	private static JdbcTemplate artefatos;
 
-	private static CriarJobService criarService;
+	private static JobService criarService;
 
-	private static SugestaoAdaptacaoService sugestaoService;
+	private static JobEventosService sugestaoService;
 
 	static boolean dockerIsAvailable() {
 		return DockerClientFactory.instance().isDockerAvailable();
@@ -98,10 +103,11 @@ class SugestaoAdaptacaoPersistenciaTests {
 		contexto.registerBean(DataSource.class, () -> dataSource);
 		contexto.registerBean(JdbcTemplate.class, () -> jdbc);
 		contexto.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
+		contexto.registerBean(EmissoresSse.class, () -> mock(EmissoresSse.class));
 		contexto.register(Config.class);
 		contexto.refresh();
-		criarService = contexto.getBean(CriarJobService.class);
-		sugestaoService = contexto.getBean(SugestaoAdaptacaoService.class);
+		criarService = contexto.getBean(JobService.class);
+		sugestaoService = contexto.getBean(JobEventosService.class);
 	}
 
 	@AfterAll
@@ -116,8 +122,8 @@ class SugestaoAdaptacaoPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ CriarJobService.class, SugestaoAdaptacaoService.class, MaquinaDeEstadosDoJob.class, Outbox.class,
-			VersoesDaRegra.class, SimulacaoConcluidaService.class, BuscarJobService.class })
+	@Import({ JobRepository.class, JobService.class, JobEventosService.class, MaquinaDeEstadosDoJob.class, Outbox.class,
+			VersoesDaRegra.class, CorrelationContext.class })
 	static class Config {
 
 	}
@@ -127,8 +133,8 @@ class SugestaoAdaptacaoPersistenciaTests {
 		UUID jobId = jobInviavel();
 		UUID origem = versaoId(jobId, 1);
 		UUID resultado = resultado(jobId, origem, "inviavel", "492100");
-		SugestaoAplicada aplicada = Objects
-			.requireNonNull(sugestaoService.aplicar(jobId, origem, resultado, representacao("0.0246")));
+		SugestaoAplicada aplicada = Objects.requireNonNull(
+				sugestaoService.aplicarSugestaoAdaptacao(jobId, origem, resultado, representacao("0.0246")));
 		assertThat(aplicada.versao().versao()).isEqualTo(2);
 		assertThat(aplicada.versao().origem()).isEqualTo("sugestao_adaptacao");
 		assertThat(jdbc.queryForObject("SELECT regra_origem_id FROM regras WHERE job_id = ? AND versao = 2", UUID.class,
@@ -153,13 +159,13 @@ class SugestaoAdaptacaoPersistenciaTests {
 		UUID jobId = jobInviavel();
 		UUID original = versaoId(jobId, 1);
 		UUID resultadoOriginal = resultado(jobId, original, "inviavel", "492100");
-		SugestaoAplicada aplicada = Objects
-			.requireNonNull(sugestaoService.aplicar(jobId, original, resultadoOriginal, representacao("0.0246")));
+		SugestaoAplicada aplicada = Objects.requireNonNull(
+				sugestaoService.aplicarSugestaoAdaptacao(jobId, original, resultadoOriginal, representacao("0.0246")));
 		UUID alternativa = aplicada.versao().id();
 		UUID resultadoAlternativa = resultado(jobId, alternativa, "viavel", "484226.40");
-		contexto.getBean(SimulacaoConcluidaService.class)
-			.aplicar(jobId, resultadoAlternativa, DesfechoDaSimulacao.VIAVEL);
-		JobDetalhadoDto job = contexto.getBean(BuscarJobService.class).buscar(jobId);
+		contexto.getBean(JobEventosService.class)
+			.concluirSimulacao(jobId, resultadoAlternativa, DesfechoDaSimulacao.VIAVEL);
+		JobDetalhadoDto job = contexto.getBean(JobService.class).buscar(jobId);
 		assertThat(job.status()).isEqualTo("aguardando_decisao_usuario");
 		assertThat(job.simulacoes()).extracting(SimulacaoDto::regra_id).containsExactly(original, alternativa);
 		assertThat(job.simulacoes()).extracting(SimulacaoDto::veredito).containsExactly("inviavel", "viavel");
@@ -175,18 +181,23 @@ class SugestaoAdaptacaoPersistenciaTests {
 		UUID jobId = jobInviavel();
 		UUID original = versaoId(jobId, 1);
 		UUID resultadoOriginal = resultado(jobId, original, "inviavel", "492100");
-		SugestaoAplicada aplicada = Objects
-			.requireNonNull(sugestaoService.aplicar(jobId, original, resultadoOriginal, representacao("0.0246")));
-		var conclusao = contexto.getBean(SimulacaoConcluidaService.class);
-		assertThat(conclusao.aplicar(jobId, resultadoOriginal, DesfechoDaSimulacao.INVIAVEL)).isNull();
+		SugestaoAplicada aplicada = Objects.requireNonNull(
+				sugestaoService.aplicarSugestaoAdaptacao(jobId, original, resultadoOriginal, representacao("0.0246")));
+		var conclusao = contexto.getBean(JobEventosService.class);
+		assertThat(conclusao.concluirSimulacao(jobId, resultadoOriginal, DesfechoDaSimulacao.INVIAVEL)).isNull();
 		assertThat(status(jobId)).isEqualTo("gerando_regra");
 		UUID resultadoAlternativa = resultado(jobId, aplicada.versao().id(), "inviavel", "490000");
-		conclusao.aplicar(jobId, resultadoAlternativa, DesfechoDaSimulacao.INVIAVEL);
-		assertThat(sugestaoService.aplicar(jobId, original, resultadoOriginal, representacao("0.0246"))).isNull();
-		assertThat(sugestaoService.aplicar(jobId, aplicada.versao().id(), resultadoAlternativa, representacao("0.023")))
+		conclusao.concluirSimulacao(jobId, resultadoAlternativa, DesfechoDaSimulacao.INVIAVEL);
+		assertThat(
+				sugestaoService.aplicarSugestaoAdaptacao(jobId, original, resultadoOriginal, representacao("0.0246")))
+			.isNull();
+		assertThat(sugestaoService.aplicarSugestaoAdaptacao(jobId, aplicada.versao().id(), resultadoAlternativa,
+				representacao("0.023")))
 			.isNull();
 		assertThat(versoes(jobId)).isEqualTo(2);
 		assertThat(status(jobId)).isEqualTo("simulacao_inviavel");
+		assertThat(contexto.getBean(JobService.class).buscar(jobId).motivo())
+			.isEqualTo(DesfechoDaSimulacao.INVIAVEL.razaoLocalizada());
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE job_id = ?", Integer.class, jobId))
 			.isEqualTo(2);
 	}
@@ -197,8 +208,12 @@ class SugestaoAdaptacaoPersistenciaTests {
 		jdbc.update("UPDATE jobs SET status = 'simulando' WHERE id = ?", jobId);
 		UUID origem = versaoId(jobId, 1);
 		UUID resultado = resultado(jobId, origem, "inviavel", "492100");
-		assertThat(sugestaoService.aplicar(jobId, origem, resultado, representacao("0.0246"))).isNotNull();
+		assertThat(sugestaoService.aplicarSugestaoAdaptacao(jobId, origem, resultado, representacao("0.0246")))
+			.isNotNull();
 		assertThat(status(jobId)).isEqualTo("gerando_regra");
+		// A inviabilidade e a reabertura confirmam juntas: o estado corrente é o do novo
+		// ciclo, e a causa do ciclo anterior não vira o seu motivo.
+		assertThat(contexto.getBean(JobService.class).buscar(jobId).motivo()).isNull();
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM job_transicoes WHERE job_id = ? AND motivo = 'inviavel'",
 				Integer.class, jobId))
 			.isEqualTo(1);
@@ -224,7 +239,7 @@ class SugestaoAdaptacaoPersistenciaTests {
 			return null;
 		}).when(emissores).emitir(eq(jobId), any());
 		var sugestoes = new SugestaoAdaptacaoConsumidor(sugestaoService, emissores, new CorrelationContext());
-		var conclusoes = new SimulacaoConcluidaConsumidor(contexto.getBean(SimulacaoConcluidaService.class), emissores,
+		var conclusoes = new SimulacaoConcluidaConsumidor(contexto.getBean(JobEventosService.class), emissores,
 				new CorrelationContext());
 		var proposta = new SugestaoAdaptacaoPropostaDto(jobId, regraId, resultadoId, representacao("0.0099"));
 		var conclusao = new SimulacaoConcluidaDto(jobId, resultadoId, "sucesso", "inviavel", null, null, null, null);
@@ -259,13 +274,14 @@ class SugestaoAdaptacaoPersistenciaTests {
 		UUID outro = jobInviavel();
 		UUID origem = versaoId(jobId, 1);
 		UUID resultadoOutro = resultado(outro, versaoId(outro, 1), "inviavel", "492100");
-		assertThat(sugestaoService.aplicar(jobId, origem, resultadoOutro, representacao("0.0246"))).isNull();
+		assertThat(sugestaoService.aplicarSugestaoAdaptacao(jobId, origem, resultadoOutro, representacao("0.0246")))
+			.isNull();
 		UUID resultado = resultado(jobId, origem, "inviavel", "492100");
 		var nova = representacao("0.0246");
 		var diferente = new RepresentacaoRegraDto(nova.nucleo(),
 				List.of(new tools.jackson.databind.json.JsonMapper().readTree("{\"tipo\":\"outro\"}")));
-		assertThat(sugestaoService.aplicar(jobId, origem, resultado, diferente)).isNull();
-		assertThat(sugestaoService.aplicar(jobId, origem, resultado, representacao("0.025"))).isNull();
+		assertThat(sugestaoService.aplicarSugestaoAdaptacao(jobId, origem, resultado, diferente)).isNull();
+		assertThat(sugestaoService.aplicarSugestaoAdaptacao(jobId, origem, resultado, representacao("0.025"))).isNull();
 		assertThat(versoes(jobId)).isEqualTo(1);
 	}
 
@@ -278,7 +294,8 @@ class SugestaoAdaptacaoPersistenciaTests {
 			.resolver(jobId, regra, HashDaRegra.calcular(regra), "confirmacao_usuario", versaoId(jobId, 1),
 					java.sql.Timestamp.from(agora), agora);
 		UUID resultado = resultado(jobId, atual.id(), "inviavel", "492100");
-		assertThat(sugestaoService.aplicar(jobId, atual.id(), resultado, representacao("0.025"))).isNull();
+		assertThat(sugestaoService.aplicarSugestaoAdaptacao(jobId, atual.id(), resultado, representacao("0.025")))
+			.isNull();
 		assertThat(status(jobId)).isEqualTo("simulacao_inviavel");
 		assertThat(versoes(jobId)).isEqualTo(2);
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE job_id = ?", Integer.class, jobId))
@@ -292,9 +309,109 @@ class SugestaoAdaptacaoPersistenciaTests {
 		UUID origem = versaoId(jobId, 1);
 		UUID resultado = resultado(jobId, origem, "inviavel", "492100");
 		jdbc.update("UPDATE jobs SET status = ? WHERE id = ?", estado, jobId);
-		assertThat(sugestaoService.aplicar(jobId, origem, resultado, representacao("0.0246"))).isNull();
+		assertThat(sugestaoService.aplicarSugestaoAdaptacao(jobId, origem, resultado, representacao("0.0246")))
+			.isNull();
 		assertThat(status(jobId)).isEqualTo(estado);
 		assertThat(versoes(jobId)).isEqualTo(1);
+	}
+
+	@Test
+	void falhaNoOutboxReverteDesfechoVinculoVersaoEReaberturaSemEmitirSse() {
+		UUID jobId = jobInviavel();
+		UUID regraId = versaoId(jobId, 1);
+		UUID resultadoId = resultado(jobId, regraId, "inviavel", "492100");
+		jdbc.update("UPDATE jobs SET status = 'gerando_regra' WHERE id = ?", jobId);
+		jdbc.update("UPDATE simulacoes SET resultado_id = NULL WHERE job_id = ?", jobId);
+		var antes = jdbc.queryForMap("SELECT status, iniciado_em, finalizado_em FROM jobs WHERE id = ?", jobId);
+		Integer transicoes = jdbc.queryForObject("SELECT count(*) FROM job_transicoes WHERE job_id = ?", Integer.class,
+				jobId);
+		EmissoresSse emissores = mock(EmissoresSse.class);
+		var consumidor = new SugestaoAdaptacaoConsumidor(sugestaoService, emissores, new CorrelationContext());
+		var proposta = new SugestaoAdaptacaoPropostaDto(jobId, regraId, resultadoId, representacao("0.0246"));
+		artefatos.execute("REVOKE INSERT ON outbox_events FROM synapse_api");
+		try {
+			try (var anterior = new CorrelationContext().abrir("contexto-anterior", null)) {
+				assertThatExceptionOfType(DataAccessException.class).isThrownBy(() -> consumidor.receber(proposta));
+				assertThat(MDC.get("job_id")).isEqualTo("contexto-anterior");
+			}
+		}
+		finally {
+			artefatos.execute("GRANT INSERT ON outbox_events TO synapse_api");
+		}
+		assertThat(jdbc.queryForMap("SELECT status, iniciado_em, finalizado_em FROM jobs WHERE id = ?", jobId))
+			.isEqualTo(antes);
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM job_transicoes WHERE job_id = ?", Integer.class, jobId))
+			.isEqualTo(transicoes);
+		assertThat(jdbc.queryForObject("SELECT resultado_id FROM simulacoes WHERE job_id = ?", UUID.class, jobId))
+			.isNull();
+		assertThat(versoes(jobId)).isEqualTo(1);
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE job_id = ?", Integer.class, jobId))
+			.isEqualTo(1);
+		verifyNoInteractions(emissores);
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = { false, true })
+	void conclusaoPreservaLoggerCorrelacaoEAdvertenciaQuandoNaoHaSimulacao(boolean semSimulacao) throws Exception {
+		UUID jobId = jobInviavel();
+		UUID resultadoId = resultado(jobId, versaoId(jobId, 1), "viavel", "484000");
+		jdbc.update("UPDATE jobs SET status = 'gerando_regra' WHERE id = ?", jobId);
+		if (semSimulacao) {
+			artefatos.update("DELETE FROM simulacoes WHERE job_id = ?", jobId);
+		}
+		else {
+			jdbc.update("UPDATE simulacoes SET resultado_id = NULL WHERE job_id = ?", jobId);
+		}
+		var consumidor = new SimulacaoConcluidaConsumidor(contexto.getBean(JobEventosService.class),
+				mock(EmissoresSse.class), new CorrelationContext());
+		try (var anterior = new CorrelationContext().abrir("contexto-anterior", null);
+				var captura = new CapturaDeLog("synapse.api.job.SimulacaoConcluidaService")) {
+			consumidor
+				.receber(new SimulacaoConcluidaDto(jobId, resultadoId, "sucesso", "viavel", null, null, null, null));
+			assertThat(status(jobId)).isEqualTo("aguardando_decisao_usuario");
+			assertThat(MDC.get("job_id")).isEqualTo("contexto-anterior");
+			assertThat(captura.eventos()).hasSize(semSimulacao ? 1 : 0);
+			if (semSimulacao) {
+				String linha = CapturaDeLog.emJson(captura.eventos().getFirst());
+				ContratoDeEvento.validarLog(linha);
+				var log = new JsonMapper().readTree(linha);
+				assertThat(log.path("logger").asString()).isEqualTo("synapse.api.job.SimulacaoConcluidaService");
+				assertThat(log.path("level").asString()).isEqualTo("WARN");
+				assertThat(log.path("job_id").asString()).isEqualTo(jobId.toString());
+				assertThat(log.path("extra").path("resultado_id").asString()).isEqualTo(resultadoId.toString());
+				assertThat(log.path("message").asString())
+					.isEqualTo("nenhuma simulação amarrada ao resultado; evento \"resultado\" não será emitido");
+				assertThat(linha).doesNotContain("fixture", "484000", "representacao", "conteudo", "fonte");
+			}
+		}
+	}
+
+	@Test
+	void sugestaoDescartadaPreservaLogCorrelacionadoSemEmitirSse() throws Exception {
+		UUID jobId = jobInviavel();
+		UUID regraId = versaoId(jobId, 1);
+		UUID resultadoId = resultado(jobId, regraId, "inviavel", "492100");
+		EmissoresSse emissores = mock(EmissoresSse.class);
+		var consumidor = new SugestaoAdaptacaoConsumidor(sugestaoService, emissores, new CorrelationContext());
+		try (var anterior = new CorrelationContext().abrir("contexto-anterior", null);
+				var captura = new CapturaDeLog(SugestaoAdaptacaoConsumidor.class)) {
+			consumidor.receber(new SugestaoAdaptacaoPropostaDto(jobId, regraId, resultadoId, representacao("0")));
+			assertThat(MDC.get("job_id")).isEqualTo("contexto-anterior");
+			assertThat(captura.eventos()).hasSize(1);
+			String linha = CapturaDeLog.emJson(captura.eventos().getFirst());
+			ContratoDeEvento.validarLog(linha);
+			var log = new JsonMapper().readTree(linha);
+			assertThat(log.path("logger").asString()).isEqualTo(SugestaoAdaptacaoConsumidor.class.getName());
+			assertThat(log.path("level").asString()).isEqualTo("WARN");
+			assertThat(log.path("job_id").asString()).isEqualTo(jobId.toString());
+			assertThat(log.path("extra").path("resultado_id").asString()).isEqualTo(resultadoId.toString());
+			assertThat(log.path("message").asString())
+				.isEqualTo("sugestão descartada: origem inválida ou tentativa já realizada");
+			assertThat(linha).doesNotContain("fixture", "492100", "representacao", "conteudo", "fonte");
+		}
+		assertThat(status(jobId)).isEqualTo("simulacao_inviavel");
+		assertThat(versoes(jobId)).isEqualTo(1);
+		verifyNoInteractions(emissores);
 	}
 
 	private static UUID jobInviavel() {

@@ -27,36 +27,32 @@ All three signals are sampled, expiring and lossy by design: Prometheus keeps ag
 
 So the dependency runs one way. **Telemetry may depend on business identity; business logic may never depend on telemetry.** Putting `job_id` on a span is right. Branching on a `trace_id`, joining on it, or using it as an idempotency key is not — it makes correctness a function of the sampling configuration, and the value is absent whenever the tracer is not wired up.
 
-Anything the product owes an answer for is domain data, written to Postgres by the code that did the work. For the agents that is the explainability record: which model ran, with which prompt and parameters, which tools it called, what each returned, and what was produced. It is never sampled — an answer that cannot be explained is not shippable — and its retention is set by the obligation, not by Tempo's config. `trace_id` and `span_id` are nullable breadcrumb columns on those rows: while the trace exists they take you to the waterfall, and once it ages out the explanation is still there.
+Business artifacts are stored in the existing PostgreSQL domain model: prompts, model responses, generated code, rules and simulation results. The API persists the audit trail from `no-concluido`; codegen writes only the artifacts it produces. Telemetry correlation is not a substitute for these references, and no generic `agent_run`/`agent_step` schema is implemented. Full US05 explanation remains an evolution requirement.
 
 Prompts and completions routinely carry user data. They belong in that store, under its redaction and retention policy — never in `extra` on a log line, and never as a metric label.
 
-A span tree is the right *shape* for an agent's reasoning; the mistake is letting the tracing backend be the one that keeps it. Own the tree you depend on.
+The persisted job, rule version, simulation and artifact references define the audit path. Checkpoints are recovery infrastructure, not the audit record.
 
 ## The log envelope
 
 ```json
 {
-  "timestamp": "2026-09-05T22:27:40.761838+00:00",
+  "timestamp": "2026-10-02T12:00:00Z",
   "level": "INFO",
-  "message": "code execution finished",
-  "service": "agents",
+  "message": "Execution result received",
+  "service.name": "synapse-codegen",
   "environment": "development",
-  "version": "0.1.0",
-  "host": "hal",
-  "logger": "app.worker.consumer",
-  "module": "consumer",
-  "function": "handle_message",
-  "line": 42,
+  "service.version": "0.1.0",
+  "host.name": "codegen-01",
+  "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+  "no": "await_execution",
   "trace_id": "99816320ef13842d20d2ae5b108e6d37",
   "span_id": "22cd8c4626502cca",
-  "job_id": "job-42",
-  "user_id": "user-7",
-  "extra": {"exit_code": 0}
+  "extra": {"execution_status": "sucesso"}
 }
 ```
 
-`service`, `environment`, `version`, and `host` come from settings and are stamped on every line. `host` resolves from the `HOSTNAME` env var that Docker/Kubernetes injects, falling back to the machine hostname.
+The canonical envelope is `contracts/observability/log.schema.json`. `service.name` is `synapse-codegen`; `job_id` is required during job processing, and `no` identifies a codegen node. Optional settings fields use `service.version` and `host.name`. Do not rename these to `service`, `version` or `host`.
 
 Correlation fields are omitted entirely when empty, rather than emitted as `null`.
 
@@ -66,5 +62,6 @@ Correlation fields are omitted entirely when empty, rather than emitted as `null
 
 - Writing log calls: `.agents/skills/logging/SKILL.md`
 - Declaring and using metrics: `.agents/skills/metrics/SKILL.md`
-- Schema sketch for the explainability record: [`docs/explainability-store.md`](docs/explainability-store.md)
-- The envelope is produced by `JsonFormatter` in [`app/core/logger.py`](app/core/logger.py), and on the JVM side by `JsonLogFormatter` in the `api` repo (`src/main/java/synapse/api/core/logging/`). Both have tests pinning the field set — change one and the other's suite is the reminder.
+- Existing artifact storage: [`docs/explainability-store.md`](../../../docs/explainability-store.md).
+- Canonical log envelope: [`contracts/observability/log.schema.json`](../../../../contracts/observability/log.schema.json).
+- Log formatters must follow the shared schema. Changes to that schema require authorization and validation of the affected producers and consumers.

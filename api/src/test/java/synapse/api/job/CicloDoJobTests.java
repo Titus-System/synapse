@@ -48,8 +48,8 @@ import static org.awaitility.Awaitility.await;
 /**
  * O ciclo completo do job da Sprint 1, com a api fazendo o papel de si mesma e o teste
  * fazendo o papel de codegen e worker - os dois lados que a T-046 (trilha de auditoria) e
- * o gatilho de {@code gerando_regra → simulando} ({@link EtapaAlteradaService}) deixavam
- * sem exercício ponta a ponta: {@code POST /jobs} → {@code etapa-alterada} →
+ * o gatilho de {@code gerando_regra → simulando} ({@link JobEventosService}) deixavam sem
+ * exercício ponta a ponta: {@code POST /jobs} → {@code etapa-alterada} →
  * {@code no-concluido} → {@code simulacao-concluida} → {@code GET /jobs/{id}} com o
  * relatório preenchido → {@code POST /jobs/{id}/actions}. Submissão de formulário não
  * passa por confirmação: o job já nasce em {@code gerando_regra}.

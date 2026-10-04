@@ -2,6 +2,16 @@
 
 Vue 3.5 (`<script setup lang="ts">`) + Vite 8 + TypeScript 6 + Pinia 4 + vue-router 5 + Tailwind 4. Node 24.
 
+## Observability of user flows
+
+- Apply the root observability criteria when changing REST/SSE clients, job tracking, upload, authentication or error handling. Read the [shared observability skill](../.agents/skills/observability/SKILL.md) and use the [canonical log envelope](../contracts/observability/log.schema.json).
+- Make request failures, SSE disconnections/reconnections, upload failures and unexpected UI errors diagnosable with bounded operation names, known error codes and job correlation when available. A friendly message or swallowed rejection does not replace an operational record of a failure.
+- Preserve the job association of REST and SSE activity and clear it when navigating to another job. Reconnection must not report duplicate server events as new simulation completions; measure browser request/reconnection behavior separately from backend processing.
+- Use the telemetry transport defined for the application. Console output or local counters without export do not prove collection. If that transport is missing, report the gap and the verification limit explicitly; changes to collection infrastructure follow the root authorization rules.
+- Browser telemetry describes UI behavior and perceived latency. Business execution counts, financial outcomes and simulation durations come from their backend owner; rendering a result is not another execution of the job. Metric labels must not contain job/user IDs, raw URLs or free text.
+- Exclude authorization headers, tokens, cookies, form contents, correction text, audio, transcription and model output from logs, spans and telemetry. Report sanitized codes and references instead of serializing request/response bodies or raw exceptions.
+- Exercise the actual client/store/composable success and error paths and inspect emitted events, correlation and deduplication. Report browser emission and end-to-end collection as separate checks, and do not claim delivery to the collector without evidence.
+
 ## Before calling it done
 
 Run it and fix what comes up. Code that hasn't been through this isn't done:
