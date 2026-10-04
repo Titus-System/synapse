@@ -261,6 +261,7 @@ paths:
                   summary: Simulação concluída, acima do orçamento
                   value:
                     id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                    nome: Comissão de novembro
                     status: simulacao_inviavel
                     origem: formulario
                     competencias: ["2025-11"]
@@ -1153,6 +1154,10 @@ components:
           type: string
           format: uuid
           description: Identificador do job, e a chave de correlação em toda a observabilidade.
+        nome:
+          type: [string, "null"]
+          description: Nome de exibição do job, compartilhado por todas as versões da regra. Opcional e nulo quando não definido.
+          examples: [Comissão de novembro, null]
         status:
           $ref: "#/components/schemas/StatusJob"
         origem:
@@ -1225,8 +1230,8 @@ components:
           description: Sequencial dentro do job.
         origem:
           type: string
-          enum: [confirmacao_usuario, sugestao_adaptacao, reprocessamento]
-          description: De onde esta versão veio.
+          enum: [confirmacao_usuario, sugestao_adaptacao, reprocessamento, extracao]
+          description: De onde esta versão veio. `extracao` é a versão raiz extraída pelo codegen de uma submissão em texto ou da transcrição de um áudio.
         representacao:
           $ref: "../domain/representacao-regra.schema.json"
         criada_em:
@@ -1278,11 +1283,22 @@ components:
       description: |
         O que a listagem de histórico mostra. Sem regra, resultado nem decomposição -
         para isso existe `GET /jobs/{id}`.
+      examples:
+        - id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          nome: Comissão de novembro
+          status: simulacao_inviavel
+          competencias: ["2025-11"]
+          orcamento: 485000.0
+          criado_em: "2025-11-24T14:02:00Z"
       required: [id, status, competencias, orcamento, criado_em]
       properties:
         id:
           type: string
           format: uuid
+        nome:
+          type: [string, "null"]
+          description: Nome de exibição do job, compartilhado por todas as versões da regra. Opcional e nulo quando não definido.
+          examples: [Comissão de novembro, null]
         status:
           $ref: "#/components/schemas/StatusJob"
         competencias:

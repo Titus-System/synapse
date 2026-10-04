@@ -150,5 +150,126 @@ class TestarJobEncerrado(unittest.TestCase):
         self.assertIn("'encerrado_em' is a required property", resultado.stderr)
 
 
+class TestarConflitos(unittest.TestCase):
+    def test_rejeita_lista_de_conflitos_vazia(self) -> None:
+        # A falta de conflito é a ausência do campo, não uma lista vazia.
+        def alterar(evento: Any) -> None:
+            evento["conflitos"] = []
+
+        resultado = validar_com_alteracao("events/etapa-alterada-conflitos.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("events/etapa-alterada-conflitos.json: campo $.conflitos", resultado.stderr)
+
+    def test_rejeita_conflito_sem_motivo(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["conflitos"][0]["motivo"]
+
+        resultado = validar_com_alteracao("events/etapa-alterada-conflitos.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("'motivo' is a required property", resultado.stderr)
+
+    def test_rejeita_elemento_fora_do_espaco_de_identificacao(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["conflitos"][1]["elementos"] = ["loja"]
+
+        resultado = validar_com_alteracao("events/etapa-alterada-conflitos.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.conflitos[1].elementos[0]", resultado.stderr)
+
+
+class TestarCorrecao(unittest.TestCase):
+    def test_rejeita_correcao_submetida_sem_submissao(self) -> None:
+        # O texto da correção só é alcançável pela submissão (claim-check).
+        def alterar(evento: Any) -> None:
+            del evento["submissao_id"]
+
+        resultado = validar_com_alteracao("events/correcao-submetida.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("'submissao_id' is a required property", resultado.stderr)
+
+    def test_rejeita_correcao_proposta_sem_representacao(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["representacao"]
+
+        resultado = validar_com_alteracao("events/correcao-proposta.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("'representacao' is a required property", resultado.stderr)
+
+    def test_rejeita_correcao_proposta_fora_do_formato_da_regra(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["representacao"]["especificacoes"]
+
+        resultado = validar_com_alteracao("events/correcao-proposta.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.representacao", resultado.stderr)
+
+
+class TestarRegraExtraida(unittest.TestCase):
+    def test_rejeita_extracao_sem_submissao(self) -> None:
+        # É pela submissão que a API confere que a extração pertence ao job.
+        def alterar(evento: Any) -> None:
+            del evento["submissao_id"]
+
+        resultado = validar_com_alteracao("events/regra-extraida.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("'submissao_id' is a required property", resultado.stderr)
+
+    def test_rejeita_extracao_sem_representacao(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["representacao"]
+
+        resultado = validar_com_alteracao("events/regra-extraida.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("'representacao' is a required property", resultado.stderr)
+
+    def test_rejeita_elemento_sem_ref(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["representacao"]["especificacoes"][0]["ref"]
+
+        resultado = validar_com_alteracao("events/regra-extraida.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.representacao.especificacoes[0]", resultado.stderr)
+        self.assertIn("'ref' is a required property", resultado.stderr)
+
+
+class TestarDecomposicao(unittest.TestCase):
+    def test_aceita_decomposicao_sem_as_quebras_absolutas(self) -> None:
+        # As quebras absolutas são aditivas: um resultado anterior a elas continua válido.
+        def alterar(decomposicao: Any) -> None:
+            for quebra in ("matricula", "loja_absoluto", "competencia_absoluto"):
+                del decomposicao[quebra]
+
+        resultado = validar_com_alteracao("domain/resultado-decomposicao.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_valor_absoluto_que_nao_e_numero(self) -> None:
+        def alterar(decomposicao: Any) -> None:
+            decomposicao["matricula"]["MATRIC-422"] = "141300"
+
+        resultado = validar_com_alteracao("domain/resultado-decomposicao.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.matricula.MATRIC-422", resultado.stderr)
+
+    def test_rejeita_competencia_absoluta_fora_de_aaaa_mm(self) -> None:
+        def alterar(decomposicao: Any) -> None:
+            decomposicao["competencia_absoluto"]["2025-13"] = 0
+
+        resultado = validar_com_alteracao("domain/resultado-decomposicao.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.competencia_absoluto", resultado.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

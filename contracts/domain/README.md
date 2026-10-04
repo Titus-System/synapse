@@ -59,6 +59,6 @@ O espaço é único porque as mesmas listas citam os dois lado a lado: a declara
 
 Os schemas descrevem formatos compartilhados; sua existência não comprova que a extração ou a geração de todos os construtos já esteja implementada.
 
-A decomposição atual exige cinco mapas de diferenças: `elemento`, `loja`, `marca`, `cargo` e `competencia`. Não contém matrícula, valores absolutos por dimensão ou dataframes resultantes. A Sprint 2 prevê matrícula e valores absolutos; o cruzamento matrícula × loja × competência e a persistência dos detalhes dependem da granularidade confirmada.
+A decomposição exige cinco mapas de diferenças, que somam `totais.diferenca_abs`: `elemento`, `loja`, `marca`, `cargo` e `competencia`. Admite também três mapas absolutos opcionais, que somam `totais.simulado`: `matricula`, com o total de cada colaborador no período, `loja_absoluto` e `competencia_absoluto`. Os absolutos fazem parte do contrato, mas o harness do worker ainda não os produz. A decomposição não contém o cruzamento matrícula × loja × competência nem os dataframes resultantes; a persistência desses detalhes depende da granularidade confirmada.
 
 Os conflitos do chatbot e as extensões de resultado são trabalho de contratos separado da documentação. Os schemas atuais permanecem a autoridade até serem evoluídos e validados com seus consumidores. Ver [Fluxo e decisões da Sprint 2](../../docs/FLUXO-SPRINT-2.md).

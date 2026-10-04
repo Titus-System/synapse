@@ -66,6 +66,8 @@ Guardar o binário na mesma linha não pesa as leituras que não pedem a coluna.
 
 O processamento de uma submissão do início ao fim. O `id` desta tabela é a chave de correlação que reaparece em quase todas as outras e em todos os eventos do RabbitMQ.
 
+A coluna `nome` é texto nullable, sem valor padrão nem preenchimento retroativo. Identifica o job na listagem e no detalhe, compartilhado por todas as versões da regra. O contrato HTTP aceita `nome` ausente, nulo ou textual em `JobResumo` e `JobDetalhado`.
+
 A coluna `competencias` é um array de texto com os meses a simular.
 
 ```
@@ -346,7 +348,7 @@ Os enums do DBML são vocabulário documentado e não `CHECK`. Exclusão mútua 
 
 ## 6. Extensões aprovadas para a Sprint 2
 
-Esta seção descreve trabalho planejado. As migrations e os schemas correspondentes devem acompanhar a implementação; as estruturas ainda não fazem parte do DBML existente.
+Esta seção descreve trabalho planejado, exceto pela coluna `jobs.nome` e seu contrato HTTP, já definidos no modelo. As demais migrations e schemas devem acompanhar a implementação.
 
 ### Rodadas de validação e correção
 
@@ -356,7 +358,7 @@ O histórico completo será consultável. Sair do chatbot preserva o estado do j
 
 ### Nome do job e apresentação como campanha
 
-Uma coluna nullable `jobs.nome` atenderá tanto `JobResumo` quanto `JobDetalhado`. O fallback usa até 50 caracteres da entrada textual inicial ou da transcrição inicial; correções posteriores não alteram a origem. O nome pertence ao job, compartilhado por todas as versões da regra.
+A coluna nullable `jobs.nome` e o campo opcional nos contratos `JobResumo` e `JobDetalhado` estão definidos na T-200 D. A escrita e a exibição do nome pertencem às próximas entregas. A resolução do nome padrão fica na T-251 (#256): até 50 caracteres da entrada textual inicial ou da transcrição inicial; correções posteriores não alteram a origem. O nome pertence ao job, compartilhado por todas as versões da regra.
 
 Campanha é a apresentação de um job com resultado viável. Não há nova tabela de campanhas nem agrupamento de vários jobs neste escopo. Versões anteriores continuam alcançáveis como histórico.
 

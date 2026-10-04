@@ -118,7 +118,7 @@ export interface ResultadoSimulacao {
 export interface RegraVersionada {
   id: string
   versao: number
-  origem: 'confirmacao_usuario' | 'sugestao_adaptacao' | 'reprocessamento'
+  origem: 'confirmacao_usuario' | 'sugestao_adaptacao' | 'reprocessamento' | 'extracao'
   representacao: RepresentacaoRegra
   criada_em: string
 }

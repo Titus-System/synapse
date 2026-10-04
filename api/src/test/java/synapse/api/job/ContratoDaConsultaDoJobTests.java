@@ -48,6 +48,22 @@ class ContratoDaConsultaDoJobTests {
 	}
 
 	@ParameterizedTest
+	@ValueSource(strings = { "JobResumo", "JobDetalhado" })
+	void aceitaNomeAusenteNuloOuTextual(String schema) throws IOException {
+		ContratoDeEvento.validarRespostaHttp(schema, job(""));
+		ContratoDeEvento.validarRespostaHttp(schema, job(",\"nome\":null"));
+		ContratoDeEvento.validarRespostaHttp(schema, job(",\"nome\":\"Comissão de novembro\""));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "JobResumo", "JobDetalhado" })
+	void recusaNomeComTipoInvalido(String schema) {
+		assertThatThrownBy(() -> ContratoDeEvento.validarRespostaHttp(schema, job(",\"nome\":42")))
+			.isInstanceOf(AssertionError.class)
+			.hasMessageContaining("nome");
+	}
+
+	@ParameterizedTest
 	@ValueSource(
 			strings = { ",\"iniciado_em\":null", ",\"finalizado_em\":null", ",\"motivo\":null", ",\"simulacao\":null" })
 	void recusaOpcionalAusenteSerializadoComoNull(String extra) {

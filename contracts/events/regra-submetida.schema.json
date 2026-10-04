@@ -46,7 +46,7 @@
     "regra_id": {
       "type": "string",
       "format": "uuid",
-      "description": "Versão da regra em regras. Presente quando a regra já está formada na submissão, que é o caso do formulário, e quando o reprocessamento parte de uma versão existente. Ausente na origem voz, em que a regra só nasce depois da extração."
+      "description": "Versão da regra em regras. Presente quando a regra já está formada na submissão, que é o caso do formulário, e quando o reprocessamento parte de uma versão existente. Na origem voz, ausente na primeira publicação, porque a regra só nasce depois da extração, e presente quando a API republica o evento depois de gravar a versão recebida em regra-extraida."
     },
     "orcamento": {
       "allOf": [

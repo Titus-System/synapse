@@ -23,6 +23,33 @@
       "type": "string",
       "minLength": 1,
       "description": "Situação reportada pelo codegen para a etapa iniciada. A API a traduz para o estado do job, de que ela é dona, e repassa o progresso ao frontend. Dois valores movem o job, ambos só enquanto ele está em gerando_regra: iniciada na etapa delegacao_worker o leva a simulando, e erro (em qualquer etapa) o leva a erro. Os demais valores só são repassados ao frontend. O vocabulário ainda não está fechado."
+    },
+    "conflitos": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "elementos",
+          "motivo"
+        ],
+        "properties": {
+          "elementos": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "../domain/comum.schema.json#/$defs/elemento_ref"
+            },
+            "description": "Partes da regra envolvidas no conflito, no espaço único de identificação: nucleo.<campo> ou o ref do elemento. Mais de uma quando o conflito é entre partes, como um código presente no núcleo e numa exclusão."
+          },
+          "motivo": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Em que as partes conflitam, em texto curto para o usuário."
+          }
+        }
+      },
+      "description": "Conflitos que impedem a regra de avançar para a geração de código, na forma que a validação de domínio produz: cada um nomeia os elementos envolvidos e o motivo. É o que o chatbot mostra ao usuário a cada rodada de correção. Ausente quando o evento não reporta conflito; nunca vazio, porque a falta de conflito é a ausência do campo."
     }
   },
   "examples": [
@@ -30,6 +57,26 @@
       "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
       "etapa": "geracao_codigo",
       "status": "iniciada"
+    },
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "etapa": "confirmacao",
+      "status": "iniciada",
+      "conflitos": [
+        {
+          "elementos": [
+            "nucleo.percentual"
+          ],
+          "motivo": "percentual ausente"
+        },
+        {
+          "elementos": [
+            "nucleo.loja",
+            "elem.2"
+          ],
+          "motivo": "loja 13 no núcleo e na exclusão"
+        }
+      ]
     }
   ]
 }

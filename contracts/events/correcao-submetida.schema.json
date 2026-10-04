@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/events/correcao-submetida.schema.json",
+  "title": "correcao-submetida",
+  "description": "Evento publicado pela API quando o usuário envia, pelo chatbot, uma correção para os conflitos apontados na regra. Leva a correção ao codegen, que reextrai a regra a partir dela e responde com correcao-proposta. Carrega referência, nunca conteúdo: o texto da correção fica em submissoes, pelo mesmo claim-check da submissão que originou o job. Cada correção é uma submissão nova e imutável, que não incorpora nem sobrescreve as anteriores.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "regra_origem_id",
+    "submissao_id"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job cuja regra está sendo corrigida."
+    },
+    "regra_origem_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Versão da regra em regras que o usuário está corrigindo: a que foi validada e cujos conflitos o chatbot mostrou. É sobre ela que o codegen aplica a correção, e é dela que a versão corrigida deriva, em regras.regra_origem_id."
+    },
+    "submissao_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Linha de submissoes que guarda esta correção. É por ela que o codegen alcança o texto digitado ou a transcrição do áudio; o texto não viaja no evento. Na correção por voz, a API só publica depois de gravar a transcrição. Identifica a correção: uma reentrega traz o mesmo valor."
+    }
+  },
+  "examples": [
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "regra_origem_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
+      "submissao_id": "c4a7e2d1-6b3f-4e58-9a1c-2d7f8e0b5a63"
+    }
+  ]
+}

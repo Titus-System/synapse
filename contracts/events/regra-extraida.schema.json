@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/events/regra-extraida.schema.json",
+  "title": "regra-extraida",
+  "description": "Evento publicado pelo codegen quando extrai a primeira versão da regra de uma submissão em texto ou da transcrição de um áudio. O codegen não grava regras: é a API que grava a versão, com origem extracao, e reabre o ciclo publicando regra-submetida já com o regra_id. Ela é dona da numeração da versão, do hash canônico, da deduplicação por (job_id, hash) e do estado do job. Não há regra_origem_id porque esta é a versão raiz do job, sem versão anterior de que derive. Uma reentrega traz a mesma representação, e a API precisa tratá-la como a mesma extração, sem criar versão nova.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "submissao_id",
+    "representacao"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job cuja regra foi extraída. É nele que a API grava a versão, e é a chave de correlação entre os serviços."
+    },
+    "submissao_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Linha de submissoes de onde a regra foi extraída, a mesma recebida em regra-submetida. A API confere que ela é a submissão do job (jobs.submissao_id) e recusa uma extração que não corresponda a ela. O texto e a transcrição não viajam: ficam em submissoes."
+    },
+    "representacao": {
+      "$ref": "https://synapse.local/contracts/domain/representacao-regra.schema.json",
+      "description": "A regra extraída, inteira e no mesmo formato de regras.nucleo/especificacoes. Vai no corpo, e não por referência, porque ainda não existe linha em regras para apontar - criá-la é justamente o que este evento pede."
+    }
+  },
+  "examples": [
+    {
+      "job_id": "c4d5e6f7-8a9b-4c0d-9e1f-2a3b4c5d6e7f",
+      "submissao_id": "d7e8f9a0-1b2c-4d3e-8f40-5a6b7c8d9e0f",
+      "representacao": {
+        "nucleo": {
+          "vigencia": {
+            "inicio": "2025-11",
+            "fim": "2025-11"
+          },
+          "loja": [],
+          "marca": [
+            "10"
+          ],
+          "cargo": [
+            "100"
+          ],
+          "percentual": 0.025
+        },
+        "especificacoes": [
+          {
+            "ref": "elem.1",
+            "construto": "exclusao",
+            "dimensao": "loja",
+            "valores": [
+              "58"
+            ]
+          },
+          {
+            "ref": "elem.2",
+            "construto": "generico",
+            "descricao": "dobrar a comissão no dia do aniversário da loja",
+            "campos": {
+              "evento": "aniversario_loja",
+              "multiplicador": 2
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

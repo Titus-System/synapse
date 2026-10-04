@@ -41,7 +41,9 @@ class MigrationTests {
 			"regras", "prompts", "respostas_modelo", "codigos_gerados", "resultados_simulacao", "explicacoes",
 			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados");
 
-	private static final int CHANGESETS = 19;
+	private static final int CHANGESETS = 20;
+
+	private static final int CHANGESETS_ANTES_DO_NOME = 19;
 
 	/** Os changesets até o 015, o banco como estava antes da coluna de diagnóstico. */
 	private static final int CHANGESETS_ANTES_DO_DIAGNOSTICO = 16;
@@ -143,6 +145,58 @@ class MigrationTests {
 			assertThat(rs.next()).as("coluna diagnostico não existe").isTrue();
 			assertThat(rs.getString("data_type")).isEqualTo("jsonb");
 			assertThat(rs.getString("is_nullable")).isEqualTo("YES");
+		}
+	}
+
+	@Test
+	void criaONomeComoTextoNulavelSemValorPadrao() throws Exception {
+		atualizar();
+
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("""
+						SELECT data_type, is_nullable, column_default FROM information_schema.columns
+						WHERE table_schema = 'public' AND table_name = 'jobs' AND column_name = 'nome'
+						""")) {
+			assertThat(rs.next()).as("coluna nome não existe").isTrue();
+			assertThat(rs.getString("data_type")).isEqualTo("text");
+			assertThat(rs.getString("is_nullable")).isEqualTo("YES");
+			assertThat(rs.getString("column_default")).isNull();
+		}
+	}
+
+	@Test
+	void preservaJobsExistentesEInsercoesSemNomeAoMigrarEReverter() throws Exception {
+		atualizar(CHANGESETS_ANTES_DO_NOME);
+		UUID anterior = UUID.randomUUID();
+		UUID posterior = UUID.randomUUID();
+		String linhaAntes;
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearUsuario(statement);
+			semearJobComTrilha(statement, anterior, "gerando_regra");
+			linhaAntes = linhaDoJobSemNome(statement, anterior);
+		}
+
+		atualizar();
+
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearJobComTrilha(statement, posterior, "gerando_regra");
+			assertThat(linhaDoJobSemNome(statement, anterior)).isEqualTo(linhaAntes);
+			try (ResultSet rs = statement.executeQuery("SELECT nome FROM jobs")) {
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getString("nome")).isNull();
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getString("nome")).isNull();
+				assertThat(rs.next()).isFalse();
+			}
+		}
+
+		reverter(1);
+
+		assertThat(nulidadeDasColunas("jobs")).doesNotContainKey("nome");
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			assertThat(linhaDoJobSemNome(statement, anterior)).isEqualTo(linhaAntes);
+			assertThat(linhaDoJobSemNome(statement, posterior)).isNotEmpty();
 		}
 	}
 
@@ -349,6 +403,15 @@ class MigrationTests {
 				INSERT INTO usuarios (id, login, senha_hash, nome, papel, criado_em)
 				VALUES ('22222222-2222-4222-8222-222222222222', 'rh', 'x', 'RH', 'profissional_rh', now())
 				""");
+	}
+
+	private static String linhaDoJobSemNome(Statement statement, UUID id) throws Exception {
+		try (ResultSet rs = statement.executeQuery("""
+				SELECT (to_jsonb(jobs) - 'nome')::text FROM jobs WHERE id = '%s'
+				""".formatted(id))) {
+			assertThat(rs.next()).as("job %s não existe", id).isTrue();
+			return rs.getString(1);
+		}
 	}
 
 	/**

@@ -1,0 +1,39 @@
+{
+  "job_id": "c4d5e6f7-8a9b-4c0d-9e1f-2a3b4c5d6e7f",
+  "submissao_id": "d7e8f9a0-1b2c-4d3e-8f40-5a6b7c8d9e0f",
+  "representacao": {
+    "nucleo": {
+      "vigencia": {
+        "inicio": "2025-11",
+        "fim": "2025-11"
+      },
+      "loja": [],
+      "marca": [
+        "10"
+      ],
+      "cargo": [
+        "100"
+      ],
+      "percentual": 0.025
+    },
+    "especificacoes": [
+      {
+        "ref": "elem.1",
+        "construto": "exclusao",
+        "dimensao": "loja",
+        "valores": [
+          "58"
+        ]
+      },
+      {
+        "ref": "elem.2",
+        "construto": "generico",
+        "descricao": "dobrar a comissão no dia do aniversário da loja",
+        "campos": {
+          "evento": "aniversario_loja",
+          "multiplicador": 2
+        }
+      }
+    ]
+  }
+}

@@ -51,7 +51,7 @@ O SSE comunica o estado corrente e as atualizações. O histórico precisa ser c
 
 ### Coordenação entre serviços
 
-A API recebe a correção e anuncia sua referência. O codegen propõe uma representação corrigida; a API persiste a versão e emite a confirmação que permite retomar o grafo. A criação dos eventos de correção e a extensão aditiva de `etapa-alterada` estão na [T-200 A](https://github.com/Titus-System/synapse/issues/185). A existência dessa tarefa não significa que os novos contratos já estejam disponíveis.
+A API recebe a correção e anuncia sua referência. O codegen propõe uma representação corrigida; a API persiste a versão e emite a confirmação que permite retomar o grafo. Os contratos estão definidos pela [T-200 A](https://github.com/Titus-System/synapse/issues/185): `correcao-submetida` leva a referência da submissão de correção ao codegen, `correcao-proposta` devolve à API a representação reextraída e `etapa-alterada` ganhou o campo opcional `conflitos`, mostrado pelo chatbot a cada rodada. Produtores e consumidores desses contratos ainda precisam ser implementados.
 
 O consumo de `parametros-confirmados` precisa funcionar em qualquer rodada e ser idempotente, evitando duplicação de versões ou de efeitos em reentregas.
 

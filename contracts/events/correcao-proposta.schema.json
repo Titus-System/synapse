@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/events/correcao-proposta.schema.json",
+  "title": "correcao-proposta",
+  "description": "Evento publicado pelo codegen depois de reextrair a regra a partir de uma correção do usuário, recebida em correcao-submetida. É a API que grava a versão nova da regra: ela é dona da numeração da versão, do hash canônico, do histórico das rodadas e do estado do job. A versão gravada passa de novo pela validação de domínio, então o evento não afirma que a regra corrigida está livre de conflitos.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "regra_origem_id",
+    "submissao_id",
+    "representacao"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job cuja regra foi corrigida."
+    },
+    "regra_origem_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Versão da regra que a correção corrigiu, a mesma recebida em correcao-submetida. A versão nova nasce derivada dela, em regras.regra_origem_id."
+    },
+    "submissao_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Linha de submissoes com a correção que motivou esta proposta, a mesma recebida em correcao-submetida. É o que liga a versão nova à correção de que ela resulta; o texto da correção não viaja."
+    },
+    "representacao": {
+      "$ref": "../domain/representacao-regra.schema.json",
+      "description": "A regra corrigida, inteira e no mesmo formato de regras.nucleo/especificacoes. Vai no corpo, e não por referência, porque ainda não existe linha em regras para apontar - criá-la é justamente o que este evento pede."
+    }
+  },
+  "examples": [
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "regra_origem_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
+      "submissao_id": "c4a7e2d1-6b3f-4e58-9a1c-2d7f8e0b5a63",
+      "representacao": {
+        "nucleo": {
+          "vigencia": {
+            "inicio": "2025-11",
+            "fim": "2025-11"
+          },
+          "loja": [
+            "13"
+          ],
+          "marca": [
+            "10"
+          ],
+          "cargo": [
+            "100"
+          ],
+          "percentual": 0.025
+        },
+        "especificacoes": []
+      }
+    }
+  ]
+}
