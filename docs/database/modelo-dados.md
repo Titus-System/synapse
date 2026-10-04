@@ -199,7 +199,7 @@ A narrativa em linguagem de negócio sobre o que a simulação mostrou, uma por 
 
 ### `resultados_simulacao`
 
-O artefato produzido pela execução e pela verificação do worker, persistido com `INSERT` e sem alteração posterior. No sucesso, contém totais, asserções e decomposição. Falha de execução ou asserção violada não produz valores financeiros válidos. O diagnóstico persistente das falhas é uma extensão ainda prevista nas T-202–T-204.
+O artefato produzido pela execução e pela verificação do worker, persistido com `INSERT` e sem alteração posterior. No sucesso, contém totais, asserções e decomposição. Falha de execução ou asserção violada não produz valores financeiros válidos. Em `erro_codigo`, a coluna `diagnostico` registra por que a execução falhou.
 
 A coluna `totais` traz os agregados do período inteiro, somando todas as competências do job, e é nula quando `status` não é `sucesso`.
 
@@ -240,6 +240,31 @@ Zero e ausência dizem coisas diferentes. `2025-08` com zero é um mês que foi 
 
 As chaves de `elemento` são os identificadores definidos em `regras`. Essas quebras são mapas independentes de diferenças: não incluem matrícula, não preservam os dataframes da apuração e não permitem reconstruir linhas de colaborador × loja × competência. A extensão com valores absolutos e o detalhamento estão previstos na Sprint 2.
 
+A coluna `diagnostico` registra por que uma execução terminou em `erro_codigo`. A `causa` é a classificação do worker e está sempre presente. A `falha` é a exceção que o sandbox efetivamente capturou, conservada como veio no envelope.
+
+```json
+{ "causa": "excecao",
+  "falha": { "tipo": "KeyError", "mensagem": "'vlr_vendas'",
+             "traceback": "  File \"regra.py\", line 31, in aplicar_regra\n    )[\"vlr_vendas\"].sum()\n" } }
+```
+
+Timeout, memória excedida e saída inválida são decididos fora do código gerado, a partir do que o worker observou do processo e da saída. Nesses casos não há exceção capturada, e o diagnóstico traz só a causa, sem falha nem traceback reconstruídos.
+
+```json
+{ "causa": "timeout" }
+```
+
+Quando o envelope diz sucesso mas o resultado não valida contra o schema, `problemas` lista o caminho e a palavra-chave de cada erro, sem o valor rejeitado.
+
+```json
+{ "causa": "resultado_fora_do_schema",
+  "problemas": [ { "caminho": "$.decomposicao", "palavra_chave": "required" } ] }
+```
+
+Mensagem, traceback e caminhos vieram de código não confiável. São artefato: ficam nesta coluna e não entram em log nem em evento. O evento `simulacao-concluida` continua igual, e o leitor chega ao diagnóstico pelo `resultado_id` que já recebe. O worker grava o diagnóstico no mesmo `INSERT` do resultado; a API e o codegen o leem com o `SELECT` que já têm na tabela. O diagnóstico não é número e não se mistura a `totais` nem a `decomposicao`, que continuam existindo só em sucesso.
+
+A coluna é nula fora de `erro_codigo` e nas linhas gravadas por versões do worker anteriores ao diagnóstico. Linhas antigas não são reconstruídas. A migration da API vai para o ambiente antes da versão do worker que escreve a coluna: o `INSERT` do worker anterior não a menciona e continua funcionando contra o banco migrado, enquanto o novo falharia contra um banco sem ela.
+
 ### `outbox_events`
 
 A fila de saída transacional da API. A linha do evento e a mudança de estado que o motivou entram na mesma transação, e um poller lê os pendentes, publica no RabbitMQ e marca como enviados. Nenhum outro serviço acessa esta tabela.
@@ -254,9 +279,24 @@ A coluna `payload` é o corpo do evento, carregando referências e nunca o conte
 
 `origem` e `competencias` viajam como valor mesmo existindo no banco, porque nem codegen nem worker têm permissão em `jobs`: o `job_id` é chave de correlação e não ponteiro que o consumidor consiga seguir. O formato é definido pelo schema da mensagem em `contracts/events/`. `orcamento` é opcional no evento por compatibilidade aditiva e já é enviado pela API.
 
+A transição para um estado terminal grava `job-encerrado` na mesma transação. O `evento_id` dele é o id da transição em `job_transicoes`, e `encerrado_em` é o `ocorrido_em` dela: uma republicação, ou o registro de um encerramento anterior ao evento, leva os mesmos valores.
+
+### `jobs_grafo_encerrados`
+
+O registro com que o codegen limpa os checkpoints de um job encerrado. Não é artefato auditável: guarda só a identificação do encerramento anunciado pela API (`job-encerrado`) e os instantes. A API cria a tabela e não escreve nela; o codegen insere a linha quando recebe o evento e preenche `limpo_em` quando nenhum checkpoint do job resta, sem poder reescrever o encerramento nem apagar a linha.
+
+```json
+{ "job_id": "3f2b…", "evento_id": "0199…", "status": "cancelado",
+  "encerrado_em": "2025-11-28T15:02:44.318204Z", "limpo_em": "2025-11-28T15:02:45.104Z" }
+```
+
+A linha permanece depois da limpeza porque assume o papel que o checkpoint final cumpria: uma mensagem antiga do job, de submissão ou de resultado, é reconhecida por ela e confirmada sem recomeçar a geração nem repetir publicações. `limpo_em` nulo significa limpeza pendente: adiada enquanto algum ciclo do job espera um resultado que ainda vai ser processado, ou interrompida por uma falha e retomada na subida do codegen. Um job sem linha não está encerrado e mantém seus checkpoints pelo tempo que precisar.
+
+Na implantação, a migration da API vai antes da versão do codegen que consome o evento. A mesma migration registra no outbox o `job-encerrado` de todo job que já estava em estado terminal, com o id e o instante da transição terminal já gravada; os eventos esperam na fila `job-encerrado` até o codegen consumi-los, e um job que já tem o evento não ganha outro.
+
 ## 2. Quem escreve o quê
 
-A API escreve `usuarios`, `submissoes`, `jobs`, `job_transicoes`, `job_acoes`, `simulacoes`, `trilhas_auditoria` e `outbox_events`. O codegen insere `prompts`, `respostas_modelo`, `codigos_gerados` e `explicacoes`. O worker insere só `resultados_simulacao`.
+A API escreve `usuarios`, `submissoes`, `jobs`, `job_transicoes`, `job_acoes`, `simulacoes`, `trilhas_auditoria` e `outbox_events`. O codegen insere `prompts`, `respostas_modelo`, `codigos_gerados` e `explicacoes`, e registra em `jobs_grafo_encerrados` o encerramento recebido e a conclusão da limpeza; é a única tabela em que tem `UPDATE`, restrito a `limpo_em`. O worker insere só `resultados_simulacao`.
 
 `regras` permite inserção pela API e pelo codegen. O fluxo implementado usa a API para versões submetidas, confirmadas ou propostas na adaptação; a extração inicial pelo codegen ainda precisa ser construída. Nenhum dos dois tem `UPDATE` ou `DELETE`: editar significa inserir uma versão nova encadeada por `regra_origem_id`.
 
@@ -298,7 +338,7 @@ Duas coisas o esquema não reconstrói. Qual simulação foi liberada, porque `j
 
 O dataset e os baselines são estáticos e vivem embutidos na imagem do sandbox, sem versionamento no banco. A consequência aceita é que dois resultados apurados sobre imagens diferentes ficam indistinguíveis.
 
-As tabelas de checkpoint do LangGraph são criadas e migradas pela própria biblioteca, ficam no mesmo schema e só o codegen as acessa. Nenhuma chave estrangeira atravessa essa fronteira, e a correlação usa `thread_id = job_id:regra_id`, com fallback legado por job somente para o mesmo ciclo. A limpeza ainda não foi implementada; checkpoints concluídos participam da deduplicação.
+As tabelas de checkpoint do LangGraph são criadas e migradas pela própria biblioteca, ficam no mesmo schema e só o codegen as acessa. Nenhuma chave estrangeira atravessa essa fronteira, e a correlação usa `thread_id = job_id:regra_id`, com fallback legado por job somente para o mesmo ciclo. A limpeza acontece depois do encerramento do job, e `jobs_grafo_encerrados` assume a deduplicação que o checkpoint final fazia.
 
 Os `GRANT` que sustentam tanto o isolamento entre serviços quanto a imutabilidade da regra são migration, escritos junto ao changeset que cria cada tabela.
 
@@ -324,7 +364,7 @@ Campanha é a apresentação de um job com resultado viável. Não há nova tabe
 
 E9 acrescenta matrícula e valores absolutos, preservando as quebras atuais de diferença. Preservar os dataframes resultantes também faz parte do planejamento. A granularidade ainda depende de confirmar se são suficientes totais independentes ou se é necessário cruzar matrícula, loja e competência.
 
-O worker escreve o resultado e a API consulta e expõe o conteúdo. As T-202–T-204 especificam contrato, coluna e gravação do diagnóstico de falhas; não estão implementadas apenas por existirem como tarefas.
+O worker escreve o resultado e a API consulta e expõe o conteúdo. O diagnóstico de falhas, gravado pelo worker em todo `erro_codigo`, está descrito em `resultados_simulacao`, na seção 1.
 
 ### Áudio e identidade
 
@@ -337,6 +377,6 @@ Cadastro e recuperação de senha usam Keycloak. Não exigem armazenamento próp
 - A granularidade dos resultados e seu formato de armazenamento precisam ser definidos para atender à rastreabilidade pedida.
 - O esquema não contém uma referência explícita na ação de liberação à simulação escolhida. A leitura precisa respeitar a versão e o resultado efetivamente vigentes, sem depender apenas de um timestamp.
 - A publicação dos artefatos do codegen e seus eventos não usa o outbox da API; persistir um artefato não comprova por si só que seu evento foi entregue.
-- A limpeza de checkpoints após encerramento precisa preservar a deduplicação. Um mecanismo específico de encerramento ainda depende da revisão da proposta.
+- Um ciclo pausado à espera de um resultado cuja mensagem ao codegen se perdeu mantém a limpeza do job adiada: pelo checkpoint, o codegen não distingue um resultado ainda na fila de um que não volta.
 
 O schema de `no-concluido` define `evento_id`, e os payloads de outbox seguem os contratos em `contracts/events/`.

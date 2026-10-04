@@ -1,5 +1,6 @@
 """A validação do resultado pelo schema da T-034, e o que acontece sem `contracts/`."""
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -15,11 +16,17 @@ from app.execucao.schema import (
     carregar_contratos,
     validador,
     validar_assercoes,
+    validar_diagnostico,
     validar_resultado,
 )
 from tests.app.execucao.envelopes import ASSERCAO_OK, ASSERCAO_VIOLADA, ORCAMENTO, RESULTADO
 
 CAMINHO_DO_MODULO = Path(schema.__file__)
+EXEMPLOS_DE_DIAGNOSTICO = sorted(
+    (Path(__file__).resolve().parents[4] / "contracts" / "examples" / "domain").glob(
+        "resultado-diagnostico-*.json"
+    )
+)
 
 
 def test_o_schema_exige_o_orcamento_que_o_container_nao_tem() -> None:
@@ -44,7 +51,9 @@ def test_a_validacao_nao_altera_o_resultado() -> None:
 
 
 def test_totais_que_nao_e_objeto_e_reprovado_sem_levantar() -> None:
-    assert validar_resultado({**RESULTADO, "totais": 1}, ORCAMENTO) == ["$.totais: type"]
+    assert validar_resultado({**RESULTADO, "totais": 1}, ORCAMENTO) == [
+        {"caminho": "$.totais", "palavra_chave": "type"}
+    ]
 
 
 def test_as_cinco_quebras_sao_exigidas() -> None:
@@ -53,15 +62,45 @@ def test_as_cinco_quebras_sao_exigidas() -> None:
 
         erros = validar_resultado({**RESULTADO, "decomposicao": decomposicao}, ORCAMENTO)
 
-        assert erros == ["$.decomposicao: required"], quebra
+        assert erros == [{"caminho": "$.decomposicao", "palavra_chave": "required"}], quebra
 
 
 def test_desfechos_de_assercao() -> None:
     assert validar_assercoes([ASSERCAO_OK, ASSERCAO_VIOLADA]) == []
     assert validar_assercoes([{"nome": "x", "resultado": "talvez", "detalhe": None}]) == [
-        "$[0].resultado: enum"
+        {"caminho": "$[0].resultado", "palavra_chave": "enum"}
     ]
-    assert validar_assercoes("ok") == [": type".replace(":", "$:", 1)]
+    assert validar_assercoes("ok") == [{"caminho": "$", "palavra_chave": "type"}]
+
+
+@pytest.mark.parametrize("exemplo", EXEMPLOS_DE_DIAGNOSTICO, ids=lambda caminho: caminho.stem)
+def test_os_exemplos_de_diagnostico_do_contrato_validam(exemplo: Path) -> None:
+    """Os exemplos são o que cada componente desserializa (ADR-002): se o worker os recusasse,
+    ele e o contrato descreveriam coisas diferentes."""
+    assert validar_diagnostico(json.loads(exemplo.read_text(encoding="utf-8"))) == []
+
+
+def test_ha_exemplos_de_diagnostico_para_conferir() -> None:
+    assert len(EXEMPLOS_DE_DIAGNOSTICO) >= 3
+
+
+@pytest.mark.parametrize(
+    ("diagnostico", "problema"),
+    [
+        ({}, {"caminho": "$", "palavra_chave": "required"}),
+        ({"causa": "excecao"}, {"caminho": "$", "palavra_chave": "required"}),
+        (
+            {"causa": "timeout", "falha": {"tipo": "", "mensagem": "", "traceback": ""}},
+            {"caminho": "$", "palavra_chave": "not"},
+        ),
+        ({"causa": "infra"}, {"caminho": "$.causa", "palavra_chave": "enum"}),
+    ],
+    ids=["sem causa", "excecao sem falha", "falha sem excecao", "causa desconhecida"],
+)
+def test_diagnostico_fora_do_contrato_e_reprovado(
+    diagnostico: dict[str, object], problema: dict[str, str]
+) -> None:
+    assert problema in validar_diagnostico(diagnostico)
 
 
 def test_carregar_contratos_funciona_no_repositorio() -> None:

@@ -7,6 +7,7 @@ gravado não pode gravar uma segunda linha, e a primeira não teria como ser rem
 """
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -15,14 +16,17 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # `criado_em` não tem default no banco. A escrita fica a cargo do chamador: confirmar antes de
-# publicar é o que impede um evento de referenciar uma linha que não existe.
+# publicar é o que impede um evento de referenciar uma linha que não existe. O diagnóstico vai no
+# mesmo INSERT porque o worker não tem UPDATE: depois de gravada, a linha não o recebe mais.
 _INSERT = text(
     """
     INSERT INTO resultados_simulacao
-        (job_id, codigo_gerado_id, status, totais, veredito, assercoes, decomposicao, criado_em)
+        (job_id, codigo_gerado_id, status, totais, veredito, assercoes, decomposicao,
+         diagnostico, criado_em)
     VALUES
         (:job_id, :codigo_gerado_id, :status, CAST(:totais AS jsonb), :veredito,
-         CAST(:assercoes AS jsonb), CAST(:decomposicao AS jsonb), now())
+         CAST(:assercoes AS jsonb), CAST(:decomposicao AS jsonb), CAST(:diagnostico AS jsonb),
+         now())
     RETURNING id
     """
 )
@@ -67,6 +71,7 @@ async def gravar_resultado(
     totais: dict[str, Any] | None,
     assercoes: list[Any],
     decomposicao: dict[str, Any] | None,
+    diagnostico: Mapping[str, object] | None,
 ) -> ResultadoGravado:
     """Insere a linha. Quem chama abre a transação e a confirma antes de publicar."""
     resultado = await sessao.execute(
@@ -79,6 +84,7 @@ async def gravar_resultado(
             "veredito": veredito,
             "assercoes": _json(assercoes),
             "decomposicao": _json(decomposicao),
+            "diagnostico": _json(diagnostico),
         },
     )
     return ResultadoGravado(

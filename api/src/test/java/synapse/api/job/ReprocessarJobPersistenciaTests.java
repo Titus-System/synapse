@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+
 import javax.sql.DataSource;
 
 import liquibase.Contexts;
@@ -31,8 +32,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
-import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.MediaType;
@@ -49,14 +50,15 @@ import synapse.api.core.outbox.Outbox;
 import synapse.api.core.security.AcessoDoUsuario;
 import synapse.api.core.security.PapelDoUsuario;
 import synapse.api.core.security.UsuarioAtual;
+import synapse.api.core.sse.EmissoresSse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -85,7 +87,7 @@ class ReprocessarJobPersistenciaTests {
 
 	private static JdbcTemplate dono;
 
-	private static ReprocessarJobService service;
+	private static JobService service;
 
 	private static MockMvc mvc;
 
@@ -119,17 +121,18 @@ class ReprocessarJobPersistenciaTests {
 		contexto.registerBean(DataSource.class, () -> dataSource);
 		contexto.registerBean(JdbcTemplate.class, () -> jdbc);
 		contexto.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
+		contexto.registerBean(EmissoresSse.class, () -> mock(EmissoresSse.class));
 		contexto.register(Config.class);
 		contexto.refresh();
-		service = contexto.getBean(ReprocessarJobService.class);
+		service = contexto.getBean(JobService.class);
 		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
 		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(DONO_ORIGINAL, PapelDoUsuario.PROFISSIONAL_RH));
 		mvc = MockMvcBuilders
-			.standaloneSetup(contexto.getBean(ReprocessarJobController.class),
-					new BuscarJobController(contexto.getBean(BuscarJobService.class)),
-					contexto.getBean(ConfirmarParametrosController.class))
-			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual, new AutorizadorDeJob(jdbc)))
-			.setControllerAdvice(new ReprocessarJobAdvice(), new ConfirmarParametrosAdvice())
+			.standaloneSetup(new JobController(contexto.getBean(JobService.class), mock(EmissoresSse.class),
+					new CorrelationContext()))
+			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual,
+					new AutorizadorDeJob(contexto.getBean(JobRepository.class))))
+			.setControllerAdvice(new JobAdvice())
 			.build();
 	}
 
@@ -145,10 +148,8 @@ class ReprocessarJobPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ CriarJobService.class, ReprocessarJobService.class, BuscarJobService.class,
-			ConfirmarParametrosService.class, VersoesDaRegra.class, ExecutarAcaoService.class,
-			MaquinaDeEstadosDoJob.class, Outbox.class, ReprocessarJobController.class, AutorizadorDeJob.class,
-			ConfirmarParametrosController.class, CorrelationContext.class })
+	@Import({ JobRepository.class, JobService.class, VersoesDaRegra.class, MaquinaDeEstadosDoJob.class, Outbox.class,
+			AutorizadorDeJob.class, CorrelationContext.class })
 	static class Config {
 
 	}
@@ -455,7 +456,7 @@ class ReprocessarJobPersistenciaTests {
 	}
 
 	private static UUID criarOrigem(boolean extensoes) {
-		JobCriadoDto job = contexto.getBean(CriarJobService.class)
+		JobCriadoDto job = contexto.getBean(JobService.class)
 			.criar(CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO));
 		var representacao = ConfirmarParametrosRequisicao.deJson(ConfirmarParametrosControllerTests.CONFIRMAR)
 			.representacao();
@@ -469,7 +470,7 @@ class ReprocessarJobPersistenciaTests {
 		var maquina = contexto.getBean(MaquinaDeEstadosDoJob.class);
 		maquina.transicionar(job.id(), JobStatus.SIMULANDO, "evento", null);
 		maquina.transicionar(job.id(), JobStatus.AGUARDANDO_DECISAO_USUARIO, "evento", null);
-		contexto.getBean(ExecutarAcaoService.class).aplicar(job.id(), AcaoJob.ARQUIVAR);
+		contexto.getBean(JobService.class).executarAcao(job.id(), AcaoJob.ARQUIVAR);
 		jdbc.update("UPDATE jobs SET usuario_id = ?, tentativas = 3, iniciado_em = criado_em WHERE id = ?",
 				DONO_ORIGINAL, job.id());
 		jdbc.update("""

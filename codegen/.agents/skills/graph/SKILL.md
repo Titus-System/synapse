@@ -114,7 +114,7 @@ Both are called directly in application code — they are not framework-internal
 - Anything a node does *before* its `interrupt()` call runs again on every resume. It must be idempotent or side-effect-free (no re-publishing an event, no duplicate row insert) unless duplication is genuinely harmless.
 - Do not make whether `interrupt()` is called, or how many times, depend on data that can differ between the original run and the resumed run — that changes the call order and breaks the positional matching.
 
-The implemented pause waits for the worker's result. Sprint 2 adds conditional correction rounds only when validation finds problems; it does not require manual confirmation for every valid rule. Checkpoint cleanup is not implemented and must preserve terminal-cycle deduplication.
+The implemented pause waits for the worker's result. Sprint 2 adds conditional correction rounds only when validation finds problems; it does not require manual confirmation for every valid rule. Checkpoints are deleted only after the `api` announces `job-encerrado`, through `app/graph/entrypoint.py::ciclos_do_job`/`apagar_ciclos`, never by a node. `jobs_grafo_encerrados` keeps the terminal-cycle deduplication after the deletion, and a cycle still waiting for its result is kept until the result is processed - see `app/mensageria/limpeza.py` and DEC-095.
 
 ## Naming
 

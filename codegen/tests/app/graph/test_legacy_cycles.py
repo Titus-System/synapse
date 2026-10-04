@@ -20,6 +20,7 @@ from app.graph.core.state import AgentState
 from app.graph.nodes.await_execution import await_execution
 from app.mensageria import roteamento
 from app.mensageria.roteamento import GraphRouter, JobDesconhecidoError
+from tests.app.limpeza_falsa import LimpezaFalsa
 
 JOB_ID = uuid4()
 REGRA_ID = uuid4()
@@ -92,7 +93,7 @@ def resultado() -> SimulacaoConcluida:
 async def test_resultado_retoma_checkpoint_anterior_sem_repetir_geracao(ciclos: Any) -> None:
     saver, geracoes, resultados = ciclos
     await iniciar_antigo()
-    router = GraphRouter(sessoes=MagicMock(), producers=MagicMock())
+    router = GraphRouter(sessoes=MagicMock(), producers=MagicMock(), limpeza=LimpezaFalsa())
 
     await router.entregar(JOB_ID, resultado())
     await router.entregar(JOB_ID, resultado())
@@ -115,7 +116,7 @@ async def test_reentrega_da_submissao_reutiliza_checkpoint_anterior(
             sessoes=MagicMock(),
             producers=MagicMock(),
         )
-    router = GraphRouter(sessoes=MagicMock(), producers=MagicMock())
+    router = GraphRouter(sessoes=MagicMock(), producers=MagicMock(), limpeza=LimpezaFalsa())
 
     await router.entregar(JOB_ID, submissao())
 
@@ -127,7 +128,7 @@ async def test_sugestao_tem_checkpoint_proprio_sem_sobrescrever_o_original(ciclo
     saver, geracoes, _ = ciclos
     await iniciar_antigo()
     alternativa = uuid4()
-    router = GraphRouter(sessoes=MagicMock(), producers=MagicMock())
+    router = GraphRouter(sessoes=MagicMock(), producers=MagicMock(), limpeza=LimpezaFalsa())
 
     await router.entregar(JOB_ID, submissao(alternativa))
     await router.entregar(JOB_ID, submissao(alternativa))
@@ -142,7 +143,7 @@ async def test_sugestao_tem_checkpoint_proprio_sem_sobrescrever_o_original(ciclo
 async def test_resultado_nao_retoma_checkpoint_de_outra_regra(ciclos: Any) -> None:
     _, _, resultados = ciclos
     await iniciar_antigo(str(uuid4()))
-    router = GraphRouter(sessoes=MagicMock(), producers=MagicMock())
+    router = GraphRouter(sessoes=MagicMock(), producers=MagicMock(), limpeza=LimpezaFalsa())
 
     with pytest.raises(JobDesconhecidoError):
         await router.entregar(JOB_ID, resultado())
@@ -160,7 +161,7 @@ async def test_checkpoint_versionado_existente_tem_prioridade_sobre_o_legado(cic
         {"job_id": str(JOB_ID), "regra_id": str(REGRA_ID)},
         {"configurable": {"thread_id": thread_id}},
     )
-    router = GraphRouter(sessoes=MagicMock(), producers=MagicMock())
+    router = GraphRouter(sessoes=MagicMock(), producers=MagicMock(), limpeza=LimpezaFalsa())
 
     await router.entregar(JOB_ID, resultado())
 
@@ -180,7 +181,7 @@ async def test_checkpoint_legado_exige_job_e_regra_corretos(ciclos: Any) -> None
         sessoes=MagicMock(),
         producers=MagicMock(),
     )
-    router = GraphRouter(sessoes=MagicMock(), producers=MagicMock())
+    router = GraphRouter(sessoes=MagicMock(), producers=MagicMock(), limpeza=LimpezaFalsa())
 
     with pytest.raises(JobDesconhecidoError):
         await router.entregar(JOB_ID, resultado())

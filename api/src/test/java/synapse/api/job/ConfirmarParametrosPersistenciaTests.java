@@ -30,10 +30,13 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
+import synapse.api.core.logging.CorrelationContext;
 import synapse.api.core.outbox.Outbox;
+import synapse.api.core.sse.EmissoresSse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 @EnabledIf("dockerIsAvailable")
 class ConfirmarParametrosPersistenciaTests {
@@ -46,9 +49,7 @@ class ConfirmarParametrosPersistenciaTests {
 
 	private static JdbcTemplate jdbc;
 
-	private static CriarJobService criarService;
-
-	private static ConfirmarParametrosService confirmarService;
+	private static JobService service;
 
 	static boolean dockerIsAvailable() {
 		return DockerClientFactory.instance().isDockerAvailable();
@@ -80,10 +81,10 @@ class ConfirmarParametrosPersistenciaTests {
 		contexto.registerBean(DataSource.class, () -> dataSource);
 		contexto.registerBean(JdbcTemplate.class, () -> jdbc);
 		contexto.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
+		contexto.registerBean(EmissoresSse.class, () -> mock(EmissoresSse.class));
 		contexto.register(Config.class);
 		contexto.refresh();
-		criarService = contexto.getBean(CriarJobService.class);
-		confirmarService = contexto.getBean(ConfirmarParametrosService.class);
+		service = contexto.getBean(JobService.class);
 	}
 
 	@AfterAll
@@ -98,8 +99,8 @@ class ConfirmarParametrosPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ CriarJobService.class, ConfirmarParametrosService.class, MaquinaDeEstadosDoJob.class, Outbox.class,
-			VersoesDaRegra.class })
+	@Import({ JobRepository.class, JobService.class, MaquinaDeEstadosDoJob.class, Outbox.class, VersoesDaRegra.class,
+			CorrelationContext.class })
 	static class Config {
 
 	}
@@ -228,13 +229,13 @@ class ConfirmarParametrosPersistenciaTests {
 	// Submissão de formulário não passa mais por aguardando_confirmacao_parametros;
 	// voltarParaConfirmacao simula o estado de uma origem que ainda precisa dela.
 	private static UUID criarJob() {
-		UUID jobId = criarService.criar(CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO)).id();
+		UUID jobId = service.criar(CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO)).id();
 		voltarParaConfirmacao(jobId);
 		return jobId;
 	}
 
 	private static JobCriadoDto confirmar(UUID jobId, String corpo) {
-		return confirmarService.confirmar(jobId, ConfirmarParametrosRequisicao.deJson(corpo));
+		return service.confirmar(jobId, ConfirmarParametrosRequisicao.deJson(corpo));
 	}
 
 	private static String corpo(String percentual) {

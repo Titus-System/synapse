@@ -13,6 +13,7 @@ from aiormq.exceptions import ChannelNotFoundEntity
 
 from app.config import Settings
 from app.contratos.mensagens import (
+    JobEncerrado,
     ModeloContrato,
     RegraSubmetida,
     SimulacaoConcluida,
@@ -106,6 +107,25 @@ async def test_broker_real_entrega_ao_codegen_sem_api(broker_real: ConexaoBroker
     assert isinstance(dto, RegraSubmetida)
     assert str(job_id) == payload["job_id"]
     assert simplejson.loads(serializar(dto), use_decimal=True) == payload
+
+
+async def test_encerramento_da_api_chega_ao_codegen_pela_fila_propria(
+    broker_real: ConexaoBroker,
+) -> None:
+    """A `api` publica `job-encerrado` na fila de mesmo nome (DEC-089), e só o codegen a lê."""
+    roteador = RoteadorTeste()
+    await broker_real.iniciar_consumers(roteador)
+    payload = exemplo("job-encerrado")
+    corpo = simplejson.dumps(payload).encode()
+
+    await broker_real.canal.default_exchange.publish(
+        Message(body=corpo, content_type="application/json"), routing_key="job-encerrado"
+    )
+    job_id, dto = await asyncio.wait_for(roteador.entregas.get(), timeout=10)
+
+    assert isinstance(dto, JobEncerrado)
+    assert str(job_id) == payload["job_id"]
+    assert str(dto.evento_id) == payload["evento_id"]
 
 
 async def test_resultado_do_worker_chega_ao_codegen_pelo_fanout(

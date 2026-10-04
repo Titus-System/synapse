@@ -1,8 +1,8 @@
 """Do julgamento à linha de `resultados_simulacao` e ao evento `simulacao-concluida` (T-067).
 
-A linha guarda o resultado inteiro; o evento, só a referência e os agregados do schema. Os dois
-saem de `ResultadoGravado`, o mesmo para o resultado recém-gravado e para o que uma reentrega
-encontra já gravado.
+A linha guarda o resultado inteiro e, num `erro_codigo`, o diagnóstico da falha (T-204); o
+evento, só a referência e os agregados do schema. Os dois saem de `ResultadoGravado`, o mesmo para
+o resultado recém-gravado e para o que uma reentrega encontra já gravado.
 """
 
 import json
@@ -11,11 +11,16 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.execucao.coleta import DesfechoClassificado
-from app.execucao.registro import evento_de, linha_do_julgamento
+from app.execucao.coleta import DesfechoClassificado, Motivo
+from app.execucao.registro import (
+    DiagnosticoForaDoContratoError,
+    diagnostico_do_julgamento,
+    evento_de,
+    linha_do_julgamento,
+)
 from app.execucao.veredito import Julgamento, julgamento_de_infra
 from app.repositorio.resultados import ResultadoGravado
-from tests.app.esquemas import erros_do_evento
+from tests.app.esquemas import erros_do_dominio, erros_do_evento
 from tests.app.execucao.envelopes import ASSERCAO_OK, ASSERCAO_VIOLADA, FALHA
 from tests.app.execucao.test_veredito import BASELINE_2025_11, julgar_2025_11, sucesso
 
@@ -127,6 +132,111 @@ def test_um_sucesso_sem_resultado_ou_indeterminado_e_um_erro_de_programacao() ->
         linha_do_julgamento(Julgamento("sucesso", "ok", "indeterminado"))
     with pytest.raises(ValueError, match="sucesso"):
         linha_do_julgamento(Julgamento("sucesso", "ok", "viavel"))
+
+
+# ---- o diagnóstico ----
+
+PROBLEMAS = (
+    {"caminho": "$.decomposicao", "palavra_chave": "required"},
+    {"caminho": "$.totais.orcamento", "palavra_chave": "fornecido_pelo_container"},
+)
+# As causas decididas fora do código gerado: não há exceção capturada para guardar.
+CAUSAS_SEM_EXCECAO: list[Motivo] = [
+    "timeout",
+    "memoria",
+    "saida_truncada",
+    "sem_envelope",
+    "envelope_invalido",
+    "envelope_de_outra_execucao",
+    "codigo_de_saida_divergente",
+]
+
+
+def erro_codigo(motivo: Motivo, **desfecho: object) -> Julgamento:
+    return Julgamento(
+        "erro_codigo",
+        motivo,
+        "indeterminado",
+        desfecho=DesfechoClassificado("erro_codigo", motivo, **desfecho),  # type: ignore[arg-type]
+    )
+
+
+def test_a_excecao_da_regra_e_conservada_como_o_sandbox_a_capturou() -> None:
+    linha = linha_do_julgamento(NAO_SUCESSOS[1])
+
+    assert linha.diagnostico == {"causa": "excecao", "falha": FALHA}
+
+
+@pytest.mark.parametrize("causa", CAUSAS_SEM_EXCECAO)
+def test_causa_sem_excecao_guarda_so_a_causa(causa: Motivo) -> None:
+    """Timeout, memória e saída inválida não têm exceção: nenhuma é inventada para eles."""
+    assert linha_do_julgamento(erro_codigo(causa)).diagnostico == {"causa": causa}
+
+
+def test_baseline_divergente_guarda_so_a_causa_do_julgamento() -> None:
+    """O desfecho do container era `sucesso`: a causa é a do julgamento, não a da coleta."""
+    assert linha_do_julgamento(NAO_SUCESSOS[2]).diagnostico == {"causa": "baseline_divergente"}
+
+
+def test_resultado_fora_do_schema_guarda_os_problemas() -> None:
+    linha = linha_do_julgamento(erro_codigo("resultado_fora_do_schema", problemas=PROBLEMAS))
+
+    assert linha.diagnostico == {"causa": "resultado_fora_do_schema", "problemas": list(PROBLEMAS)}
+
+
+@pytest.mark.parametrize(
+    "julgamento",
+    [NAO_SUCESSOS[0], julgamento_de_infra(), julgamento_de_sucesso(600000.0)],
+    ids=["assercao_violada", "infra", "sucesso"],
+)
+def test_so_erro_codigo_tem_diagnostico(julgamento: Julgamento) -> None:
+    assert linha_do_julgamento(julgamento).diagnostico is None
+
+
+@pytest.mark.parametrize(
+    "julgamento",
+    [
+        NAO_SUCESSOS[1],
+        NAO_SUCESSOS[2],
+        *(erro_codigo(causa) for causa in CAUSAS_SEM_EXCECAO),
+        erro_codigo("resultado_fora_do_schema", problemas=PROBLEMAS),
+    ],
+)
+def test_todo_diagnostico_gravado_valida_contra_o_contrato(julgamento: Julgamento) -> None:
+    """Conferido por um validador do teste, e não pelo mesmo que o worker usa ao montar."""
+    diagnostico = diagnostico_do_julgamento(julgamento)
+
+    assert diagnostico is not None
+    assert erros_do_dominio("resultado-diagnostico", diagnostico) == []
+
+
+@pytest.mark.parametrize(
+    ("julgamento", "problema"),
+    [
+        (erro_codigo("excecao"), {"caminho": "$", "palavra_chave": "required"}),
+        (erro_codigo("timeout", erro=FALHA), {"caminho": "$", "palavra_chave": "not"}),
+        (
+            erro_codigo("excecao", erro={**FALHA, "traceback": None}),
+            {"caminho": "$.falha.traceback", "palavra_chave": "type"},
+        ),
+    ],
+    ids=["excecao sem falha", "falha fora de excecao", "falha mal formada"],
+)
+def test_diagnostico_incoerente_e_erro_do_worker_e_nao_e_gravado(
+    julgamento: Julgamento, problema: dict[str, str]
+) -> None:
+    with pytest.raises(DiagnosticoForaDoContratoError) as erro:
+        linha_do_julgamento(julgamento)
+
+    assert problema in erro.value.problemas
+
+
+def test_o_repr_da_linha_nao_carrega_a_falha_da_regra() -> None:
+    """Quem registrar a linha inteira num log não pode vazar a mensagem nem o traceback."""
+    linha = linha_do_julgamento(NAO_SUCESSOS[1])
+
+    assert FALHA["mensagem"] not in repr(linha)
+    assert FALHA["traceback"] not in repr(linha)
 
 
 # ---- o evento ----

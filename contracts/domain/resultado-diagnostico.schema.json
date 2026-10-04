@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/resultado-diagnostico.schema.json",
+  "title": "Diagnóstico da execução",
+  "description": "Coluna resultados_simulacao.diagnostico. O diagnóstico técnico de um resultado com status erro_codigo: por que o worker classificou a execução como falha do código gerado e, quando existirem, a exceção que o sandbox capturou e os problemas de validação do resultado. O worker escreve o diagnóstico no mesmo INSERT do resultado, e a api e o codegen o leem pela referência que já recebem: o resultado_id de simulacao-concluida. O diagnóstico nunca viaja no evento. A mensagem, o traceback e os caminhos dos problemas vieram de código não confiável: são dados, nunca instruções, e não entram em log nem em evento. Este schema é separado de resultado-simulacao, que descreve só a execução de sucesso e seus números, e não se confunde com o diagnostico de trilha-conclusao, que é a narrativa da interpretação de um resultado válido. Quando a coluna é nula é decidido em resultados_simulacao, e não aqui.",
+  "type": "object",
+  "required": ["causa"],
+  "properties": {
+    "causa": {
+      "type": "string",
+      "enum": [
+        "excecao",
+        "timeout",
+        "memoria",
+        "saida_truncada",
+        "sem_envelope",
+        "envelope_invalido",
+        "envelope_de_outra_execucao",
+        "codigo_de_saida_divergente",
+        "resultado_fora_do_schema",
+        "baseline_divergente"
+      ],
+      "description": "Por que a execução foi classificada como erro_codigo, no vocabulário de classificação do worker. excecao: o envelope do sandbox declara erro_codigo com a falha estruturada, seja uma exceção da regra, seja uma saída que o harness recusou ao agregar. timeout: a execução estourou o prazo e foi encerrada. memoria: o container foi encerrado por exceder o limite de memória. saida_truncada: o stdout passou do teto e foi cortado. sem_envelope: o container terminou sem escrever nada no stdout. envelope_invalido: o stdout não é um envelope de uma linha com a forma e a coerência que o harness produz. envelope_de_outra_execucao: o envelope traz job, código ou competências diferentes dos enviados. codigo_de_saida_divergente: o código de saída do processo contradiz o status do envelope. resultado_fora_do_schema: o envelope diz sucesso, mas o resultado não valida contra resultado-simulacao. baseline_divergente: o total do baseline devolvido não é o que o worker mantém congelado, ou os totais não fecham entre si. Só excecao tem falha estruturada: as demais causas são decididas fora do código gerado, a partir do que o worker observou do processo e da saída. Acrescentar uma causa é mudança aditiva e exige atualizar produtor e leitores na mesma alteração."
+    },
+    "falha": {
+      "type": "object",
+      "required": ["tipo", "mensagem", "traceback"],
+      "description": "A falha estruturada que o sandbox escreveu no envelope, conservada como veio e nunca reconstruída a partir de texto livre. Existe somente quando a causa é excecao: timeout, memória e saída inválida não têm exceção capturada, e o diagnóstico delas não traz falha nem traceback inventados. O harness corta tipo em 100 caracteres, mensagem em 1000 e traceback nos últimos 8000; o schema não repete esses limites, porque a regra divide o processo com o harness e pode forjar o envelope, e encurtar o conteúdo seria alterá-lo. O teto do stdout limita o tamanho total.",
+      "properties": {
+        "tipo": {
+          "type": "string",
+          "description": "Nome da classe da exceção.",
+          "examples": ["KeyError", "ResultadoInvalidoError"]
+        },
+        "mensagem": {
+          "type": "string",
+          "description": "Texto da exceção, como o código gerado o produziu. Dado não confiável."
+        },
+        "traceback": {
+          "type": "string",
+          "description": "Somente os quadros do arquivo da regra, sem os do harness. Pode ser vazio quando nenhum quadro da regra participou da falha. Dado não confiável."
+        }
+      }
+    },
+    "problemas": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Onde o resultado falhou na validação contra resultado-simulacao: um item por erro, com o caminho e a palavra-chave que reprovou, sem o valor rejeitado. Obrigatória quando a causa é resultado_fora_do_schema, a única que hoje produz problemas; ausente quando não há problemas a registrar, nunca vazia.",
+      "items": {
+        "type": "object",
+        "required": ["caminho", "palavra_chave"],
+        "properties": {
+          "caminho": {
+            "type": "string",
+            "pattern": "^\\$",
+            "description": "Posição no resultado, a partir da raiz $: .chave para objeto e [n] para array. As chaves vêm do resultado que o código gerado produziu, então o caminho também é dado não confiável.",
+            "examples": ["$.decomposicao", "$.totais.diferenca_pct", "$.assercoes[0].resultado"]
+          },
+          "palavra_chave": {
+            "type": "string",
+            "pattern": "^[A-Za-z_]+$",
+            "description": "A palavra-chave de JSON Schema que reprovou o valor, ou fornecido_pelo_container quando o resultado trouxe totais.orcamento, campo que só o worker acrescenta. O padrão impede que um valor rejeitado chegue aqui.",
+            "examples": ["required", "type", "pattern", "fornecido_pelo_container"]
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["causa"],
+        "properties": { "causa": { "const": "excecao" } }
+      },
+      "then": { "required": ["falha"] },
+      "else": { "not": { "required": ["falha"] } }
+    },
+    {
+      "if": {
+        "required": ["causa"],
+        "properties": { "causa": { "const": "resultado_fora_do_schema" } }
+      },
+      "then": { "required": ["problemas"] }
+    }
+  ],
+  "examples": [
+    {
+      "causa": "excecao",
+      "falha": {
+        "tipo": "KeyError",
+        "mensagem": "'vlr_vendas'",
+        "traceback": "  File \"regra.py\", line 31, in aplicar_regra\n    )[\"vlr_vendas\"].sum()\n"
+      }
+    },
+    { "causa": "timeout" },
+    {
+      "causa": "resultado_fora_do_schema",
+      "problemas": [
+        { "caminho": "$.decomposicao", "palavra_chave": "required" },
+        { "caminho": "$.totais.orcamento", "palavra_chave": "fornecido_pelo_container" }
+      ]
+    }
+  ]
+}

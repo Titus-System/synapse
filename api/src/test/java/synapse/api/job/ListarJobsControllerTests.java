@@ -15,9 +15,11 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import synapse.api.core.logging.CorrelationContext;
 import synapse.api.core.security.AcessoDoUsuario;
 import synapse.api.core.security.PapelDoUsuario;
 import synapse.api.core.security.UsuarioAtual;
+import synapse.api.core.sse.EmissoresSse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -31,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class ListarJobsControllerTests {
 
-	private final ListarJobsService service = mock(ListarJobsService.class);
+	private final JobService service = mock(JobService.class);
 
 	private final UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
 
@@ -41,10 +43,11 @@ class ListarJobsControllerTests {
 	void preparar() {
 		when(this.usuarioAtual.obter())
 			.thenReturn(new AcessoDoUsuario(UUID.randomUUID(), PapelDoUsuario.PROFISSIONAL_RH));
-		this.mvc = MockMvcBuilders.standaloneSetup(new ListarJobsController(this.service))
-			.addInterceptors(new AutorizacaoJobsInterceptor(this.usuarioAtual,
-					new AutorizadorDeJob(mock(org.springframework.jdbc.core.JdbcTemplate.class))))
-			.setControllerAdvice(new ListarJobsAdvice())
+		this.mvc = MockMvcBuilders
+			.standaloneSetup(new JobController(this.service, mock(EmissoresSse.class), new CorrelationContext()))
+			.addInterceptors(
+					new AutorizacaoJobsInterceptor(this.usuarioAtual, new AutorizadorDeJob(mock(JobRepository.class))))
+			.setControllerAdvice(new JobAdvice())
 			.build();
 	}
 

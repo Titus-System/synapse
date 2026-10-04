@@ -139,7 +139,7 @@ O envio de e-mails, o remetente, as URLs de retorno e a aplicação das configur
 
 As tarefas [T-201](https://github.com/Titus-System/synapse/issues/200), [T-202](https://github.com/Titus-System/synapse/issues/201), [T-203](https://github.com/Titus-System/synapse/issues/202) e [T-204](https://github.com/Titus-System/synapse/issues/203) tratam de motivos e campos do HTTP, contrato de diagnóstico, armazenamento do diagnóstico e persistência das falhas pelo worker. Os problemas documentados não devem ser tratados como já corrigidos apenas porque as tarefas foram publicadas.
 
-Também falta definir e implementar a limpeza de checkpoints após encerramento definitivo. Os checkpoints finais hoje participam da deduplicação; removê-los sem preservar esse efeito pode reiniciar um ciclo em reentrega. Um mecanismo específico de encerramento e retenção ainda depende da revisão da proposta.
+A limpeza de checkpoints após o encerramento definitivo usa o evento `job-encerrado` da API e o registro `jobs_grafo_encerrados` do codegen, que permanece depois da remoção e mantém a deduplicação dos ciclos. Um ciclo que ainda espera um resultado só é removido depois de processá-lo (DEC-095).
 
 `aguardando_transcricao` pertence a E4 e o consumo de `parametros-confirmados` pertence a E3. Não são decisões de escopo pendentes.
 
@@ -147,7 +147,7 @@ Também falta definir e implementar a limpeza de checkpoints após encerramento 
 
 - **Cliente/PO:** basta consultar totais por dimensão ou é necessário relacionar matrícula, loja e competência na mesma linha?
 - **Dom Rock:** existe evidência adicional que permita relacionar mudanças de comissão com mudanças de vendas por funcionário?
-- **Técnicas:** seleção do provedor de ASR, ordem de implementação dos construtos, desenho da busca de vendas e persistência dos detalhes, além do mecanismo de limpeza de checkpoints.
+- **Técnicas:** seleção do provedor de ASR, ordem de implementação dos construtos, desenho da busca de vendas e persistência dos detalhes.
 
 As decisões de armazenamento de áudio, modalidade das correções, histórico do chatbot, ausência de limite de tentativas, fallback de nome e inclusão dos construtos já estão tomadas.
 

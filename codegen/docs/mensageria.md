@@ -9,6 +9,7 @@ A implementação segue ADR-001, ADR-002, DEC-088 e DEC-089. Usa `aio-pika`, tam
 | `RegraSubmetida` | entrada | `regra-submetida` | padrão (`""`) |
 | `ParametrosConfirmados` | entrada | `parametros-confirmados` | padrão (`""`) |
 | `SimulacaoConcluida` | entrada | `simulacao-concluida.codegen` / `""` | `simulacao-concluida` (fanout) |
+| `JobEncerrado` | entrada | `job-encerrado` | padrão (`""`) |
 | `ExecutarCodigo` | saída | `executar-codigo` | padrão (`""`) |
 | `EtapaAlterada` | saída | `etapa-alterada` | padrão (`""`) |
 | `NoConcluido` | saída | `no-concluido` | padrão (`""`) |
@@ -36,10 +37,27 @@ Cada producer recebe um DTO pronto, serializa e valida o corpo serializado pelo 
 | Falha de processamento | `nack(requeue=True)` |
 | JSON/DTO/schema inválido | `reject(requeue=False)` |
 | `JobDesconhecidoError` do roteador | `reject(requeue=False)` e log correlacionado |
+| `JobEncerradoError` do roteador | `ack()` sem processar e log correlacionado: mensagem antiga de um job que a `api` encerrou |
 | `FalhaDoJobError` do roteador | `reject(requeue=False)`, log correlacionado e `etapa-alterada` com `erro` |
 | Cancelamento | sem ACK; fechamento da conexão devolve mensagens não confirmadas |
 
 A rejeição de mensagens inválidas e jobs desconhecidos é a decisão mínima local para falhas não recuperáveis. **As filas de entrada do codegen não têm DLQ; essas rejeições descartam a mensagem.** Ausência de roteador configurado não é job desconhecido: nesse caso nenhum consumer é iniciado e as mensagens ficam nas filas. Falhas transitórias usam a reentrega do broker, sem republicação/retry manual. Sem backoff configurado, uma falha persistente pode causar reentregas repetidas.
+
+## Encerramento do job e limpeza dos checkpoints
+
+`job-encerrado` chega quando a `api` leva o job a um estado terminal. O `GraphRouter` registra o encerramento em `jobs_grafo_encerrados` e só então confirma a mensagem; uma falha ao registrar reenfileira, porque o fato ainda não está durável, e um job que não existe em `jobs` é rejeitado. Depois do registro, `app/mensageria/limpeza.py` remove os checkpoints, blobs e writes de todos os ciclos do job (`job_id:regra_id` e o legado `job_id`) e preenche `limpo_em` quando nenhum resta.
+
+Toda mensagem de submissão ou de resultado é processada sob o lock compartilhado do job e consulta o registro antes de tocar o grafo: depois da limpeza ela é confirmada sem efeito (`JobEncerradoError`), e uma submissão de job encerrado nunca recomeça a geração. Um resultado de job encerrado e ainda não limpo é processado normalmente, porque os efeitos dele, como as publicações de auditoria, não podem se perder; a limpeza adia enquanto algum ciclo espera um resultado e é tentada de novo ao fim de cada processamento do job. Uma limpeza interrompida é retomada na subida do serviço, antes de os consumers começarem. A decisão está na [DEC-095](../../docs/decisoes/dec-095.md).
+
+| Log | Quando |
+| --- | --- |
+| `encerramento do job registrado` | o evento foi gravado (`ja_registrado` diz se era reentrega) |
+| `limpeza de checkpoints concluída` | nenhum checkpoint do job resta e `limpo_em` foi preenchido |
+| `limpeza de checkpoints adiada` | `processamento_em_andamento` (outra mensagem do job segura o lock) ou `ciclo_pendente` (um ciclo espera o resultado) |
+| `limpeza de checkpoints falhou` | a tentativa caiu; só a classe da exceção vai ao log, e a subida retoma |
+| `limpezas pendentes retomadas` | na subida, com a quantidade de jobs com `limpo_em` nulo |
+
+`checkpoint_limpezas_total{resultado}` conta tentativas por job encerrado que ainda tinha o que limpar (`concluida`, `adiada`, `falhou`), e `checkpoint_limpeza_duracao_seconds{resultado}` mede cada tentativa.
 
 ## Falha permanente do job
 

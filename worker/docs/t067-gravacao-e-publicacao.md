@@ -46,6 +46,7 @@ schema prevê (claim-check, ARCHITECTURE.md §6.1). O contrato **não foi altera
 | `totais` | os do container **mais `orcamento`** | nulo |
 | `assercoes` | as do resultado | as do desfecho (`[]` em `erro_infra`) |
 | `decomposicao` | a do container, como veio | nulo |
+| `diagnostico` | nulo | em `erro_codigo`, a causa e o que houver de falha e problemas (T-204); nulo nos demais |
 | evento: `veredito`, `total_*`, `diferenca_*` | presentes | **ausentes** |
 
 O `indeterminado` é o veredito interno da T-066 e **nunca** é gravado nem publicado: o schema e a
@@ -112,11 +113,7 @@ com o banco fora não há onde gravar.
 
 ## O que a T-067 não resolve
 
-- **O erro da regra não tem onde viajar.** `resultados_simulacao` não tem coluna para o
-  `tipo/mensagem/traceback` de um `erro_codigo`, e o evento também não. O codegen precisaria deles
-  para regenerar o código com o erro em mãos. É uma lacuna do modelo (migration da `api`), não
-  desta tarefa: o `stdout`, o `stderr` e a mensagem da regra seguem só na memória do worker, e nunca
-  chegam a log.
+- **O erro da regra não tinha onde viajar.** Resolvido pela T-204: o `tipo/mensagem/traceback` de um `erro_codigo` vai para `resultados_simulacao.diagnostico`, e o evento continua só com a referência. Ver [`t204-diagnostico.md`](t204-diagnostico.md).
 - **A reconciliação de resultado órfão** (linha sem evento entregue) é operação, não código desta
   sprint. A DLQ guarda o comando, e reenviá-lo republica o evento.
 - **A integração com a `api` e o codegen reais não é exercitada aqui.** Os dois consumidores

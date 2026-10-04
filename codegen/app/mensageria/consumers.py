@@ -5,12 +5,18 @@ from uuid import UUID
 import simplejson
 from aio_pika.abc import AbstractIncomingMessage
 
-from app.contratos.mensagens import ParametrosConfirmados, RegraSubmetida, SimulacaoConcluida
+from app.contratos.mensagens import (
+    JobEncerrado,
+    ParametrosConfirmados,
+    RegraSubmetida,
+    SimulacaoConcluida,
+)
 from app.contratos.validacao import validar
 from app.core.logger import get_logger, job_id_ctx
 from app.falhas import FalhaDoJobError
 from app.mensageria.roteamento import (
     JobDesconhecidoError,
+    JobEncerradoError,
     RetomadaIndisponivelError,
     RoteadorGrafo,
 )
@@ -21,7 +27,7 @@ logger = get_logger("app.mensageria.consumers")
 class Consumer:
     def __init__(
         self,
-        modelo: type[RegraSubmetida | ParametrosConfirmados | SimulacaoConcluida],
+        modelo: type[RegraSubmetida | ParametrosConfirmados | SimulacaoConcluida | JobEncerrado],
         nome: str,
         roteador: RoteadorGrafo,
     ) -> None:
@@ -76,6 +82,18 @@ class Consumer:
                     },
                 )
                 await mensagem.reject(requeue=False)
+            except JobEncerradoError:
+                # Mensagem antiga de um job que a `api` encerrou: confirmar é o que a tira da
+                # fila sem recomeçar a geração, reenviar execução ou duplicar auditoria.
+                logger.info(
+                    "mensagem de job encerrado descartada",
+                    extra={
+                        "tipo_mensagem": self.nome,
+                        "causa": "job_encerrado",
+                        "decisao": "ack_sem_processar",
+                    },
+                )
+                await mensagem.ack()
             except RetomadaIndisponivelError:
                 # O grafo ainda não gravou a pausa. Rejeitar aqui perderia o resultado de uma
                 # simulação que já aconteceu; a reentrega chega depois do checkpoint.

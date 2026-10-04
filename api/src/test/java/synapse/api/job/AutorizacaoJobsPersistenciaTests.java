@@ -301,7 +301,7 @@ class AutorizacaoJobsPersistenciaTests {
 	}
 
 	private static UUID criarJob(UUID usuario, String status) {
-		UUID id = contexto.getBean(CriarJobService.class)
+		UUID id = contexto.getBean(JobService.class)
 			.criar(CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO), usuario)
 			.id();
 		dono.update("UPDATE jobs SET status = ? WHERE id = ?", status, id);

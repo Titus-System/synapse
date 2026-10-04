@@ -49,7 +49,11 @@ final class CapturaDeLog implements AutoCloseable {
 	};
 
 	CapturaDeLog(Class<?> classe) {
-		this.logger = (Logger) LoggerFactory.getLogger(classe);
+		this(classe.getName());
+	}
+
+	CapturaDeLog(String nome) {
+		this.logger = (Logger) LoggerFactory.getLogger(nome);
 		this.appender.setContext(this.logger.getLoggerContext());
 		this.appender.start();
 		this.logger.addAppender(this.appender);

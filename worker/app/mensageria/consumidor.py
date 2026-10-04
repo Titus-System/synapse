@@ -12,7 +12,7 @@ do `ack`), o container não sobe de novo: o evento da linha existente é republi
 
 import asyncio
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager, suppress
 
 from aio_pika.abc import AbstractIncomingMessage
@@ -31,7 +31,12 @@ from app.execucao.baseline import carregar_baselines
 from app.execucao.coleta import classificar
 from app.execucao.container import SaidaBruta, SandboxInfraError, executar_no_sandbox
 from app.execucao.preparo import PayloadContainer, preparar_execucao
-from app.execucao.registro import evento_de, linha_do_julgamento
+from app.execucao.registro import (
+    DiagnosticoForaDoContratoError,
+    evento_de,
+    linha_do_julgamento,
+)
+from app.execucao.schema import Problema
 from app.execucao.veredito import Julgamento, julgamento_de_infra, julgar
 from app.mensageria.broker import ConexaoBroker
 from app.mensageria.contracts import ExecutarCodigo
@@ -80,6 +85,11 @@ async def consumir_fila_execucao(broker: ConexaoBroker) -> None:
             await _processar(mensagem, broker)
 
 
+def _problemas_no_log(problemas: Iterable[Problema]) -> list[str]:
+    """Cada problema como `<caminho>: <palavra-chave>`, sem o valor que o schema reprovou."""
+    return [f"{problema['caminho']}: {problema['palavra_chave']}" for problema in problemas]
+
+
 def _registrar_julgamento(julgamento: Julgamento) -> None:
     """Só a classe, o motivo, o veredito e onde o schema falhou: nunca stdout, stderr nem a
     mensagem de erro da regra, que são texto não confiável, e nem os números do resultado, que
@@ -93,7 +103,7 @@ def _registrar_julgamento(julgamento: Julgamento) -> None:
     if desfecho is not None and desfecho.saida is not None:
         extra["codigo_saida"] = desfecho.saida.codigo_saida
     if desfecho is not None and desfecho.problemas:
-        extra["problemas"] = list(desfecho.problemas)
+        extra["problemas"] = _problemas_no_log(desfecho.problemas)
     registrar = logger.warning if julgamento.classe == "erro_infra" else logger.info
     registrar("execução julgada", extra=extra)
 
@@ -125,7 +135,8 @@ async def _executar_no_container(payload: PayloadContainer) -> SaidaBruta:
 
 async def _gravar(comando: ExecutarCodigo, julgamento: Julgamento) -> ResultadoGravado:
     """Insere a linha numa transação que **confirma antes** de esta função devolver: só depois o
-    evento pode ser publicado."""
+    evento pode ser publicado. O diagnóstico de um `erro_codigo` vai na mesma linha, então um
+    evento nunca referencia um diagnóstico que não foi confirmado."""
     linha = linha_do_julgamento(julgamento)
     with _falhas_de_banco():
         async with get_sessionmaker()() as sessao, sessao.begin():
@@ -138,10 +149,15 @@ async def _gravar(comando: ExecutarCodigo, julgamento: Julgamento) -> ResultadoG
                 totais=linha.totais,
                 assercoes=linha.assercoes,
                 decomposicao=linha.decomposicao,
+                diagnostico=linha.diagnostico,
             )
     logger.info(
         "resultado gravado",
-        extra={"resultado_id": str(gravado.id), "status": gravado.status},
+        extra={
+            "resultado_id": str(gravado.id),
+            "status": gravado.status,
+            "com_diagnostico": linha.diagnostico is not None,
+        },
     )
     return gravado
 
@@ -235,6 +251,14 @@ async def _processar(mensagem: AbstractIncomingMessage, broker: ConexaoBroker) -
             await enviar_dlq(mensagem, broker)
         except _CodigoDeOutroJobError:
             logger.error("o código gerado é de outro job; encaminhando para DLQ")
+            await enviar_dlq(mensagem, broker)
+        except DiagnosticoForaDoContratoError as erro:
+            # Erro do worker ao montar o diagnóstico: repetir daria o mesmo, e gravar sem ele
+            # perderia o que o diagnóstico existe para guardar.
+            logger.error(
+                "diagnóstico fora do contrato; encaminhando para DLQ",
+                extra={"problemas": _problemas_no_log(erro.problemas)},
+            )
             await enviar_dlq(mensagem, broker)
         except Exception:
             logger.error("falha não recuperável no processamento; encaminhando para DLQ")

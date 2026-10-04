@@ -18,11 +18,14 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import synapse.api.core.logging.CorrelationContext;
+import synapse.api.core.sse.EmissoresSse;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -39,14 +42,15 @@ class ConfirmarParametrosControllerTests {
 			 "loja":["13"],"marca":["10","20"],"cargo":["100","300"],"percentual":0.03},"especificacoes":[]}}
 			""";
 
-	private final ConfirmarParametrosService service = mock(ConfirmarParametrosService.class);
+	private final JobService service = mock(JobService.class);
 
 	private MockMvc mvc;
 
 	@BeforeEach
 	void preparar() {
-		this.mvc = MockMvcBuilders.standaloneSetup(new ConfirmarParametrosController(this.service))
-			.setControllerAdvice(new ConfirmarParametrosAdvice())
+		this.mvc = MockMvcBuilders
+			.standaloneSetup(new JobController(this.service, mock(EmissoresSse.class), new CorrelationContext()))
+			.setControllerAdvice(new JobAdvice())
 			.build();
 	}
 

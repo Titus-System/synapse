@@ -17,7 +17,7 @@ O codegen grava os artefatos que produz. A API é dona do estado, das transiçõ
 
 O `evento_id` da trilha é UUIDv5 derivado de job, nó e referência do artefato. Republicar o mesmo evento lógico conserva sua identidade.
 
-O checkpoint usa `job_id:regra_id` e pertence à infraestrutura de retomada do codegen. Não substitui o armazenamento auditável. A limpeza ainda precisa ser implementada sem perder a deduplicação dos ciclos concluídos.
+O checkpoint usa `job_id:regra_id` e pertence à infraestrutura de retomada do codegen. Não substitui o armazenamento auditável. Ele é removido depois do encerramento do job, e o registro `jobs_grafo_encerrados` preserva a deduplicação dos ciclos concluídos (DEC-095).
 
 ## Telemetria e explicação
 

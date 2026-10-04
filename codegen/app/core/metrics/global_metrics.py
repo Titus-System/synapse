@@ -39,3 +39,18 @@ job_duration = prometheus.register_histogram(
     "Execution duration of jobs in seconds",
     ["job_name"],
 )
+
+# Uma tentativa por job encerrado que ainda tinha checkpoints a remover. `adiada` é a tentativa
+# que esbarrou num processamento em andamento ou num ciclo à espera do resultado e será refeita
+# quando ele terminar; não é falha. Jobs não encerrados ou já limpos não contam.
+limpezas_de_checkpoint = prometheus.register_counter(
+    "checkpoint_limpezas_total",
+    "Tentativas de limpar os checkpoints de um job encerrado, por resultado",
+    ["resultado"],
+)
+
+limpeza_de_checkpoint_duracao = prometheus.register_histogram(
+    "checkpoint_limpeza_duracao_seconds",
+    "Duração de uma tentativa de limpeza dos checkpoints de um job encerrado, por resultado",
+    ["resultado"],
+)

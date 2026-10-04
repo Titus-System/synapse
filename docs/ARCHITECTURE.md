@@ -338,7 +338,7 @@ O escopo e as decisões de integração estão consolidados em [Fluxo e decisõe
 
 - **Consistência entre criação do job e publicação do evento** - se a API cai entre salvar no Postgres e publicar no RabbitMQ, o job fica "perdido". Resolvido com **outbox transacional**: a criação do `job` e a gravação do evento numa tabela `outbox_event` acontecem na mesma transação Postgres; uma tarefa agendada (`@Scheduled`, já que roda em instância única) lê os eventos pendentes, publica no RabbitMQ e marca como enviado. Dispensa infraestrutura de CDC (ex. Debezium), ao custo de uma pequena latência (o intervalo do poller) entre a criação do job e a publicação do evento.
 - **Dono do estado e das decisões** - a API é o único serviço que escreve nas tabelas que representam estado e decisão de negócio: `job`, transições da máquina de estados, trilha de auditoria, histórico. Worker e codegen gravam apenas os artefatos que eles mesmos produzem (resultado, código gerado, prompts), em tabelas próprias e com permissão restrita a elas (seção 6.2), e nunca chamam a API via HTTP para isso - publicam eventos com a referência da linha gravada. Assim a API segue como fonte única de verdade do que o usuário e o auditor veem, sem reintroduzir acoplamento síncrono entre serviços.
-- **Integração RabbitMQ** - producer de `regra-submetida` e `parametros-confirmados` (para o codegen); consumer de `simulacao-concluida` (do Worker, pela exchange fanout), `no-concluido` e `etapa-alterada` (do codegen, por fila simples). Ver catálogo completo na seção 6.3.
+- **Integração RabbitMQ** - producer de `regra-submetida`, `parametros-confirmados` e `job-encerrado` (para o codegen); consumer de `simulacao-concluida` (do Worker, pela exchange fanout), `no-concluido` e `etapa-alterada` (do codegen, por fila simples). Ver catálogo completo na seção 6.3.
 - **Persistência da trilha:** os eventos `no-concluido` recebem confirmação depois da gravação e permitem redelivery em falha. Transições e ações produzidas pela própria API são gravadas transacionalmente. O buffer em memória/arquivo para falhas de auditoria da US04 não está implementado e não pode ser considerado uma garantia atual.
 - **Gestão de SSE** - mapeamento `job_id → emissores conectados`, para repassar cada evento de progresso consumido do RabbitMQ ao(s) cliente(s) Frontend inscritos naquele job. Também é o que sustenta a retenção do trabalho na saída abrupta (US07, cenário 2): o job vive na API, não na aba do navegador, então fechar a página não descarta o processamento - o Frontend apenas alerta antes de sair e reencontra o job no histórico.
 - **Persistência (JDBC/JdbcTemplate)** - repositórios da tabela `job` e das tabelas relacionadas (ver seção 5), reaproveitados pelas fatias que precisam. Inclui os artefatos que a própria API produz: áudio (`bytea`) e transcrição, em tabela separada das de consulta frequente para não pesar o dia a dia.
@@ -427,6 +427,7 @@ O mecanismo existente usa uma tentativa automática de regra alternativa no reco
 | --- | --- |
 | Leitura e escrita | Checkpoint do LangGraph (estrutura criada pela própria biblioteca) |
 | `INSERT` | Artefatos que o codegen produz: código gerado, prompt enviado, resposta do modelo |
+| `SELECT`, `INSERT` e `UPDATE` só de `limpo_em` | Registro dos jobs encerrados (`jobs_grafo_encerrados`), que coordena a limpeza dos checkpoints (DEC-095) |
 | `SELECT` | Transcrição do job e resultado da execução - o que precisam para trabalhar e retomar o grafo |
 | **Nenhuma** | `job`, transições de estado, trilha de auditoria, histórico - tudo que representa estado e decisão de negócio |
 
@@ -449,7 +450,7 @@ Sem essa separação, um evento com o prompt inteiro - que inclui o esquema anot
 - O checkpointer usa PostgreSQL via psycopg; `setup()` roda no início da aplicação. Cada versão tem seu próprio `thread_id`.
 - Artefatos e eventos precisam ser idempotentes. O `evento_id` de trilha é derivado deterministicamente do job, nó e referência do artefato.
 - Texto original, correções e respostas de modelos são dados não confiáveis. Não devem ser tratados como instruções para o serviço nem copiados para logs.
-- A limpeza de checkpoints ainda não está implementada e precisa preservar a deduplicação dos ciclos concluídos.
+- Os checkpoints de um job são removidos depois que a API anuncia o encerramento (`job-encerrado`). O registro em `jobs_grafo_encerrados` permanece e reconhece as reentregas que o checkpoint final reconhecia; um ciclo que ainda espera um resultado só é removido depois de processá-lo (DEC-095).
 
 ### 3.4. Worker de execução
 
@@ -509,7 +510,7 @@ O que continua valendo do desenho anterior é a regra de que **as mensagens carr
 
 **Schema único.** Não há separação por schema: todas as tabelas convivem no mesmo, e o que delimita cada serviço são as permissões do seu usuário de banco (seção 6.2). O princípio é que cada serviço escreve apenas os artefatos que produz: a API é dona do estado do job, das transições e da auditoria; codegen e Worker inserem nas tabelas dos artefatos que geram e leem o que precisam.
 
-**Fronteira com o checkpoint do LangGraph.** As tabelas são criadas pela biblioteca e acessadas somente pelo codegen. Não há chaves estrangeiras com o domínio. O `thread_id` atual é `job_id:regra_id`; existe fallback legado por job, restrito ao mesmo ciclo. Checkpoint não é fonte de auditoria. A limpeza após encerramento ainda precisa ser implementada com preservação da deduplicação.
+**Fronteira com o checkpoint do LangGraph.** As tabelas são criadas pela biblioteca e acessadas somente pelo codegen. Não há chaves estrangeiras com o domínio. O `thread_id` atual é `job_id:regra_id`; existe fallback legado por job, restrito ao mesmo ciclo. Checkpoint não é fonte de auditoria. A limpeza acontece depois do encerramento anunciado pela API, e o registro `jobs_grafo_encerrados` sobrevive a ela e preserva a deduplicação (DEC-095).
 
 **Migrations:** a evolução do schema é versionada e aplicada via migrations, nunca manualmente. A **API é a dona das migrations**, inclusive das tabelas que Worker e codegen escrevem - eles inserem, não criam nem alteram estrutura. Ferramenta: **Liquibase** no formato **Formatted SQL** - arquivos `.sql` puros com diretivas em comentário (`--changeset`, `--rollback`). Decisão pela combinação de SQL direto (sem abstração) com suporte a rollback já no core open source, algo que o Flyway só oferece na versão paga (Teams). Os changesets são um arquivo `.sql` por tabela, encadeados por um changelog **raiz em YAML** que só faz `includeAll` - manifesto, não descrição de schema: nenhum DDL vive em markup. A raiz não é SQL porque `include`/`includeAll` em raiz Formatted SQL é recurso pago (Liquibase Secure 4.28+), e a escolha por Liquibase se sustenta justamente no core open source. Os scripts ficam no repositório da API e rodam automaticamente no start da aplicação ou como etapa do CI/CD (seção 12). A exceção são as tabelas de checkpoint do LangGraph, criadas pelo mecanismo de setup da própria biblioteca.
 
@@ -532,7 +533,7 @@ O Postgres tem schema único; cada serviço conecta com **usuário próprio**, e
 | | PostgreSQL | RabbitMQ |
 | --- | --- | --- |
 | **API** | Escrita de estado, decisões, histórico e outbox; dona das migrations; grava submissões e transcrições e consulta os artefatos dos outros serviços | Produz e consome |
-| **codegen** | Checkpoint do LangGraph (leitura/escrita); `INSERT` e `SELECT` nos artefatos que produz - versão da regra extraída, código gerado, prompt, resposta e explicação; `SELECT` em transcrição e resultado. Nenhum `UPDATE` ou `DELETE`, e nenhuma permissão sobre `job`, auditoria ou histórico | Produz e consome |
+| **codegen** | Checkpoint do LangGraph (leitura/escrita); `INSERT` e `SELECT` nos artefatos que produz - versão da regra extraída, código gerado, prompt, resposta e explicação; `SELECT` em transcrição e resultado. Nenhum `UPDATE` ou `DELETE` nos artefatos; no registro de encerramento (`jobs_grafo_encerrados`), `SELECT`, `INSERT` e `UPDATE` só de `limpo_em` (DEC-095). Nenhuma permissão sobre `job`, auditoria ou histórico | Produz e consome |
 | **Worker** | `SELECT` e `INSERT` na tabela de resultados; leitura do código e da representação necessária à verificação | Produz e consome |
 
 O dataset e os baselines não aparecem aqui: são estáticos e vivem embutidos na imagem do sandbox (seção 1.3), não no banco.
@@ -555,14 +556,15 @@ A distinção não é cosmética: um imperativo no catálogo é sinalizador de d
 | `sugestao-adaptacao-proposta` | Evento | codegen | API | Fila | Origem, hash e representação alternativa, usados pela API para persistir uma versão e iniciar outro ciclo |
 | `etapa-alterada` | Evento | codegen | API | Fila | `job_id`, etapa **iniciada**, status - repassado ao Frontend via SSE |
 | `no-concluido` | Evento | codegen | API | Fila | `evento_id` (uuid da mensagem, gerado pelo codegen; chave de idempotência da trilha), `job_id`, nó **concluído**, timestamp, conclusão do nó (resumo, fontes usadas e o que mais aquele nó registra), ids da versão da regra, da simulação, do prompt, do código gerado e da explicação, conforme o nó |
+| `job-encerrado` | Evento | API | codegen | Fila | `evento_id` (id da transição terminal, o mesmo em toda emissão), `job_id`, status terminal (`liberado` \| `cancelado` \| `arquivado` \| `erro`) e o instante da transição; sai pelo outbox na mesma transação da transição terminal |
 
 **Por que `executar-codigo` é comando.** O codegen dirige a execução a um destinatário específico e **pausa o grafo aguardando o resultado** - não é anúncio ao mundo, é delegação com expectativa de que alguém aja. Chamá-lo de `codigo-gerado` sugeriria que o produtor não depende de ninguém agir, quando é exatamente o contrário.
 
 **`etapa-alterada` e `no-concluido` não são redundantes:** o primeiro dispara na **entrada** da etapa (é o que alimenta o "gerando código…" na tela) e o segundo na **saída** do nó (é o que alimenta a trilha de auditoria). Se algum dia os dois passarem a disparar no mesmo ponto, viram o mesmo fato com duas leituras, e mantê-los separados só criaria inconsistência entre o que a tela mostra e o que a auditoria registra.
 
-A API publica `regra-submetida` pelo **outbox transacional** (seção 3.2), garantindo que nenhum job criado fique sem evento correspondente. As etapas da própria API (transcrição, por exemplo) não passam pela fila: ela as repassa direto ao SSE.
+A API publica `regra-submetida` pelo **outbox transacional** (seção 3.2), garantindo que nenhum job criado fique sem evento correspondente. `job-encerrado` também sai pelo outbox, na mesma transação que grava a transição terminal. As etapas da própria API (transcrição, por exemplo) não passam pela fila: ela as repassa direto ao SSE.
 
-**Topologia no broker (DEC-089).** Toda fila simples tem o mesmo nome da mensagem que carrega: `regra-submetida`, `parametros-confirmados`, `sugestao-adaptacao-proposta`, `etapa-alterada` e `no-concluido`. A exchange fanout de `simulacao-concluida` também leva esse nome, e cada consumidor liga a ela a própria fila, nomeada `simulacao-concluida.<consumidor>` (`simulacao-concluida.api`, `simulacao-concluida.codegen`). Toda fila e exchange é **durável** e declarada sem argumento extra (`x-*`); API, codegen e Worker declaram cada um o próprio lado de forma **idempotente**, nunca exclusiva - a ordem de subida entre os três não é garantida, e uma declaração com argumento divergente do que já existe falha com `406 PRECONDITION_FAILED` em vez de silenciosamente perder a mensagem.
+**Topologia no broker (DEC-089).** Toda fila simples tem o mesmo nome da mensagem que carrega: `regra-submetida`, `parametros-confirmados`, `sugestao-adaptacao-proposta`, `etapa-alterada`, `no-concluido` e `job-encerrado`. A exchange fanout de `simulacao-concluida` também leva esse nome, e cada consumidor liga a ela a própria fila, nomeada `simulacao-concluida.<consumidor>` (`simulacao-concluida.api`, `simulacao-concluida.codegen`). Toda fila e exchange é **durável** e declarada sem argumento extra (`x-*`); API, codegen e Worker declaram cada um o próprio lado de forma **idempotente**, nunca exclusiva - a ordem de subida entre os três não é garantida, e uma declaração com argumento divergente do que já existe falha com `406 PRECONDITION_FAILED` em vez de silenciosamente perder a mensagem.
 
 Os eventos novos de correção e de cenário de vendas e a extensão de conflitos em `etapa-alterada` são trabalho planejado da Sprint 2. O catálogo acima não afirma que essas extensões já estão implementadas; ver [fluxo da Sprint 2](FLUXO-SPRINT-2.md).
 
@@ -707,7 +709,7 @@ Outras regras:
 2. **Rastreabilidade do resultado:** confirmar com cliente/PO se bastam totais independentes ou se é necessário cruzar matrícula, loja e competência na mesma linha.
 3. **Relação comissão–vendas:** solicitar à Dom Rock evidência adicional, caso espere uma estimativa de resposta das vendas à mudança de comissão. Sem isso, o cenário é hipotético e usa crescimento uniforme.
 4. **Gabarito:** não há comissionamento efetivamente pago para conferir externamente os baselines. Os valores atuais são autoapurados; erros de interpretação não têm cancelamento garantido na diferença.
-5. **Implementação técnica da Sprint 2:** provedor de ASR, busca de volume de vendas, persistência de detalhes e limpeza segura de checkpoints ainda exigem definição e execução.
+5. **Implementação técnica da Sprint 2:** provedor de ASR, busca de volume de vendas e persistência de detalhes ainda exigem definição e execução.
 
 A ambiguidade do cargo 150 e as vendas órfãs já foram tratadas na normalização pelas políticas `CANONICAL_MANAGER_RATE` e `DISCARD_UNRESOLVED_ORPHAN_SALES`. Julho permanece excluído por `EXCLUDE_2025_07`. Esses pontos não são decisões pendentes da PO.
 

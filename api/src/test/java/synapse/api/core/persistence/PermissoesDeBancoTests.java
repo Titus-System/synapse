@@ -129,6 +129,78 @@ class PermissoesDeBancoTests {
 			.doesNotThrowAnyException();
 	}
 
+	// --- O diagnóstico vem com o resultado e é tão imutável quanto ele -------------
+
+	@Test
+	void oWorkerGravaODiagnosticoJuntoDoResultado() {
+		assertThatCode(() -> executar(UsuariosDeBanco.WORKER, INSERE_RESULTADO_COM_DIAGNOSTICO))
+			.doesNotThrowAnyException();
+	}
+
+	@Test
+	void aApiEOCodegenLeemODiagnostico() {
+		for (String usuario : new String[] { UsuariosDeBanco.API, UsuariosDeBanco.CODEGEN }) {
+			assertThatCode(() -> executar(usuario, "SELECT diagnostico FROM resultados_simulacao"))
+				.doesNotThrowAnyException();
+		}
+	}
+
+	@Test
+	void oWorkerNaoAlteraNemApagaUmResultadoGravado() {
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, ALTERA_DIAGNOSTICO)).isEqualTo(PERMISSAO_NEGADA);
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, "DELETE FROM resultados_simulacao"))
+			.isEqualTo(PERMISSAO_NEGADA);
+	}
+
+	@Test
+	void nemAApiNemOCodegenGravamODiagnostico() {
+		for (String usuario : new String[] { UsuariosDeBanco.API, UsuariosDeBanco.CODEGEN }) {
+			assertThat(sqlStateAoFalhar(usuario, INSERE_RESULTADO_COM_DIAGNOSTICO)).isEqualTo(PERMISSAO_NEGADA);
+			assertThat(sqlStateAoFalhar(usuario, ALTERA_DIAGNOSTICO)).isEqualTo(PERMISSAO_NEGADA);
+		}
+	}
+
+	// --- O registro de limpeza é do codegen, e só a limpeza muda nele ---------------
+
+	@Test
+	void oCodegenRegistraOEncerramentoEMarcaALimpeza() {
+		assertThatCode(() -> {
+			executar(UsuariosDeBanco.CODEGEN, """
+					INSERT INTO jobs_grafo_encerrados (job_id, evento_id, status, encerrado_em)
+					VALUES ('%s', '77777777-7777-4777-8777-777777777777', 'cancelado', now())
+					""".formatted(JOB_ID));
+			executar(UsuariosDeBanco.CODEGEN, "SELECT job_id, limpo_em FROM jobs_grafo_encerrados");
+			executar(UsuariosDeBanco.CODEGEN, """
+					UPDATE jobs_grafo_encerrados SET limpo_em = now()
+					WHERE job_id = '%s' AND limpo_em IS NULL
+					""".formatted(JOB_ID));
+		}).doesNotThrowAnyException();
+	}
+
+	@Test
+	void oCodegenNaoReescreveNemApagaOEncerramentoRegistrado() {
+		for (String coluna : new String[] { "status = 'erro'", "encerrado_em = now()",
+				"evento_id = '88888888-8888-4888-8888-888888888888'", "job_id = job_id" }) {
+			assertThat(sqlStateAoFalhar(UsuariosDeBanco.CODEGEN, "UPDATE jobs_grafo_encerrados SET " + coluna))
+				.isEqualTo(PERMISSAO_NEGADA);
+		}
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.CODEGEN, "DELETE FROM jobs_grafo_encerrados"))
+			.isEqualTo(PERMISSAO_NEGADA);
+	}
+
+	@Test
+	void nemAApiNemOWorkerEscrevemNoRegistroDeLimpeza() {
+		String insere = """
+				INSERT INTO jobs_grafo_encerrados (job_id, evento_id, status, encerrado_em)
+				VALUES ('%s', '99999999-9999-4999-8999-999999999999', 'erro', now())
+				""".formatted(JOB_ID);
+		for (String usuario : new String[] { UsuariosDeBanco.API, UsuariosDeBanco.WORKER }) {
+			assertThat(sqlStateAoFalhar(usuario, insere)).isEqualTo(PERMISSAO_NEGADA);
+			assertThat(sqlStateAoFalhar(usuario, "UPDATE jobs_grafo_encerrados SET limpo_em = now()"))
+				.isEqualTo(PERMISSAO_NEGADA);
+		}
+	}
+
 	// --- O código executado é lido, nunca alterado ---------------------------------
 
 	@Test
@@ -176,6 +248,13 @@ class PermissoesDeBancoTests {
 	private static final String JOB_ID = "11111111-1111-4111-8111-111111111111";
 
 	private static final String CODIGO_ID = "33333333-3333-4333-8333-333333333333";
+
+	private static final String INSERE_RESULTADO_COM_DIAGNOSTICO = """
+			INSERT INTO resultados_simulacao (job_id, codigo_gerado_id, status, assercoes, diagnostico, criado_em)
+			VALUES ('%s', '%s', 'erro_codigo', '[]'::jsonb, '{"causa": "timeout"}'::jsonb, now())
+			""".formatted(JOB_ID, CODIGO_ID);
+
+	private static final String ALTERA_DIAGNOSTICO = "UPDATE resultados_simulacao SET diagnostico = '{\"causa\": \"memoria\"}'::jsonb";
 
 	private static final String INSERE_JOB = """
 			INSERT INTO jobs (status, usuario_id, competencias, orcamento, criado_em)

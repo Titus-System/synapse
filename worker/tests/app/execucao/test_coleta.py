@@ -280,7 +280,7 @@ def test_resultado_que_nao_valida_no_schema_e_erro_codigo_nao_sucesso_parcial() 
 
     assert (desfecho.classe, desfecho.motivo) == ("erro_codigo", "resultado_fora_do_schema")
     assert desfecho.resultado is None
-    assert "$.decomposicao: required" in desfecho.problemas
+    assert {"caminho": "$.decomposicao", "palavra_chave": "required"} in desfecho.problemas
 
 
 def test_os_problemas_dizem_onde_falhou_e_nunca_o_valor() -> None:
@@ -290,8 +290,8 @@ def test_os_problemas_dizem_onde_falhou_e_nunca_o_valor() -> None:
 
     desfecho = classificar(saida(dados), PAYLOAD, ORCAMENTO)
 
-    assert desfecho.problemas == ("$.totais.baseline: type",)
-    assert "VALOR-SECRETO" not in "".join(desfecho.problemas)
+    assert desfecho.problemas == ({"caminho": "$.totais.baseline", "palavra_chave": "type"},)
+    assert "VALOR-SECRETO" not in json.dumps(desfecho.problemas)
 
 
 def test_o_container_nao_tem_como_conhecer_o_orcamento() -> None:
@@ -303,7 +303,9 @@ def test_o_container_nao_tem_como_conhecer_o_orcamento() -> None:
     desfecho = classificar(saida(dados), PAYLOAD, ORCAMENTO)
 
     assert (desfecho.classe, desfecho.motivo) == ("erro_codigo", "resultado_fora_do_schema")
-    assert desfecho.problemas == ("$.totais.orcamento: fornecido_pelo_container",)
+    assert desfecho.problemas == (
+        {"caminho": "$.totais.orcamento", "palavra_chave": "fornecido_pelo_container"},
+    )
 
 
 # ---- erro de infraestrutura e o que não vaza ----

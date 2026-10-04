@@ -17,9 +17,10 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import synapse.api.core.logging.CorrelationContext;
 import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
-import synapse.api.job.ExecutarAcaoService.AcaoAplicada;
+import synapse.api.job.JobService.AcaoAplicada;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -37,7 +38,7 @@ class ExecutarAcaoControllerTests {
 
 	static final UUID JOB_ID = UUID.fromString("33333333-3333-4333-8333-333333333333");
 
-	private final ExecutarAcaoService service = mock(ExecutarAcaoService.class);
+	private final JobService service = mock(JobService.class);
 
 	private final EmissoresSse emissores = mock(EmissoresSse.class);
 
@@ -45,8 +46,9 @@ class ExecutarAcaoControllerTests {
 
 	@BeforeEach
 	void preparar() {
-		this.mvc = MockMvcBuilders.standaloneSetup(new ExecutarAcaoController(this.service, this.emissores))
-			.setControllerAdvice(new ExecutarAcaoAdvice())
+		this.mvc = MockMvcBuilders
+			.standaloneSetup(new JobController(this.service, this.emissores, new CorrelationContext()))
+			.setControllerAdvice(new JobAdvice())
 			.build();
 	}
 
@@ -63,7 +65,7 @@ class ExecutarAcaoControllerTests {
 	@MethodSource("acoesEStatusDestino")
 	void aplicaAcaoEEncerraOStream(String acao, JobStatus origem, JobStatus destino) throws Exception {
 		EventoEstadoDto evento = EventoEstadoDto.transicao(JOB_ID, origem, destino, null);
-		when(this.service.aplicar(eq(JOB_ID), eq(AcaoJob.deColuna(acao))))
+		when(this.service.executarAcao(eq(JOB_ID), eq(AcaoJob.deColuna(acao))))
 			.thenReturn(new AcaoAplicada(evento, jobComStatus(destino.paraColuna())));
 
 		this.mvc
@@ -92,7 +94,7 @@ class ExecutarAcaoControllerTests {
 	@ParameterizedTest
 	@ValueSource(strings = { "confirmar_liberar", "salvar" })
 	void recusaLiberacaoDeJobInviavelCom409Especifico(String acao) throws Exception {
-		when(this.service.aplicar(eq(JOB_ID), eq(AcaoJob.deColuna(acao))))
+		when(this.service.executarAcao(eq(JOB_ID), eq(AcaoJob.deColuna(acao))))
 			.thenThrow(ExecutarAcaoException.simulacaoInviavel());
 
 		this.mvc
@@ -107,7 +109,7 @@ class ExecutarAcaoControllerTests {
 
 	@Test
 	void recusaAcaoForaDoEstadoCom409NomeandoOEstadoExigido() throws Exception {
-		when(this.service.aplicar(eq(JOB_ID), eq(AcaoJob.CANCELAR)))
+		when(this.service.executarAcao(eq(JOB_ID), eq(AcaoJob.CANCELAR)))
 			.thenThrow(ExecutarAcaoException.estadoInvalido(AcaoJob.CANCELAR, JobStatus.LIBERADO));
 
 		this.mvc
@@ -124,7 +126,7 @@ class ExecutarAcaoControllerTests {
 
 	@Test
 	void jobInexistenteResponde404() throws Exception {
-		when(this.service.aplicar(eq(JOB_ID), any())).thenThrow(new JobNaoEncontradoException(JOB_ID));
+		when(this.service.executarAcao(eq(JOB_ID), any())).thenThrow(new JobNaoEncontradoException(JOB_ID));
 
 		this.mvc
 			.perform(post("/jobs/{id}/actions", JOB_ID).contentType(MediaType.APPLICATION_JSON)
@@ -148,7 +150,8 @@ class ExecutarAcaoControllerTests {
 
 	@Test
 	void naoExpoeErroDoJdbc() throws Exception {
-		when(this.service.aplicar(eq(JOB_ID), any())).thenThrow(new DataIntegrityViolationException("stack trace"));
+		when(this.service.executarAcao(eq(JOB_ID), any()))
+			.thenThrow(new DataIntegrityViolationException("stack trace"));
 
 		this.mvc
 			.perform(post("/jobs/{id}/actions", JOB_ID).contentType(MediaType.APPLICATION_JSON)

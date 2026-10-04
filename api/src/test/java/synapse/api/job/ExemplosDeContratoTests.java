@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -13,6 +14,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -147,6 +149,22 @@ class ExemplosDeContratoTests {
 		assertThat(evento.veredito()).isEqualTo("inviavel");
 
 		ContratoDeEvento.validar("simulacao-concluida", Files.readString(exemplo("events/simulacao-concluida.json")));
+	}
+
+	/**
+	 * Ida e volta pelo mesmo {@code JsonMapper} padrão que o outbox usa: o instante sai
+	 * como texto ISO-8601, que é o que o schema exige, e não como número.
+	 */
+	@Test
+	void desserializaEReserializaOEventoDeJobEncerrado() throws IOException {
+		JobEncerradoDto evento = desserializar("events/job-encerrado.json", JobEncerradoDto.class);
+
+		assertThat(evento.evento_id()).isEqualTo(UUID.fromString("0199a8c4-2f6e-7b10-9a3d-5c1e7f2b8d40"));
+		assertThat(evento.status()).isEqualTo("liberado");
+		assertThat(evento.encerrado_em()).isEqualTo(Instant.parse("2025-11-28T15:02:44.318204Z"));
+
+		ContratoDeEvento.validar("job-encerrado", Files.readString(exemplo("events/job-encerrado.json")));
+		ContratoDeEvento.validar("job-encerrado", new JsonMapper().writeValueAsString(evento));
 	}
 
 	private <T> T desserializar(String caminhoRelativo, Class<T> tipo) throws IOException {

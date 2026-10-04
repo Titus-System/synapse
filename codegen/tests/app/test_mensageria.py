@@ -18,6 +18,7 @@ from app.config import Settings
 from app.contratos.mensagens import (
     EtapaAlterada,
     ExecutarCodigo,
+    JobEncerrado,
     ModeloContrato,
     NoConcluido,
     ParametrosConfirmados,
@@ -37,6 +38,7 @@ from app.mensageria.producers import Producers, ProdutorError
 from app.mensageria.roteamento import (
     Entrada,
     JobDesconhecidoError,
+    JobEncerradoError,
     RetomadaIndisponivelError,
 )
 from app.repositorio.regras import RegraInvalidaError
@@ -67,6 +69,7 @@ ENTRADAS = (
     (RegraSubmetida, "regra-submetida"),
     (ParametrosConfirmados, "parametros-confirmados"),
     (SimulacaoConcluida, "simulacao-concluida"),
+    (JobEncerrado, "job-encerrado"),
 )
 SAIDAS = (
     (ExecutarCodigo, "executar-codigo", "executar_codigo"),
@@ -313,6 +316,54 @@ async def test_job_desconhecido_rejeitado_e_consumer_continua(
 
 
 @pytest.mark.parametrize(
+    ("modelo", "nome"),
+    [(RegraSubmetida, "regra-submetida"), (SimulacaoConcluida, "simulacao-concluida")],
+)
+async def test_mensagem_de_job_encerrado_e_confirmada_sem_processar(
+    monkeypatch: pytest.MonkeyPatch, modelo: type[Entrada], nome: str
+) -> None:
+    """Confirmar é o que tira da fila a mensagem antiga sem recomeçar nada do job."""
+    log = MagicMock()
+    monkeypatch.setattr("app.mensageria.consumers.logger", log)
+    roteador = MagicMock(entregar=AsyncMock(side_effect=JobEncerradoError("segredo")))
+    mensagem = AsyncMock(body=simplejson.dumps(exemplo(nome)).encode())
+
+    await Consumer(modelo, nome, roteador).receber(mensagem)
+
+    mensagem.ack.assert_awaited_once_with()
+    mensagem.nack.assert_not_awaited()
+    mensagem.reject.assert_not_awaited()
+    assert log.info.call_args.args == ("mensagem de job encerrado descartada",)
+    assert log.info.call_args.kwargs["extra"] == {
+        "tipo_mensagem": nome,
+        "causa": "job_encerrado",
+        "decisao": "ack_sem_processar",
+    }
+    assert "segredo" not in str(log.mock_calls)
+
+
+async def test_encerramento_de_job_inexistente_e_rejeitado_sem_requeue() -> None:
+    roteador = MagicMock(entregar=AsyncMock(side_effect=JobDesconhecidoError("job")))
+    mensagem = AsyncMock(body=simplejson.dumps(exemplo("job-encerrado")).encode())
+
+    await Consumer(JobEncerrado, "job-encerrado", roteador).receber(mensagem)
+
+    mensagem.reject.assert_awaited_once_with(requeue=False)
+    mensagem.ack.assert_not_awaited()
+
+
+async def test_falha_ao_registrar_o_encerramento_reentrega_a_mensagem() -> None:
+    """Sem o registro, o fato ainda não está durável: a reentrega é o que o salva."""
+    roteador = MagicMock(entregar=AsyncMock(side_effect=ConnectionError("banco fora")))
+    mensagem = AsyncMock(body=simplejson.dumps(exemplo("job-encerrado")).encode())
+
+    await Consumer(JobEncerrado, "job-encerrado", roteador).receber(mensagem)
+
+    mensagem.nack.assert_awaited_once_with(requeue=True)
+    mensagem.ack.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
     ("falha", "etapa"),
     [
         (RegraInvalidaError, "geracao_codigo"),
@@ -453,18 +504,27 @@ async def test_lifespan_liga_sessoes_e_producers_num_graph_router_real(
     engine = MagicMock(dispose=AsyncMock())
     sessoes = MagicMock()
     checkpointer = AsyncMock()
-    broker = MagicMock(iniciar_consumers=AsyncMock(), fechar=AsyncMock())
+    ordem: list[str] = []
+    broker = MagicMock(
+        iniciar_consumers=AsyncMock(side_effect=lambda _: ordem.append("consumers")),
+        fechar=AsyncMock(),
+    )
+    limpeza = MagicMock(retomar_pendentes=AsyncMock(side_effect=lambda: ordem.append("retomada")))
     monkeypatch.setattr("app.main.criar_engine", MagicMock(return_value=engine))
     monkeypatch.setattr("app.main.criar_sessionmaker", MagicMock(return_value=sessoes))
     monkeypatch.setattr("app.main.get_checkpointer", _checkpointer_fixo(checkpointer))
     monkeypatch.setattr("app.main.conectar", AsyncMock(return_value=broker))
     monkeypatch.setattr("app.main.stop_logger", MagicMock())
+    monkeypatch.setattr("app.main.LimpezaDeCheckpoints", MagicMock(return_value=limpeza))
     roteador = GraphRouter()
     aplicacao = criar_aplicacao(roteador)
 
     async with aplicacao.router.lifespan_context(aplicacao):
         assert roteador.sessoes is sessoes
         assert roteador.producers is broker.producers
+        assert roteador.limpeza is limpeza
+    # Uma limpeza que caiu no meio termina antes de qualquer mensagem nova ser consumida.
+    assert ordem == ["retomada", "consumers"]
 
 
 async def test_producer_revalida_restricao_schema_depois_de_mutacao() -> None:
@@ -492,7 +552,7 @@ async def test_broker_usa_confirms_prefetch_e_consumers_com_ack_manual(
 
     conexao.channel.assert_awaited_once_with(publisher_confirms=True, on_return_raises=True)
     canal.set_qos.assert_awaited_once_with(prefetch_count=1)
-    assert len(broker.consumidores) == 2
+    assert len(broker.consumidores) == 3
     for fila, _, _ in broker.consumidores:
         assert fila.consume.call_args.kwargs == {"no_ack": False}
     await broker.fechar()
@@ -515,9 +575,10 @@ async def test_broker_consome_regra_submetida_e_o_resultado_do_worker(
     await broker.iniciar_consumers(MagicMock())
 
     consumidos = {consumer.nome: fila for fila, _, consumer in broker.consumidores}
-    assert set(consumidos) == {"regra-submetida", "simulacao-concluida"}
+    assert set(consumidos) == {"regra-submetida", "simulacao-concluida", "job-encerrado"}
     assert consumidos["regra-submetida"] is broker.filas["regra-submetida"]
     assert consumidos["simulacao-concluida"] is broker.filas[FILA_SIMULACAO]
+    assert consumidos["job-encerrado"] is broker.filas["job-encerrado"]
     assert "parametros-confirmados" not in consumidos
 
 

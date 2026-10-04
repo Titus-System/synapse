@@ -39,9 +39,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import synapse.api.core.logging.CorrelationContext;
+import synapse.api.core.outbox.Outbox;
 import synapse.api.core.security.AcessoDoUsuario;
 import synapse.api.core.security.PapelDoUsuario;
 import synapse.api.core.security.UsuarioAtual;
+import synapse.api.core.sse.EmissoresSse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -71,13 +73,11 @@ class BuscarJobPersistenciaTests {
 
 	private static JdbcTemplate dono;
 
-	private static BuscarJobService service;
+	private static JobService service;
 
 	private static MaquinaDeEstadosDoJob maquina;
 
-	private static EtapaAlteradaService etapas;
-
-	private static SimulacaoConcluidaService conclusao;
+	private static JobEventosService eventos;
 
 	private static MockMvc mvc;
 
@@ -113,17 +113,19 @@ class BuscarJobPersistenciaTests {
 		contexto = new AnnotationConfigApplicationContext();
 		contexto.registerBean(DataSource.class, () -> dataSource);
 		contexto.registerBean(JdbcTemplate.class, () -> jdbc);
+		contexto.registerBean(EmissoresSse.class, () -> mock(EmissoresSse.class));
 		contexto.register(Config.class);
 		contexto.refresh();
-		service = contexto.getBean(BuscarJobService.class);
+		service = contexto.getBean(JobService.class);
 		maquina = contexto.getBean(MaquinaDeEstadosDoJob.class);
-		etapas = contexto.getBean(EtapaAlteradaService.class);
-		conclusao = contexto.getBean(SimulacaoConcluidaService.class);
+		eventos = contexto.getBean(JobEventosService.class);
 		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
 		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
-		mvc = MockMvcBuilders.standaloneSetup(new BuscarJobController(service))
-			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual, new AutorizadorDeJob(jdbc)))
-			.setControllerAdvice(new BuscarJobAdvice(), new AutorizacaoDeJobAdvice())
+		mvc = MockMvcBuilders
+			.standaloneSetup(new JobController(service, mock(EmissoresSse.class), new CorrelationContext()))
+			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual,
+					new AutorizadorDeJob(contexto.getBean(JobRepository.class))))
+			.setControllerAdvice(new JobAdvice(), new AutorizacaoDeJobAdvice())
 			.build();
 	}
 
@@ -143,8 +145,8 @@ class BuscarJobPersistenciaTests {
 	}
 
 	@TestConfiguration(proxyBeanMethods = false)
-	@Import({ BuscarJobService.class, AutorizadorDeJob.class, CorrelationContext.class, MaquinaDeEstadosDoJob.class,
-			EtapaAlteradaService.class, SimulacaoConcluidaService.class })
+	@Import({ JobRepository.class, JobService.class, AutorizadorDeJob.class, CorrelationContext.class,
+			MaquinaDeEstadosDoJob.class, JobEventosService.class, Outbox.class, VersoesDaRegra.class })
 	static class Config {
 
 	}
@@ -185,7 +187,7 @@ class BuscarJobPersistenciaTests {
 		UUID jobId = criarJobEmProcessamento();
 		UUID regra = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
 		criarExecucaoPendente(jobId, regra);
-		etapas.aplicar(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
 
 		JsonNode resposta = consultar(jobId);
 
@@ -202,9 +204,9 @@ class BuscarJobPersistenciaTests {
 		UUID jobId = criarJobEmProcessamento();
 		UUID regra = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
 		UUID codigo = criarExecucaoPendente(jobId, regra);
-		etapas.aplicar(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
 		UUID resultado = criarResultado(jobId, codigo, "sucesso", "viavel", true);
-		conclusao.aplicar(jobId, resultado, DesfechoDaSimulacao.VIAVEL);
+		eventos.concluirSimulacao(jobId, resultado, DesfechoDaSimulacao.VIAVEL);
 
 		JsonNode resposta = consultar(jobId);
 
@@ -226,12 +228,12 @@ class BuscarJobPersistenciaTests {
 		UUID jobId = criarJobEmProcessamento();
 		UUID regra = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
 		UUID codigo = criarExecucaoPendente(jobId, regra);
-		etapas.aplicar(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
 		String statusDoResultado = Objects.requireNonNull(desfecho.motivoDaTrilha());
 		// O sandbox não devia deixar número nem veredito num status de falha; se
 		// deixasse, a consulta não pode repassá-los.
 		UUID resultado = criarResultado(jobId, codigo, statusDoResultado, "viavel", true);
-		conclusao.aplicar(jobId, resultado, desfecho);
+		eventos.concluirSimulacao(jobId, resultado, desfecho);
 
 		JsonNode resposta = consultar(jobId);
 
@@ -247,7 +249,7 @@ class BuscarJobPersistenciaTests {
 		// A reentrega do mesmo desfecho é recusada e não mexe nos timestamps.
 		String iniciadoEm = resposta.path("iniciado_em").asString();
 		String finalizadoEm = resposta.path("finalizado_em").asString();
-		assertThatThrownBy(() -> conclusao.aplicar(jobId, resultado, desfecho))
+		assertThatThrownBy(() -> eventos.concluirSimulacao(jobId, resultado, desfecho))
 			.isInstanceOf(TransicaoDeStatusInvalidaException.class);
 		JsonNode depois = consultar(jobId);
 		assertThat(depois.path("iniciado_em").asString()).isEqualTo(iniciadoEm);
@@ -260,9 +262,9 @@ class BuscarJobPersistenciaTests {
 		UUID jobId = criarJobEmProcessamento();
 		UUID regra = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
 		UUID codigo = criarExecucaoPendente(jobId, regra);
-		etapas.aplicar(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
 		UUID resultado = criarResultado(jobId, codigo, "sucesso", "inviavel", true);
-		conclusao.aplicar(jobId, resultado, DesfechoDaSimulacao.INVIAVEL);
+		eventos.concluirSimulacao(jobId, resultado, DesfechoDaSimulacao.INVIAVEL);
 
 		JsonNode resposta = consultar(jobId);
 
@@ -278,7 +280,7 @@ class BuscarJobPersistenciaTests {
 	void falhaAnteriorASimulacaoTemMotivoConsultavel(EtapaDoGrafo etapa) throws Exception {
 		UUID jobId = criarJobEmProcessamento();
 		criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
-		EventoEstadoDto evento = Objects.requireNonNull(etapas.aplicar(jobId, etapa, "erro"));
+		EventoEstadoDto evento = Objects.requireNonNull(eventos.aplicarEtapaAlterada(jobId, etapa, "erro"));
 
 		JsonNode resposta = consultar(jobId);
 
@@ -295,8 +297,8 @@ class BuscarJobPersistenciaTests {
 		UUID jobId = criarJobEmProcessamento();
 		UUID regraV1 = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
 		UUID codigoV1 = criarExecucaoPendente(jobId, regraV1);
-		etapas.aplicar(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
-		conclusao.aplicar(jobId, criarResultado(jobId, codigoV1, "sucesso", "inviavel", true),
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		eventos.concluirSimulacao(jobId, criarResultado(jobId, codigoV1, "sucesso", "inviavel", true),
 				DesfechoDaSimulacao.INVIAVEL);
 		JsonNode parado = consultar(jobId);
 		assertThat(parado.path("motivo").asString()).isEqualTo(DesfechoDaSimulacao.INVIAVEL.razaoLocalizada());
@@ -309,12 +311,12 @@ class BuscarJobPersistenciaTests {
 
 		UUID regraV2 = criarRegra(jobId, 2, "0.0199", "hash-v2", "2026-01-01T10:05:00Z");
 		UUID codigoV2 = criarExecucaoPendente(jobId, regraV2);
-		etapas.aplicar(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
 		JsonNode simulando = consultar(jobId);
 		assertThat(simulando.path("status").asString()).isEqualTo("simulando");
 		assertThat(simulando.propertyNames()).doesNotContain("motivo");
 
-		conclusao.aplicar(jobId, criarResultado(jobId, codigoV2, "sucesso", "viavel", true),
+		eventos.concluirSimulacao(jobId, criarResultado(jobId, codigoV2, "sucesso", "viavel", true),
 				DesfechoDaSimulacao.VIAVEL);
 		JsonNode decidindo = consultar(jobId);
 		assertThat(decidindo.path("status").asString()).isEqualTo("aguardando_decisao_usuario");
@@ -329,8 +331,8 @@ class BuscarJobPersistenciaTests {
 		UUID jobId = criarJobEmProcessamento();
 		UUID regra = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
 		UUID codigo = criarExecucaoPendente(jobId, regra);
-		etapas.aplicar(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
-		conclusao.aplicar(jobId, criarResultado(jobId, codigo, "sucesso", "inviavel", true),
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		eventos.concluirSimulacao(jobId, criarResultado(jobId, codigo, "sucesso", "inviavel", true),
 				DesfechoDaSimulacao.INVIAVEL);
 		maquina.transicionar(jobId, JobStatus.ARQUIVADO, "usuario", null);
 
@@ -346,7 +348,7 @@ class BuscarJobPersistenciaTests {
 		criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
 		maquina.transicionar(jobId, JobStatus.ERRO, "evento", "causa_que_a_api_nao_conhece");
 
-		try (CapturaDeLog captura = new CapturaDeLog(BuscarJobService.class)) {
+		try (CapturaDeLog captura = new CapturaDeLog("synapse.api.job.BuscarJobService")) {
 			JsonNode resposta = consultar(jobId);
 
 			assertThat(resposta.path("status").asString()).isEqualTo("erro");
@@ -356,6 +358,7 @@ class BuscarJobPersistenciaTests {
 			ContratoDeEvento.validarLog(linha);
 			JsonNode log = JSON.readTree(linha);
 			assertThat(log.path("level").asString()).isEqualTo("WARN");
+			assertThat(log.path("logger").asString()).isEqualTo("synapse.api.job.BuscarJobService");
 			assertThat(log.path("service.name").asString()).isEqualTo("synapse-api");
 			assertThat(log.path("job_id").asString()).isEqualTo(jobId.toString());
 			assertThat(log.path("extra").path("status").asString()).isEqualTo("erro");
@@ -368,9 +371,9 @@ class BuscarJobPersistenciaTests {
 	void jobParadoComMotivoReconhecidoNaoLogaNada() throws Exception {
 		UUID jobId = criarJobEmProcessamento();
 		criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
-		etapas.aplicar(jobId, EtapaDoGrafo.GERACAO_CODIGO, "erro");
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.GERACAO_CODIGO, "erro");
 
-		try (CapturaDeLog captura = new CapturaDeLog(BuscarJobService.class)) {
+		try (CapturaDeLog captura = new CapturaDeLog("synapse.api.job.BuscarJobService")) {
 			consultar(jobId);
 
 			assertThat(captura.eventos()).isEmpty();
@@ -417,7 +420,7 @@ class BuscarJobPersistenciaTests {
 				""", UUID.class, jobId, versao, nucleo, hash, criadaEm));
 	}
 
-	/** Como {@code CriarJobService}: a linha do job e depois a transição inicial. */
+	/** Como {@code JobService}: a linha do job e depois a transição inicial. */
 	private static UUID criarJobEmProcessamento() {
 		UUID submissaoId = Objects.requireNonNull(jdbc.queryForObject("""
 				INSERT INTO submissoes (usuario_id, tipo, conteudo, criado_em)

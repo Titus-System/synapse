@@ -171,7 +171,11 @@ def test_o_resultado_julgado_valida_inteiro_contra_o_schema_sem_acrescimo() -> N
         DesfechoClassificado("erro_codigo", "excecao", erro=FALHA),
         DesfechoClassificado("erro_codigo", "timeout"),
         DesfechoClassificado("erro_codigo", "envelope_invalido"),
-        DesfechoClassificado("erro_codigo", "resultado_fora_do_schema", problemas=("$.x: type",)),
+        DesfechoClassificado(
+            "erro_codigo",
+            "resultado_fora_do_schema",
+            problemas=({"caminho": "$.x", "palavra_chave": "type"},),
+        ),
         classificar_falha_de_infra(),
     ],
     ids=["assercao_violada", "excecao", "timeout", "envelope", "schema", "erro_infra"],

@@ -33,4 +33,4 @@ O fluxo completo e sua apresentação estão em [`docs/SUGESTAO-ADAPTACAO.md`](.
 
 O loop de correções por texto ou voz ainda precisa ser integrado. A pausa por inconsistência será condicional; uma regra processável seguirá automaticamente para geração. `parametros-confirmados` tem publicador na API, mas ainda não tem consumo no codegen.
 
-A limpeza de checkpoints também não está implementada. O descarte após encerramento precisa conservar a deduplicação dos ciclos e não pode eliminar a possibilidade de retomar uma rodada pendente. Ver [Fluxo e decisões da Sprint 2](../../docs/FLUXO-SPRINT-2.md).
+Os checkpoints de um job são removidos depois do `job-encerrado` da `api`, e o registro `jobs_grafo_encerrados` assume a deduplicação: depois da limpeza, uma reentrega de submissão ou de resultado é confirmada sem efeito. Um ciclo pausado à espera do resultado não é removido antes de o resultado ser processado. Ver [mensageria](mensageria.md#encerramento-do-job-e-limpeza-dos-checkpoints) e a [DEC-095](../../docs/decisoes/dec-095.md).

@@ -18,9 +18,11 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import synapse.api.core.logging.CorrelationContext;
 import synapse.api.core.security.AcessoDoUsuario;
 import synapse.api.core.security.PapelDoUsuario;
 import synapse.api.core.security.UsuarioAtual;
+import synapse.api.core.sse.EmissoresSse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -41,7 +43,7 @@ class CriarJobControllerTests {
 			 "loja":["13"],"marca":["10","20"],"cargo":["100","300"],"percentual":0.025},"texto_livre":null}}
 			""";
 
-	private final CriarJobService service = mock(CriarJobService.class);
+	private final JobService service = mock(JobService.class);
 
 	private final UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
 
@@ -50,10 +52,11 @@ class CriarJobControllerTests {
 	@BeforeEach
 	void preparar() {
 		when(this.usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
-		this.mvc = MockMvcBuilders.standaloneSetup(new CriarJobController(this.service))
-			.addInterceptors(new AutorizacaoJobsInterceptor(this.usuarioAtual,
-					new AutorizadorDeJob(mock(org.springframework.jdbc.core.JdbcTemplate.class))))
-			.setControllerAdvice(new CriarJobAdvice())
+		this.mvc = MockMvcBuilders
+			.standaloneSetup(new JobController(this.service, mock(EmissoresSse.class), new CorrelationContext()))
+			.addInterceptors(
+					new AutorizacaoJobsInterceptor(this.usuarioAtual, new AutorizadorDeJob(mock(JobRepository.class))))
+			.setControllerAdvice(new JobAdvice())
 			.build();
 	}
 

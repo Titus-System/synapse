@@ -4,7 +4,7 @@ from aio_pika import ExchangeType, connect_robust
 from aio_pika.abc import AbstractChannel, AbstractQueue, AbstractRobustConnection
 
 from app.config import Settings
-from app.contratos.mensagens import RegraSubmetida, SimulacaoConcluida
+from app.contratos.mensagens import JobEncerrado, RegraSubmetida, SimulacaoConcluida
 from app.core.logger import get_logger
 from app.mensageria.consumers import Consumer
 from app.mensageria.producers import Producers
@@ -18,6 +18,7 @@ FILAS_SIMPLES = (
     "etapa-alterada",
     "no-concluido",
     "sugestao-adaptacao-proposta",
+    "job-encerrado",
 )
 EXCHANGE_SIMULACAO = "simulacao-concluida"
 FILA_SIMULACAO = "simulacao-concluida.codegen"
@@ -50,6 +51,7 @@ class ConexaoBroker:
         entradas = (
             (RegraSubmetida, "regra-submetida", "regra-submetida"),
             (SimulacaoConcluida, "simulacao-concluida", FILA_SIMULACAO),
+            (JobEncerrado, "job-encerrado", "job-encerrado"),
         )
         for modelo, contrato, nome_da_fila in entradas:
             consumer = Consumer(modelo, contrato, roteador)

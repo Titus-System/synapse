@@ -16,6 +16,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import synapse.api.core.logging.CorrelationContext;
+import synapse.api.core.sse.EmissoresSse;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -36,14 +39,15 @@ class ReprocessarJobControllerTests {
 
 	private static final UUID NOVO = UUID.randomUUID();
 
-	private final ReprocessarJobService service = mock(ReprocessarJobService.class);
+	private final JobService service = mock(JobService.class);
 
 	private MockMvc mvc;
 
 	@BeforeEach
 	void preparar() {
-		this.mvc = MockMvcBuilders.standaloneSetup(new ReprocessarJobController(this.service))
-			.setControllerAdvice(new ReprocessarJobAdvice())
+		this.mvc = MockMvcBuilders
+			.standaloneSetup(new JobController(this.service, mock(EmissoresSse.class), new CorrelationContext()))
+			.setControllerAdvice(new JobAdvice())
 			.build();
 	}
 

@@ -19,12 +19,12 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
-import org.jspecify.annotations.Nullable;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.BindMode;
 import org.testcontainers.containers.GenericContainer;
@@ -75,7 +75,7 @@ class JobComErroFimAFimTests {
 
 	/**
 	 * Trechos das razões localizadas que a api põe no campo {@code motivo} do evento
-	 * {@code estado} ({@code EtapaAlteradaService} e {@code DesfechoDaSimulacao}). Sem
+	 * {@code estado} ({@code JobEventosService} e {@code DesfechoDaSimulacao}). Sem
 	 * acento de propósito: servem de marcador de busca no stream, e o marcador não deve
 	 * depender de como o serializador trata caracteres fora do ASCII.
 	 */

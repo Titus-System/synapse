@@ -61,13 +61,13 @@ própria; cada um se apoia no que já tem:
   ordem já o encontram adiante. `transicionar` (usado por `simulacao-concluida` para o
   desfecho final, que não tolera fora de ordem) lança `TransicaoDeStatusInvalidaException`
   no mesmo caso, e a transação inteira desfaz. A sugestão reabre o ciclo de geração;
-  por isso `SimulacaoConcluidaService` também verifica, sob trava do job, que o resultado
+  por isso `JobEventosService` também verifica, sob trava do job, que o resultado
   pertence à versão corrente. O status sozinho não deduplica ciclos distintos.
 - **Por procedência e tentativa única** — `sugestao-adaptacao-proposta` confere resultado,
   versão original e ausência de outra sugestão sob a mesma trava. A reentrega tardia não
   cria uma terceira versão mesmo quando a alternativa também termina inviável.
 - **Idempotência de escrita** (`INSERT ... ON CONFLICT DO NOTHING`) para o que não é
-  transição de estado - `NoConcluidoService` grava `simulacoes` assim, porque a mesma linha
+  transição de estado - `JobEventosService` grava `simulacoes` assim, porque a mesma linha
   pode ser tentada de novo por uma redelivery do próprio `no-concluido` ou pela ordem
   trocada com `simulacao-concluida`.
 
@@ -86,7 +86,7 @@ consumidor nunca lançar (acima).
 ## Referências
 
 - Configuração do container: [`RabbitListenerConfig`](../../../src/main/java/synapse/api/core/messaging/RabbitListenerConfig.java)
-- Primeiro consumidor: [`EtapaAlteradaConsumidor`](../../../src/main/java/synapse/api/job/EtapaAlteradaConsumidor.java)
-- Deduplicação por `evento_id`: [`NoConcluidoConsumidor`](../../../src/main/java/synapse/api/job/NoConcluidoConsumidor.java)
+- Primeiro consumidor: [`EtapaAlteradaConsumidor`](../../../src/main/java/synapse/api/job/ConsumidoresJob.java)
+- Deduplicação por `evento_id`: [`NoConcluidoConsumidor`](../../../src/main/java/synapse/api/job/ConsumidoresJob.java)
 - Publicação: [`outbox`](../outbox/SKILL.md)
 - Catálogo de mensagens: `docs/ARCHITECTURE.md` §6.3

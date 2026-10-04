@@ -10,13 +10,12 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
-import org.jspecify.annotations.Nullable;
-
 import liquibase.Contexts;
 import liquibase.Liquibase;
 import liquibase.database.DatabaseFactory;
 import liquibase.database.jvm.JdbcConnection;
 import liquibase.resource.ClassLoaderResourceAccessor;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,18 +37,25 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
+import synapse.api.core.logging.CorrelationContext;
+import synapse.api.core.outbox.Outbox;
 import synapse.api.core.security.AcessoDoUsuario;
 import synapse.api.core.security.PapelDoUsuario;
 import synapse.api.core.security.UsuarioAtual;
+import synapse.api.core.sse.EmissoresSse;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 /**
- * Sobe um Postgres real e executa {@link ListarJobsService} como {@code synapse_api}, o
- * que também prova os GRANTs concedidos nas migrations de {@code jobs}, {@code
+ * Sobe um Postgres real e executa {@link JobService} como {@code synapse_api}, o que
+ * também prova os GRANTs concedidos nas migrations de {@code jobs}, {@code
  * simulacoes} e {@code resultados_simulacao} - nenhum é novo desta tarefa.
  */
 @EnabledIf("dockerIsAvailable")
@@ -67,7 +73,7 @@ class ListarJobsPersistenciaTests {
 
 	private static JdbcTemplate dono;
 
-	private static ListarJobsService service;
+	private static JobService service;
 
 	private static MockMvc mvc;
 
@@ -101,14 +107,18 @@ class ListarJobsPersistenciaTests {
 		contexto.registerBean(DataSource.class, () -> dataSource);
 		contexto.registerBean(JdbcTemplate.class, () -> jdbc);
 		contexto.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
+		contexto.registerBean(JobRepository.class, () -> spy(new JobRepository(jdbc)));
+		contexto.registerBean(EmissoresSse.class, () -> mock(EmissoresSse.class));
 		contexto.register(Config.class);
 		contexto.refresh();
-		service = contexto.getBean(ListarJobsService.class);
+		service = contexto.getBean(JobService.class);
 		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
 		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
-		mvc = MockMvcBuilders.standaloneSetup(new ListarJobsController(service))
-			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual, new AutorizadorDeJob(jdbc)))
-			.setControllerAdvice(contexto.getBean(ListarJobsAdvice.class))
+		mvc = MockMvcBuilders
+			.standaloneSetup(new JobController(service, mock(EmissoresSse.class), new CorrelationContext()))
+			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual,
+					new AutorizadorDeJob(contexto.getBean(JobRepository.class))))
+			.setControllerAdvice(contexto.getBean(JobAdvice.class))
 			.build();
 	}
 
@@ -129,7 +139,8 @@ class ListarJobsPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ ListarJobsService.class, ListarJobsAdvice.class })
+	@Import({ JobService.class, JobAdvice.class, MaquinaDeEstadosDoJob.class, Outbox.class, VersoesDaRegra.class,
+			CorrelationContext.class })
 	static class Config {
 
 	}
@@ -297,6 +308,35 @@ class ListarJobsPersistenciaTests {
 		assertThat(no.propertyNames()).containsExactlyInAnyOrder("id", "status", "competencias", "orcamento",
 				"veredito", "criado_em");
 		assertThat(no.path("veredito").asString()).isEqualTo("inviavel");
+	}
+
+	@Test
+	void contagemEPaginaUsamOMesmoSnapshotMesmoComCriacaoConcorrente() {
+		UUID existente = criarJob("2026-01-01T10:00:00Z");
+		JobRepository repository = contexto.getBean(JobRepository.class);
+		reset(repository);
+		doAnswer(chamada -> {
+			assertThat(jdbc.queryForObject("SHOW transaction_isolation", String.class)).isEqualTo("repeatable read");
+			assertThat(jdbc.queryForObject("SHOW transaction_read_only", String.class)).isEqualTo("on");
+			Object total = chamada.callRealMethod();
+			dono.update("""
+					INSERT INTO jobs (status, usuario_id, competencias, orcamento, criado_em)
+					VALUES ('gerando_regra', ?, ARRAY['2025-11'], 485000, now())
+					""", USUARIO);
+			return total;
+		}).when(repository).contarJobs(USUARIO);
+		try {
+			PaginaJobsDto pagina = service.listar(new ListarJobsRequisicao(0, 20),
+					new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
+			assertThat(pagina.total()).isEqualTo(1);
+			assertThat(pagina.itens()).extracting(JobResumoDto::id).containsExactly(existente);
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM jobs WHERE usuario_id = ?", Integer.class, USUARIO))
+				.isEqualTo(2);
+			verify(repository).contarJobs(USUARIO);
+		}
+		finally {
+			reset(repository);
+		}
 	}
 
 	private JobResumoDto itemUnico() {

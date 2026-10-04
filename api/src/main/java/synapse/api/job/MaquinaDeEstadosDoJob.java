@@ -2,13 +2,19 @@ package synapse.api.job;
 
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.util.Objects;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+import synapse.api.core.outbox.EventoOutbox;
+import synapse.api.core.outbox.Outbox;
 
 /**
  * Único ponto do código autorizado a escrever {@code jobs.status}. Toda transição,
@@ -18,6 +24,12 @@ import org.springframework.transaction.annotation.Transactional;
  * {@code jobs.finalizado_em}, ambas com o mesmo instante da transição.
  *
  * <p>
+ * A transição para status terminal também grava {@code job-encerrado} no outbox, na mesma
+ * transação: o evento só existe se a transição foi confirmada, e uma transição desfeita
+ * não deixa evento publicável. Como um status terminal não tem saída, cada job produz
+ * esse evento uma vez só.
+ *
+ * <p>
  * Quem dispara cada transição - eventos consumidos do RabbitMQ ou ações do usuário - é
  * responsabilidade de outras fatias; esta classe só decide se a transição pedida é
  * permitida e a registra.
@@ -25,10 +37,15 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 public class MaquinaDeEstadosDoJob {
 
-	private final JdbcTemplate jdbcTemplate;
+	private static final Logger log = LoggerFactory.getLogger(MaquinaDeEstadosDoJob.class);
 
-	MaquinaDeEstadosDoJob(JdbcTemplate jdbcTemplate) {
-		this.jdbcTemplate = jdbcTemplate;
+	private final JobRepository repository;
+
+	private final Outbox outbox;
+
+	MaquinaDeEstadosDoJob(JobRepository repository, Outbox outbox) {
+		this.repository = repository;
+		this.outbox = outbox;
 	}
 
 	/**
@@ -92,29 +109,59 @@ public class MaquinaDeEstadosDoJob {
 	 * status atual.
 	 */
 	private JobStatus statusAtual(UUID jobId) {
-		String status = Objects.requireNonNull(this.jdbcTemplate
-			.queryForObject("SELECT status FROM jobs WHERE id = ? FOR UPDATE", String.class, jobId));
+		String status = this.repository.buscarStatusComTrava(jobId);
 		return JobStatus.deColuna(status);
 	}
 
 	private void registrarTransicao(UUID jobId, @Nullable JobStatus origem, JobStatus destino, String ator,
 			@Nullable String motivo) {
-		Timestamp agora = Timestamp.from(Instant.now());
+		// Microssegundos são a precisão do timestamptz: o instante gravado e o que vai no
+		// evento de encerramento têm de ser o mesmo, inclusive quando o evento é montado
+		// de
+		// novo a partir do banco.
+		Instant instante = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		Timestamp agora = Timestamp.from(instante);
 		if (destino.terminal()) {
-			this.jdbcTemplate.update("UPDATE jobs SET status = ?, finalizado_em = ? WHERE id = ?", destino.paraColuna(),
-					agora, jobId);
+			this.repository.atualizarStatusFinalizado(jobId, destino.paraColuna(), agora);
 		}
 		else if (destino.emProcessamento()) {
-			this.jdbcTemplate.update("UPDATE jobs SET status = ?, iniciado_em = COALESCE(iniciado_em, ?) WHERE id = ?",
-					destino.paraColuna(), agora, jobId);
+			this.repository.atualizarStatusIniciado(jobId, destino.paraColuna(), agora);
 		}
 		else {
-			this.jdbcTemplate.update("UPDATE jobs SET status = ? WHERE id = ?", destino.paraColuna(), jobId);
+			this.repository.atualizarStatus(jobId, destino.paraColuna());
 		}
-		this.jdbcTemplate.update("""
-				INSERT INTO job_transicoes (job_id, status_anterior, status_novo, ocorrido_em, ator, motivo)
-				VALUES (?, ?, ?, ?, ?, ?)
-				""", jobId, (origem != null) ? origem.paraColuna() : null, destino.paraColuna(), agora, ator, motivo);
+		UUID transicaoId = this.repository.inserirTransicao(jobId, (origem != null) ? origem.paraColuna() : null,
+				destino.paraColuna(), agora, ator, motivo);
+		if (destino.terminal()) {
+			anunciarEncerramento(jobId, transicaoId, destino, instante);
+		}
+	}
+
+	/**
+	 * O id da transição terminal é o {@code evento_id}: estável em toda republicação e no
+	 * registro dos encerramentos anteriores ao evento (changeset 018), que o lê da mesma
+	 * linha.
+	 */
+	private void anunciarEncerramento(UUID jobId, UUID transicaoId, JobStatus destino, Instant instante) {
+		this.outbox.registrar(jobId, EventoOutbox.JOB_ENCERRADO,
+				new JobEncerradoDto(transicaoId, jobId, destino.paraColuna(), instante));
+		Runnable registrar = () -> log.atInfo()
+			.addKeyValue("evento_id", transicaoId)
+			.addKeyValue("status", destino.paraColuna())
+			.log("encerramento do job registrado no outbox");
+		// Só depois do commit: uma transação desfeita não pode aparecer no log como
+		// encerrada.
+		if (TransactionSynchronizationManager.isSynchronizationActive()) {
+			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+				@Override
+				public void afterCommit() {
+					registrar.run();
+				}
+			});
+		}
+		else {
+			registrar.run();
+		}
 	}
 
 }

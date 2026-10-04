@@ -31,6 +31,7 @@ Os exemplos válidos estão em [`contracts/examples/domain/`](../examples/domain
 | [resultado-totais.schema.json](resultado-totais.schema.json) | `resultados_simulacao.totais` |
 | [resultado-assercoes.schema.json](resultado-assercoes.schema.json) | `resultados_simulacao.assercoes` |
 | [resultado-decomposicao.schema.json](resultado-decomposicao.schema.json) | `resultados_simulacao.decomposicao` |
+| [resultado-diagnostico.schema.json](resultado-diagnostico.schema.json) | `resultados_simulacao.diagnostico` |
 
 `outbox_events.payload` não está aqui: é corpo de mensagem, e seu lugar é `contracts/events/`.
 
@@ -60,4 +61,4 @@ Os schemas descrevem formatos compartilhados; sua existência não comprova que 
 
 A decomposição atual exige cinco mapas de diferenças: `elemento`, `loja`, `marca`, `cargo` e `competencia`. Não contém matrícula, valores absolutos por dimensão ou dataframes resultantes. A Sprint 2 prevê matrícula e valores absolutos; o cruzamento matrícula × loja × competência e a persistência dos detalhes dependem da granularidade confirmada.
 
-Os conflitos do chatbot, o diagnóstico de falhas e as extensões de resultado são trabalho de contratos separado da documentação. Os schemas atuais permanecem a autoridade até serem evoluídos e validados com seus consumidores. Ver [Fluxo e decisões da Sprint 2](../../docs/FLUXO-SPRINT-2.md).
+Os conflitos do chatbot e as extensões de resultado são trabalho de contratos separado da documentação. Os schemas atuais permanecem a autoridade até serem evoluídos e validados com seus consumidores. Ver [Fluxo e decisões da Sprint 2](../../docs/FLUXO-SPRINT-2.md).

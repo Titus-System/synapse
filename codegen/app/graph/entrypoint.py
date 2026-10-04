@@ -3,13 +3,16 @@ The graph's public interface - the only thing meant to be imported from outside 
 Everything under `app/graph/core/` is internal.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, StateSnapshot
+from psycopg import AsyncConnection
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.logger import get_logger
@@ -36,6 +39,48 @@ class ResumeOutcome(StrEnum):
     NO_CHECKPOINT = "no_checkpoint"
     NOT_PAUSED_YET = "not_paused_yet"
     ALREADY_FINISHED = "already_finished"
+
+
+class SituacaoDoCiclo(StrEnum):
+    """Em que ponto um ciclo do job parou, do ponto de vista de quem quer descartá-lo.
+
+    `AGUARDANDO_RESULTADO` e `RETOMADA_INCOMPLETA` ainda esperam uma mensagem que vai chegar
+    (o resultado do worker, ou a reentrega de um resultado cuja retomada não terminou):
+    descartá-los perderia os efeitos dela. `INTERROMPIDO` parou antes da execução, por uma falha
+    que já encerrou o job, e nenhuma mensagem o retoma.
+    """
+
+    FINALIZADO = "finalizado"
+    AGUARDANDO_RESULTADO = "aguardando_resultado"
+    RETOMADA_INCOMPLETA = "retomada_incompleta"
+    INTERROMPIDO = "interrompido"
+
+
+@dataclass(frozen=True)
+class Ciclo:
+    thread_id: str
+    situacao: SituacaoDoCiclo
+
+    @property
+    def pendente(self) -> bool:
+        return self.situacao in (
+            SituacaoDoCiclo.AGUARDANDO_RESULTADO,
+            SituacaoDoCiclo.RETOMADA_INCOMPLETA,
+        )
+
+
+# As três tabelas que o checkpointer escreve por thread. Um write ou blob pode existir sem
+# checkpoint, e a limpeza não pode deixá-lo para trás. `checkpoint_migrations` nunca entra.
+_THREADS_DO_JOB = """
+    SELECT thread_id FROM checkpoints
+    WHERE thread_id = %(job)s OR thread_id LIKE %(ciclos)s
+    UNION
+    SELECT thread_id FROM checkpoint_writes
+    WHERE thread_id = %(job)s OR thread_id LIKE %(ciclos)s
+    UNION
+    SELECT thread_id FROM checkpoint_blobs
+    WHERE thread_id = %(job)s OR thread_id LIKE %(ciclos)s
+"""
 
 
 def _config(
@@ -146,6 +191,42 @@ async def resume_to_completion(
         async for _ in _consumir(graph, entrada, config):
             pass
         return ResumeOutcome.RESUMED
+
+
+async def ciclos_do_job(job_id: UUID) -> list[Ciclo]:
+    """Os ciclos do job no checkpointer, de todas as versões da regra e do formato legado.
+
+    O legado usa o próprio `job_id` como thread, e os ciclos versionados, `job_id:regra_id`
+    (`app/mensageria/roteamento.py::thread_do_ciclo`); nenhuma thread de outro job casa.
+    """
+    async with get_checkpointer() as checkpointer:
+        # `get_checkpointer` abre uma conexão, nunca um pool (`from_conn_string`).
+        conexao = checkpointer.conn
+        if not isinstance(conexao, AsyncConnection):
+            raise TypeError("o checkpointer deveria ter uma conexão própria")
+        async with conexao.cursor() as cursor:
+            await cursor.execute(_THREADS_DO_JOB, {"job": str(job_id), "ciclos": f"{job_id}:%"})
+            threads = sorted(str(linha["thread_id"]) for linha in await cursor.fetchall())
+        graph = build_graph(checkpointer)
+        return [Ciclo(thread, await _situacao(graph, thread)) for thread in threads]
+
+
+async def _situacao(graph: Grafo, thread_id: str) -> SituacaoDoCiclo:
+    estado = await graph.aget_state({"configurable": {"thread_id": thread_id}})
+    if estado.values and not estado.next:
+        return SituacaoDoCiclo.FINALIZADO
+    if estado.values.get("resultado_id") is not None:
+        return SituacaoDoCiclo.RETOMADA_INCOMPLETA
+    if estado.next == (AWAIT_EXECUTION,):
+        return SituacaoDoCiclo.AGUARDANDO_RESULTADO
+    return SituacaoDoCiclo.INTERROMPIDO
+
+
+async def apagar_ciclos(thread_ids: Iterable[str]) -> None:
+    """Remove checkpoints, blobs e writes de cada thread, pelo método do próprio checkpointer."""
+    async with get_checkpointer() as checkpointer:
+        for thread_id in thread_ids:
+            await checkpointer.adelete_thread(thread_id)
 
 
 async def run_to_completion(
