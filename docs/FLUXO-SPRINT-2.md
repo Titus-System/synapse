@@ -51,7 +51,17 @@ O SSE comunica o estado corrente e as atualizações. O histórico precisa ser c
 
 ### Coordenação entre serviços
 
-A API recebe a correção e anuncia sua referência. O codegen propõe uma representação corrigida; a API persiste a versão e emite a confirmação que permite retomar o grafo. Os contratos estão definidos pela [T-200 A](https://github.com/Titus-System/synapse/issues/185): `correcao-submetida` leva a referência da submissão de correção ao codegen, `correcao-proposta` devolve à API a representação reextraída e `etapa-alterada` ganhou o campo opcional `conflitos`, mostrado pelo chatbot a cada rodada. Produtores e consumidores desses contratos ainda precisam ser implementados.
+A API recebe a correção e anuncia sua referência. O codegen propõe uma representação corrigida; a API persiste a versão e publica `parametros-confirmados`, que abre o ciclo do codegen para essa versão. O ciclo é por versão e não usa pausa de grafo: quando a validação aponta conflitos, o codegen os publica e o ciclo termina, e o estado durável do loop fica na API, no job e nas rodadas. Os contratos estão definidos pela [T-200 A](https://github.com/Titus-System/synapse/issues/185): `correcao-submetida` leva a referência da submissão de correção ao codegen, `correcao-proposta` devolve à API a representação reextraída e `etapa-alterada` ganhou o campo opcional `conflitos`, mostrado pelo chatbot a cada rodada. Produtores e consumidores desses contratos ainda precisam ser implementados.
+
+O restante do contrato do loop está definido pela [T-213](https://github.com/Titus-System/synapse/issues/217):
+
+- `parametros-confirmados` leva as competências e o orçamento do job, que o codegen não alcança em `jobs`, e `correcao-submetida` leva as competências.
+- A pausa para correção é `etapa-alterada` com `etapa = confirmacao` e `status = aguardando_correcao`, que exige `regra_id`, a versão analisada, e `conflitos`. A API leva o job de `gerando_regra` para `aguardando_confirmacao_parametros` e abre uma rodada pendente.
+- A falha da reextração é `etapa-alterada` com `etapa = extracao_parametros` e `status = erro`. Com o job em `aguardando_confirmacao_parametros`, a API não encerra o job: fecha a rodada como `reextracao_falhou` e abre uma rodada pendente nova, encadeada e com os mesmos conflitos.
+- A rodada tem os estados `pendente`, `em_reextracao`, `reextracao_falhou`, `corrigida` e `abandonada`. O formato de `rodadas_correcao.conflitos` é `contracts/domain/conflitos-rodada.schema.json`, o mesmo do evento.
+- O chatbot envia a correção por `POST /submissoes`, com `finalidade = correcao`, e lê o histórico em `GET /jobs/{id}/rodadas`. A versão nascida de uma correção tem origem `correcao`.
+
+Mensagens de `parametros-confirmados` publicadas sem competências não permitem ao codegen abrir o ciclo e são descartadas com registro.
 
 O consumo de `parametros-confirmados` precisa funcionar em qualquer rodada e ser idempotente, evitando duplicação de versões ou de efeitos em reentregas.
 

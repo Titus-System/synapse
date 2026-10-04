@@ -9,12 +9,13 @@ info:
     deste arquivo: `frontend` e `api` são escritos em paralelo contra ele e só se
     encontram na integração.
 
-    Sete operações, todas sobre o recurso `job`, que é a unidade de trabalho do
-    sistema e o que a `api` possui de ponta a ponta. O ciclo é assíncrono: a criação
-    devolve o job em processamento, o acompanhamento é por stream de eventos e o
-    resultado aparece na consulta do job quando existe.
+    Nove operações. Oito são sobre o recurso `job`, que é a unidade de trabalho do
+    sistema e o que a `api` possui de ponta a ponta, e uma recebe as submissões
+    feitas durante o job, como a correção enviada pelo chatbot. O ciclo é
+    assíncrono: a criação devolve o job em processamento, o acompanhamento é por
+    stream de eventos e o resultado aparece na consulta do job quando existe.
 
-    **Fluxo de trabalho padrão:** As sete operações formam um ciclo, não uma lista solta de
+    **Fluxo de trabalho padrão:** As operações formam um ciclo, não uma lista solta de
     endpoints. Da submissão ao fechamento:
 
     * Job é a entidade que envelopa todo o fluxo de trabalho, desde a validação da regra até o resultado da simulação.
@@ -43,6 +44,17 @@ info:
     6. Job fechado aparece em `GET /jobs`, o histórico. `POST /jobs/{id}/reprocessar`
        parte de um job arquivado e cria um job novo, que reabre o ciclo a partir do
        passo 2 com a regra da versão anterior já semeada.
+
+    **Loop de correção.** Quando a validação aponta conflitos na regra, o stream
+    anuncia o evento `etapa` com `status` `aguardando_correcao` e os `conflitos`, e o
+    job vai a `aguardando_confirmacao_parametros`. O chatbot lê o histórico em
+    `GET /jobs/{id}/rodadas` - na conexão inicial e em toda reconexão, porque o stream
+    não guarda histórico - e, havendo rodada `pendente`, envia a correção por
+    `POST /submissoes`. É essa rota que distingue o loop da confirmação do passo 3:
+    no loop, a rodada mais recente está aberta. A reextração e a revalidação da
+    versão corrigida são assíncronas e chegam pelo stream: uma versão ainda com
+    conflitos abre outra rodada, e uma sem conflitos segue para a geração de código
+    e a simulação, como no passo 3.
 
     **A forma da regra e a do resultado não são declaradas aqui.** Elas vêm por
     `$ref` aos schemas de `contracts/domain/`, que são a autoridade sobre o formato
@@ -75,6 +87,8 @@ security:
 tags:
   - name: jobs
     description: Criação, acompanhamento, finalização e reprocessamento de jobs de simulação.
+  - name: submissoes
+    description: Entradas do usuário registradas durante o job, como a correção enviada pelo chatbot.
 
 paths:
   /jobs:
@@ -452,7 +466,7 @@ paths:
         O que o usuário confirma na tela de validação é a representação da regra, e
         nunca código. A `api` grava uma versão nova de regra -
         correção nunca altera a versão anterior - e publica `parametros-confirmados`,
-        que retoma o grafo do codegen no nó de confirmação.
+        que abre o ciclo do codegen para a versão confirmada.
 
         Aceita também `orcamento` e `competencias`, porque a mesma tela permite
         ajustá-los antes de simular, inclusive no reprocessamento de uma regra
@@ -766,6 +780,191 @@ paths:
                     codigo: estado_invalido
                     mensagem: Este job ainda está em processamento e não pode ser reprocessado.
 
+  /jobs/{id}/rodadas:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [jobs]
+      operationId: listarRodadas
+      summary: Lista as rodadas de correção do job.
+      description: |
+        Histórico do loop de correção do job, em ordem de criação: os conflitos que
+        cada rodada mostrou, a correção enviada e a versão da regra que dela
+        resultou. É a fonte do histórico do chatbot.
+
+        **O histórico vem daqui, e não do stream.** O evento `etapa` anuncia os
+        conflitos quando acontecem, mas o stream não guarda o que já passou: depois de
+        uma reconexão, ou ao voltar ao job mais tarde, o cliente reconstrói a conversa
+        por esta rota.
+
+        Existe no máximo uma rodada aberta, e ela é a última da lista: `pendente`
+        aceita uma correção em `POST /submissoes`; `em_reextracao` é a correção em
+        processamento, e a entrada fica bloqueada até o desfecho. Um job cuja regra
+        nunca teve conflito devolve a lista vazia.
+      responses:
+        "200":
+          description: As rodadas do job, da primeira à mais recente.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Rodada"
+              examples:
+                correcaoPendente:
+                  summary: Uma correção aplicada, uma reextração que falhou e a rodada pendente
+                  value:
+                    - id: "5a1c2e3f-4b6d-4e7a-9c8b-0d1e2f3a4b51"
+                      rodada_anterior_id: null
+                      regra_analisada_id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                      conflitos:
+                        - elementos: [nucleo.percentual]
+                          motivo: percentual ausente
+                      correcao:
+                        texto: O percentual é de 2,5% sobre as vendas.
+                        enviada_em: "2025-11-24T14:03:05Z"
+                      regra_resultante_id: "1f2e3d4c-5b6a-4978-8d7c-6e5f4a3b2c1d"
+                      estado: corrigida
+                      criada_em: "2025-11-24T14:02:40Z"
+                    - id: "6b2d3f4a-5c7e-4f8b-8d9c-1e2f3a4b5c62"
+                      rodada_anterior_id: "5a1c2e3f-4b6d-4e7a-9c8b-0d1e2f3a4b51"
+                      regra_analisada_id: "1f2e3d4c-5b6a-4978-8d7c-6e5f4a3b2c1d"
+                      conflitos:
+                        - elementos: [nucleo.loja, elem.2]
+                          motivo: loja 13 no núcleo e na exclusão
+                      correcao:
+                        texto: Deixa como estava antes.
+                        enviada_em: "2025-11-24T14:04:20Z"
+                      regra_resultante_id: null
+                      estado: reextracao_falhou
+                      criada_em: "2025-11-24T14:03:52Z"
+                    - id: "7c3e4a5b-6d8f-4a9c-9eab-2f3a4b5c6d73"
+                      rodada_anterior_id: "6b2d3f4a-5c7e-4f8b-8d9c-1e2f3a4b5c62"
+                      regra_analisada_id: "1f2e3d4c-5b6a-4978-8d7c-6e5f4a3b2c1d"
+                      conflitos:
+                        - elementos: [nucleo.loja, elem.2]
+                          motivo: loja 13 no núcleo e na exclusão
+                      correcao: null
+                      regra_resultante_id: null
+                      estado: pendente
+                      criada_em: "2025-11-24T14:04:41Z"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/SemPermissao"
+        "404":
+          $ref: "#/components/responses/JobNaoEncontrado"
+
+  /submissoes:
+    post:
+      tags: [submissoes]
+      operationId: criarSubmissao
+      summary: Registra uma submissão do usuário; nesta versão, a correção de uma regra pelo chatbot.
+      description: |
+        Recebe a correção que o usuário escreve no chatbot para os conflitos da rodada
+        pendente do job. Cada correção é uma submissão nova e imutável, que não
+        incorpora nem sobrescreve as anteriores - por isso entra pela rota das
+        submissões, e não por `/jobs`. `finalidade` e `tipo` existem porque a rota é a
+        de toda submissão: outras finalidades e o envio de áudio entram depois, de
+        forma aditiva.
+
+        A `api` grava a submissão, registra a correção na rodada pendente, que passa a
+        `em_reextracao`, e anuncia a correção ao codegen. O texto é conteúdo não
+        confiável: é dado a interpretar, nunca instrução.
+
+        **A resposta chega antes da reextração.** O codegen reextrai a regra a partir
+        da correção, e a versão nova volta à validação. O desfecho chega pelo stream de
+        `GET /jobs/{id}/events`: uma versão ainda com conflitos abre outra rodada, uma
+        sem conflitos segue para a geração de código e uma reextração que falha reabre
+        a correção numa rodada `pendente` nova, com os mesmos conflitos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmeterCorrecaoRequisicao"
+      responses:
+        "201":
+          description: |
+            Correção registrada. O corpo é a submissão criada, com o job no estado em
+            que ficou e a rodada que recebeu a correção, já em `em_reextracao`. O job
+            permanece em `aguardando_confirmacao_parametros` enquanto a correção é
+            reextraída.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissaoCriada"
+              examples:
+                correcaoRegistrada:
+                  summary: Correção registrada, reextração em curso
+                  value:
+                    id: "d8f4b5c6-7e9a-4b0d-8f1c-3a4b5c6d7e84"
+                    tipo: texto
+                    finalidade: correcao
+                    criado_em: "2025-11-24T14:05:10Z"
+                    job:
+                      id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                      status: aguardando_confirmacao_parametros
+                    rodada:
+                      id: "7c3e4a5b-6d8f-4a9c-9eab-2f3a4b5c6d73"
+                      rodada_anterior_id: "6b2d3f4a-5c7e-4f8b-8d9c-1e2f3a4b5c62"
+                      regra_analisada_id: "1f2e3d4c-5b6a-4978-8d7c-6e5f4a3b2c1d"
+                      conflitos:
+                        - elementos: [nucleo.loja, elem.2]
+                          motivo: loja 13 no núcleo e na exclusão
+                      correcao:
+                        texto: A loja 13 fica na regra; a exclusão vale só para a loja 58.
+                        enviada_em: "2025-11-24T14:05:10Z"
+                      regra_resultante_id: null
+                      estado: em_reextracao
+                      criada_em: "2025-11-24T14:04:41Z"
+        "400":
+          description: |
+            O corpo não tem a forma esperada. Inclui o texto da correção vazio, só com
+            espaços ou com mais de 4000 caracteres.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                textoVazio:
+                  summary: Correção sem texto
+                  value:
+                    codigo: requisicao_invalida
+                    mensagem: Escreva a correção antes de enviar.
+                textoLongo:
+                  summary: Correção acima do limite
+                  value:
+                    codigo: requisicao_invalida
+                    mensagem: A correção pode ter no máximo 4000 caracteres.
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/SemPermissao"
+        "404":
+          $ref: "#/components/responses/JobNaoEncontrado"
+        "409":
+          description: |
+            O job não aceita correção agora: não está em
+            `aguardando_confirmacao_parametros` ou não tem rodada `pendente`. O
+            segundo caso inclui a correção enviada enquanto a anterior ainda está em
+            reextração.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                jobForaDaCorrecao:
+                  summary: Job fora do estado que aceita correção
+                  value:
+                    codigo: estado_invalido
+                    mensagem: Este job não está aguardando correção.
+                semRodadaPendente:
+                  summary: Nenhuma rodada pendente, como durante uma reextração
+                  value:
+                    codigo: estado_invalido
+                    mensagem: A correção anterior ainda está sendo processada.
+
 components:
   securitySchemes:
     keycloakOidc:
@@ -932,6 +1131,23 @@ components:
       description: Ações de fechamento, no mesmo vocabulário da coluna `job_acoes.acao`.
       enum: [confirmar_liberar, cancelar, salvar, arquivar]
 
+    FinalidadeSubmissao:
+      type: string
+      title: Finalidade da submissão
+      description: |
+        Para que serve a submissão. Nesta versão, só `correcao`: a correção de uma
+        regra enviada pelo chatbot durante o loop de correção. Vocabulário aberto a
+        valores novos, sempre de forma aditiva.
+      enum: [correcao]
+
+    TipoSubmissao:
+      type: string
+      title: Forma da submissão
+      description: |
+        Como o conteúdo da submissão chegou. Nesta versão, só `texto`, digitado pelo
+        usuário. Vocabulário aberto a valores novos, sempre de forma aditiva.
+      enum: [texto]
+
     Veredito:
       type: string
       title: Veredito de viabilidade
@@ -1080,6 +1296,87 @@ components:
       examples:
         - competencias: ["2025-08", "2025-11"]
           orcamento: 960000.0
+
+    SubmeterCorrecaoRequisicao:
+      type: object
+      title: Correção enviada pelo chatbot
+      description: |
+        Corpo de `POST /submissoes` para a correção por texto. A correção vale para a
+        rodada pendente do job; o cliente não escolhe a rodada.
+      required: [finalidade, tipo, job_id, texto]
+      properties:
+        finalidade:
+          type: string
+          const: correcao
+          description: Sempre `correcao` neste corpo, um valor de `FinalidadeSubmissao`.
+        tipo:
+          type: string
+          const: texto
+          description: Sempre `texto` neste corpo, um valor de `TipoSubmissao`.
+        job_id:
+          type: string
+          format: uuid
+          description: |
+            Job cuja regra está sendo corrigida. Vai no corpo, e não no caminho,
+            porque a rota é a das submissões.
+        texto:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          pattern: '\S'
+          description: |
+            A correção como o usuário a escreveu. Não vazia, nem só com espaços, e com
+            no máximo 4000 caracteres. É conteúdo não confiável - dado a interpretar,
+            nunca instrução.
+      examples:
+        - finalidade: correcao
+          tipo: texto
+          job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          texto: A loja 13 fica na regra; a exclusão vale só para a loja 58.
+
+    SubmissaoCriada:
+      type: object
+      title: Submissão criada
+      description: |
+        Resposta de `POST /submissoes`. Identifica a submissão gravada e devolve o que
+        o chatbot precisa para seguir sem outra consulta: o estado do job e a rodada
+        que recebeu a correção.
+      required: [id, tipo, finalidade, criado_em, job]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: A submissão gravada. Cada correção é uma submissão nova e imutável.
+        tipo:
+          $ref: "#/components/schemas/TipoSubmissao"
+        finalidade:
+          $ref: "#/components/schemas/FinalidadeSubmissao"
+        criado_em:
+          type: string
+          format: date-time
+        job:
+          type: object
+          description: O job a que a submissão pertence, no estado em que ficou depois dela.
+          required: [id, status]
+          properties:
+            id:
+              type: string
+              format: uuid
+            status:
+              $ref: "#/components/schemas/StatusJob"
+        rodada:
+          $ref: "#/components/schemas/Rodada"
+          description: |
+            A rodada que recebeu a correção, já em `em_reextracao` e com `correcao`
+            preenchida. Presente sempre que a finalidade é `correcao`.
+      allOf:
+        - if:
+            properties:
+              finalidade:
+                const: correcao
+            required: [finalidade]
+          then:
+            required: [rodada]
 
     Job:
       type: object
@@ -1230,10 +1527,96 @@ components:
           description: Sequencial dentro do job.
         origem:
           type: string
-          enum: [confirmacao_usuario, sugestao_adaptacao, reprocessamento, extracao]
-          description: De onde esta versão veio. `extracao` é a versão raiz extraída pelo codegen de uma submissão em texto ou da transcrição de um áudio.
+          enum: [confirmacao_usuario, sugestao_adaptacao, reprocessamento, extracao, correcao]
+          description: De onde esta versão veio. `extracao` é a versão raiz extraída pelo codegen de uma submissão em texto ou da transcrição de um áudio. `correcao` é a versão que o codegen reextraiu de uma correção enviada pelo chatbot, a `regra_resultante_id` da rodada que a recebeu.
         representacao:
           $ref: "../domain/representacao-regra.schema.json"
+        criada_em:
+          type: string
+          format: date-time
+
+    EstadoRodada:
+      type: string
+      title: Estado da rodada de correção
+      description: |
+        Onde a rodada está no loop de correção. Existe no máximo uma rodada aberta por
+        job, e ela é a mais recente.
+
+        - `pendente`: aberta, à espera da correção do usuário. É o único estado em que
+          `POST /submissoes` aceita uma correção.
+        - `em_reextracao`: aberta, com a correção enviada e o codegen reextraindo a
+          regra a partir dela. A entrada fica bloqueada até o desfecho.
+        - `reextracao_falhou`: fechada, porque o codegen não conseguiu reextrair a
+          correção. A `api` abre em seguida uma rodada `pendente` nova, encadeada e com
+          os mesmos conflitos, para que o usuário tente de novo.
+        - `corrigida`: fechada, com a correção transformada na versão
+          `regra_resultante_id`. Essa versão volta à validação; se ainda tiver
+          conflitos, abre outra rodada.
+        - `abandonada`: fechada sem que a correção chegasse a uma versão nova, porque o
+          job deixou o loop por outro caminho, como o cancelamento. Sair da tela não
+          abandona a rodada.
+      enum: [pendente, em_reextracao, reextracao_falhou, corrigida, abandonada]
+
+    Rodada:
+      type: object
+      title: Rodada de correção
+      description: |
+        Uma volta do loop de correção: a versão da regra que a validação reprovou, os
+        conflitos que o chatbot mostrou, a correção que o usuário enviou e a versão que
+        resultou dela. As rodadas de um job se encadeiam por `rodada_anterior_id`.
+      required:
+        - id
+        - rodada_anterior_id
+        - regra_analisada_id
+        - conflitos
+        - correcao
+        - regra_resultante_id
+        - estado
+        - criada_em
+      properties:
+        id:
+          type: string
+          format: uuid
+        rodada_anterior_id:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            Rodada que esta sucede no mesmo job. Nula na primeira rodada. Uma rodada
+            nova sucede outra quando a versão corrigida ainda tem conflitos ou quando
+            a reextração da correção anterior falhou.
+        regra_analisada_id:
+          type: string
+          format: uuid
+          description: |
+            Versão da regra, entre as `regras` do job, cuja validação apontou os
+            conflitos desta rodada. Depois de uma reextração que falhou, a rodada nova
+            analisa a mesma versão da anterior.
+        conflitos:
+          $ref: "../domain/conflitos-rodada.schema.json"
+          description: Os conflitos que o chatbot mostra nesta rodada, com as partes da regra envolvidas e o motivo.
+        correcao:
+          type: [object, "null"]
+          description: |
+            A correção enviada nesta rodada. Nula enquanto o usuário não corrigiu, e
+            numa rodada abandonada antes da correção.
+          required: [texto, enviada_em]
+          properties:
+            texto:
+              type: string
+              minLength: 1
+              description: O texto da correção, como foi enviado.
+            enviada_em:
+              type: string
+              format: date-time
+        regra_resultante_id:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            Versão da regra nascida desta correção, com origem `correcao`. Nula até a
+            reextração produzir a versão, e por isso preenchida só em rodada
+            `corrigida`.
+        estado:
+          $ref: "#/components/schemas/EstadoRodada"
         criada_em:
           type: string
           format: date-time
@@ -1384,11 +1767,34 @@ components:
           description: |
             Situação reportada para a etapa iniciada. `erro` indica falha do
             processamento antes da simulação e é seguido de um evento `estado` para
-            `erro`, que encerra o stream. O vocabulário ainda não está fechado.
+            `erro`, que encerra o stream. A exceção é a falha da reextração de uma
+            correção, `erro` na etapa `extracao_parametros` com o job em
+            `aguardando_confirmacao_parametros`: o job não muda de estado, e a correção
+            é reaberta numa rodada `pendente` nova, consultável em
+            `GET /jobs/{id}/rodadas`. `aguardando_correcao` na etapa `confirmacao`
+            anuncia que a validação apontou os `conflitos` deste evento, e é seguido de
+            um evento `estado` para `aguardando_confirmacao_parametros`. O vocabulário
+            ainda não está fechado.
+        conflitos:
+          $ref: "../domain/conflitos-rodada.schema.json"
+          description: |
+            Conflitos que impedem a regra de seguir para a geração de código, com as
+            partes da regra envolvidas e o motivo. Presente quando `status` é
+            `aguardando_correcao`; é o que o chatbot mostra ao abrir a rodada. Ausente
+            quando o evento não reporta conflito, nunca vazio. O histórico das rodadas
+            anteriores não vem pelo stream, e sim por `GET /jobs/{id}/rodadas`.
       examples:
         - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
           etapa: geracao_codigo
           status: iniciada
+        - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          etapa: confirmacao
+          status: aguardando_correcao
+          conflitos:
+            - elementos: [nucleo.percentual]
+              motivo: percentual ausente
+            - elementos: [nucleo.loja, elem.2]
+              motivo: loja 13 no núcleo e na exclusão
 
     EventoEstado:
       type: object

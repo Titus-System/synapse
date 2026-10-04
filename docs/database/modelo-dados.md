@@ -354,6 +354,8 @@ Esta seção descreve trabalho planejado, exceto pela coluna `jobs.nome` e seu c
 
 Tabela própria relacionada a `jobs` e à versão de `regras` analisada, com lista de conflitos em `jsonb`, referência à submissão de correção e à versão resultante. `rodada_anterior_id` encadeia as rodadas. Cada correção textual ou de voz é uma submissão separada; não incorpora nem sobrescreve as anteriores.
 
+O formato da lista de conflitos é [`contracts/domain/conflitos-rodada.schema.json`](../../contracts/domain/conflitos-rodada.schema.json). Os estados da rodada (`pendente`, `em_reextracao`, `reextracao_falhou`, `corrigida` e `abandonada`) e sua exposição em `GET /jobs/{id}/rodadas` estão em [`contracts/http/openapi.yaml`](../../contracts/http/openapi.yaml).
+
 O histórico completo será consultável. Sair do chatbot preserva o estado do job e a rodada pendente, e não há limite de correções. O SSE não substitui esse armazenamento.
 
 ### Nome do job e apresentação como campanha

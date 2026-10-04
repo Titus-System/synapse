@@ -329,7 +329,7 @@ O escopo e as decisões de integração estão consolidados em [Fluxo e decisõe
 **Fatias do fluxo:**
 
 - **Recepção e transcrição (US02/E4):** recebe texto ou áudio, registra submissão e job e, para áudio, chama o provedor de ASR. A chamada externa ocorre fora da transação; a transcrição e o anúncio de sua disponibilidade precisam ser persistidos de forma consistente.
-- **Validação e correção (US06/E3):** mantém o endpoint de parâmetros estruturados existente e acrescenta o recebimento de correções textuais ou de voz, rodadas persistidas e retomada do grafo por eventos.
+- **Validação e correção (US06/E3):** mantém o endpoint de parâmetros estruturados existente e acrescenta o recebimento de correções textuais ou de voz por `POST /submissoes`, rodadas persistidas e consultáveis em `GET /jobs/{id}/rodadas` e um ciclo do codegen por versão corrigida, aberto por eventos.
 - **Acompanhamento e resultado (US01/E9):** `GET /jobs/{id}` e `GET /jobs/{id}/events` apresentam estado e valores produzidos pelo worker. Detalhes de resultado e motivos precisam aparecer consistentemente em consulta e SSE.
 - **Finalização, histórico e nomes (US07/E8/E10):** ações, histórico paginado e reprocessamento continuam sob responsabilidade da API. Nome pertence ao job; campanha é sua apresentação quando o resultado é viável. Reprocessar cria outro job e preserva a origem.
 - **Auditoria (US04):** consulta da trilha por operação autorizada, com identificação da simulação, versão da regra e fontes. Essa superfície permanece uma entrega própria; não deve ser confundida com a persistência já existente dos artefatos.
@@ -370,7 +370,7 @@ O estado ativo é `AgentState`, em `app/graph/core/state.py`. O grafo lê uma re
 1. Ler o texto persistido da submissão; para voz, `submissoes.transcricao`. O evento carrega referência, não o texto ou áudio.
 2. Extrair núcleo e especificações, preservando todos os elementos.
 3. Validar a representação antes da geração. Problemas apontados levam ao chatbot; sem problemas, o fluxo segue automaticamente.
-4. Reextrair correções por texto ou transcrição de voz, usando a regra atual e o histórico necessário. A API persiste as rodadas e versões e coordena a retomada.
+4. Reextrair correções por texto ou transcrição de voz, usando a regra atual e o histórico necessário. A API persiste as rodadas e versões e abre um ciclo do codegen para cada versão corrigida.
 5. Gerar e persistir código e artefatos; delegar a execução ao worker e pausar aguardando o resultado.
 6. Encaminhar o resultado e a alternativa no recorte suportado. O cenário de vendas usa apuração determinística, sem números produzidos pela LLM.
 
@@ -550,14 +550,14 @@ A distinção não é cosmética: um imperativo no catálogo é sinalizador de d
 | Mensagem | Tipo | Publica | Consome | Canal | Conteúdo |
 | --- | --- | --- | --- | --- | --- |
 | `regra-submetida` | Evento | API | codegen | Fila | `job_id`, origem (`formulario` \| `voz` \| `reprocessamento`), **competências do job** (todas, nunca uma), id da submissão e id da versão da regra conforme a origem; orçamento opcional no schema e já enviado pela API |
-| `parametros-confirmados` | Evento | API | codegen | Fila | `job_id`, id da versão confirmada; publicador ativo na API, consumo e retomada pendentes no codegen (E3) |
-| `correcao-submetida` | Evento | API | codegen | Fila | `job_id`, id da versão corrigida e id da submissão que guarda o texto da correção; contrato definido, publicação e consumo pendentes (E3) |
+| `parametros-confirmados` | Evento | API | codegen | Fila | `job_id`, id da versão e, opcionalmente, competências e orçamento do job; abre o ciclo do codegen para a versão confirmada pelo usuário ou gravada a partir de `correcao-proposta`, sem retomar grafo pausado. Publicador ativo na API, ainda sem competências e orçamento; consumo pendente no codegen (E3) |
+| `correcao-submetida` | Evento | API | codegen | Fila | `job_id`, id da versão corrigida, id da submissão que guarda o texto da correção e, opcionalmente, as competências do job; contrato definido, publicação e consumo pendentes (E3) |
 | `executar-codigo` | **Comando** | codegen | Worker | Fila | `job_id`, id da linha do código gerado, **competências a processar** (todas numa execução só), critério de orçamento |
 | `simulacao-concluida` | Evento | Worker | **API e codegen** | **Fanout** | `job_id`, id da linha do resultado, status (`sucesso` \| `assercao_violada` \| `erro_codigo` \| `erro_infra`), totais apurados e veredito de viabilidade quando há sucesso |
 | `regra-extraida` | Evento | codegen | API | Fila | `job_id`, id da submissão e representação extraída de um texto ou de uma transcrição, usados pela API para persistir a versão raiz com origem `extracao` e republicar `regra-submetida` com o id da versão; contrato definido, publicação e consumo pendentes |
 | `sugestao-adaptacao-proposta` | Evento | codegen | API | Fila | Origem, hash e representação alternativa, usados pela API para persistir uma versão e iniciar outro ciclo |
 | `correcao-proposta` | Evento | codegen | API | Fila | `job_id`, id da versão corrigida, id da submissão da correção e representação reextraída, usados pela API para persistir a versão nova; contrato definido, publicação e consumo pendentes (E3) |
-| `etapa-alterada` | Evento | codegen | API | Fila | `job_id`, etapa **iniciada**, status e, opcionalmente, os conflitos que o chatbot mostra - repassado ao Frontend via SSE; publicação e repasse dos conflitos pendentes (E3) |
+| `etapa-alterada` | Evento | codegen | API | Fila | `job_id`, etapa **iniciada**, status e, opcionalmente, o id da versão a que se refere e os conflitos que o chatbot mostra - repassado ao Frontend via SSE. `aguardando_correcao` na etapa `confirmacao` pausa o job para correção e exige versão e conflitos; `erro` em `extracao_parametros` durante a correção reabre a rodada em vez de encerrar o job. Publicação, transições e repasse dos conflitos pendentes (E3) |
 | `no-concluido` | Evento | codegen | API | Fila | `evento_id` (uuid da mensagem, gerado pelo codegen; chave de idempotência da trilha), `job_id`, nó **concluído**, timestamp, conclusão do nó (resumo, fontes usadas e o que mais aquele nó registra), ids da versão da regra, da simulação, do prompt, do código gerado e da explicação, conforme o nó |
 | `job-encerrado` | Evento | API | codegen | Fila | `evento_id` (id da transição terminal, o mesmo em toda emissão), `job_id`, status terminal (`liberado` \| `cancelado` \| `arquivado` \| `erro`) e o instante da transição; sai pelo outbox na mesma transação da transição terminal |
 
@@ -573,7 +573,7 @@ Os contratos de correção e o campo `conflitos` de `etapa-alterada` existem em 
 
 ### 6.4. Frontend ↔ API
 
-- **REST** para as ações síncronas: submissão da regra, confirmação de parâmetros, consulta de histórico, ações de finalização.
+- **REST** para as ações síncronas: submissão da regra, confirmação de parâmetros, envio de correção, consulta de histórico e das rodadas de correção, ações de finalização.
 - **SSE** para acompanhamento em tempo real, sem polling. Cada etapa relevante - transcrição, extração, geração de código, execução no sandbox, interpretação do resultado - gera um evento de progresso, de modo que o usuário nunca fica esperando em silêncio durante um processamento que leva minutos.
 
 ## 7. Sandbox de execução de código

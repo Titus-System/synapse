@@ -22,36 +22,38 @@
     "status": {
       "type": "string",
       "minLength": 1,
-      "description": "Situação reportada pelo codegen para a etapa iniciada. A API a traduz para o estado do job, de que ela é dona, e repassa o progresso ao frontend. Dois valores movem o job, ambos só enquanto ele está em gerando_regra: iniciada na etapa delegacao_worker o leva a simulando, e erro (em qualquer etapa) o leva a erro. Os demais valores só são repassados ao frontend. O vocabulário ainda não está fechado."
+      "description": "Situação reportada pelo codegen para a etapa iniciada. A API a traduz para o estado do job, de que ela é dona, e repassa o progresso ao frontend. Com o job em gerando_regra, três valores o movem: iniciada na etapa delegacao_worker o leva a simulando; aguardando_correcao na etapa confirmacao o leva a aguardando_confirmacao_parametros, porque a validação apontou conflitos na versão e o ciclo dela terminou à espera da correção do usuário, e a API abre uma rodada pendente com esses conflitos; e erro, em qualquer etapa, o leva a erro. Com o job em aguardando_confirmacao_parametros, erro na etapa extracao_parametros é a falha da reextração de uma correção: a API não encerra o job, fecha a rodada em reextração e reabre a correção numa rodada pendente nova, encadeada e com os mesmos conflitos. Os demais valores só são repassados ao frontend. O vocabulário ainda não está fechado."
+    },
+    "regra_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Versão da regra em regras a que o evento se refere. Obrigatório quando status é aguardando_correcao: identifica a versão analisada, cujos conflitos vão no evento, e é por ele que a API associa a rodada à versão certa, sem depender de qual versão o job tem como corrente quando o evento chega. Na falha da reextração, é a versão que a correção corrigia, a mesma regra_origem_id recebida em correcao-submetida. Ausente nos demais usos, em que a API correlaciona o evento só pelo job."
     },
     "conflitos": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "object",
-        "required": [
-          "elementos",
-          "motivo"
-        ],
-        "properties": {
-          "elementos": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "$ref": "../domain/comum.schema.json#/$defs/elemento_ref"
-            },
-            "description": "Partes da regra envolvidas no conflito, no espaço único de identificação: nucleo.<campo> ou o ref do elemento. Mais de uma quando o conflito é entre partes, como um código presente no núcleo e numa exclusão."
-          },
-          "motivo": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Em que as partes conflitam, em texto curto para o usuário."
-          }
-        }
-      },
-      "description": "Conflitos que impedem a regra de avançar para a geração de código, na forma que a validação de domínio produz: cada um nomeia os elementos envolvidos e o motivo. É o que o chatbot mostra ao usuário a cada rodada de correção. Ausente quando o evento não reporta conflito; nunca vazio, porque a falta de conflito é a ausência do campo."
+      "$ref": "../domain/conflitos-rodada.schema.json",
+      "description": "Conflitos que impedem a versão de avançar para a geração de código, na forma que a validação de domínio produz e que a API grava em rodadas_correcao.conflitos: cada um nomeia os elementos envolvidos e o motivo. É o que o chatbot mostra ao usuário a cada rodada de correção. Obrigatório quando status é aguardando_correcao. Ausente quando o evento não reporta conflito; nunca vazio, porque a falta de conflito é a ausência do campo."
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "aguardando_correcao"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "regra_id",
+          "conflitos"
+        ]
+      }
+    }
+  ],
   "examples": [
     {
       "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
@@ -61,7 +63,8 @@
     {
       "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
       "etapa": "confirmacao",
-      "status": "iniciada",
+      "status": "aguardando_correcao",
+      "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
       "conflitos": [
         {
           "elementos": [
@@ -77,6 +80,12 @@
           "motivo": "loja 13 no núcleo e na exclusão"
         }
       ]
+    },
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "etapa": "extracao_parametros",
+      "status": "erro",
+      "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
     }
   ]
 }

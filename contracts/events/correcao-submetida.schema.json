@@ -24,13 +24,31 @@
       "type": "string",
       "format": "uuid",
       "description": "Linha de submissoes que guarda esta correção. É por ela que o codegen alcança o texto digitado ou a transcrição do áudio; o texto não viaja no evento. Na correção por voz, a API só publica depois de gravar a transcrição. Identifica a correção: uma reentrega traz o mesmo valor."
+    },
+    "competencias": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "../domain/comum.schema.json#/$defs/competencia"
+      },
+      "description": "Competências históricas a simular, vindas de jobs.competencias, no mesmo formato de regra-submetida. O codegen não tem permissão em jobs, e o ciclo que reextrai a correção as carrega no estado, como o ciclo aberto por regra-submetida: é por elas que a reextração conhece o período em que a regra será simulada. Nunca vazio. Ausente só nas mensagens publicadas antes de o campo existir.",
+      "examples": [
+        [
+          "2025-08",
+          "2025-11"
+        ]
+      ]
     }
   },
   "examples": [
     {
       "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
       "regra_origem_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
-      "submissao_id": "c4a7e2d1-6b3f-4e58-9a1c-2d7f8e0b5a63"
+      "submissao_id": "c4a7e2d1-6b3f-4e58-9a1c-2d7f8e0b5a63",
+      "competencias": [
+        "2025-08",
+        "2025-11"
+      ]
     }
   ]
 }

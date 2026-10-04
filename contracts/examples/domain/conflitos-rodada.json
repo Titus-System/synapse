@@ -1,0 +1,15 @@
+[
+  {
+    "elementos": [
+      "nucleo.percentual"
+    ],
+    "motivo": "percentual ausente"
+  },
+  {
+    "elementos": [
+      "nucleo.loja",
+      "elem.2"
+    ],
+    "motivo": "loja 13 no núcleo e na exclusão"
+  }
+]

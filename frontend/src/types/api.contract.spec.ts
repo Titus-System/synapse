@@ -8,6 +8,7 @@ import type {
   ConfirmarParametrosRequisicao,
   ConteudoSubmissao,
   CriarJobRequisicao,
+  EventoEtapa,
   RepresentacaoRegra,
   ResultadoSimulacao,
 } from './api'
@@ -58,5 +59,13 @@ describe('tipos do contrato HTTP', () => {
     expect(resultado.totais).not.toBeNull()
     expect(resultado.totais?.orcamento).toBe(485000)
     expect(resultado.assercoes).toHaveLength(3)
+  })
+
+  it('desserializa os conflitos da pausa para correção no evento de etapa', async () => {
+    const evento = await desserializarExemplo<EventoEtapa>('events/etapa-alterada-conflitos.json')
+
+    expect(evento.status).toBe('aguardando_correcao')
+    expect(evento.conflitos).toHaveLength(2)
+    expect(evento.conflitos?.[1]?.elementos).toEqual(['nucleo.loja', 'elem.2'])
   })
 })

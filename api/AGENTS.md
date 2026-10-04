@@ -15,6 +15,7 @@ As convenções de stack vivem nas skills; os critérios obrigatórios de entreg
 | [`sse`](.agents/skills/sse/SKILL.md) | Emitir progresso para o stream SSE do job, ou mexer no stream em si. |
 | [`outbox`](.agents/skills/outbox/SKILL.md) | Publicar um evento novo pela api, ou mexer no outbox transacional em si. |
 | [`consumidores`](.agents/skills/consumidores/SKILL.md) | Escrever um `@RabbitListener` novo, ou investigar por que uma mensagem some ou volta em loop. |
+| [`correction-loop`](.agents/skills/correction-loop/SKILL.md) | Implementar ou depurar uma peça do loop de correção: rodadas, pausa por conflito, `POST /submissoes`, `GET /jobs/{id}/rodadas`, `correcao-proposta`, fechamento e abandono de rodadas. |
 
 O envelope de log é contrato entre serviços, definido em [`../contracts/observability/log.schema.json`](../contracts/observability/log.schema.json). As regras compartilhadas estão na [skill de observabilidade da raiz](../.agents/skills/observability/SKILL.md). Mudanças no envelope seguem a autorização e a compatibilidade exigidas pelo guia da raiz.
 

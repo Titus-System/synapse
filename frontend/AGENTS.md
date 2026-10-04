@@ -22,6 +22,10 @@ make check   # type-check + lint + test, in that order — see Makefile
 
 A Husky `pre-commit` hook runs the same check automatically before every commit — it installs itself on `npm install`. Running `make check` yourself before staging just means you find out sooner. Commit message conventions live in `.agents/skills/commit-and-comments/SKILL.md`; that one isn't hook-enforced, follow it by hand.
 
+## Feature skills
+
+- [`correction-loop`](.agents/skills/correction-loop/SKILL.md): read before building or changing the correction chatbot (`features/correcao-regra/`) or anything that routes a job awaiting correction to it.
+
 ## Stay in scope
 
 Touch only what the task asked for. A variable in the wrong language, inconsistent indentation, an outdated comment, an unrelated typo, a file that could be split up — if it's pre-existing and not what you were asked to do, leave it alone, even when it's real debt. It may be mid-migration, or intentional for a reason the current task doesn't have context on; either way, it's a separate decision made in a separate cycle, and folding it into an unrelated diff makes that diff harder to review and silently overrides a decision that wasn't yours to make right now.

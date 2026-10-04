@@ -142,6 +142,7 @@ Não leia toda a documentação por padrão. Depois do `AGENTS.md` local, consul
 | Um contrato de evento, domínio ou HTTP | O schema específico em `contracts/` e seus exemplos |
 | Uma decisão já registrada ou uma mudança de fronteira | O ADR específico em [`docs/adrs/`](docs/adrs/) |
 | Convenções compartilhadas de agentes | A skill específica em [`.agents/skills/`](.agents/skills/), se existir |
+| O loop de correção da regra: pausa por conflito, rodadas, envio da correção, reextração e chatbot | A skill [`correction-loop`](.agents/skills/correction-loop/SKILL.md) e a skill de mesmo nome do componente tocado |
 
 Abra a [arquitetura](docs/ARCHITECTURE.md) inteira apenas quando a tarefa exigir visão ponta a ponta ou quando a seção relevante não for suficiente. Se uma mudança contrariar uma decisão registrada, consulte o ADR relacionado e proponha uma atualização explícita da decisão.
 

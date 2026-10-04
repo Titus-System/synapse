@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/conflitos-rodada.schema.json",
+  "title": "Conflitos de uma rodada de correção",
+  "description": "Conflitos que a validação de domínio apontou numa versão da regra e que impedem essa versão de seguir para a geração de código. É o formato de rodadas_correcao.conflitos e o mesmo que etapa-alterada leva ao chatbot e que GET /jobs/{id}/rodadas devolve, para que o que o usuário viu na rodada e o que ficou gravado não divirjam. Nunca vazio: uma rodada só existe porque houve conflito, e a falta de conflito num evento é a ausência do campo.",
+  "type": "array",
+  "minItems": 1,
+  "items": {
+    "type": "object",
+    "required": [
+      "elementos",
+      "motivo"
+    ],
+    "properties": {
+      "elementos": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "$ref": "comum.schema.json#/$defs/elemento_ref"
+        },
+        "description": "Partes da regra envolvidas no conflito, no espaço único de identificação: nucleo.<campo> ou o ref do elemento. Mais de uma quando o conflito é entre partes, como um código presente no núcleo e numa exclusão. É o que permite ao chatbot apontar a parte da regra que o usuário precisa corrigir."
+      },
+      "motivo": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Em que as partes conflitam, em texto curto para o usuário."
+      }
+    }
+  },
+  "examples": [
+    [
+      {
+        "elementos": [
+          "nucleo.percentual"
+        ],
+        "motivo": "percentual ausente"
+      },
+      {
+        "elementos": [
+          "nucleo.loja",
+          "elem.2"
+        ],
+        "motivo": "loja 13 no núcleo e na exclusão"
+      }
+    ]
+  ]
+}

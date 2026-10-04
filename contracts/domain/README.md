@@ -32,6 +32,7 @@ Os exemplos válidos estão em [`contracts/examples/domain/`](../examples/domain
 | [resultado-assercoes.schema.json](resultado-assercoes.schema.json) | `resultados_simulacao.assercoes` |
 | [resultado-decomposicao.schema.json](resultado-decomposicao.schema.json) | `resultados_simulacao.decomposicao` |
 | [resultado-diagnostico.schema.json](resultado-diagnostico.schema.json) | `resultados_simulacao.diagnostico` |
+| [conflitos-rodada.schema.json](conflitos-rodada.schema.json) | `rodadas_correcao.conflitos`, também usado em `etapa-alterada` e na API HTTP |
 
 `outbox_events.payload` não está aqui: é corpo de mensagem, e seu lugar é `contracts/events/`.
 
@@ -61,4 +62,4 @@ Os schemas descrevem formatos compartilhados; sua existência não comprova que 
 
 A decomposição exige cinco mapas de diferenças, que somam `totais.diferenca_abs`: `elemento`, `loja`, `marca`, `cargo` e `competencia`. Admite também três mapas absolutos opcionais, que somam `totais.simulado`: `matricula`, com o total de cada colaborador no período, `loja_absoluto` e `competencia_absoluto`. Os absolutos fazem parte do contrato, mas o harness do worker ainda não os produz. A decomposição não contém o cruzamento matrícula × loja × competência nem os dataframes resultantes; a persistência desses detalhes depende da granularidade confirmada.
 
-Os conflitos do chatbot e as extensões de resultado são trabalho de contratos separado da documentação. Os schemas atuais permanecem a autoridade até serem evoluídos e validados com seus consumidores. Ver [Fluxo e decisões da Sprint 2](../../docs/FLUXO-SPRINT-2.md).
+Os conflitos do chatbot têm formato em `conflitos-rodada.schema.json`, mas a tabela de rodadas ainda não existe no esquema do banco; a migration acompanha a implementação do loop de correção. Os schemas atuais permanecem a autoridade até serem evoluídos e validados com seus consumidores. Ver [Fluxo e decisões da Sprint 2](../../docs/FLUXO-SPRINT-2.md).

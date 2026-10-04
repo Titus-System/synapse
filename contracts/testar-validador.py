@@ -179,6 +179,122 @@ class TestarConflitos(unittest.TestCase):
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn("campo $.conflitos[1].elementos[0]", resultado.stderr)
 
+    def test_aceita_etapa_sem_regra_e_sem_conflitos(self) -> None:
+        # regra_id e conflitos são aditivos: um evento anterior a eles continua válido.
+        def alterar(evento: Any) -> None:
+            evento["status"] = "iniciada"
+            del evento["regra_id"]
+            del evento["conflitos"]
+
+        resultado = validar_com_alteracao("events/etapa-alterada-conflitos.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_aceita_falha_da_reextracao_sem_regra(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["regra_id"]
+
+        resultado = validar_com_alteracao("events/etapa-alterada-falha-reextracao.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_pausa_para_correcao_sem_a_versao_analisada(self) -> None:
+        # Sem regra_id, a API não sabe sobre qual versão abrir a rodada.
+        def alterar(evento: Any) -> None:
+            del evento["regra_id"]
+
+        resultado = validar_com_alteracao("events/etapa-alterada-conflitos.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("'regra_id' is a required property", resultado.stderr)
+
+    def test_rejeita_pausa_para_correcao_sem_conflitos(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["conflitos"]
+
+        resultado = validar_com_alteracao("events/etapa-alterada-conflitos.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("'conflitos' is a required property", resultado.stderr)
+
+
+class TestarConflitosDaRodada(unittest.TestCase):
+    def test_rejeita_lista_vazia(self) -> None:
+        # Uma rodada só existe porque houve conflito.
+        def alterar(conflitos: Any) -> None:
+            conflitos.clear()
+
+        resultado = validar_com_alteracao("domain/conflitos-rodada.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("domain/conflitos-rodada.json: campo $:", resultado.stderr)
+
+    def test_rejeita_conflito_sem_elementos(self) -> None:
+        def alterar(conflitos: Any) -> None:
+            del conflitos[0]["elementos"]
+
+        resultado = validar_com_alteracao("domain/conflitos-rodada.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("'elementos' is a required property", resultado.stderr)
+
+    def test_rejeita_conflito_com_elementos_vazio(self) -> None:
+        def alterar(conflitos: Any) -> None:
+            conflitos[0]["elementos"] = []
+
+        resultado = validar_com_alteracao("domain/conflitos-rodada.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $[0].elementos", resultado.stderr)
+
+    def test_rejeita_conflito_com_motivo_vazio(self) -> None:
+        def alterar(conflitos: Any) -> None:
+            conflitos[1]["motivo"] = ""
+
+        resultado = validar_com_alteracao("domain/conflitos-rodada.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $[1].motivo", resultado.stderr)
+
+
+class TestarParametrosConfirmados(unittest.TestCase):
+    def test_aceita_evento_sem_competencias_e_sem_orcamento(self) -> None:
+        # Os campos são aditivos: uma mensagem publicada antes deles continua válida.
+        def alterar(evento: Any) -> None:
+            del evento["competencias"]
+            del evento["orcamento"]
+
+        resultado = validar_com_alteracao("events/parametros-confirmados.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_competencias_vazia(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["competencias"] = []
+
+        resultado = validar_com_alteracao("events/parametros-confirmados.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("events/parametros-confirmados.json: campo $.competencias", resultado.stderr)
+
+    def test_rejeita_competencia_fora_de_aaaa_mm(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["competencias"] = ["2025-13"]
+
+        resultado = validar_com_alteracao("events/parametros-confirmados.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.competencias[0]", resultado.stderr)
+
+    def test_rejeita_orcamento_negativo(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["orcamento"] = -0.01
+
+        resultado = validar_com_alteracao("events/parametros-confirmados.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("events/parametros-confirmados.json: campo $.orcamento", resultado.stderr)
+
 
 class TestarCorrecao(unittest.TestCase):
     def test_rejeita_correcao_submetida_sem_submissao(self) -> None:
@@ -190,6 +306,24 @@ class TestarCorrecao(unittest.TestCase):
 
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn("'submissao_id' is a required property", resultado.stderr)
+
+    def test_aceita_correcao_submetida_sem_competencias(self) -> None:
+        # Campo aditivo: uma correção publicada antes dele continua válida.
+        def alterar(evento: Any) -> None:
+            del evento["competencias"]
+
+        resultado = validar_com_alteracao("events/correcao-submetida.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_correcao_submetida_com_competencias_vazia(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["competencias"] = []
+
+        resultado = validar_com_alteracao("events/correcao-submetida.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("events/correcao-submetida.json: campo $.competencias", resultado.stderr)
 
     def test_rejeita_correcao_proposta_sem_representacao(self) -> None:
         def alterar(evento: Any) -> None:

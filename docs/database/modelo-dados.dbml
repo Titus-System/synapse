@@ -183,7 +183,7 @@ Table regras {
   id uuid [pk, default: `uuidv7()`]
   job_id uuid [not null, ref: > jobs.id]
   versao int [not null, note: 'sequencial dentro do job']
-  origem text [not null, note: 'confirmacao_usuario | sugestao_adaptacao | reprocessamento | extracao']
+  origem text [not null, note: 'confirmacao_usuario | sugestao_adaptacao | reprocessamento | extracao | correcao']
   regra_origem_id uuid [ref: > regras.id, note: 'NULL na versao raiz. Self; de qual versao foi derivada. N-1: varias versoes podem sair da mesma origem (alternativas do laco de adaptacao), cada versao tem no maximo um pai']
   nucleo jsonb [not null, note: '''
 Formato: contracts/domain/regra-nucleo.schema.json

@@ -12,6 +12,7 @@ Stack conventions live in skills; mandatory delivery criteria live here and in t
 | [`metrics`](.agents/skills/metrics/SKILL.md) | Declaring a metric, adding a label, or naming either. |
 | [`testing`](.agents/skills/testing/SKILL.md) | Writing a test, changing an assertion, or making a red suite green. |
 | [`commit-and-comments`](.agents/skills/commit-and-comments/SKILL.md) | Writing a commit message or a code comment. |
+| [`correction-loop`](.agents/skills/correction-loop/SKILL.md) | Consuming `parametros-confirmados` or `correcao-submetida`, publishing the conflict pause or a `correcao-proposta`, or changing the re-extraction node. |
 
 Design sketches that are not yet code live in [`docs/`](docs/).
 

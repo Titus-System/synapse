@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://synapse.local/contracts/events/parametros-confirmados.schema.json",
   "title": "parametros-confirmados",
-  "description": "Evento publicado pela API quando o usuário confirma ou corrige a representação da regra. É o que retoma o grafo do codegen, que estava pausado no nó de confirmação.",
+  "description": "Evento publicado pela API quando uma versão da regra está pronta para seguir: a que o usuário confirmou ou corrigiu em POST /jobs/{id}/parameters, ou a que a API gravou a partir de correcao-proposta. Abre o ciclo do codegen para essa versão; não retoma um grafo pausado. O ciclo é por versão: quando a validação de domínio aponta conflitos, o codegen publica etapa-alterada com status aguardando_correcao e o ciclo termina. O estado durável do loop de correção fica na API, no job e nas rodadas, e cada versão corrigida volta ao codegen por um novo parametros-confirmados.",
   "type": "object",
   "required": [
     "job_id",
@@ -18,12 +18,40 @@
       "type": "string",
       "format": "uuid",
       "description": "Versão confirmada da regra em regras. Correção do usuário gera uma versão nova, nunca altera a anterior, então este id identifica exatamente o que foi confirmado. O conteúdo fica no banco, no formato de representacao-regra."
+    },
+    "competencias": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "../domain/comum.schema.json#/$defs/competencia"
+      },
+      "description": "Competências históricas a simular, vindas de jobs.competencias, no mesmo formato de regra-submetida e já com o ajuste feito na confirmação, quando houve. O codegen não tem permissão em jobs, e é por este campo que o ciclo da versão conhece o período que leva ao worker. Nunca vazio, porque um job que não simula nada não é job. Ausente só nas mensagens publicadas antes de o campo existir; sem ele o codegen não consegue abrir o ciclo.",
+      "examples": [
+        [
+          "2025-08",
+          "2025-11"
+        ]
+      ]
+    },
+    "orcamento": {
+      "allOf": [
+        {
+          "$ref": "../domain/comum.schema.json#/$defs/brl"
+        }
+      ],
+      "minimum": 0,
+      "description": "Critério de orçamento do período, vindo de jobs.orcamento, no mesmo formato de regra-submetida e já com o ajuste feito na confirmação, quando houve. Ausente quando o job ainda não tem orçamento definido; o codegen carrega o valor no estado do ciclo sem usá-lo para decidir viabilidade, que é apuração do worker sobre dados reais."
     }
   },
   "examples": [
     {
       "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
-      "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+      "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
+      "competencias": [
+        "2025-08",
+        "2025-11"
+      ],
+      "orcamento": 485000.0
     }
   ]
 }

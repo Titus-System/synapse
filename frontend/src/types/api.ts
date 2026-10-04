@@ -118,7 +118,7 @@ export interface ResultadoSimulacao {
 export interface RegraVersionada {
   id: string
   versao: number
-  origem: 'confirmacao_usuario' | 'sugestao_adaptacao' | 'reprocessamento' | 'extracao'
+  origem: 'confirmacao_usuario' | 'sugestao_adaptacao' | 'reprocessamento' | 'extracao' | 'correcao'
   representacao: RepresentacaoRegra
   criada_em: string
 }
@@ -180,10 +180,16 @@ export interface ListarJobsParametros {
   tamanho?: number
 }
 
+export interface Conflito {
+  elementos: string[]
+  motivo: string
+}
+
 export interface EventoEtapa {
   job_id: string
   etapa: string
   status: string
+  conflitos?: Conflito[]
 }
 
 export interface EventoEstado {
