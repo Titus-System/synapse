@@ -9,7 +9,7 @@ info:
     deste arquivo: `frontend` e `api` são escritos em paralelo contra ele e só se
     encontram na integração.
 
-    Nove operações. Oito são sobre o recurso `job`, que é a unidade de trabalho do
+    Dez operações. Nove são sobre o recurso `job`, que é a unidade de trabalho do
     sistema e o que a `api` possui de ponta a ponta, e uma recebe as submissões do
     usuário: a descrição de uma regra nova, digitada ou falada, e a correção
     enviada pelo chatbot. O ciclo é assíncrono: a criação devolve o job em
@@ -43,6 +43,8 @@ info:
     4. Quando o stream anuncia o evento `resultado`, o cliente consulta
        `GET /jobs/{id}` para ler os números: totais, asserções e decomposição. O
        evento no stream anuncia o desfecho; não carrega os valores.
+       O detalhamento por competência e matrícula é consultado inteiro em
+       `GET /jobs/{id}/simulacoes/{simulacaoId}/linhas`, quando a tela precisa dele.
     5. `POST /jobs/{id}/actions` fecha o ciclo: confirmar e liberar (recusado se a
        simulação for inviável), cancelar, salvar ou arquivar.
     6. Job fechado aparece em `GET /jobs`, o histórico. `POST /jobs/{id}/reprocessar`
@@ -380,6 +382,104 @@ paths:
           $ref: "#/components/responses/SemPermissao"
         "404":
           $ref: "#/components/responses/JobNaoEncontrado"
+
+  /jobs/{id}/simulacoes/{simulacaoId}/linhas:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+      - name: simulacaoId
+        in: path
+        required: true
+        description: Identificador da simulação pertencente ao job.
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [jobs]
+      operationId: consultarLinhasSimulacao
+      summary: Consulta o detalhamento da simulação por competência e matrícula.
+      description: |
+        Devolve o detalhamento completo do período, sem filtros nem paginação.
+        Cada matrícula aparece uma única vez por competência, com a loja e a
+        marca da lotação no RH naquele mês, como no baseline congelado. Valores e
+        diferenças já vêm calculados pelo harness; o frontend só apresenta.
+
+        Exige a mesma autenticação, papel e posse da consulta do job: o
+        solicitante deve ser dono do job ou ter o papel `auditor` que autoriza
+        a consulta. A simulação precisa pertencer ao job informado.
+
+        Sem detalhamento, responde 200 e omite `linhas`: isso inclui simulações
+        ainda sem resultado, resultados com status diferente de `sucesso` e
+        resultados anteriores à inclusão do detalhamento. Uma simulação
+        inexistente ou pertencente a outro job responde 404 com
+        `simulacao_nao_encontrada`; um job inexistente usa `job_nao_encontrado`.
+      responses:
+        "200":
+          description: A simulação consultada e seu detalhamento, quando disponível.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetalhamentoSimulacao"
+              examples:
+                comDetalhamento:
+                  summary: Competências com comissão preservada, aumento percentual e bônus
+                  description: |
+                    Regra hipotética: nucleo.percentual aumenta em 0,5 ponto
+                    percentual a comissão da marca 10, e elem.1 dá R$ 500 à
+                    MATRIC-1 em novembro. As comissões do baseline são congeladas.
+                    MATRIC-422 também vendeu na marca 30, loja 47 em agosto, mas
+                    aparece uma vez, na marca 10 e loja 13 da lotação no RH.
+                  value:
+                    simulacao_id: "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"
+                    linhas:
+                      "2025-08":
+                        MATRIC-1:
+                          cod_loja: "75"
+                          cod_marca: "20"
+                          cod_cargo: "200"
+                          comissao_baseline: 524.25
+                          comissao_simulada: 524.25
+                          diferenca: 0
+                          contribuicoes: {}
+                        MATRIC-422:
+                          cod_loja: "13"
+                          cod_marca: "10"
+                          cod_cargo: "150"
+                          comissao_baseline: 1065.03
+                          comissao_simulada: 1597.55
+                          diferenca: 532.52
+                          contribuicoes: { nucleo.percentual: 532.52 }
+                      "2025-11":
+                        MATRIC-1:
+                          cod_loja: "75"
+                          cod_marca: "20"
+                          cod_cargo: "200"
+                          comissao_baseline: 619.63
+                          comissao_simulada: 1119.63
+                          diferenca: 500.0
+                          contribuicoes: { elem.1: 500.0 }
+                semDetalhamento:
+                  summary: Simulação existente sem detalhamento disponível
+                  value:
+                    simulacao_id: "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/SemPermissao"
+        "404":
+          description: Job inexistente, ou simulação inexistente ou que não pertence ao job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                jobNaoEncontrado:
+                  value:
+                    codigo: job_nao_encontrado
+                    mensagem: Job não encontrado.
+                simulacaoNaoEncontrada:
+                  value:
+                    codigo: simulacao_nao_encontrada
+                    mensagem: Simulação não encontrada neste job.
 
   /jobs/{id}/events:
     parameters:
@@ -1300,12 +1400,14 @@ components:
         custo não cabe no orçamento. `audio_muito_grande` (413) é o áudio acima do
         tamanho máximo, e `audio_invalido` (422) é o áudio vazio, em formato não
         aceito ou com conteúdo que não confere com o formato. Vocabulário aberto a
-        valores novos, sempre de forma aditiva.
+        valores novos, sempre de forma aditiva. `simulacao_nao_encontrada` (404)
+        indica simulação inexistente ou que não pertence ao job informado.
       enum:
         - requisicao_invalida
         - nao_autenticado
         - sem_permissao
         - job_nao_encontrado
+        - simulacao_nao_encontrada
         - estado_invalido
         - simulacao_inviavel
         - nucleo_incompleto
@@ -2070,6 +2172,23 @@ components:
             Totais, desfecho das asserções e decomposição da diferença. Ausente quando
             o status não é sucesso, porque aí não há número. É a fonte dos valores
             exibidos: o frontend apresenta, não calcula.
+
+    DetalhamentoSimulacao:
+      type: object
+      title: Detalhamento da simulação
+      description: |
+        Artefato completo de resultados_simulacao.linhas, consultado separadamente
+        dos totais e da decomposição. Só um resultado com status sucesso pode ter
+        detalhamento. A ausência de linhas indica que ele não está disponível;
+        o campo é omitido, nunca null. Inclui resultados anteriores à sua produção.
+      required: [simulacao_id]
+      properties:
+        simulacao_id:
+          type: string
+          format: uuid
+          description: Identificador da simulação consultada.
+        linhas:
+          $ref: "../domain/resultado-linhas.schema.json"
 
     JobResumo:
       type: object

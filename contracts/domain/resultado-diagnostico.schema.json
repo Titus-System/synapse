@@ -19,9 +19,10 @@
         "codigo_de_saida_divergente",
         "resultado_fora_do_schema",
         "baseline_divergente",
+        "resultado_incoerente",
         "cobertura_incompleta"
       ],
-      "description": "Por que a execução foi classificada como erro_codigo, no vocabulário de classificação do worker. excecao: o envelope do sandbox declara erro_codigo com a falha estruturada, seja uma exceção da regra, seja uma saída que o harness recusou ao agregar. timeout: a execução estourou o prazo e foi encerrada. memoria: o container foi encerrado por exceder o limite de memória. saida_truncada: o stdout passou do teto e foi cortado. sem_envelope: o container terminou sem escrever nada no stdout. envelope_invalido: o stdout não é um envelope de uma linha com a forma e a coerência que o harness produz. envelope_de_outra_execucao: o envelope traz job, código ou competências diferentes dos enviados. codigo_de_saida_divergente: o código de saída do processo contradiz o status do envelope. resultado_fora_do_schema: o envelope diz sucesso, mas o resultado não valida contra resultado-simulacao. baseline_divergente: o total do baseline devolvido não é o que o worker mantém congelado, ou os totais não fecham entre si. cobertura_incompleta: o comando executar-codigo trouxe elementos_exigidos, e um deles não está em elementos_implementados, a lista que o código gerado declara no retorno de aplicar_regra, ou contribuicoes atribui valor a um elemento fora de elementos_exigidos; elementos_ausentes e elementos_fora_da_regra dizem quais. Só excecao tem falha estruturada: as demais causas são decididas fora do código gerado, a partir do que o worker observou do processo e da saída. Acrescentar uma causa é mudança aditiva e exige atualizar produtor e leitores na mesma alteração."
+      "description": "Por que a execução foi classificada como erro_codigo, no vocabulário de classificação do worker. excecao: o envelope do sandbox declara erro_codigo com a falha estruturada, seja uma exceção da regra, seja uma saída que o harness recusou ao agregar. timeout: a execução estourou o prazo e foi encerrada. memoria: o container foi encerrado por exceder o limite de memória. saida_truncada: o stdout passou do teto e foi cortado. sem_envelope: o container terminou sem escrever nada no stdout. envelope_invalido: o stdout não é um envelope de uma linha com a forma e a coerência que o harness produz. envelope_de_outra_execucao: o envelope traz job, código ou competências diferentes dos enviados. codigo_de_saida_divergente: o código de saída do processo contradiz o status do envelope. resultado_fora_do_schema: o envelope diz sucesso, mas o resultado não valida contra resultado-simulacao. baseline_divergente: o total do baseline devolvido não é o que o worker mantém congelado, ou os totais não fecham entre si. resultado_incoerente: a conferência fora do container recusou o detalhamento porque suas linhas não fecham com os totais ou com as quebras da decomposição; distinta de baseline_divergente, que continua identificando divergências do baseline congelado e a conferência de totais já existente. cobertura_incompleta: o comando executar-codigo trouxe elementos_exigidos, e um deles não está em elementos_implementados, a lista que o código gerado declara no retorno de aplicar_regra, ou contribuicoes atribui valor a um elemento fora de elementos_exigidos; elementos_ausentes e elementos_fora_da_regra dizem quais. Só excecao tem falha estruturada: as demais causas são decididas fora do código gerado, a partir do que o worker observou do processo e da saída. Acrescentar uma causa é mudança aditiva e exige atualizar produtor e leitores na mesma alteração."
     },
     "falha": {
       "type": "object",
@@ -124,6 +125,7 @@
       }
     },
     { "causa": "timeout" },
+    { "causa": "resultado_incoerente" },
     {
       "causa": "cobertura_incompleta",
       "elementos_ausentes": ["elem.1"],

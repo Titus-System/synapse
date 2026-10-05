@@ -3,6 +3,7 @@ export type CodigoErro =
   | 'nao_autenticado'
   | 'sem_permissao'
   | 'job_nao_encontrado'
+  | 'simulacao_nao_encontrada'
   | 'estado_invalido'
   | 'simulacao_inviavel'
   | 'nucleo_incompleto'
@@ -115,6 +116,23 @@ export interface ResultadoSimulacao {
   totais: TotaisSimulacao | null
   assercoes: ResultadoAssercao[]
   decomposicao: Record<string, Record<string, number>> | null
+}
+
+export interface LinhaResultadoSimulacao {
+  cod_loja: string
+  cod_marca: string
+  cod_cargo: string
+  comissao_baseline: number
+  comissao_simulada: number
+  diferenca: number
+  contribuicoes: Record<string, number>
+}
+
+export type ResultadoLinhas = Record<string, Record<string, LinhaResultadoSimulacao>>
+
+export interface DetalhamentoSimulacao {
+  simulacao_id: string
+  linhas?: ResultadoLinhas
 }
 
 export interface RegraVersionada {

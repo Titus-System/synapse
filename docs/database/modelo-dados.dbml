@@ -326,6 +326,19 @@ tabela exigia um discriminador de tipo, uma coluna de chave polimorfica e uma di
 nula em metade das linhas, tudo para caber duas quebras numa estrutura so.
 A forma de objeto torna chave repetida dentro de uma quebra impossivel de representar.
 ''']
+  linhas jsonb [note: '''
+Formato: contracts/domain/resultado-linhas.schema.json
+Objeto indexado por competencia e, dentro dela, por matricula: uma entrada por mes e
+colaborador, com loja, marca e cargo do RH no mes. Loja e marca sao as da lotacao,
+como no baseline congelado; vendas em outras lojas ou marcas ficam na mesma linha.
+NULL quando status <> sucesso e nos resultados gravados antes desta mudanca.
+Escrito inteiro pelo worker no mesmo INSERT do resultado e lido pela API.
+jsonb porque e escrito de uma vez e lido inteiro, sem filtros nem paginacao.
+Separado de decomposicao e de resultado-simulacao para que GET /jobs/{id} nao carregue
+o detalhamento do periodo inteiro de todas as simulacoes. So a rota
+GET /jobs/{id}/simulacoes/{simulacaoId}/linhas carrega este artefato.
+A API cria a coluna pela migration da T-258; nao exige novas permissoes.
+''']
   diagnostico jsonb [note: '''
 Formato: contracts/domain/resultado-diagnostico.schema.json
 NULL quando status <> erro_codigo, e nas linhas gravadas por versao do worker que ainda

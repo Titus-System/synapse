@@ -31,6 +31,7 @@ Os exemplos válidos estão em [`contracts/examples/domain/`](../examples/domain
 | [resultado-totais.schema.json](resultado-totais.schema.json) | `resultados_simulacao.totais` |
 | [resultado-assercoes.schema.json](resultado-assercoes.schema.json) | `resultados_simulacao.assercoes` |
 | [resultado-decomposicao.schema.json](resultado-decomposicao.schema.json) | `resultados_simulacao.decomposicao` |
+| [resultado-linhas.schema.json](resultado-linhas.schema.json) | `resultados_simulacao.linhas`, consultado pela rota de detalhamento |
 | [resultado-diagnostico.schema.json](resultado-diagnostico.schema.json) | `resultados_simulacao.diagnostico` |
 | [conflitos-rodada.schema.json](conflitos-rodada.schema.json) | `rodadas_correcao.conflitos`, também usado em `etapa-alterada` e na API HTTP |
 
@@ -60,6 +61,6 @@ O espaço é único porque as mesmas listas citam os dois lado a lado: a declara
 
 Os schemas descrevem formatos compartilhados; sua existência não comprova que a extração ou a geração de todos os construtos já esteja implementada.
 
-A decomposição exige cinco mapas de diferenças, que somam `totais.diferenca_abs`: `elemento`, `loja`, `marca`, `cargo` e `competencia`. Admite também três mapas absolutos opcionais, que somam `totais.simulado`: `matricula`, com o total de cada colaborador no período, `loja_absoluto` e `competencia_absoluto`. Os absolutos fazem parte do contrato, mas o harness do worker ainda não os produz. A decomposição não contém o cruzamento matrícula × loja × competência nem os dataframes resultantes; a persistência desses detalhes depende da granularidade confirmada.
+A decomposição exige cinco mapas de diferenças, que somam `totais.diferenca_abs`: `elemento`, `loja`, `marca`, `cargo` e `competencia`. Admite também três mapas absolutos opcionais, que somam `totais.simulado`: `matricula`, com o total de cada colaborador no período, `loja_absoluto` e `competencia_absoluto`. Os absolutos fazem parte do contrato, mas o harness do worker ainda não os produz. O cruzamento por competência e matrícula é definido separadamente em `resultado-linhas.schema.json`, com loja e marca da lotação no RH. A T-256 define esse contrato; sua produção, persistência e conferência são entregas do worker nas T-259 e T-262.
 
 Os conflitos do chatbot têm formato em `conflitos-rodada.schema.json`, mas a tabela de rodadas ainda não existe no esquema do banco; a migration acompanha a implementação do loop de correção. Os schemas atuais permanecem a autoridade até serem evoluídos e validados com seus consumidores. Ver [Fluxo e decisões da Sprint 2](../../docs/FLUXO-SPRINT-2.md).

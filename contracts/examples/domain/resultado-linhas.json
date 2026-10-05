@@ -1,0 +1,33 @@
+{
+  "2025-08": {
+    "MATRIC-1": {
+      "cod_loja": "75",
+      "cod_marca": "20",
+      "cod_cargo": "200",
+      "comissao_baseline": 524.25,
+      "comissao_simulada": 524.25,
+      "diferenca": 0,
+      "contribuicoes": {}
+    },
+    "MATRIC-422": {
+      "cod_loja": "13",
+      "cod_marca": "10",
+      "cod_cargo": "150",
+      "comissao_baseline": 1065.03,
+      "comissao_simulada": 1597.55,
+      "diferenca": 532.52,
+      "contribuicoes": { "nucleo.percentual": 532.52 }
+    }
+  },
+  "2025-11": {
+    "MATRIC-1": {
+      "cod_loja": "75",
+      "cod_marca": "20",
+      "cod_cargo": "200",
+      "comissao_baseline": 619.63,
+      "comissao_simulada": 1119.63,
+      "diferenca": 500.0,
+      "contribuicoes": { "elem.1": 500.0 }
+    }
+  }
+}

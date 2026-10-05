@@ -111,15 +111,19 @@ O objetivo é permitir identificar quem receberia quanto, onde e quando. “Quan
 
 Guardar agregados por dimensão não permite reconstruir quanto uma pessoa receberia em uma determinada loja e competência. Uma declaração de cobertura por elemento também não prova sozinha que a aritmética da regra está correta.
 
-### Evolução prevista
+### Granularidade e armazenamento decididos
 
-- E9 e a [T-200 C](https://github.com/Titus-System/synapse/issues/187) incluem matrícula e valores absolutos, preservando as quebras de diferença existentes.
-- A necessidade de preservar os dataframes resultantes da simulação faz parte do planejamento.
-- Ainda deve ser confirmado se a consulta exige apenas totais independentes ou linhas que relacionem matrícula, loja e competência. A escolha determina a granularidade e o contrato de persistência; os agregados da T-200 C não resolvem automaticamente esse cruzamento.
-- O worker produz, verifica e persiste os resultados. O codegen ajusta a geração para produzi-los; a API consulta e expõe; o frontend apresenta sem calcular os valores.
-- Dados detalhados ficam no armazenamento, referenciados pelos eventos. Não devem ser enviados integralmente pelo RabbitMQ nem registrados nos logs.
+A [T-256](https://github.com/Titus-System/synapse/issues/261) define uma entrada por competência e matrícula, na granularidade mensal dos arquivos enviados pela DomRock. As vendas cronológicas de uma pessoa ficam consolidadas no mês, sem repetir a matrícula. Cada entrada informa loja, marca, cargo, comissão do baseline congelado, comissão simulada, diferença e contribuições dos elementos com delta diferente de zero. Uma linha não alterada pela regra tem diferença zero e contribuições vazias.
 
-O formato de armazenamento dos dataframes e a consulta dos detalhes serão definidos tecnicamente a partir da granularidade confirmada.
+Loja e marca são as da lotação no RH naquele mês, como no baseline congelado e na decisão “Lotação” de [T-032](../worker/docs/t032-baselines.md). Nas 28 combinações de matrícula e mês com vendas em outra marca ou loja, ou em mais de uma, as vendas ficam consolidadas na linha da lotação. O detalhamento não abre linhas por loja ou marca de venda; o cargo também é o da pessoa no mês.
+
+- A [T-200 C](https://github.com/Titus-System/synapse/issues/187) define os totais absolutos independentes por matrícula, loja e competência, preservando as quebras de diferença. Esses agregados não substituem o cruzamento definido pela T-256.
+- O formato é [`resultado-linhas.schema.json`](../contracts/domain/resultado-linhas.schema.json): objeto indexado por competência e, dentro dela, por matrícula. O worker grava um único `jsonb` em `resultados_simulacao.linhas`, no mesmo `INSERT` do resultado. A coluna é nula fora de `sucesso` e nos resultados anteriores à mudança.
+- A coluna fica fora de `decomposicao` e de `resultado-simulacao` para evitar que a consulta do job carregue cerca de 2.700 combinações de competência e matrícula de cada simulação. `GET /jobs/{id}/simulacoes/{simulacaoId}/linhas` consulta o detalhamento inteiro, sem filtros nem paginação. Sem detalhamento, responde 200 omitindo `linhas`; simulação inexistente ou de outro job responde 404 com `simulacao_nao_encontrada`.
+- O harness monta o detalhamento de `apuracao_simulada` e `contribuicoes`, já devolvidas pelo código gerado; o prompt e o codegen não mudam. O worker confere e persiste, a API consulta e expõe, e o frontend apresenta a diferença já calculada a partir das mesmas parcelas em centavos.
+- A conferência fora do container recusa linhas que não fecham com os totais ou as quebras, com a causa `resultado_incoerente`. Dados detalhados ficam no banco; `simulacao-concluida` mantém suas referências, sem artefatos no RabbitMQ ou nos logs.
+
+A T-258 implementa a migration, a T-259 produz e grava o artefato, a T-260 implementa a rota, a T-262 confere a coerência e as T-261/T-263 entregam a tela. O envelope interno do worker e o limite de 1 MiB do stdout são tratados na T-259.
 
 ## 7. Campanhas, nomes e navegação
 
@@ -159,9 +163,8 @@ A limpeza de checkpoints após o encerramento definitivo usa o evento `job-encer
 
 ## 10. Questões ainda abertas
 
-- **Cliente/PO:** basta consultar totais por dimensão ou é necessário relacionar matrícula, loja e competência na mesma linha?
 - **Dom Rock:** existe evidência adicional que permita relacionar mudanças de comissão com mudanças de vendas por funcionário?
-- **Técnicas:** seleção do provedor de ASR, ordem de implementação dos construtos, desenho da busca de vendas e persistência dos detalhes.
+- **Técnicas:** seleção do provedor de ASR, ordem de implementação dos construtos e desenho da busca de vendas.
 
 As decisões de armazenamento de áudio, modalidade das correções, histórico do chatbot, ausência de limite de tentativas, fallback de nome e inclusão dos construtos já estão tomadas.
 

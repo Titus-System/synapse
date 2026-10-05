@@ -9,6 +9,7 @@ const mensagensPorCodigo: Record<CodigoErro, string> = {
   nao_autenticado: 'Sua sessão não está disponível. Tente novamente.',
   sem_permissao: 'Você não tem permissão para realizar esta ação.',
   job_nao_encontrado: 'Não foi possível encontrar o processamento solicitado.',
+  simulacao_nao_encontrada: 'Não foi possível encontrar a simulação solicitada.',
   estado_invalido: 'Esta ação não está disponível no estado atual do processamento.',
   simulacao_inviavel: 'A simulação foi concluída, mas a regra não cabe no orçamento informado.',
   nucleo_incompleto: 'Preencha os campos obrigatórios da regra antes de continuar.',

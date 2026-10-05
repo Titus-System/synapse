@@ -258,7 +258,13 @@ São sempre diferença, nunca total: somar qualquer quebra dá `totais.diferenca
 
 Zero e ausência dizem coisas diferentes. `2025-08` com zero é um mês que foi simulado e que a regra não afetou. Um elemento com efeito zero permanece representado com zero; ausência de elemento exigido é falha de cobertura, não resultado parcial aceitável.
 
-As chaves de `elemento` são os identificadores definidos em `regras`. Essas quebras são mapas independentes de diferenças: não incluem matrícula, não preservam os dataframes da apuração e não permitem reconstruir linhas de colaborador × loja × competência. A extensão com valores absolutos e o detalhamento estão previstos na Sprint 2.
+As chaves de `elemento` são os identificadores definidos em `regras`. Essas cinco quebras são mapas independentes de diferenças e não permitem reconstruir linhas de colaborador × loja × competência. A T-200 C acrescenta três mapas opcionais de valores absolutos (`matricula`, `loja_absoluto` e `competencia_absoluto`), que também não preservam esse cruzamento.
+
+A coluna `linhas`, definida pela T-256, guarda o detalhamento em um único `jsonb`, indexado por competência e depois por matrícula. Seu formato canônico é [`resultado-linhas.schema.json`](../../contracts/domain/resultado-linhas.schema.json). Há uma entrada por mês e colaborador, com loja, marca e cargo do RH naquele mês, comissões do baseline congelado e da simulação, diferença e contribuições por elemento. Loja e marca são as da lotação: vendas em outras lojas ou marcas são consolidadas nessa mesma entrada.
+
+O worker grava `linhas` no mesmo `INSERT` do resultado, e a API lê o objeto inteiro. A coluna é nula quando o status não é `sucesso` e nos resultados anteriores à mudança, sem backfill. Fica fora de `decomposicao` e de `resultado-simulacao` para não carregar o detalhamento de todas as simulações em `GET /jobs/{id}`. A rota `GET /jobs/{id}/simulacoes/{simulacaoId}/linhas` devolve `DetalhamentoSimulacao` sem filtros nem paginação; quando não há detalhamento, responde 200 omitindo `linhas`. A migration pertence à T-258 e usa as permissões de INSERT do worker e SELECT da API já existentes.
+
+A conferência fora do container (T-262) classifica como `resultado_incoerente` o detalhamento que não fecha com os totais ou as quebras. Essa causa é distinta de `baseline_divergente`, preservando a classificação existente da conferência do baseline congelado.
 
 A coluna `diagnostico` registra por que uma execução terminou em `erro_codigo`. A `causa` é a classificação do worker e está sempre presente. A `falha` é a exceção que o sandbox efetivamente capturou, conservada como veio no envelope.
 
@@ -390,7 +396,7 @@ Campanha é a apresentação de um job com resultado viável. Não há nova tabe
 
 ### Resultados e diagnóstico
 
-E9 acrescenta matrícula e valores absolutos, preservando as quebras atuais de diferença. Preservar os dataframes resultantes também faz parte do planejamento. A granularidade ainda depende de confirmar se são suficientes totais independentes ou se é necessário cruzar matrícula, loja e competência.
+E9 acrescenta matrícula e valores absolutos, preservando as quebras atuais de diferença (T-200 C). A T-256 define o cruzamento por competência e matrícula na coluna `linhas`, com loja e marca da lotação no RH, conforme a seção 1. O contrato e o modelo estão definidos; a migration, a produção, a consulta e a conferência do detalhamento pertencem às T-258, T-259, T-260 e T-262.
 
 O worker escreve o resultado e a API consulta e expõe o conteúdo. O diagnóstico de falhas, gravado pelo worker em todo `erro_codigo`, está descrito em `resultados_simulacao`, na seção 1.
 
@@ -402,7 +408,6 @@ Cadastro e recuperação de senha usam Keycloak. Não exigem armazenamento próp
 
 ## 7. Limites e pontos ainda em aberto
 
-- A granularidade dos resultados e seu formato de armazenamento precisam ser definidos para atender à rastreabilidade pedida.
 - O esquema não contém uma referência explícita na ação de liberação à simulação escolhida. A leitura precisa respeitar a versão e o resultado efetivamente vigentes, sem depender apenas de um timestamp.
 - A publicação dos artefatos do codegen e seus eventos não usa o outbox da API; persistir um artefato não comprova por si só que seu evento foi entregue.
 - Um ciclo pausado à espera de um resultado cuja mensagem ao codegen se perdeu mantém a limpeza do job adiada: pelo checkpoint, o codegen não distingue um resultado ainda na fila de um que não volta.

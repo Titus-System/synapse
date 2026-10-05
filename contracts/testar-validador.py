@@ -517,5 +517,84 @@ class TestarDecomposicao(unittest.TestCase):
         self.assertIn("campo $.competencia_absoluto", resultado.stderr)
 
 
+class TestarResultadoLinhas(unittest.TestCase):
+    def test_rejeita_competencia_fora_de_aaaa_mm(self) -> None:
+        for competencia in ("2025-13", "2025-00", "2025-8", "2025-08-01"):
+            with self.subTest(competencia=competencia):
+
+                def alterar(linhas: Any, competencia: str = competencia) -> None:
+                    linhas[competencia] = linhas.pop("2025-08")
+
+                resultado = validar_com_alteracao("domain/resultado-linhas.json", alterar)
+
+                self.assertNotEqual(resultado.returncode, 0)
+                self.assertIn("domain/resultado-linhas.json: campo $:", resultado.stderr)
+
+    def test_rejeita_linha_sem_campo_obrigatorio(self) -> None:
+        for campo in (
+            "cod_loja", "cod_marca", "cod_cargo", "comissao_baseline",
+            "comissao_simulada", "diferenca", "contribuicoes",
+        ):
+            with self.subTest(campo=campo):
+
+                def alterar(linhas: Any, campo: str = campo) -> None:
+                    del linhas["2025-08"]["MATRIC-1"][campo]
+
+                resultado = validar_com_alteracao("domain/resultado-linhas.json", alterar)
+
+                self.assertNotEqual(resultado.returncode, 0)
+                self.assertIn(f"'{campo}' is a required property", resultado.stderr)
+
+    def test_rejeita_contribuicao_fora_do_espaco_de_identificacao(self) -> None:
+        def alterar(linhas: Any) -> None:
+            linhas["2025-11"]["MATRIC-1"]["contribuicoes"] = {"bonus": 500}
+
+        resultado = validar_com_alteracao("domain/resultado-linhas.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.2025-11.MATRIC-1.contribuicoes", resultado.stderr)
+
+    def test_rejeita_contribuicao_com_delta_zero(self) -> None:
+        def alterar(linhas: Any) -> None:
+            linhas["2025-08"]["MATRIC-1"]["contribuicoes"] = {"elem.1": 0}
+
+        resultado = validar_com_alteracao("domain/resultado-linhas.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.2025-08.MATRIC-1.contribuicoes.elem.1", resultado.stderr)
+
+    def test_rejeita_matricula_vazia(self) -> None:
+        def alterar(linhas: Any) -> None:
+            linhas["2025-08"][""] = linhas["2025-08"].pop("MATRIC-1")
+
+        resultado = validar_com_alteracao("domain/resultado-linhas.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.2025-08", resultado.stderr)
+
+    def test_rejeita_codigo_numerico(self) -> None:
+        for campo in ("cod_loja", "cod_marca", "cod_cargo"):
+            with self.subTest(campo=campo):
+
+                def alterar(linhas: Any, campo: str = campo) -> None:
+                    linhas["2025-08"]["MATRIC-1"][campo] = 75
+
+                resultado = validar_com_alteracao("domain/resultado-linhas.json", alterar)
+
+                self.assertNotEqual(resultado.returncode, 0)
+                self.assertIn(f"campo $.2025-08.MATRIC-1.{campo}", resultado.stderr)
+
+    def test_aceita_reducao_de_comissao(self) -> None:
+        def alterar(linhas: Any) -> None:
+            linha = linhas["2025-11"]["MATRIC-1"]
+            linha["comissao_simulada"] = 119.63
+            linha["diferenca"] = -500
+            linha["contribuicoes"] = {"elem.1": -500}
+
+        resultado = validar_com_alteracao("domain/resultado-linhas.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
