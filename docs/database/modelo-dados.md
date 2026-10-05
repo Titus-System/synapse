@@ -36,7 +36,15 @@ Usuário desativado mantém a linha porque jobs antigos a referenciam. `ativo = 
 
 ### `submissoes`
 
-Uma linha por envio do usuário, com o conteúdo como ele chegou e antes de qualquer processamento. A coluna `tipo` diz se veio de formulário ou de voz e determina qual carga está preenchida: o formulário ocupa `conteudo`, a voz ocupa `binario` e `formato`, e o texto transcrito é gravado na mesma linha quando fica pronto.
+Uma linha por envio do usuário, com o conteúdo como ele chegou e antes de qualquer processamento. A coluna `tipo` diz como o conteúdo chegou e determina qual carga está preenchida:
+
+| `tipo` | Quem grava | Carga |
+| --- | --- | --- |
+| `formulario` | `POST /jobs` | `conteudo` |
+| `texto` | `POST /submissoes`, na entrada inicial e na correção | `transcricao`, com o texto digitado, gravado no envio |
+| `voz` | `POST /submissoes`, na entrada inicial e na correção | `binario` e `formato` no envio, e `transcricao` quando a transcrição fica pronta |
+
+O codegen lê a descrição e a correção sempre em `transcricao`, seja ela digitada ou transcrita.
 
 A coluna `conteudo` tem duas chaves, `nucleo` e `texto_livre`, e o núcleo traz seus cinco campos.
 
@@ -55,9 +63,9 @@ A coluna `conteudo` tem duas chaves, `nucleo` e `texto_livre`, e o núcleo traz 
 
 O núcleo tem esses cinco campos e nenhum outro. Matrícula não está entre eles, aqui nem em `regras.nucleo`, pelo motivo da seção 3; quando a regra precisa mirar pessoas, isso entra em `regras.especificacoes`.
 
-As outras quatro colunas cobrem a submissão por voz. `binario` guarda os bytes do áudio. `formato` diz a extensão do arquivo, com valores como `webm`, `ogg` ou `wav`.
+As outras quatro colunas cobrem as submissões de texto e de voz. `binario` guarda os bytes do áudio. `formato` é o contêiner que o navegador gravou, declarado no `Content-Type` da parte `audio` de `POST /submissoes`: `webm`, `ogg`, `wav` ou `mp4`. `transcricao` guarda o texto, digitado ou transcrito, e `transcrito_em` marca a conclusão da transcrição do áudio.
 
-`conteudo` de um lado e `binario` mais `formato` do outro são mutuamente exclusivos, e `tipo` diz qual par está preenchido.
+`conteudo` de um lado e `binario` mais `formato` do outro são mutuamente exclusivos, e `tipo` diz qual par está preenchido; na submissão de texto, os dois ficam nulos.
 
 Guardar o binário na mesma linha não pesa as leituras que não pedem a coluna. O PostgreSQL move valores grandes para armazenamento externo por TOAST e só os busca quando a coluna é selecionada, de modo que consultar `tipo` ou `criado_em` não arrasta o áudio junto.
 
@@ -191,6 +199,16 @@ A coluna `consumo_tokens` fica nula quando o provedor não devolve essa informa�
 { "tokens_in": 3120, "tokens_out": 480, "custo_usd": 0.0212 }
 ```
 
+### `extracoes_regras`
+
+O artefato imutável produzido pelo codegen ao interpretar uma submissão. `representacao` guarda a regra completa conforme [`representacao-regra.schema.json`](../../contracts/domain/representacao-regra.schema.json); `rebaixamentos` guarda os diagnósticos por elemento conforme [`rebaixamentos-extracao.schema.json`](../../contracts/domain/rebaixamentos-extracao.schema.json). Não é uma versão de `regras`: a API cria essa versão ao consumir a referência do artefato (T-202).
+
+`job_id` e `submissao_id` identificam a extração lógica, com unicidade do par. `resposta_id` aponta a resposta original, que aponta o prompt e seus metadados de modelo. Prompt, resposta e extração são inseridos na mesma transação; a chamada da LLM ocorre antes dela. Uma gravação concorrente perdedora reverte seus três artefatos e retorna a extração vencedora. O repositório não sobrescreve uma extração existente.
+
+O evento `regra-extraida` leva somente `job_id`, `submissao_id` e `extracao_id`. A publicação pertence à T-204: consultar o artefato antes de chamar a LLM, fazer commit antes de publicar e confirmar a entrada somente após a confirmação do broker. Uma reentrega reutiliza o artefato persistido e republica sua referência. O codegen não escreve no outbox da API. Na T-202, a API deve conferir a associação das três referências antes de criar a versão e seu evento no próprio outbox, atomicamente.
+
+A migration `020-cria-extracoes-regras` precede a ativação do fluxo: codegen recebe `SELECT`/`INSERT`, API recebe `SELECT`, worker não recebe acesso; nenhum serviço pode atualizar ou excluir o artefato.
+
 ### `codigos_gerados`
 
 O código Python executável, já extraído da resposta do modelo. A linha aponta a versão da regra que ele traduz e o prompt que o produziu. É o que o worker lê para executar.
@@ -304,9 +322,9 @@ Na implantação, a migration da API vai antes da versão do codegen que consome
 
 ## 2. Quem escreve o quê
 
-A API escreve `usuarios`, `submissoes`, `jobs`, `job_transicoes`, `job_acoes`, `simulacoes`, `trilhas_auditoria` e `outbox_events`. O codegen insere `prompts`, `respostas_modelo`, `codigos_gerados` e `explicacoes`, e registra em `jobs_grafo_encerrados` o encerramento recebido e a conclusão da limpeza; é a única tabela em que tem `UPDATE`, restrito a `limpo_em`. O worker insere só `resultados_simulacao`.
+A API escreve `usuarios`, `submissoes`, `jobs`, `job_transicoes`, `job_acoes`, `simulacoes`, `trilhas_auditoria` e `outbox_events`. O codegen insere `prompts`, `respostas_modelo`, `extracoes_regras`, `codigos_gerados` e `explicacoes`, e registra em `jobs_grafo_encerrados` o encerramento recebido e a conclusão da limpeza; é a única tabela em que tem `UPDATE`, restrito a `limpo_em`. O worker insere só `resultados_simulacao`.
 
-`regras` permite inserção pela API e pelo codegen. O fluxo implementado usa a API para versões submetidas, confirmadas ou propostas na adaptação; a extração inicial pelo codegen ainda precisa ser construída. Nenhum dos dois tem `UPDATE` ou `DELETE`: editar significa inserir uma versão nova encadeada por `regra_origem_id`.
+`regras` ainda permite inserção pela API e pelo codegen nas permissões existentes. O fluxo usa a API para versões submetidas, confirmadas ou propostas na adaptação; na extração inicial, o codegen grava `extracoes_regras` e a API será responsável pela versão (T-202). Nenhum dos dois tem `UPDATE` ou `DELETE`: editar significa inserir uma versão nova encadeada por `regra_origem_id`.
 
 O que impõe isso é a permissão do usuário de banco com que cada serviço conecta, definida nas migrations e portanto ausente do DBML. Quem insere também recebe `SELECT` na mesma tabela, porque o id nasce de `DEFAULT uuidv7()` no servidor e o `INSERT` o lê de volta no próprio comando.
 

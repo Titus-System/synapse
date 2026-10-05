@@ -7,6 +7,8 @@ export type CodigoErro =
   | 'simulacao_inviavel'
   | 'nucleo_incompleto'
   | 'regra_incoerente'
+  | 'audio_invalido'
+  | 'audio_muito_grande'
 
 export interface ElementoErro {
   ref: string
@@ -31,7 +33,7 @@ export type StatusJob =
   | 'arquivado'
   | 'erro'
 
-export type OrigemJob = 'formulario' | 'voz' | 'reprocessamento'
+export type OrigemJob = 'formulario' | 'voz' | 'reprocessamento' | 'texto'
 export type AcaoJob = 'confirmar_liberar' | 'cancelar' | 'salvar' | 'arquivar'
 export type Veredito = 'viavel' | 'inviavel' | 'indeterminado'
 export type StatusResultado = 'sucesso' | 'assercao_violada' | 'erro_codigo' | 'erro_infra'

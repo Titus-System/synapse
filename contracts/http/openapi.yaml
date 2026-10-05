@@ -10,20 +10,24 @@ info:
     encontram na integração.
 
     Nove operações. Oito são sobre o recurso `job`, que é a unidade de trabalho do
-    sistema e o que a `api` possui de ponta a ponta, e uma recebe as submissões
-    feitas durante o job, como a correção enviada pelo chatbot. O ciclo é
-    assíncrono: a criação devolve o job em processamento, o acompanhamento é por
-    stream de eventos e o resultado aparece na consulta do job quando existe.
+    sistema e o que a `api` possui de ponta a ponta, e uma recebe as submissões do
+    usuário: a descrição de uma regra nova, digitada ou falada, e a correção
+    enviada pelo chatbot. O ciclo é assíncrono: a criação devolve o job em
+    processamento, o acompanhamento é por stream de eventos e o resultado aparece
+    na consulta do job quando existe.
 
     **Fluxo de trabalho padrão:** As operações formam um ciclo, não uma lista solta de
     endpoints. Da submissão ao fechamento:
 
     * Job é a entidade que envelopa todo o fluxo de trabalho, desde a validação da regra até o resultado da simulação.
 
-    1. `POST /jobs` submete a regra e cria o job. Na Sprint 1 a regra já nasce
-       validada e estruturada a partir do formulário, então o job entra direto em
-       `gerando_regra`: submissão de formulário não passa por uma etapa
-       intermediária de confirmação do usuário.
+    1. `POST /submissoes`, com `finalidade = entrada_inicial`, recebe a descrição
+       da regra, em texto ou em áudio, com o orçamento e as competências, e cria a
+       submissão e o job que a processa. O job de texto nasce em `gerando_regra`,
+       porque a descrição já está pronta para a extração; o de voz nasce em
+       `aguardando_transcricao`. `POST /jobs` continua recebendo o formulário de
+       campos fixos da Sprint 1, cuja regra já nasce estruturada e cujo job entra
+       direto em `gerando_regra`.
     2. O cliente abre conexão SSE `GET /jobs/{id}/events` logo em seguida. O primeiro
        evento é a fotografia do estado atual; os demais chegam conforme o job avança,
        inclusive o que os próximos passos disparam. A conexão pode cair e ser
@@ -69,9 +73,10 @@ info:
     nem renomeado sem decisão explícita. Nenhum schema fecha o objeto com
     `additionalProperties: false`, e um cliente ignora campo que não conhece.
 
-    **Fora do escopo desta versão.** O upload de áudio, a consulta de
-    auditoria `GET /jobs/{id}/audit` e a rota de autenticação que emite a
-    sessão exigida por `security`. As três entram quando suas tarefas entrarem.
+    **Fora do escopo desta versão.** A consulta de auditoria
+    `GET /jobs/{id}/audit` e a rota de autenticação que emite a sessão exigida por
+    `security`. As duas entram quando suas tarefas entrarem. Nenhuma rota devolve
+    o áudio enviado nem o texto transcrito da entrada inicial.
 
 servers:
   - url: /api
@@ -88,7 +93,7 @@ tags:
   - name: jobs
     description: Criação, acompanhamento, finalização e reprocessamento de jobs de simulação.
   - name: submissoes
-    description: Entradas do usuário registradas durante o job, como a correção enviada pelo chatbot.
+    description: Entradas do usuário, por texto ou voz - a descrição de uma regra nova e a correção enviada pelo chatbot.
 
 paths:
   /jobs:
@@ -357,6 +362,18 @@ paths:
                             marca: { "10": 11788.0 }
                             cargo: { "100": 9200.0, "150": 2588.0 }
                             competencia: { "2025-11": 11788.0 }
+                descricaoEmExtracao:
+                  summary: Descrição em texto recém-enviada, ainda sem regra extraída
+                  value:
+                    id: "a2c4e6f8-0b1d-4e3f-8a5c-7e9b1d3f5a70"
+                    nome: null
+                    status: gerando_regra
+                    origem: texto
+                    competencias: ["2025-11"]
+                    orcamento: 485000.0
+                    criado_em: "2025-11-24T15:10:00Z"
+                    submissao_id: "e1f3a5c7-9b2d-4f6e-8a0c-2d4f6a8c0e19"
+                    regras: []
         "401":
           $ref: "#/components/responses/NaoAutenticado"
         "403":
@@ -798,9 +815,9 @@ paths:
         por esta rota.
 
         Existe no máximo uma rodada aberta, e ela é a última da lista: `pendente`
-        aceita uma correção em `POST /submissoes`; `em_reextracao` é a correção em
-        processamento, e a entrada fica bloqueada até o desfecho. Um job cuja regra
-        nunca teve conflito devolve a lista vazia.
+        aceita uma correção em `POST /submissoes`; `em_transcricao` e
+        `em_reextracao` são a correção em processamento, e a entrada fica bloqueada
+        até o desfecho. Um job cuja regra nunca teve conflito devolve a lista vazia.
       responses:
         "200":
           description: As rodadas do job, da primeira à mais recente.
@@ -848,6 +865,22 @@ paths:
                       regra_resultante_id: null
                       estado: pendente
                       criada_em: "2025-11-24T14:04:41Z"
+                correcaoPorVozEmTranscricao:
+                  summary: Correção falada à espera da transcrição
+                  value:
+                    - id: "5a1c2e3f-4b6d-4e7a-9c8b-0d1e2f3a4b51"
+                      rodada_anterior_id: null
+                      regra_analisada_id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                      conflitos:
+                        - elementos: [nucleo.percentual]
+                          motivo: percentual ausente
+                      correcao:
+                        tipo: voz
+                        texto: null
+                        enviada_em: "2025-11-24T14:03:05Z"
+                      regra_resultante_id: null
+                      estado: em_transcricao
+                      criada_em: "2025-11-24T14:02:40Z"
         "401":
           $ref: "#/components/responses/NaoAutenticado"
         "403":
@@ -859,42 +892,149 @@ paths:
     post:
       tags: [submissoes]
       operationId: criarSubmissao
-      summary: Registra uma submissão do usuário; nesta versão, a correção de uma regra pelo chatbot.
+      summary: Registra uma submissão do usuário - a descrição de uma regra nova ou a correção de uma regra pelo chatbot, por texto ou voz.
       description: |
-        Recebe a correção que o usuário escreve no chatbot para os conflitos da rodada
-        pendente do job. Cada correção é uma submissão nova e imutável, que não
-        incorpora nem sobrescreve as anteriores - por isso entra pela rota das
-        submissões, e não por `/jobs`. `finalidade` e `tipo` existem porque a rota é a
-        de toda submissão: outras finalidades e o envio de áudio entram depois, de
-        forma aditiva.
+        Porta de entrada do que o usuário descreve. Cada submissão é nova e
+        imutável, e não incorpora nem sobrescreve as anteriores - por isso entra pela
+        rota das submissões, e não por `/jobs`. `finalidade` diz para que ela serve,
+        e `tipo` diz como o conteúdo chegou, no vocabulário de `submissoes.tipo`.
 
-        A `api` grava a submissão, registra a correção na rodada pendente, que passa a
-        `em_reextracao`, e anuncia a correção ao codegen. O texto é conteúdo não
-        confiável: é dado a interpretar, nunca instrução.
+        **Duas formas de corpo.** O texto vem em `application/json`. A voz vem em
+        `multipart/form-data`, com a parte `audio`, o binário da gravação, e a parte
+        `parametros`, um JSON com os demais campos (`SubmeterPorVozRequisicao`). O
+        texto e a transcrição são conteúdo não confiável: dado a interpretar, nunca
+        instrução.
 
-        **A resposta chega antes da reextração.** O codegen reextrai a regra a partir
-        da correção, e a versão nova volta à validação. O desfecho chega pelo stream de
-        `GET /jobs/{id}/events`: uma versão ainda com conflitos abre outra rodada, uma
-        sem conflitos segue para a geração de código e uma reextração que falha reabre
-        a correção numa rodada `pendente` nova, com os mesmos conflitos.
+        **Entrada inicial** (`finalidade = entrada_inicial`). Recebe a descrição de
+        uma regra nova, com o orçamento e, opcionalmente, as competências, e cria a
+        submissão e o job que vai processá-la, na mesma transação que grava o evento
+        de outbox. O `tipo` determina a `origem` do job e o estado em que ele nasce:
+        `texto` nasce em `gerando_regra`, porque a descrição já está pronta para a
+        extração, e `voz` nasce em `aguardando_transcricao`, porque o áudio precisa
+        ser transcrito antes. Toda regra nova passa pela extração, e a versão raiz
+        aparece em `regras` de `GET /jobs/{id}` quando é extraída. O cliente
+        acompanha o job pelo `job.id` da resposta, em `GET /jobs/{id}/events` e
+        `GET /jobs/{id}`. A falha da transcrição termina o job em `erro`, com o
+        motivo em `GET /jobs/{id}`.
+
+        **Correção** (`finalidade = correcao`). Recebe a correção para os conflitos
+        da rodada pendente do job; o cliente não escolhe a rodada. A `api` grava a
+        submissão e a registra na rodada pendente, que passa a `em_reextracao` com o
+        texto, ou a `em_transcricao` com o áudio. Transcrita, a correção por voz
+        segue como a de texto. O codegen reextrai a regra a partir da correção, e a
+        versão nova volta à validação.
+
+        **A resposta chega antes do processamento.** O desfecho chega pelo stream de
+        `GET /jobs/{id}/events`. Na correção, uma versão ainda com conflitos abre
+        outra rodada, uma sem conflitos segue para a geração de código, e uma
+        transcrição ou reextração que falha fecha a rodada como `reextracao_falhou`
+        e reabre a correção numa rodada `pendente` nova, com os mesmos conflitos.
+
+        **A voz depende da transcrição habilitada no ambiente.** Sem ela,
+        `tipo = voz` é recusado com `estado_invalido` nas duas finalidades, e o
+        texto continua aceito.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/SubmeterCorrecaoRequisicao"
+              oneOf:
+                - $ref: "#/components/schemas/SubmeterEntradaPorTextoRequisicao"
+                - $ref: "#/components/schemas/SubmeterCorrecaoRequisicao"
+              discriminator:
+                propertyName: finalidade
+                mapping:
+                  entrada_inicial: "#/components/schemas/SubmeterEntradaPorTextoRequisicao"
+                  correcao: "#/components/schemas/SubmeterCorrecaoRequisicao"
+            examples:
+              entradaPorTexto:
+                summary: Descrição de uma regra nova, digitada
+                value:
+                  finalidade: entrada_inicial
+                  tipo: texto
+                  texto: >-
+                    Comissão de 2,5% sobre as vendas para os cargos 100 e 300 das
+                    marcas 10 e 20 em novembro de 2025, exceto na loja 58. No dia do
+                    aniversário da loja, a comissão dobra.
+                  orcamento: 485000.0
+                  competencias: ["2025-11"]
+              correcaoPorTexto:
+                summary: Correção digitada no chatbot
+                value:
+                  finalidade: correcao
+                  tipo: texto
+                  job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                  texto: A loja 13 fica na regra; a exclusão vale só para a loja 58.
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/SubmeterPorVozRequisicao"
+            encoding:
+              audio:
+                contentType: audio/webm, audio/ogg, audio/wav, audio/mp4
+              parametros:
+                contentType: application/json
+            examples:
+              entradaPorVoz:
+                summary: Descrição de uma regra nova, falada
+                description: |
+                  `audio` representa os bytes da gravação, enviados na parte com o
+                  `Content-Type` do formato gravado, como `audio/webm;codecs=opus`.
+                value:
+                  audio: "<bytes da gravação>"
+                  parametros:
+                    finalidade: entrada_inicial
+                    tipo: voz
+                    orcamento: 485000.0
+                    competencias: ["2025-11"]
+              correcaoPorVoz:
+                summary: Correção falada no chatbot
+                description: |
+                  `audio` representa os bytes da gravação, enviados na parte com o
+                  `Content-Type` do formato gravado, como `audio/mp4`.
+                value:
+                  audio: "<bytes da gravação>"
+                  parametros:
+                    finalidade: correcao
+                    tipo: voz
+                    job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
       responses:
         "201":
           description: |
-            Correção registrada. O corpo é a submissão criada, com o job no estado em
-            que ficou e a rodada que recebeu a correção, já em `em_reextracao`. O job
-            permanece em `aguardando_confirmacao_parametros` enquanto a correção é
-            reextraída.
+            Submissão registrada. O corpo é a submissão criada, com o job no estado
+            em que ficou depois dela.
+
+            Na entrada inicial, o job é o que acabou de ser criado, em
+            `gerando_regra` para texto ou em `aguardando_transcricao` para voz, e não
+            há `rodada`.
+
+            Na correção, o job permanece em `aguardando_confirmacao_parametros`
+            enquanto a correção é processada, e `rodada` é a rodada que a recebeu, já
+            em `em_reextracao` com o texto ou em `em_transcricao` com o áudio.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SubmissaoCriada"
               examples:
+                entradaPorTexto:
+                  summary: Descrição em texto registrada, extração em curso
+                  value:
+                    id: "e1f3a5c7-9b2d-4f6e-8a0c-2d4f6a8c0e19"
+                    tipo: texto
+                    finalidade: entrada_inicial
+                    criado_em: "2025-11-24T15:10:00Z"
+                    job:
+                      id: "a2c4e6f8-0b1d-4e3f-8a5c-7e9b1d3f5a70"
+                      status: gerando_regra
+                entradaPorVoz:
+                  summary: Descrição falada registrada, à espera da transcrição
+                  value:
+                    id: "f2a4b6c8-0d1e-4f3a-9b5c-3e5a7b9c1d2a"
+                    tipo: voz
+                    finalidade: entrada_inicial
+                    criado_em: "2025-11-24T15:12:00Z"
+                    job:
+                      id: "b3d5f7a9-1c2e-4a4b-8c6d-4f6b8d0e2f3b"
+                      status: aguardando_transcricao
                 correcaoRegistrada:
                   summary: Correção registrada, reextração em curso
                   value:
@@ -918,10 +1058,40 @@ paths:
                       regra_resultante_id: null
                       estado: em_reextracao
                       criada_em: "2025-11-24T14:04:41Z"
+                correcaoPorVoz:
+                  summary: Correção falada registrada, à espera da transcrição
+                  value:
+                    id: "c9e1a3b5-7d8f-4c0a-9e2b-4b6d8f0a2c95"
+                    tipo: voz
+                    finalidade: correcao
+                    criado_em: "2025-11-24T14:05:10Z"
+                    job:
+                      id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                      status: aguardando_confirmacao_parametros
+                    rodada:
+                      id: "7c3e4a5b-6d8f-4a9c-9eab-2f3a4b5c6d73"
+                      rodada_anterior_id: "6b2d3f4a-5c7e-4f8b-8d9c-1e2f3a4b5c62"
+                      regra_analisada_id: "1f2e3d4c-5b6a-4978-8d7c-6e5f4a3b2c1d"
+                      conflitos:
+                        - elementos: [nucleo.loja, elem.2]
+                          motivo: loja 13 no núcleo e na exclusão
+                      correcao:
+                        tipo: voz
+                        texto: null
+                        enviada_em: "2025-11-24T14:05:10Z"
+                      regra_resultante_id: null
+                      estado: em_transcricao
+                      criada_em: "2025-11-24T14:04:41Z"
         "400":
           description: |
-            O corpo não tem a forma esperada. Inclui o texto da correção vazio, só com
-            espaços ou com mais de 4000 caracteres.
+            O corpo não tem a forma esperada. Inclui:
+
+            - o texto vazio, só com espaços ou acima do limite: 8000 caracteres na
+              entrada inicial e 4000 na correção;
+            - a submissão de texto sem `texto`, e a entrada inicial sem `orcamento`
+              ou com competência inválida;
+            - o corpo multipart sem a parte `audio` ou sem a parte `parametros`, ou
+              com `parametros` fora da forma esperada.
           content:
             application/json:
               schema:
@@ -937,6 +1107,16 @@ paths:
                   value:
                     codigo: requisicao_invalida
                     mensagem: A correção pode ter no máximo 4000 caracteres.
+                descricaoLonga:
+                  summary: Descrição da regra acima do limite
+                  value:
+                    codigo: requisicao_invalida
+                    mensagem: A descrição da regra pode ter no máximo 8000 caracteres.
+                semAudio:
+                  summary: Envio por voz sem a gravação
+                  value:
+                    codigo: requisicao_invalida
+                    mensagem: Grave o áudio antes de enviar.
         "401":
           $ref: "#/components/responses/NaoAutenticado"
         "403":
@@ -945,10 +1125,11 @@ paths:
           $ref: "#/components/responses/JobNaoEncontrado"
         "409":
           description: |
-            O job não aceita correção agora: não está em
-            `aguardando_confirmacao_parametros` ou não tem rodada `pendente`. O
+            A submissão não pode ser aceita agora. Na correção, o job não está em
+            `aguardando_confirmacao_parametros` ou não tem rodada `pendente`; o
             segundo caso inclui a correção enviada enquanto a anterior ainda está em
-            reextração.
+            transcrição ou em reextração. Nas duas finalidades, `tipo = voz` é
+            recusado enquanto a transcrição não está habilitada no ambiente.
           content:
             application/json:
               schema:
@@ -964,6 +1145,39 @@ paths:
                   value:
                     codigo: estado_invalido
                     mensagem: A correção anterior ainda está sendo processada.
+                vozIndisponivel:
+                  summary: Envio por voz com a transcrição desabilitada
+                  value:
+                    codigo: estado_invalido
+                    mensagem: O envio por voz não está disponível no momento. Envie o texto.
+        "413":
+          description: |
+            O áudio passa de 5 MB. A `api` responde com este corpo também quando
+            recusa a requisição multipart inteira pelo tamanho, para que a recusa
+            sempre chegue com o código.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                audioMuitoGrande:
+                  value:
+                    codigo: audio_muito_grande
+                    mensagem: A gravação passa do tamanho máximo de 5 MB.
+        "422":
+          description: |
+            O áudio não pode ser usado: está vazio, o `Content-Type` da parte `audio`
+            não é um dos formatos aceitos ou o conteúdo não confere com o formato
+            declarado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                audioInvalido:
+                  value:
+                    codigo: audio_invalido
+                    mensagem: Não foi possível usar a gravação. Grave o áudio de novo.
 
 components:
   securitySchemes:
@@ -1083,8 +1297,10 @@ components:
         Vocabulário de recusa. Cada código tem um status HTTP próprio, e dois motivos
         diferentes nunca compartilham código: `nucleo_incompleto` é dado da regra
         faltando na entrada, `simulacao_inviavel` é regra completa e coerente cujo
-        custo não cabe no orçamento. Vocabulário aberto a valores novos, sempre de
-        forma aditiva.
+        custo não cabe no orçamento. `audio_muito_grande` (413) é o áudio acima do
+        tamanho máximo, e `audio_invalido` (422) é o áudio vazio, em formato não
+        aceito ou com conteúdo que não confere com o formato. Vocabulário aberto a
+        valores novos, sempre de forma aditiva.
       enum:
         - requisicao_invalida
         - nao_autenticado
@@ -1094,6 +1310,8 @@ components:
         - simulacao_inviavel
         - nucleo_incompleto
         - regra_incoerente
+        - audio_invalido
+        - audio_muito_grande
 
     StatusJob:
       type: string
@@ -1120,10 +1338,11 @@ components:
       title: Origem do job
       description: |
         Como o job nasceu, no mesmo vocabulário de `contracts/events/regra-submetida`.
-        É o que determina o ponto de entrada do grafo. Na Sprint 1 apenas `formulario`
-        é aceito em `POST /jobs`; `reprocessamento` é produzido por
-        `POST /jobs/{id}/reprocessar` e `voz`.
-      enum: [formulario, voz, reprocessamento]
+        É o que determina o ponto de entrada do grafo. `formulario` é o único valor
+        aceito em `POST /jobs`. `texto` e `voz` nascem de `POST /submissoes` com
+        `finalidade = entrada_inicial`, conforme o `tipo` da submissão.
+        `reprocessamento` é produzido por `POST /jobs/{id}/reprocessar`.
+      enum: [formulario, voz, reprocessamento, texto]
 
     AcaoJob:
       type: string
@@ -1135,18 +1354,21 @@ components:
       type: string
       title: Finalidade da submissão
       description: |
-        Para que serve a submissão. Nesta versão, só `correcao`: a correção de uma
+        Para que serve a submissão. `entrada_inicial` é a descrição de uma regra
+        nova, que cria o job que vai processá-la; `correcao` é a correção de uma
         regra enviada pelo chatbot durante o loop de correção. Vocabulário aberto a
         valores novos, sempre de forma aditiva.
-      enum: [correcao]
+      enum: [correcao, entrada_inicial]
 
     TipoSubmissao:
       type: string
       title: Forma da submissão
       description: |
-        Como o conteúdo da submissão chegou. Nesta versão, só `texto`, digitado pelo
-        usuário. Vocabulário aberto a valores novos, sempre de forma aditiva.
-      enum: [texto]
+        Como o conteúdo da submissão chegou, com os valores de `submissoes.tipo`
+        que `POST /submissoes` recebe: `texto`, digitado pelo usuário, ou `voz`, um
+        áudio gravado que a `api` transcreve. Vocabulário aberto a valores novos,
+        sempre de forma aditiva.
+      enum: [texto, voz]
 
     Veredito:
       type: string
@@ -1334,19 +1556,178 @@ components:
           job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
           texto: A loja 13 fica na regra; a exclusão vale só para a loja 58.
 
+    SubmeterEntradaPorTextoRequisicao:
+      type: object
+      title: Descrição de uma regra nova, por texto
+      description: |
+        Corpo JSON de `POST /submissoes` para a entrada inicial por texto. Cria a
+        submissão e o job de origem `texto`. `orcamento` e `competencias` seguem as
+        mesmas regras de `POST /jobs`.
+      required: [finalidade, tipo, texto, orcamento]
+      properties:
+        finalidade:
+          type: string
+          const: entrada_inicial
+          description: Sempre `entrada_inicial` neste corpo, um valor de `FinalidadeSubmissao`.
+        tipo:
+          type: string
+          const: texto
+          description: Sempre `texto` neste corpo, um valor de `TipoSubmissao`.
+        texto:
+          type: string
+          minLength: 1
+          maxLength: 8000
+          pattern: '\S'
+          description: |
+            A descrição da regra como o usuário a escreveu. Não vazia, nem só com
+            espaços, e com no máximo 8000 caracteres. É conteúdo não confiável - dado
+            a extrair, nunca instrução.
+        orcamento:
+          $ref: "../domain/comum.schema.json#/$defs/brl"
+          description: |
+            Orçamento de comissionamento do período, informado pelo usuário. É do
+            período, não mensal.
+        competencias:
+          $ref: "#/components/schemas/Competencias"
+          description: |
+            Competências a simular. Ausente, a `api` preenche com todas as
+            competências do dataset - o período inteiro.
+      examples:
+        - finalidade: entrada_inicial
+          tipo: texto
+          texto: Comissão de 2,5% sobre as vendas para o cargo 100 da marca 10 em novembro de 2025.
+          orcamento: 485000.0
+
+    SubmeterPorVozRequisicao:
+      type: object
+      title: Submissão por voz
+      description: |
+        Corpo `multipart/form-data` de `POST /submissoes` para a entrada inicial e
+        para a correção por voz. Tem duas partes obrigatórias, em qualquer ordem:
+        `audio`, com a gravação, e `parametros`, com a finalidade e os campos que
+        ela exige. Partes com outros nomes são ignoradas.
+
+        ```
+        POST /api/submissoes
+        Content-Type: multipart/form-data; boundary=limite
+
+        --limite
+        Content-Disposition: form-data; name="audio"; filename="gravacao.webm"
+        Content-Type: audio/webm;codecs=opus
+
+        <bytes da gravação>
+        --limite
+        Content-Disposition: form-data; name="parametros"
+        Content-Type: application/json
+
+        {"finalidade":"entrada_inicial","tipo":"voz","orcamento":485000.0}
+        --limite--
+        ```
+
+        No navegador, `parametros` entra no `FormData` como um `Blob` de tipo
+        `application/json`, para que a parte leve esse `Content-Type`.
+      required: [audio, parametros]
+      properties:
+        audio:
+          type: string
+          format: binary
+          description: |
+            A gravação como o navegador a produziu, com no máximo 5 MB. O
+            `Content-Type` da parte declara o contêiner, que a `api` registra em
+            `submissoes.formato`: `audio/webm`, `audio/ogg`, `audio/wav` ou
+            `audio/mp4`, com parâmetros como `codecs` aceitos. O nome do arquivo é
+            ignorado. A `api` recusa com `audio_invalido` o áudio vazio, o formato
+            fora dessa lista e o conteúdo que não confere com o formato declarado, e
+            com `audio_muito_grande` o que passa de 5 MB. A duração máxima de
+            gravação, 3 minutos, é imposta pelo cliente, porque a `api` não
+            decodifica o áudio.
+        parametros:
+          oneOf:
+            - $ref: "#/components/schemas/ParametrosEntradaPorVoz"
+            - $ref: "#/components/schemas/ParametrosCorrecaoPorVoz"
+          discriminator:
+            propertyName: finalidade
+            mapping:
+              entrada_inicial: "#/components/schemas/ParametrosEntradaPorVoz"
+              correcao: "#/components/schemas/ParametrosCorrecaoPorVoz"
+          description: |
+            Objeto JSON, na parte com `Content-Type: application/json`. A
+            `finalidade` decide os demais campos: a entrada inicial leva `orcamento`
+            e, opcionalmente, `competencias`; a correção leva `job_id`.
+
+    ParametrosEntradaPorVoz:
+      type: object
+      title: Parâmetros da descrição de uma regra nova, por voz
+      description: |
+        Parte `parametros` de `POST /submissoes` para a entrada inicial por voz. Cria
+        a submissão e o job de origem `voz`. `orcamento` e `competencias` seguem as
+        mesmas regras de `POST /jobs`.
+      required: [finalidade, tipo, orcamento]
+      properties:
+        finalidade:
+          type: string
+          const: entrada_inicial
+          description: Sempre `entrada_inicial` nestes parâmetros, um valor de `FinalidadeSubmissao`.
+        tipo:
+          type: string
+          const: voz
+          description: Sempre `voz` nestes parâmetros, um valor de `TipoSubmissao`.
+        orcamento:
+          $ref: "../domain/comum.schema.json#/$defs/brl"
+          description: |
+            Orçamento de comissionamento do período, informado pelo usuário. É do
+            período, não mensal.
+        competencias:
+          $ref: "#/components/schemas/Competencias"
+          description: |
+            Competências a simular. Ausente, a `api` preenche com todas as
+            competências do dataset - o período inteiro.
+      examples:
+        - finalidade: entrada_inicial
+          tipo: voz
+          orcamento: 485000.0
+          competencias: ["2025-11"]
+
+    ParametrosCorrecaoPorVoz:
+      type: object
+      title: Parâmetros da correção por voz
+      description: |
+        Parte `parametros` de `POST /submissoes` para a correção por voz. A correção
+        vale para a rodada pendente do job; o cliente não escolhe a rodada.
+      required: [finalidade, tipo, job_id]
+      properties:
+        finalidade:
+          type: string
+          const: correcao
+          description: Sempre `correcao` nestes parâmetros, um valor de `FinalidadeSubmissao`.
+        tipo:
+          type: string
+          const: voz
+          description: Sempre `voz` nestes parâmetros, um valor de `TipoSubmissao`.
+        job_id:
+          type: string
+          format: uuid
+          description: |
+            Job cuja regra está sendo corrigida. Vai nos parâmetros, e não no
+            caminho, porque a rota é a das submissões.
+      examples:
+        - finalidade: correcao
+          tipo: voz
+          job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+
     SubmissaoCriada:
       type: object
       title: Submissão criada
       description: |
         Resposta de `POST /submissoes`. Identifica a submissão gravada e devolve o que
-        o chatbot precisa para seguir sem outra consulta: o estado do job e a rodada
-        que recebeu a correção.
+        o cliente precisa para seguir sem outra consulta: o job, no estado em que
+        ficou, e, na correção, a rodada que a recebeu.
       required: [id, tipo, finalidade, criado_em, job]
       properties:
         id:
           type: string
           format: uuid
-          description: A submissão gravada. Cada correção é uma submissão nova e imutável.
+          description: A submissão gravada. Cada submissão é nova e imutável.
         tipo:
           $ref: "#/components/schemas/TipoSubmissao"
         finalidade:
@@ -1356,7 +1737,10 @@ components:
           format: date-time
         job:
           type: object
-          description: O job a que a submissão pertence, no estado em que ficou depois dela.
+          description: |
+            O job a que a submissão pertence, no estado em que ficou depois dela. Na
+            entrada inicial é o job criado com a submissão, e o cliente o acompanha
+            pelo `id` nas rotas de `/jobs`.
           required: [id, status]
           properties:
             id:
@@ -1367,8 +1751,10 @@ components:
         rodada:
           $ref: "#/components/schemas/Rodada"
           description: |
-            A rodada que recebeu a correção, já em `em_reextracao` e com `correcao`
-            preenchida. Presente sempre que a finalidade é `correcao`.
+            A rodada que recebeu a correção, com `correcao` preenchida: em
+            `em_reextracao` quando a correção é por texto e em `em_transcricao`
+            quando é por voz. Presente sempre que a finalidade é `correcao`, e
+            ausente na entrada inicial.
       allOf:
         - if:
             properties:
@@ -1496,8 +1882,10 @@ components:
             chegam aqui distinguidos. Ausente fora de paradas.
         regras:
           type: array
-          minItems: 1
-          description: Todas as versões da regra do job, ordenadas por versão crescente.
+          description: |
+            Todas as versões da regra do job, ordenadas por versão crescente. Vazia
+            enquanto nenhuma versão foi formada, como no job de texto ou de voz antes
+            da extração.
           items:
             $ref: "#/components/schemas/RegraVersionada"
         simulacao:
@@ -1544,18 +1932,22 @@ components:
 
         - `pendente`: aberta, à espera da correção do usuário. É o único estado em que
           `POST /submissoes` aceita uma correção.
+        - `em_transcricao`: aberta, com a correção enviada por voz e a `api`
+          transcrevendo o áudio. A entrada fica bloqueada até o desfecho; transcrita,
+          a rodada passa a `em_reextracao`.
         - `em_reextracao`: aberta, com a correção enviada e o codegen reextraindo a
           regra a partir dela. A entrada fica bloqueada até o desfecho.
-        - `reextracao_falhou`: fechada, porque o codegen não conseguiu reextrair a
-          correção. A `api` abre em seguida uma rodada `pendente` nova, encadeada e com
-          os mesmos conflitos, para que o usuário tente de novo.
+        - `reextracao_falhou`: fechada, porque a correção não chegou a uma versão: a
+          transcrição do áudio falhou ou o codegen não conseguiu reextrair a regra. A
+          `api` abre em seguida uma rodada `pendente` nova, encadeada e com os mesmos
+          conflitos, para que o usuário tente de novo.
         - `corrigida`: fechada, com a correção transformada na versão
           `regra_resultante_id`. Essa versão volta à validação; se ainda tiver
           conflitos, abre outra rodada.
         - `abandonada`: fechada sem que a correção chegasse a uma versão nova, porque o
           job deixou o loop por outro caminho, como o cancelamento. Sair da tela não
           abandona a rodada.
-      enum: [pendente, em_reextracao, reextracao_falhou, corrigida, abandonada]
+      enum: [pendente, em_reextracao, reextracao_falhou, corrigida, abandonada, em_transcricao]
 
     Rodada:
       type: object
@@ -1601,13 +1993,32 @@ components:
             numa rodada abandonada antes da correção.
           required: [texto, enviada_em]
           properties:
+            tipo:
+              $ref: "#/components/schemas/TipoSubmissao"
+              description: |
+                Como a correção chegou. Opcional para compatibilidade; ausente, a
+                correção é por texto.
             texto:
-              type: string
+              type: [string, "null"]
               minLength: 1
-              description: O texto da correção, como foi enviado.
+              description: |
+                O texto da correção: o que o usuário escreveu ou, na correção por voz,
+                a transcrição do áudio. Nulo enquanto a transcrição não existe,
+                inclusive depois de ela falhar; só a correção por voz tem texto nulo.
             enviada_em:
               type: string
               format: date-time
+          allOf:
+            - if:
+                properties:
+                  texto:
+                    type: "null"
+                required: [texto]
+              then:
+                properties:
+                  tipo:
+                    const: voz
+                required: [tipo]
         regra_resultante_id:
           type: [string, "null"]
           format: uuid

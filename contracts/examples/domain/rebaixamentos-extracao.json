@@ -1,0 +1,4 @@
+[
+  {"ref": "elem.1", "construto_pretendido": "bonus_fixo", "motivo": "construto_nao_habilitado"},
+  {"ref": "elem.2", "motivo": "campo_obrigatorio_ausente"}
+]

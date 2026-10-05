@@ -13,6 +13,8 @@ const mensagensPorCodigo: Record<CodigoErro, string> = {
   simulacao_inviavel: 'A simulação foi concluída, mas a regra não cabe no orçamento informado.',
   nucleo_incompleto: 'Preencha os campos obrigatórios da regra antes de continuar.',
   regra_incoerente: 'Existem informações conflitantes na regra. Revise os campos indicados.',
+  audio_invalido: 'Não foi possível usar a gravação. Grave o áudio novamente.',
+  audio_muito_grande: 'A gravação ficou grande demais. Grave um áudio mais curto.',
 }
 
 const nomesDeCampo: Record<string, string> = {

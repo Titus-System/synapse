@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/rebaixamentos-extracao.schema.json",
+  "title": "Rebaixamentos da extração",
+  "description": "Coluna extracoes_regras.rebaixamentos. Diagnósticos da montagem determinística, separados da representação da regra. Não são conteúdo de evento.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["ref", "motivo"],
+    "properties": {
+      "ref": {"type": "string", "pattern": "^elem\\.[1-9][0-9]*$"},
+      "construto_pretendido": {"type": "string", "minLength": 1, "description": "Ausente quando o rascunho não informa um construto utilizável."},
+      "motivo": {"type": "string", "enum": ["construto_nao_habilitado", "campo_obrigatorio_ausente"]}
+    },
+    "additionalProperties": false
+  },
+  "examples": [[{"ref": "elem.1", "construto_pretendido": "bonus_fixo", "motivo": "construto_nao_habilitado"}]]
+}

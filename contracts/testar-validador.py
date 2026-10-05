@@ -339,6 +339,27 @@ class TestarConflitosDaRodada(unittest.TestCase):
         self.assertIn("campo $[1].motivo", resultado.stderr)
 
 
+class TestarRegraSubmetida(unittest.TestCase):
+    def test_rejeita_origem_texto_sem_submissao(self) -> None:
+        # O texto da descrição só é alcançável pela submissão (claim-check).
+        def alterar(evento: Any) -> None:
+            del evento["submissao_id"]
+
+        resultado = validar_com_alteracao("events/regra-submetida-texto.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("events/regra-submetida-texto.json", resultado.stderr)
+        self.assertIn("'submissao_id' is a required property", resultado.stderr)
+
+    def test_aceita_origem_texto_republicada_com_a_versao_extraida(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["regra_id"] = "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+
+        resultado = validar_com_alteracao("events/regra-submetida-texto.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+
 class TestarParametrosConfirmados(unittest.TestCase):
     def test_aceita_evento_sem_competencias_e_sem_orcamento(self) -> None:
         # Os campos são aditivos: uma mensagem publicada antes deles continua válida.
@@ -437,24 +458,33 @@ class TestarRegraExtraida(unittest.TestCase):
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn("'submissao_id' is a required property", resultado.stderr)
 
-    def test_rejeita_extracao_sem_representacao(self) -> None:
+    def test_rejeita_extracao_sem_referencia(self) -> None:
         def alterar(evento: Any) -> None:
-            del evento["representacao"]
+            evento.pop("extracao_id", None)
 
         resultado = validar_com_alteracao("events/regra-extraida.json", alterar)
 
         self.assertNotEqual(resultado.returncode, 0)
-        self.assertIn("'representacao' is a required property", resultado.stderr)
+        self.assertIn("'extracao_id' is a required property", resultado.stderr)
 
-    def test_rejeita_elemento_sem_ref(self) -> None:
+    def test_rejeita_conteudo_mesmo_com_referencia(self) -> None:
         def alterar(evento: Any) -> None:
-            del evento["representacao"]["especificacoes"][0]["ref"]
+            evento["extracao_id"] = "2d963df3-e310-5d11-bf21-36918cae4ce4"
+            evento["representacao"] = {"nucleo": {}, "especificacoes": []}
 
         resultado = validar_com_alteracao("events/regra-extraida.json", alterar)
 
         self.assertNotEqual(resultado.returncode, 0)
-        self.assertIn("campo $.representacao.especificacoes[0]", resultado.stderr)
-        self.assertIn("'ref' is a required property", resultado.stderr)
+        self.assertIn("False schema", resultado.stderr)
+
+    def test_rejeita_referencia_invalida(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["extracao_id"] = "invalido"
+
+        resultado = validar_com_alteracao("events/regra-extraida.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.extracao_id", resultado.stderr)
 
 
 class TestarDecomposicao(unittest.TestCase):

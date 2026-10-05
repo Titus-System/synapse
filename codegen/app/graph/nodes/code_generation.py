@@ -15,6 +15,7 @@ from app.graph.core.llm.registry import get_model, get_model_metadata
 from app.graph.core.state import AgentState
 from app.prompts.geracao_codigo import montar_prompt_geracao
 from app.representacao_regra import RepresentacaoRegra
+from app.resposta_modelo import extrair_resposta
 
 logger = get_logger("app.graph.nodes.code_generation")
 
@@ -52,7 +53,7 @@ async def code_generation(state: AgentState, config: RunnableConfig) -> AgentSta
     try:
         model = get_model("code_generation")
         response = await model.ainvoke([HumanMessage(content=prompt)])
-        content, finish_reason = _extract_response(response)
+        content, finish_reason = extrair_resposta(response)
 
         if not content or finish_reason != _FINISH_REASON_ACEITO:
             logger.error(
@@ -74,31 +75,6 @@ async def code_generation(state: AgentState, config: RunnableConfig) -> AgentSta
         return update
     finally:
         no_ctx.reset(token)
-
-
-def _extract_response(response: BaseMessage) -> tuple[str, str | None]:
-    content = _text_content(response.content)
-    metadata = response.response_metadata or {}
-    finish_reason = metadata.get("finish_reason")
-    return content, finish_reason
-
-
-def _text_content(content: object) -> str:
-    # `AIMessage.content` is `str | list[str | dict]`. Some providers (observed: Gemini,
-    # via langchain_google_genai) return a list of content-part dicts even for a plain text
-    # reply, e.g. `[{"type": "text", "text": "...", "extras": {...}}]` - a bare `isinstance`
-    # check against `str` silently treats every one of those replies as empty.
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        partes = []
-        for item in content:
-            if isinstance(item, str):
-                partes.append(item)
-            elif isinstance(item, dict) and item.get("type") == "text":
-                partes.append(str(item.get("text", "")))
-        return "".join(partes)
-    return ""
 
 
 def _token_usage(response: BaseMessage) -> dict[str, Any] | None:

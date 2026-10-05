@@ -19,12 +19,14 @@ Os épicos e as tarefas publicados no [projeto da Sprint 2](https://github.com/o
 
 A Sprint 2 cobre a regra inteira descrita pelo usuário, com núcleo e todas as particularidades suportadas pelos dados. Todos os construtos estão no escopo. A integração inicial usa núcleo mais `generico`; essa sequência não exclui os outros construtos da entrega.
 
-1. O usuário envia texto ou áudio.
-2. A API registra a submissão original e acompanha o job. Quando houver áudio, chama o provedor de transcrição e persiste o texto.
+1. O usuário descreve a regra em texto ou áudio, com o orçamento e o período, e o frontend a envia por `POST /submissoes` com `finalidade = entrada_inicial`.
+2. A API registra a submissão original e cria o job que a processa. Quando houver áudio, chama o provedor de transcrição e persiste o texto.
 3. O codegen lê o texto persistido e extrai uma representação completa.
 4. A regra extraída passa por validação de domínio e de consistência.
 5. Sem problemas apontados, o fluxo segue automaticamente para geração de código e simulação.
 6. Havendo elementos incompletos, incoerentes ou não processáveis, o usuário é encaminhado ao chatbot para corrigir a regra.
+
+A submissão é um recurso próprio, do domínio `submissoes` da API, e substitui o formulário como porta de entrada da regra. `POST /submissoes` cria a submissão e o job juntos e devolve o job, que o frontend acompanha pelas rotas de `/jobs`. O texto vem em JSON e a voz em `multipart/form-data`, com a parte `audio` e a parte `parametros`. O job de texto nasce em `gerando_regra` com origem `texto`; o de voz nasce em `aguardando_transcricao` com origem `voz`. Nos dois casos o codegen lê a descrição em `submissoes.transcricao`. `POST /jobs` continua aceitando o formulário, que o frontend deixa de usar. O contrato está definido pela T-230.
 
 O chatbot é uma interface de correção orientada pelos problemas encontrados. Não é uma conversa aberta nem uma tela obrigatória de confirmação de toda regra.
 
@@ -72,6 +74,8 @@ A API é responsável por chamar o provedor de ASR. O codegen consome somente o 
 A tabela `submissoes` já contém `binario`, `formato`, `transcricao` e `transcrito_em`. A permissão de leitura do codegen já existe. Essa estrutura atende ao armazenamento de áudio e transcrição, sem uma migration nova para esses campos.
 
 A entrada inicial e as correções por voz usam a mesma infraestrutura de captura, armazenamento e transcrição. Cada áudio de correção pertence à sua própria submissão, vinculada à rodada correspondente. A submissão inicial permanece identificável.
+
+O contrato da voz está definido pela T-230. As duas finalidades usam `POST /submissoes` em `multipart/form-data`. O áudio tem até 5 MB, no contêiner que o navegador grava (`webm`, `ogg`, `wav` ou `mp4`), e a duração de 3 minutos é limitada pelo frontend, porque a API não decodifica o áudio. A rodada de uma correção por voz fica em `em_transcricao` até o áudio ser transcrito e depois segue como a correção por texto. A falha da transcrição termina em `erro` o job da entrada inicial; na correção, fecha a rodada como `reextracao_falhou` e abre uma pendente nova. Enquanto a transcrição não está habilitada no ambiente, a API recusa a voz com `estado_invalido`, e o texto continua aceito. Nenhuma rota devolve o áudio nem o texto transcrito da entrada inicial.
 
 O estado `aguardando_transcricao` já existe no contrato HTTP e precisa ser incluído no enum e nas transições da API como parte de E4. O áudio é persistido antes da chamada ao provedor; a disponibilidade da transcrição é anunciada somente depois da gravação do texto. Uma chamada externa não deve manter aberta a transação que grava o job e seu evento.
 

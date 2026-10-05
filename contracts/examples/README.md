@@ -24,7 +24,8 @@ Como todo `contracts/`, isto é insumo de build e nunca dependência de runtime.
 | [events/correcao-proposta.json](events/correcao-proposta.json) | `events/correcao-proposta.schema.json` | Regra reextraída da correção, no corpo, ainda sem linha em `regras` |
 | [events/job-encerrado.json](events/job-encerrado.json) | `events/job-encerrado.schema.json` | Encerramento por decisão do usuário (`liberado`) |
 | [events/job-encerrado-erro.json](events/job-encerrado-erro.json) | `events/job-encerrado.schema.json` | Encerramento por falha (`erro`) |
-| [events/regra-extraida.json](events/regra-extraida.json) | `events/regra-extraida.schema.json` | Primeira versão extraída de uma transcrição, no corpo, com exclusão e elemento genérico, ainda sem linha em `regras` |
+| [events/regra-extraida.json](events/regra-extraida.json) | `events/regra-extraida.schema.json` | Referências ao job, à submissão e ao artefato em `extracoes_regras`, sem representação no corpo |
+| [domain/rebaixamentos-extracao.json](domain/rebaixamentos-extracao.json) | `domain/rebaixamentos-extracao.schema.json` | Motivos de conversão de elementos para genérico, armazenados fora da representação |
 
 Schema alterado mantém pelo menos um exemplo válido atualizado na mesma mudança.
 

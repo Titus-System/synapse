@@ -58,15 +58,15 @@ Table usuarios {
 Table submissoes {
   id uuid [pk, default: `uuidv7()`]
   usuario_id uuid [not null, ref: > usuarios.id]
-  tipo text [not null, note: 'formulario | voz. Determina qual das duas cargas vem preenchida: formulario tem conteudo, voz tem binario e formato']
+  tipo text [not null, note: 'formulario | texto | voz. Determina qual carga vem preenchida: formulario tem conteudo; texto tem transcricao, gravada no envio; voz tem binario e formato, e transcricao depois de transcrita. POST /submissoes grava texto e voz, na entrada inicial e na correcao']
   conteudo jsonb [note: '''
 Formato: contracts/domain/submissao-conteudo.schema.json
-NULL quando tipo = voz - ali o que o usuario enviou e o audio.
+NULL quando tipo = texto ou voz - ali o que o usuario enviou e o texto digitado ou o audio.
 Entrada original do fluxo; regras.nucleo e a representacao derivada, e trilhas_auditoria.conclusao registra o que cada no concluiu. O conteudo original nao e sobrescrito; a API pode preencher transcricao e transcrito_em depois do envio de voz. As rodadas de correcao da Sprint 2 serao armazenadas separadamente.
 ''']
-  binario bytea [null, note: 'null quando tipo = formulario. O audio enviado pelo usuario']
-  formato text [null, note: 'null quando tipo = formulario. ex. webm | ogg | wav']
-  transcricao text [null, note: 'null quando tipo = formulario, e enquanto a submissao de voz nao foi transcrita. Texto transcrito, verbatim; e o insumo do no de extracao (Sprint 2), que o codegen le e nao escreve']
+  binario bytea [null, note: 'null quando tipo != voz. O audio enviado pelo usuario']
+  formato text [null, note: 'null quando tipo != voz. webm | ogg | wav | mp4: o conteiner gravado pelo navegador, declarado no Content-Type da parte audio']
+  transcricao text [null, note: 'null quando tipo = formulario, e enquanto a submissao de voz nao foi transcrita. Texto digitado (tipo = texto) ou transcrito (tipo = voz), verbatim; e o insumo da extracao e da reextracao, que o codegen le e nao escreve']
   transcrito_em timestamptz [null, note: 'null ate a transcricao concluir']
   criado_em timestamptz [not null]
 }
@@ -247,6 +247,22 @@ Table respostas_modelo {
   indexes {
     (prompt_id) [unique, note: 'impoe o 1-1 declarado na FK: uma resposta por prompt']
     (job_id) [note: 'artefatos de um job, caminho da consulta de auditoria']
+  }
+}
+
+Table extracoes_regras {
+  id uuid [pk, default: `uuidv7()`, note: 'O codegen fornece UUIDv5 derivado do job e da submissao, estavel entre reentregas']
+  job_id uuid [not null, ref: > jobs.id]
+  submissao_id uuid [not null, ref: > submissoes.id]
+  resposta_id uuid [not null, ref: > respostas_modelo.id, note: 'Resposta bruta que originou esta proposta; prompt e modelo sao alcancados pela resposta']
+  representacao jsonb [not null, note: 'Formato: contracts/domain/representacao-regra.schema.json. Proposta montada deterministicamente, com nucleo e especificacoes; a API cria a versao em regras']
+  rebaixamentos jsonb [not null, note: 'Formato: contracts/domain/rebaixamentos-extracao.schema.json. Diagnosticos separados da representacao, nunca no evento']
+  criado_em timestamptz [not null]
+
+  indexes {
+    (job_id, submissao_id) [unique, name: 'uq_extracoes_regras_job_id_submissao_id', note: 'Uma extracao inicial por job e submissao; o indice tambem atende consultas por job']
+    (submissao_id)
+    (resposta_id)
   }
 }
 

@@ -82,33 +82,55 @@ async def gravar_prompt_e_resposta(
 
     Returns `(prompt_id, resposta_id)`.
     """
+    async with sessoes() as sessao, sessao.begin():
+        return await gravar_prompt_e_resposta_na_sessao(
+            sessao,
+            job_id=job_id,
+            no=no,
+            prompt=prompt,
+            modelo=modelo,
+            resposta=resposta,
+            consumo_tokens=consumo_tokens,
+        )
+
+
+async def gravar_prompt_e_resposta_na_sessao(
+    sessao: AsyncSession,
+    *,
+    job_id: UUID,
+    no: str,
+    prompt: str,
+    modelo: dict[str, Any],
+    resposta: str,
+    consumo_tokens: dict[str, Any] | None,
+) -> tuple[UUID, UUID]:
+    """A transação pertence ao chamador para incluir o artefato derivado atomicamente."""
     prompt_id = id_do_prompt(job_id, no, prompt, resposta)
     resposta_id = id_da_resposta(prompt_id)
-    async with sessoes() as sessao, sessao.begin():
-        await sessao.execute(
-            _INSERIR_PROMPT,
-            {
-                "id": prompt_id,
-                "job_id": job_id,
-                "no": no,
-                "conteudo": prompt,
-                "modelo": simplejson.dumps(modelo, use_decimal=True),
-            },
-        )
-        await sessao.execute(
-            _INSERIR_RESPOSTA,
-            {
-                "id": resposta_id,
-                "job_id": job_id,
-                "prompt_id": prompt_id,
-                "conteudo": resposta,
-                "consumo_tokens": (
-                    None
-                    if consumo_tokens is None
-                    else simplejson.dumps(consumo_tokens, use_decimal=True)
-                ),
-            },
-        )
+    await sessao.execute(
+        _INSERIR_PROMPT,
+        {
+            "id": prompt_id,
+            "job_id": job_id,
+            "no": no,
+            "conteudo": prompt,
+            "modelo": simplejson.dumps(modelo, use_decimal=True),
+        },
+    )
+    await sessao.execute(
+        _INSERIR_RESPOSTA,
+        {
+            "id": resposta_id,
+            "job_id": job_id,
+            "prompt_id": prompt_id,
+            "conteudo": resposta,
+            "consumo_tokens": (
+                None
+                if consumo_tokens is None
+                else simplejson.dumps(consumo_tokens, use_decimal=True)
+            ),
+        },
+    )
     return prompt_id, resposta_id
 
 

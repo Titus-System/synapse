@@ -110,3 +110,26 @@ def test_get_model_metadata_returns_a_copy_not_the_stored_dict() -> None:
 def test_get_model_metadata_rejects_a_name_that_is_not_registered() -> None:
     with pytest.raises(ValueError, match="'missing'"):
         registry.get_model_metadata("missing")
+
+
+def test_extraction_usa_configuracao_deterministica_e_metadados_correspondentes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recebido: dict[str, Any] = {}
+    monkeypatch.setattr(registry, "_google", lambda nome, **kw: recebido.update(modelo=nome, **kw))
+
+    registry.get_model("extraction")
+
+    assert recebido == {
+        "modelo": "gemini-3.1-flash-lite",
+        "temperature": 0,
+        "max_output_tokens": 8192,
+        "timeout": 60,
+        "max_retries": 2,
+    }
+    assert registry.get_model_metadata("extraction") == {
+        "provedor": "google",
+        "modelo": "gemini-3.1-flash-lite",
+        "versao": "stable",
+        "parametros": {"temperature": 0, "max_output_tokens": 8192},
+    }

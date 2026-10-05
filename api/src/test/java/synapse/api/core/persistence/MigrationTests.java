@@ -39,9 +39,9 @@ class MigrationTests {
 
 	private static final List<String> TABELAS = List.of("usuarios", "submissoes", "jobs", "job_transicoes", "job_acoes",
 			"regras", "prompts", "respostas_modelo", "codigos_gerados", "resultados_simulacao", "explicacoes",
-			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados");
+			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras");
 
-	private static final int CHANGESETS = 20;
+	private static final int CHANGESETS = 21;
 
 	private static final int CHANGESETS_ANTES_DO_NOME = 19;
 
@@ -110,6 +110,28 @@ class MigrationTests {
 
 		assertThat(definicaoDoIndice("idx_jobs_usuario_id_criado_em")).contains("criado_em DESC");
 		assertThat(definicaoDoIndice("idx_outbox_events_criado_em_pendentes")).contains("WHERE (publicado_em IS NULL)");
+	}
+
+	@Test
+	void criaExtracaoImutavelComConteudoJsonbEIdentidadePorSubmissao() throws Exception {
+		atualizar();
+
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("""
+						SELECT column_name, data_type, is_nullable FROM information_schema.columns
+						WHERE table_name = 'extracoes_regras' ORDER BY ordinal_position
+						""")) {
+			List<String> colunas = new ArrayList<>();
+			while (rs.next()) {
+				colunas.add(rs.getString("column_name") + ":" + rs.getString("data_type"));
+				assertThat(rs.getString("is_nullable")).isEqualTo("NO");
+			}
+			assertThat(colunas).containsExactly("id:uuid", "job_id:uuid", "submissao_id:uuid", "resposta_id:uuid",
+					"representacao:jsonb", "rebaixamentos:jsonb", "criado_em:timestamp with time zone");
+		}
+		assertThat(definicaoDoIndice("uq_extracoes_regras_job_id_submissao_id")).contains("UNIQUE",
+				"(job_id, submissao_id)");
 	}
 
 	@Test
@@ -191,7 +213,7 @@ class MigrationTests {
 			}
 		}
 
-		reverter(1);
+		reverter(CHANGESETS - CHANGESETS_ANTES_DO_NOME);
 
 		assertThat(nulidadeDasColunas("jobs")).doesNotContainKey("nome");
 		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {

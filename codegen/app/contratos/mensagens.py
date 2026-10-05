@@ -17,6 +17,7 @@ class OrigemJob(StrEnum):
     FORMULARIO = "formulario"
     VOZ = "voz"
     REPROCESSAMENTO = "reprocessamento"
+    TEXTO = "texto"
 
 
 class StatusSimulacao(StrEnum):

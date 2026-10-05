@@ -245,9 +245,40 @@ class PermissoesDeBancoTests {
 
 	// --- Apoio ---------------------------------------------------------------------
 
+	@Test
+	void oCodegenGravaExtracaoEAApiLePelaReferencia() {
+		assertThatCode(() -> {
+			executar(UsuariosDeBanco.CODEGEN, INSERE_EXTRACAO);
+			executar(UsuariosDeBanco.API, "SELECT representacao, rebaixamentos FROM extracoes_regras");
+		}).doesNotThrowAnyException();
+	}
+
+	@Test
+	void nenhumServicoReescreveOuApagaExtracaoEAApiNaoInsere() {
+		for (String usuario : new String[] { UsuariosDeBanco.API, UsuariosDeBanco.CODEGEN }) {
+			assertThat(sqlStateAoFalhar(usuario, "UPDATE extracoes_regras SET representacao = '{}'::jsonb"))
+				.isEqualTo(PERMISSAO_NEGADA);
+			assertThat(sqlStateAoFalhar(usuario, "DELETE FROM extracoes_regras")).isEqualTo(PERMISSAO_NEGADA);
+		}
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.API, INSERE_EXTRACAO)).isEqualTo(PERMISSAO_NEGADA);
+	}
+
+	@Test
+	void oWorkerNaoAlcancaExtracoes() {
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, "SELECT id FROM extracoes_regras"))
+			.isEqualTo(PERMISSAO_NEGADA);
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, INSERE_EXTRACAO)).isEqualTo(PERMISSAO_NEGADA);
+	}
+
 	private static final String JOB_ID = "11111111-1111-4111-8111-111111111111";
 
 	private static final String CODIGO_ID = "33333333-3333-4333-8333-333333333333";
+
+	private static final String INSERE_EXTRACAO = """
+			INSERT INTO extracoes_regras (job_id, submissao_id, resposta_id, representacao, rebaixamentos, criado_em)
+			VALUES ('%s', '44444444-4444-4444-8444-444444444444', '77777777-7777-4777-8777-777777777777',
+			        '{"nucleo": {}, "especificacoes": []}'::jsonb, '[]'::jsonb, now())
+			""".formatted(JOB_ID);
 
 	private static final String INSERE_RESULTADO_COM_DIAGNOSTICO = """
 			INSERT INTO resultados_simulacao (job_id, codigo_gerado_id, status, assercoes, diagnostico, criado_em)
@@ -295,6 +326,11 @@ class PermissoesDeBancoTests {
 				VALUES ('%s', '%s', '55555555-5555-4555-8555-555555555555', 'python', 'def apurar(): ...',
 				        '66666666-6666-4666-8666-666666666666', now())
 				""".formatted(CODIGO_ID, JOB_ID));
+		statement.execute("""
+				INSERT INTO respostas_modelo (id, job_id, prompt_id, conteudo, criado_em)
+				VALUES ('77777777-7777-4777-8777-777777777777', '%s',
+				        '66666666-6666-4666-8666-666666666666', 'resposta', now())
+				""".formatted(JOB_ID));
 	}
 
 	/** Roda o comando como {@code usuario} e devolve o SQLState da recusa. */

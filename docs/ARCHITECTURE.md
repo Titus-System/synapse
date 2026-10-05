@@ -267,7 +267,7 @@ Arquitetura em microsserviços com processamento assíncrono de longa duração.
 
 O fluxo abaixo é o desenho aprovado para a Sprint 2. O caminho existente de formulário começa com uma regra já estruturada; extração livre, transcrição e correções ainda precisam ser integradas.
 
-1. O frontend envia texto ou áudio à API, que registra a submissão e controla o job. Áudio é armazenado e transcrito pela API, com estado `aguardando_transcricao`.
+1. O frontend envia a descrição da regra, em texto ou áudio, com o orçamento e o período, por `POST /submissoes`, a porta de entrada da regra no lugar do formulário. A API registra a submissão e cria o job na mesma transação. O job de texto nasce em `gerando_regra`; o de voz nasce em `aguardando_transcricao`, e o áudio é armazenado e transcrito pela API.
 2. Depois de persistir o insumo, a API publica sua referência via outbox transacional. Não envia áudio ou transcrição pelo broker.
 3. O codegen lê o texto no banco, extrai a regra completa e valida a representação. Uma regra processável segue automaticamente.
 4. Problemas acionam o chatbot. Cada correção por texto ou voz é uma submissão própria, associada a uma rodada persistida; reextração e revalidação produzem versões novas até resolver os problemas.
@@ -300,8 +300,9 @@ O escopo e as decisões de integração estão consolidados em [Fluxo e decisõe
 
 | Tela / módulo | User Story | Responsabilidade |
 | --- | --- | --- |
-| Formulário de regra | US01 (Sprint 1) | Campos fixos da regra (vigência, loja, marca, cargo, % - vocabulário canônico da DEC-084), mais **período** (as competências a simular, padrão o período inteiro) e **orçamento** de comissionamento - ambos parâmetros da simulação (seção 1.3). É a porta de entrada até a Sprint 2, sem depender de voz - ver seção 2.3 |
-| Captura de voz | US02 / E4 (Sprint 2) | Gravação e upload na entrada inicial e nas correções; a API armazena e transcreve o áudio |
+| Formulário de regra | US01 (Sprint 1) | Campos fixos da regra (vigência, loja, marca, cargo, % - vocabulário canônico da DEC-084), mais **período** (as competências a simular, padrão o período inteiro) e **orçamento** de comissionamento - ambos parâmetros da simulação (seção 1.3). Porta de entrada da Sprint 1, enviada por `POST /jobs`; na Sprint 2 dá lugar à descrição da regra - ver seção 2.3 |
+| Descrição da regra | US02 / E1 / E4 (Sprint 2) | Porta de entrada da regra: descrição em texto livre ou falada, mais período e orçamento, enviada por `POST /submissoes` com `finalidade = entrada_inicial` |
+| Captura de voz | US02 / E4 (Sprint 2) | Gravação e upload na entrada inicial e nas correções, em `multipart/form-data`; a API armazena e transcreve o áudio |
 | Chatbot de correção | US06 / E3 | Exibido somente quando a validação encontra problemas; mostra o histórico completo, recebe texto ou voz e acompanha a reextração e revalidação. Sair preserva o estado para retomada |
 | Acompanhamento de progresso | US01–US03 | Consome o stream SSE do job e exibe o estágio atual (transcrevendo, extraindo, gerando código, simulando, analisando) - evita tela "travada" durante processamento assíncrono longo |
 | Simulação e comparação | US01 | Exibe resultado da simulação vs. baseline; alerta visual (ex. vermelho) quando inviável; bloqueia liberação direta nesse caso |
@@ -328,7 +329,7 @@ O escopo e as decisões de integração estão consolidados em [Fluxo e decisõe
 
 **Fatias do fluxo:**
 
-- **Recepção e transcrição (US02/E4):** recebe texto ou áudio, registra submissão e job e, para áudio, chama o provedor de ASR. A chamada externa ocorre fora da transação; a transcrição e o anúncio de sua disponibilidade precisam ser persistidos de forma consistente.
+- **Recepção e transcrição (US02/E4):** o domínio `submissoes` recebe por `POST /submissoes` a descrição de uma regra nova e as correções, em texto ou áudio. Na entrada inicial, registra a submissão e o job na mesma transação, com origem `texto` ou `voz`; `/jobs` cuida do ciclo de vida do job e não recebe a descrição. Para áudio, chama o provedor de ASR. A chamada externa ocorre fora da transação; a transcrição e o anúncio de sua disponibilidade precisam ser persistidos de forma consistente.
 - **Validação e correção (US06/E3):** mantém o endpoint de parâmetros estruturados existente e acrescenta o recebimento de correções textuais ou de voz por `POST /submissoes`, rodadas persistidas e consultáveis em `GET /jobs/{id}/rodadas` e um ciclo do codegen por versão corrigida, aberto por eventos.
 - **Acompanhamento e resultado (US01/E9):** `GET /jobs/{id}` e `GET /jobs/{id}/events` apresentam estado e valores produzidos pelo worker. Detalhes de resultado e motivos precisam aparecer consistentemente em consulta e SSE.
 - **Finalização, histórico e nomes (US07/E8/E10):** ações, histórico paginado e reprocessamento continuam sob responsabilidade da API. Nome pertence ao job; campanha é sua apresentação quando o resultado é viável. Reprocessar cria outro job e preserva a origem.
@@ -365,9 +366,11 @@ load_rule → code_generation → persist_response → extract_code
 
 O estado ativo é `AgentState`, em `app/graph/core/state.py`. O grafo lê uma regra já estruturada, recebe o orçamento no evento de entrada e usa um ciclo por `job_id:regra_id`. Consome `regra-submetida` e `simulacao-concluida.codegen`. O consumo de `parametros-confirmados`, a extração inicial e o loop de validação/correção ainda precisam ser integrados.
 
+O motor de extração e seu repositório existem separadamente do grafo (T-203). Usam a LLM configurada no registry e persistem prompt, resposta original e representação completa em uma transação; o artefato fica em `extracoes_regras`. A conexão ao grafo e a publicação pertencem à T-204; o consumo pela API e a criação da versão de `regras`, à T-202. Ver [extração no codegen](../codegen/docs/extracao.md).
+
 **Evolução aprovada para a Sprint 2:**
 
-1. Ler o texto persistido da submissão; para voz, `submissoes.transcricao`. O evento carrega referência, não o texto ou áudio.
+1. Ler o texto persistido da submissão em `submissoes.transcricao`, digitado (origem `texto`) ou transcrito (origem `voz`). O evento carrega referência, não o texto ou áudio.
 2. Extrair núcleo e especificações, preservando todos os elementos.
 3. Validar a representação antes da geração. Problemas apontados levam ao chatbot; sem problemas, o fluxo segue automaticamente.
 4. Reextrair correções por texto ou transcrição de voz, usando a regra atual e o histórico necessário. A API persiste as rodadas e versões e abre um ciclo do codegen para cada versão corrigida.
@@ -533,7 +536,7 @@ O Postgres tem schema único; cada serviço conecta com **usuário próprio**, e
 | | PostgreSQL | RabbitMQ |
 | --- | --- | --- |
 | **API** | Escrita de estado, decisões, histórico e outbox; dona das migrations; grava submissões e transcrições e consulta os artefatos dos outros serviços | Produz e consome |
-| **codegen** | Checkpoint do LangGraph (leitura/escrita); `INSERT` e `SELECT` nos artefatos que produz - versão da regra extraída, código gerado, prompt, resposta e explicação; `SELECT` em transcrição e resultado. Nenhum `UPDATE` ou `DELETE` nos artefatos; no registro de encerramento (`jobs_grafo_encerrados`), `SELECT`, `INSERT` e `UPDATE` só de `limpo_em` (DEC-095). Nenhuma permissão sobre `job`, auditoria ou histórico | Produz e consome |
+| **codegen** | Checkpoint do LangGraph (leitura/escrita); `INSERT` e `SELECT` nos artefatos que produz - extração em `extracoes_regras`, código gerado, prompt, resposta e explicação; `SELECT` em transcrição e resultado. Nenhum `UPDATE` ou `DELETE` nos artefatos; no registro de encerramento (`jobs_grafo_encerrados`), `SELECT`, `INSERT` e `UPDATE` só de `limpo_em` (DEC-095). Nenhuma permissão sobre `job`, auditoria ou histórico | Produz e consome |
 | **Worker** | `SELECT` e `INSERT` na tabela de resultados; leitura do código e da representação necessária à verificação | Produz e consome |
 
 O dataset e os baselines não aparecem aqui: são estáticos e vivem embutidos na imagem do sandbox (seção 1.3), não no banco.
@@ -549,12 +552,12 @@ A distinção não é cosmética: um imperativo no catálogo é sinalizador de d
 
 | Mensagem | Tipo | Publica | Consome | Canal | Conteúdo |
 | --- | --- | --- | --- | --- | --- |
-| `regra-submetida` | Evento | API | codegen | Fila | `job_id`, origem (`formulario` \| `voz` \| `reprocessamento`), **competências do job** (todas, nunca uma), id da submissão e id da versão da regra conforme a origem; orçamento opcional no schema e já enviado pela API |
+| `regra-submetida` | Evento | API | codegen | Fila | `job_id`, origem (`formulario` \| `texto` \| `voz` \| `reprocessamento`), **competências do job** (todas, nunca uma), id da submissão e id da versão da regra conforme a origem; orçamento opcional no schema e já enviado pela API |
 | `parametros-confirmados` | Evento | API | codegen | Fila | `job_id`, id da versão e, opcionalmente, competências e orçamento do job; abre o ciclo do codegen para a versão confirmada pelo usuário ou gravada a partir de `correcao-proposta`, sem retomar grafo pausado. Publicador ativo na API, ainda sem competências e orçamento; consumo pendente no codegen (E3) |
 | `correcao-submetida` | Evento | API | codegen | Fila | `job_id`, id da versão corrigida, id da submissão que guarda o texto da correção e, opcionalmente, as competências do job; contrato definido, publicação e consumo pendentes (E3) |
 | `executar-codigo` | **Comando** | codegen | Worker | Fila | `job_id`, id da linha do código gerado, **competências a processar** (todas numa execução só), critério de orçamento |
 | `simulacao-concluida` | Evento | Worker | **API e codegen** | **Fanout** | `job_id`, id da linha do resultado, status (`sucesso` \| `assercao_violada` \| `erro_codigo` \| `erro_infra`), totais apurados e veredito de viabilidade quando há sucesso |
-| `regra-extraida` | Evento | codegen | API | Fila | `job_id`, id da submissão e representação extraída de um texto ou de uma transcrição, usados pela API para persistir a versão raiz com origem `extracao` e republicar `regra-submetida` com o id da versão; contrato definido, publicação e consumo pendentes |
+| `regra-extraida` | Evento | codegen | API | Fila | `job_id`, `submissao_id` e `extracao_id` referenciam o artefato já persistido em `extracoes_regras`; a API lê e valida a associação antes de persistir a versão raiz com origem `extracao` e republicar `regra-submetida` com o id da versão. Publicação (T-204) e consumo (T-202) pendentes |
 | `sugestao-adaptacao-proposta` | Evento | codegen | API | Fila | Origem, hash e representação alternativa, usados pela API para persistir uma versão e iniciar outro ciclo |
 | `correcao-proposta` | Evento | codegen | API | Fila | `job_id`, id da versão corrigida, id da submissão da correção e representação reextraída, usados pela API para persistir a versão nova; contrato definido, publicação e consumo pendentes (E3) |
 | `etapa-alterada` | Evento | codegen | API | Fila | `job_id`, etapa **iniciada**, status e, opcionalmente, o id da versão a que se refere e os conflitos que o chatbot mostra - repassado ao Frontend via SSE. `aguardando_correcao` na etapa `confirmacao` pausa o job para correção e exige versão e conflitos; `erro` em `extracao_parametros` durante a correção reabre a rodada em vez de encerrar o job. Publicação, transições e repasse dos conflitos pendentes (E3) |
@@ -571,9 +574,11 @@ A API publica `regra-submetida` pelo **outbox transacional** (seção 3.2), gara
 
 Os contratos de correção e o campo `conflitos` de `etapa-alterada` existem em `contracts/`, mas seus produtores, consumidores e filas são implementação de E3. O evento de cenário de vendas é trabalho planejado da Sprint 2. O catálogo acima não afirma que essas extensões já estão implementadas; ver [fluxo da Sprint 2](FLUXO-SPRINT-2.md).
 
+**Claim-check de `regra-extraida` (T-203).** A representação deixou de ser permitida no evento, e `extracao_id` passou a ser obrigatório, por decisão explícita de cumprir o ADR-001. Essa mudança é incompatível com o payload anterior; publicação e consumo ainda não estavam implementados. A migration e os contratos devem estar presentes antes de ativar T-204/T-202. Não há exceção para o tamanho da regra: seu conteúdo completo permanece no banco. Os payloads de `sugestao-adaptacao-proposta` e `correcao-proposta` ainda exigem adequação própria ao ADR-001; essa pendência não autoriza copiar o conteúdo em `regra-extraida`.
+
 ### 6.4. Frontend ↔ API
 
-- **REST** para as ações síncronas: submissão da regra, confirmação de parâmetros, envio de correção, consulta de histórico e das rodadas de correção, ações de finalização.
+- **REST** para as ações síncronas: submissão da regra e envio de correção por `POST /submissoes`, em JSON para texto e em `multipart/form-data` para voz, confirmação de parâmetros, consulta de histórico e das rodadas de correção, ações de finalização.
 - **SSE** para acompanhamento em tempo real, sem polling. Cada etapa relevante - transcrição, extração, geração de código, execução no sandbox, interpretação do resultado - gera um evento de progresso, de modo que o usuário nunca fica esperando em silêncio durante um processamento que leva minutos.
 
 ## 7. Sandbox de execução de código

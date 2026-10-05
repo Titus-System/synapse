@@ -20,9 +20,10 @@
       "enum": [
         "formulario",
         "voz",
-        "reprocessamento"
+        "reprocessamento",
+        "texto"
       ],
-      "description": "Como o job nasceu, e é o que determina o ponto de entrada do grafo. A API resolve de submissoes.tipo, ou reprocessamento quando o job não veio de uma submissão e sim de outro job (US07, cenário 3)."
+      "description": "Como o job nasceu, e é o que determina o ponto de entrada do grafo. A API resolve de submissoes.tipo, ou reprocessamento quando o job não veio de uma submissão e sim de outro job (US07, cenário 3). texto e voz são a descrição de uma regra nova, digitada ou falada, que passa pela extração."
     },
     "competencias": {
       "type": "array",
@@ -41,12 +42,12 @@
     "submissao_id": {
       "type": "string",
       "format": "uuid",
-      "description": "Linha de submissoes que originou o job. É por ela que o codegen alcança o formulário recebido ou o áudio e sua transcrição. Ausente quando a origem é reprocessamento, em que a procedência é outro job."
+      "description": "Linha de submissoes que originou o job. É por ela que o codegen alcança o formulário recebido ou a descrição da regra, que nas origens texto e voz fica em submissoes.transcricao: o texto digitado ou a transcrição do áudio. Ausente quando a origem é reprocessamento, em que a procedência é outro job."
     },
     "regra_id": {
       "type": "string",
       "format": "uuid",
-      "description": "Versão da regra em regras. Presente quando a regra já está formada na submissão, que é o caso do formulário, e quando o reprocessamento parte de uma versão existente. Na origem voz, ausente na primeira publicação, porque a regra só nasce depois da extração, e presente quando a API republica o evento depois de gravar a versão recebida em regra-extraida."
+      "description": "Versão da regra em regras. Presente quando a regra já está formada na submissão, que é o caso do formulário, e quando o reprocessamento parte de uma versão existente. Nas origens texto e voz, ausente na primeira publicação, porque a regra só nasce da extração, e presente quando a API republica o evento depois de criar a versão a partir de regra-extraida."
     },
     "orcamento": {
       "allOf": [
@@ -65,7 +66,8 @@
           "origem": {
             "enum": [
               "formulario",
-              "voz"
+              "voz",
+              "texto"
             ]
           }
         },

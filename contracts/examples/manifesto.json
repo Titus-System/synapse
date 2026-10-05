@@ -31,6 +31,8 @@
     "events/no-concluido.json": "events/no-concluido.schema.json",
     "events/parametros-confirmados.json": "events/parametros-confirmados.schema.json",
     "events/regra-extraida.json": "events/regra-extraida.schema.json",
+    "domain/rebaixamentos-extracao.json": "domain/rebaixamentos-extracao.schema.json",
+    "events/regra-submetida-texto.json": "events/regra-submetida.schema.json",
     "events/regra-submetida-voz.json": "events/regra-submetida.schema.json",
     "events/regra-submetida.json": "events/regra-submetida.schema.json",
     "events/simulacao-concluida.json": "events/simulacao-concluida.schema.json",
