@@ -43,9 +43,37 @@
       ],
       "minimum": 0,
       "description": "Critério de orçamento do período, vindo de jobs.orcamento. Viaja como escalar porque o Worker não tem permissão em jobs, e é gravado junto do resultado para que o insumo do veredito não possa mudar depois."
+    },
+    "elementos_exigidos": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "../domain/comum.schema.json#/$defs/elemento_ref"
+      },
+      "description": "Elementos da regra que o código gerado precisa declarar como implementados, para o Worker conferir a cobertura fora do container: nucleo.percentual, quando o núcleo tem percentual, e o ref de cada item de especificacoes. Os demais campos do núcleo (vigencia, loja, marca, cargo) recortam o alcance da regra e não entram. O Worker confere que todo elemento desta lista está em elementos_implementados, no retorno de aplicar_regra, e que toda contribuição é atribuída a um elemento desta lista (contracts/harness/README.md, seção \"Conferência de cobertura\"); a falha é erro_codigo com causa cobertura_incompleta. Ausente, o Worker não faz a conferência, e a execução segue como antes do campo existir.",
+      "examples": [
+        [
+          "nucleo.percentual",
+          "elem.1"
+        ]
+      ]
     }
   },
   "examples": [
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "codigo_gerado_id": "5d4c3b2a-1f0e-4d9c-8b7a-6e5d4c3b2a19",
+      "competencias": [
+        "2025-08",
+        "2025-11"
+      ],
+      "orcamento": 485000.0,
+      "elementos_exigidos": [
+        "nucleo.percentual",
+        "elem.1"
+      ]
+    },
     {
       "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
       "codigo_gerado_id": "5d4c3b2a-1f0e-4d9c-8b7a-6e5d4c3b2a19",

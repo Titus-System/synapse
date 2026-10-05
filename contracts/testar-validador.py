@@ -110,6 +110,88 @@ class TestarDiagnostico(unittest.TestCase):
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn("campo $.problemas[0].palavra_chave", resultado.stderr)
 
+    def test_rejeita_cobertura_incompleta_sem_os_elementos(self) -> None:
+        def alterar(diagnostico: Any) -> None:
+            del diagnostico["elementos_ausentes"]
+
+        resultado = validar_com_alteracao(
+            "domain/resultado-diagnostico-cobertura-incompleta.json", alterar
+        )
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("domain/resultado-diagnostico-cobertura-incompleta.json", resultado.stderr)
+
+    def test_aceita_cobertura_incompleta_so_com_elemento_fora_da_regra(self) -> None:
+        def alterar(diagnostico: Any) -> None:
+            del diagnostico["elementos_ausentes"]
+            diagnostico["elementos_fora_da_regra"] = ["elem.9"]
+
+        resultado = validar_com_alteracao(
+            "domain/resultado-diagnostico-cobertura-incompleta.json", alterar
+        )
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_elementos_em_causa_que_nao_e_cobertura(self) -> None:
+        def alterar(diagnostico: Any) -> None:
+            diagnostico["elementos_ausentes"] = ["elem.1"]
+
+        resultado = validar_com_alteracao("domain/resultado-diagnostico-timeout.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("domain/resultado-diagnostico-timeout.json: campo $:", resultado.stderr)
+
+    def test_rejeita_elemento_ausente_fora_do_espaco_de_identificacao(self) -> None:
+        def alterar(diagnostico: Any) -> None:
+            diagnostico["elementos_ausentes"] = ["percentual"]
+
+        resultado = validar_com_alteracao(
+            "domain/resultado-diagnostico-cobertura-incompleta.json", alterar
+        )
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.elementos_ausentes[0]", resultado.stderr)
+
+
+class TestarExecutarCodigo(unittest.TestCase):
+    def test_aceita_comando_sem_elementos_exigidos(self) -> None:
+        # O campo é aditivo: um comando publicado antes dele continua válido.
+        def alterar(comando: Any) -> None:
+            del comando["elementos_exigidos"]
+
+        resultado = validar_com_alteracao("events/executar-codigo-cobertura.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_elementos_exigidos_vazia(self) -> None:
+        def alterar(comando: Any) -> None:
+            comando["elementos_exigidos"] = []
+
+        resultado = validar_com_alteracao("events/executar-codigo-cobertura.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn(
+            "events/executar-codigo-cobertura.json: campo $.elementos_exigidos", resultado.stderr
+        )
+
+    def test_rejeita_elemento_exigido_repetido(self) -> None:
+        def alterar(comando: Any) -> None:
+            comando["elementos_exigidos"] = ["elem.1", "elem.1"]
+
+        resultado = validar_com_alteracao("events/executar-codigo-cobertura.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.elementos_exigidos", resultado.stderr)
+
+    def test_rejeita_elemento_exigido_fora_do_espaco_de_identificacao(self) -> None:
+        def alterar(comando: Any) -> None:
+            comando["elementos_exigidos"] = ["percentual"]
+
+        resultado = validar_com_alteracao("events/executar-codigo-cobertura.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.elementos_exigidos[0]", resultado.stderr)
+
 
 class TestarJobEncerrado(unittest.TestCase):
     def test_rejeita_estado_que_nao_e_terminal(self) -> None:

@@ -13,7 +13,7 @@ import pandas as pd
 
 type RegraFn = Callable[
     [dict[str, pd.DataFrame], pd.DataFrame, list[str]],
-    dict[str, pd.DataFrame],
+    dict[str, pd.DataFrame | list[str]],
 ]
 
 
@@ -27,7 +27,7 @@ def chamar(
     bases: dict[str, pd.DataFrame],
     apuracao_base: pd.DataFrame,
     competencias: list[str],
-) -> dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame | list[str]]:
     """Chama a função gerada com cópias das entradas."""
     return regra(preparar(bases), apuracao_base.copy(deep=True), competencias)
 
@@ -37,7 +37,7 @@ def _quebra_por_dimensao(delta_por_dim: "pd.Series[float]") -> dict[str, float]:
 
 
 def montar_resultado(
-    saida: dict[str, pd.DataFrame],
+    saida: dict[str, pd.DataFrame | list[str]],
     apuracao_base: pd.DataFrame,
     competencias: list[str],
     orcamento: float,

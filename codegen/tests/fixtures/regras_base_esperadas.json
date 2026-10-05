@@ -105,7 +105,7 @@
         "apuracao_base",
         "competencias"
       ],
-      "tipo": "Callable[[dict[str, pandas.DataFrame], pandas.DataFrame, list[str]], dict[str, pandas.DataFrame]]",
+      "tipo": "Callable[[dict[str, pandas.DataFrame], pandas.DataFrame, list[str]], dict[str, pandas.DataFrame | list[str]]]",
       "bases": [
         "rh",
         "vendas",
@@ -115,7 +115,8 @@
       "quantidade_bases": 4,
       "retorno": [
         "apuracao_simulada",
-        "contribuicoes"
+        "contribuicoes",
+        "elementos_implementados"
       ],
       "colunas_contribuicoes": [
         "matricula",
@@ -193,7 +194,8 @@
     "fatos": {
       "nucleo": "nucleo.<campo>",
       "especificacao": "elem.<n>",
-      "declarado_em": "contribuicoes"
+      "declarado_em": "elementos_implementados",
+      "atribuido_em": "contribuicoes"
     }
   }
 }

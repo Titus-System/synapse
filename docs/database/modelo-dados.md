@@ -263,6 +263,12 @@ Quando o envelope diz sucesso mas o resultado não valida contra o schema, `prob
   "problemas": [ { "caminho": "$.decomposicao", "palavra_chave": "required" } ] }
 ```
 
+Quando a conferência de cobertura reprova o código, `elementos_ausentes` lista os elementos exigidos pela regra que o código não declarou, e `elementos_fora_da_regra` os elementos a que ele atribuiu valor sem que a regra os exija. Os dois trazem só identificadores de elemento, nunca texto livre.
+
+```json
+{ "causa": "cobertura_incompleta", "elementos_ausentes": ["elem.1"] }
+```
+
 Mensagem, traceback e caminhos vieram de código não confiável. São artefato: ficam nesta coluna e não entram em log nem em evento. O evento `simulacao-concluida` continua igual, e o leitor chega ao diagnóstico pelo `resultado_id` que já recebe. O worker grava o diagnóstico no mesmo `INSERT` do resultado; a API e o codegen o leem com o `SELECT` que já têm na tabela. O diagnóstico não é número e não se mistura a `totais` nem a `decomposicao`, que continuam existindo só em sucesso.
 
 A coluna é nula fora de `erro_codigo` e nas linhas gravadas por versões do worker anteriores ao diagnóstico. Linhas antigas não são reconstruídas. A migration da API vai para o ambiente antes da versão do worker que escreve a coluna: o `INSERT` do worker anterior não a menciona e continua funcionando contra o banco migrado, enquanto o novo falharia contra um banco sem ela.

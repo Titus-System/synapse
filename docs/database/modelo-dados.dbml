@@ -315,7 +315,7 @@ Formato: contracts/domain/resultado-diagnostico.schema.json
 NULL quando status <> erro_codigo, e nas linhas gravadas por versao do worker que ainda
 nao preenche a coluna - por isso a coluna nasce nullable e sem backfill. Em erro_codigo
 novo, sempre presente com a causa; a falha estruturada do sandbox so vem quando houve
-excecao capturada, e os problemas de validacao so quando o resultado saiu do schema.
+excecao capturada, os problemas de validacao so quando o resultado saiu do schema, e os elementos ausentes ou fora da regra so quando a cobertura ficou incompleta.
 Escrito pelo worker no mesmo INSERT do resultado e imutavel como o resto da linha. A API e
 o codegen leem pelo SELECT que ja tem na tabela.
 Nao viaja no evento: o leitor chega aqui pelo resultado_id de simulacao-concluida.

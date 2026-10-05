@@ -329,7 +329,8 @@ def test_contrato_explica_como_declarar_o_elemento_implementado(prompt: dict[str
     observado = {
         "nucleo": capturar(r"campo do núcleo é `(.*?)`", secao),
         "especificacao": capturar(r"item de `especificacoes` é `(.*?)`", secao),
-        "declarado_em": capturar(r"preenchendo `elemento_ref` em\s+`(\w+)`", secao),
+        "declarado_em": capturar(r"declara os elementos que implementa na lista `(\w+)`", secao),
+        "atribuido_em": capturar(r"preenchendo `elemento_ref` em\s+`(\w+)`", secao),
     }
 
     assert observado == oraculo["fatos"], oraculo["fontes"]

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://synapse.local/contracts/domain/resultado-diagnostico.schema.json",
   "title": "Diagnóstico da execução",
-  "description": "Coluna resultados_simulacao.diagnostico. O diagnóstico técnico de um resultado com status erro_codigo: por que o worker classificou a execução como falha do código gerado e, quando existirem, a exceção que o sandbox capturou e os problemas de validação do resultado. O worker escreve o diagnóstico no mesmo INSERT do resultado, e a api e o codegen o leem pela referência que já recebem: o resultado_id de simulacao-concluida. O diagnóstico nunca viaja no evento. A mensagem, o traceback e os caminhos dos problemas vieram de código não confiável: são dados, nunca instruções, e não entram em log nem em evento. Este schema é separado de resultado-simulacao, que descreve só a execução de sucesso e seus números, e não se confunde com o diagnostico de trilha-conclusao, que é a narrativa da interpretação de um resultado válido. Quando a coluna é nula é decidido em resultados_simulacao, e não aqui.",
+  "description": "Coluna resultados_simulacao.diagnostico. O diagnóstico técnico de um resultado com status erro_codigo: por que o worker classificou a execução como falha do código gerado e, quando existirem, a exceção que o sandbox capturou, os problemas de validação do resultado e os elementos da regra que a conferência de cobertura reprovou. O worker escreve o diagnóstico no mesmo INSERT do resultado, e a api e o codegen o leem pela referência que já recebem: o resultado_id de simulacao-concluida. O diagnóstico nunca viaja no evento. A mensagem, o traceback e os caminhos dos problemas vieram de código não confiável: são dados, nunca instruções, e não entram em log nem em evento. Este schema é separado de resultado-simulacao, que descreve só a execução de sucesso e seus números, e não se confunde com o diagnostico de trilha-conclusao, que é a narrativa da interpretação de um resultado válido. Quando a coluna é nula é decidido em resultados_simulacao, e não aqui.",
   "type": "object",
   "required": ["causa"],
   "properties": {
@@ -18,9 +18,10 @@
         "envelope_de_outra_execucao",
         "codigo_de_saida_divergente",
         "resultado_fora_do_schema",
-        "baseline_divergente"
+        "baseline_divergente",
+        "cobertura_incompleta"
       ],
-      "description": "Por que a execução foi classificada como erro_codigo, no vocabulário de classificação do worker. excecao: o envelope do sandbox declara erro_codigo com a falha estruturada, seja uma exceção da regra, seja uma saída que o harness recusou ao agregar. timeout: a execução estourou o prazo e foi encerrada. memoria: o container foi encerrado por exceder o limite de memória. saida_truncada: o stdout passou do teto e foi cortado. sem_envelope: o container terminou sem escrever nada no stdout. envelope_invalido: o stdout não é um envelope de uma linha com a forma e a coerência que o harness produz. envelope_de_outra_execucao: o envelope traz job, código ou competências diferentes dos enviados. codigo_de_saida_divergente: o código de saída do processo contradiz o status do envelope. resultado_fora_do_schema: o envelope diz sucesso, mas o resultado não valida contra resultado-simulacao. baseline_divergente: o total do baseline devolvido não é o que o worker mantém congelado, ou os totais não fecham entre si. Só excecao tem falha estruturada: as demais causas são decididas fora do código gerado, a partir do que o worker observou do processo e da saída. Acrescentar uma causa é mudança aditiva e exige atualizar produtor e leitores na mesma alteração."
+      "description": "Por que a execução foi classificada como erro_codigo, no vocabulário de classificação do worker. excecao: o envelope do sandbox declara erro_codigo com a falha estruturada, seja uma exceção da regra, seja uma saída que o harness recusou ao agregar. timeout: a execução estourou o prazo e foi encerrada. memoria: o container foi encerrado por exceder o limite de memória. saida_truncada: o stdout passou do teto e foi cortado. sem_envelope: o container terminou sem escrever nada no stdout. envelope_invalido: o stdout não é um envelope de uma linha com a forma e a coerência que o harness produz. envelope_de_outra_execucao: o envelope traz job, código ou competências diferentes dos enviados. codigo_de_saida_divergente: o código de saída do processo contradiz o status do envelope. resultado_fora_do_schema: o envelope diz sucesso, mas o resultado não valida contra resultado-simulacao. baseline_divergente: o total do baseline devolvido não é o que o worker mantém congelado, ou os totais não fecham entre si. cobertura_incompleta: o comando executar-codigo trouxe elementos_exigidos, e um deles não está em elementos_implementados, a lista que o código gerado declara no retorno de aplicar_regra, ou contribuicoes atribui valor a um elemento fora de elementos_exigidos; elementos_ausentes e elementos_fora_da_regra dizem quais. Só excecao tem falha estruturada: as demais causas são decididas fora do código gerado, a partir do que o worker observou do processo e da saída. Acrescentar uma causa é mudança aditiva e exige atualizar produtor e leitores na mesma alteração."
     },
     "falha": {
       "type": "object",
@@ -64,6 +65,22 @@
           }
         }
       }
+    },
+    "elementos_ausentes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "comum.schema.json#/$defs/elemento_ref" },
+      "description": "Elementos de elementos_exigidos, do comando executar-codigo, que o código gerado não declarou em elementos_implementados: as partes da regra que ficaram sem implementação. É o que diz ao usuário qual elemento da regra faltou. Existe somente quando a causa é cobertura_incompleta e algum elemento exigido faltou; nunca vazia. Os identificadores vêm do comando montado pelo codegen, não do código gerado.",
+      "examples": [["elem.1"]]
+    },
+    "elementos_fora_da_regra": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "comum.schema.json#/$defs/elemento_ref" },
+      "description": "Identificadores a que o código gerado atribuiu valor em contribuicoes e que não estão em elementos_exigidos: valor atribuído a um elemento que a regra não tem. Existe somente quando a causa é cobertura_incompleta e houve atribuição assim; nunca vazia. Os identificadores vêm do código gerado, mas só chegam aqui depois de validados contra elemento_ref, e por isso não carregam texto livre.",
+      "examples": [["elem.9"]]
     }
   },
   "allOf": [
@@ -81,6 +98,20 @@
         "properties": { "causa": { "const": "resultado_fora_do_schema" } }
       },
       "then": { "required": ["problemas"] }
+    },
+    {
+      "if": {
+        "required": ["causa"],
+        "properties": { "causa": { "const": "cobertura_incompleta" } }
+      },
+      "then": {
+        "anyOf": [{ "required": ["elementos_ausentes"] }, { "required": ["elementos_fora_da_regra"] }]
+      },
+      "else": {
+        "not": {
+          "anyOf": [{ "required": ["elementos_ausentes"] }, { "required": ["elementos_fora_da_regra"] }]
+        }
+      }
     }
   ],
   "examples": [
@@ -93,6 +124,11 @@
       }
     },
     { "causa": "timeout" },
+    {
+      "causa": "cobertura_incompleta",
+      "elementos_ausentes": ["elem.1"],
+      "elementos_fora_da_regra": ["elem.9"]
+    },
     {
       "causa": "resultado_fora_do_schema",
       "problemas": [

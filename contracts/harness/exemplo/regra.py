@@ -5,7 +5,8 @@ Regra só de núcleo: aplica 2,5% de comissão nas vendas da marca 10 no cargo
 todas as competências do job - regra-nucleo.schema.json). A função é pura
 (DataFrames entram, resultado sai), não lê arquivo e recebe as competências
 do período por parâmetro. O elemento implementado é declarado em
-contribuicoes["elemento_ref"].
+elementos_implementados, mesmo num período em que não tenha efeito, e cada
+contribuição é atribuída a ele em contribuicoes["elemento_ref"].
 """
 
 from __future__ import annotations
@@ -23,8 +24,8 @@ def aplicar_regra(
     bases: dict[str, pd.DataFrame],
     apuracao_base: pd.DataFrame,
     competencias: list[str],
-) -> dict[str, pd.DataFrame]:
-    """Devolve a apuração simulada e a contribuição por elemento."""
+) -> dict[str, pd.DataFrame | list[str]]:
+    """Devolve a apuração simulada, a contribuição por elemento e os elementos implementados."""
     vendas = bases["vendas"]
     vendas_periodo = vendas[vendas["competencia"].isin(competencias)]
     vendas_por_matricula_competencia = vendas_periodo.groupby(
@@ -52,4 +53,5 @@ def aplicar_regra(
     return {
         "apuracao_simulada": simulada.reset_index(drop=True),
         "contribuicoes": contribuicoes,
+        "elementos_implementados": [_ELEMENTO],
     }
