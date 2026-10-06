@@ -178,9 +178,17 @@ async def test_parametros_confirmados_drena_validas_duplicadas_e_invalidas(
     for _ in corpos:
         await asyncio.wait_for(assentadas.get(), timeout=10)
 
-    fila = await broker_real.canal.declare_queue(nome, passive=True)
-    assert fila.declaration_result.consumer_count == 1
-    assert fila.declaration_result.message_count == 0
+    # `broker_real.canal` já declarou essa fila antes do consumer existir; um `declare_queue`
+    # passivo nele devolve o `AbstractQueue` cacheado, com o `declaration_result` daquele
+    # instante. Um canal novo não tem esse cache e força a reconsulta ao broker.
+    canal_verificacao = await broker_real.conexao.channel()
+    try:
+        fila = await canal_verificacao.declare_queue(nome, passive=True)
+        assert fila.declaration_result.consumer_count == 1
+        assert fila.declaration_result.message_count == 0
+    finally:
+        if not canal_verificacao.is_closed:
+            await canal_verificacao.close()
     assert len(ambiente.modelo.seen_messages) == 1
     ambiente.producers.executar_codigo.assert_awaited_once()
     assert (await ambiente.estado(antiga)).values == {}
