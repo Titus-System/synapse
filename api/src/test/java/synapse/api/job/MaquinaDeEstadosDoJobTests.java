@@ -8,6 +8,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -134,7 +135,7 @@ class MaquinaDeEstadosDoJobTests {
 	@Test
 	void cadaTransicaoGravaUmaLinhaComTimestamp() throws SQLException {
 		UUID jobId = criarJob();
-		Instant antes = Instant.now();
+		Instant antes = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
 		maquina.registrarCriacao(jobId, "sistema");
 		maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "sistema", null);
@@ -158,7 +159,7 @@ class MaquinaDeEstadosDoJobTests {
 	@Test
 	void transicaoParaEstadoTerminalGravaFinalizadoEm() throws SQLException {
 		UUID jobId = criarJob();
-		Instant antes = Instant.now();
+		Instant antes = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		maquina.registrarCriacao(jobId, "sistema");
 
 		maquina.transicionar(jobId, JobStatus.CANCELADO, "rh", "usuário desistiu");
@@ -208,7 +209,7 @@ class MaquinaDeEstadosDoJobTests {
 	@Test
 	void criacaoDiretamenteEmGerandoRegraGravaIniciadoEmComOInstanteDaTransicaoInicial() throws SQLException {
 		UUID jobId = criarJob();
-		Instant antes = Instant.now();
+		Instant antes = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
 		maquina.registrarCriacao(jobId, JobStatus.GERANDO_REGRA, "usuario");
 

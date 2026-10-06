@@ -2,6 +2,7 @@ package synapse.api.core.persistence;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
@@ -127,6 +128,37 @@ class PermissoesDeBancoTests {
 	void oCodegenLeATranscricao() {
 		assertThatCode(() -> executar(UsuariosDeBanco.CODEGEN, "SELECT transcricao FROM submissoes"))
 			.doesNotThrowAnyException();
+	}
+
+	@Test
+	void oWorkerInsereDetalhamentoEAApiLeSemPermitirAtualizacao() throws Exception {
+		String resultadoId;
+		try (Connection connection = como(UsuariosDeBanco.WORKER);
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("""
+						INSERT INTO resultados_simulacao
+						    (job_id, codigo_gerado_id, status, assercoes, linhas, criado_em)
+						VALUES ('%s', '%s', 'sucesso', '[]'::jsonb,
+						        '{"2025-08": {"MATRIC-1": {"cod_loja": "75", "cod_marca": "20",
+						        "cod_cargo": "200", "comissao_baseline": 100, "comissao_simulada": 110,
+						        "diferenca": 10, "contribuicoes": {"nucleo.percentual": 10}}}}'::jsonb, now())
+						RETURNING id::text
+						""".formatted(JOB_ID, CODIGO_ID))) {
+			assertThat(rs.next()).isTrue();
+			resultadoId = rs.getString(1);
+		}
+		try (Connection connection = como(UsuariosDeBanco.API);
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("""
+						SELECT linhas #>> '{2025-08,MATRIC-1,diferenca}' FROM resultados_simulacao WHERE id = '%s'
+						""".formatted(resultadoId))) {
+			assertThat(rs.next()).isTrue();
+			assertThat(rs.getString(1)).isEqualTo("10");
+		}
+		for (String usuario : new String[] { UsuariosDeBanco.WORKER, UsuariosDeBanco.API }) {
+			assertThat(sqlStateAoFalhar(usuario, "UPDATE resultados_simulacao SET linhas = '{}'::jsonb"))
+				.isEqualTo(PERMISSAO_NEGADA);
+		}
 	}
 
 	// --- O diagnóstico vem com o resultado e é tão imutável quanto ele -------------
