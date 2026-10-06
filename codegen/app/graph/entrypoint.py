@@ -27,6 +27,13 @@ type Grafo = CompiledStateGraph[AgentState, None, AgentState, AgentState]
 type Entrada = AgentState | Command[Any] | None
 
 
+class RunOutcome(StrEnum):
+    """Se a entrega avançou o ciclo ou encontrou apenas trabalho já processado."""
+
+    PROCESSED = "processed"
+    IGNORED = "ignored"
+
+
 class ResumeOutcome(StrEnum):
     """O que a retomada encontrou no checkpoint do job.
 
@@ -235,11 +242,15 @@ async def run_to_completion(
     *,
     sessoes: async_sessionmaker[AsyncSession],
     producers: Producers,
-) -> None:
+) -> RunOutcome:
     """Drive `run` until the graph finishes or pauses, discarding the per-node updates.
 
     Meant to be called from the message-router boundary, never directly from a message
-    handler.
+    handler. An interrupt alone is not new processing: a duplicate delivery at the worker
+    pause must not count as opening another cycle.
     """
-    async for _ in run(thread_id, initial_state, sessoes=sessoes, producers=producers):
-        pass
+    outcome = RunOutcome.IGNORED
+    async for node_name, _ in run(thread_id, initial_state, sessoes=sessoes, producers=producers):
+        if node_name != "__interrupt__":
+            outcome = RunOutcome.PROCESSED
+    return outcome

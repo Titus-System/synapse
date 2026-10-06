@@ -1,5 +1,16 @@
 from .prometheus import prometheus
 
+# Conta entregas processadas, inclusive continuação após falha transitória; não jobs únicos.
+# Uma reentrega sem avanço do grafo é contada separadamente. Tentativas reenfileiradas ainda
+# não têm resultado definitivo e não incrementam este contador.
+parametros_confirmados = prometheus.register_counter(
+    "codegen_parametros_confirmados_total",
+    "Mensagens de parametros-confirmados por resultado do consumo",
+    ["resultado"],
+)
+for _resultado in ("ciclo_aberto", "reentrega_ignorada", "descartada"):
+    parametros_confirmados.labels(resultado=_resultado)
+
 request_count = prometheus.register_counter(
     "app_requests_total", "Total HTTP requests", ["method", "endpoint", "status"]
 )

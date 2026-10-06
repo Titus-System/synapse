@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 import simplejson
 from aio_pika import DeliveryMode, Message
+from aio_pika.abc import AbstractIncomingMessage
 from aiormq.exceptions import ChannelNotFoundEntity
 
 from app.config import Settings
@@ -23,11 +24,12 @@ from app.graph.nodes.dispatch_execution import dispatch_execution
 from app.mensageria.broker import (
     EXCHANGE_SIMULACAO,
     FILA_SIMULACAO,
-    FILAS_SIMPLES,
     ConexaoBroker,
     conectar,
 )
+from app.mensageria.consumers import Consumer
 from app.mensageria.roteamento import Entrada
+from tests.app.confirmacao_falsa import ConfirmacaoFalsa
 from tests.app.test_mensageria import SAIDAS, exemplo, oficial, sugestao_do_exemplo
 
 pytestmark = [
@@ -147,29 +149,42 @@ async def test_resultado_do_worker_chega_ao_codegen_pelo_fanout(
     assert simplejson.loads(serializar(dto), use_decimal=True) == payload
 
 
-@pytest.mark.parametrize("nome", ["parametros-confirmados"], ids=str)
-async def test_filas_sem_consumer_preservam_as_mensagens(
-    broker_real: ConexaoBroker, nome: str
+async def test_parametros_confirmados_drena_validas_duplicadas_e_invalidas(
+    broker_real: ConexaoBroker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`parametros-confirmados` fica retida, não descartada.
+    """Broker e consumer reais; só banco, modelo e produtores do grafo são falsos."""
+    ambiente = ConfirmacaoFalsa(monkeypatch)
+    assentadas: asyncio.Queue[None] = asyncio.Queue()
+    receber = Consumer.receber
 
-    Retomar o grafo pela confirmação do usuário ainda não existe, então `iniciar_consumers`
-    não sobe consumer nessa fila. O que esta garantia protege é a mensagem: ela espera no
-    broker até a retomada existir, sem perda.
-    """
-    assert nome in FILAS_SIMPLES
-    roteador = RoteadorTeste()
-    await broker_real.iniciar_consumers(roteador)
-    corpo = simplejson.dumps(exemplo(nome), use_decimal=True).encode()
+    async def acompanhar(self: Consumer, mensagem: AbstractIncomingMessage) -> None:
+        await receber(self, mensagem)
+        assentadas.put_nowait(None)
 
-    await broker_real.canal.default_exchange.publish(
-        Message(body=corpo, content_type="application/json"), routing_key=nome
-    )
+    monkeypatch.setattr(Consumer, "receber", acompanhar)
+    await broker_real.iniciar_consumers(ambiente.roteador)
+    nome = "parametros-confirmados"
+    valida = exemplo(nome)
+    antiga = {"job_id": valida["job_id"], "regra_id": str(uuid4())}
+    invalida = valida | {"competencias": []}
+    corpos = [
+        simplejson.dumps(p, use_decimal=True).encode() for p in (valida, antiga, invalida, valida)
+    ]
+    corpos.append(b"{")
+    for corpo in corpos:
+        await broker_real.canal.default_exchange.publish(
+            Message(body=corpo, content_type="application/json"), routing_key=nome
+        )
+    for _ in corpos:
+        await asyncio.wait_for(assentadas.get(), timeout=10)
 
-    retida = await broker_real.filas[nome].get(timeout=10)
-    assert retida.body == corpo
-    await retida.ack()
-    assert roteador.entregas.empty()
+    fila = await broker_real.canal.declare_queue(nome, passive=True)
+    assert fila.declaration_result.consumer_count == 1
+    assert fila.declaration_result.message_count == 0
+    assert len(ambiente.modelo.seen_messages) == 1
+    ambiente.producers.executar_codigo.assert_awaited_once()
+    assert (await ambiente.estado(antiga)).values == {}
+    assert all(p.get("status") != "erro" for _, p in ambiente.publicacoes)
 
 
 async def test_fanout_mantem_copia_na_fila_api(broker_real: ConexaoBroker) -> None:

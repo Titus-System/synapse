@@ -552,7 +552,7 @@ async def test_broker_usa_confirms_prefetch_e_consumers_com_ack_manual(
 
     conexao.channel.assert_awaited_once_with(publisher_confirms=True, on_return_raises=True)
     canal.set_qos.assert_awaited_once_with(prefetch_count=1)
-    assert len(broker.consumidores) == 3
+    assert len(broker.consumidores) == 4
     for fila, _, _ in broker.consumidores:
         assert fila.consume.call_args.kwargs == {"no_ack": False}
     await broker.fechar()
@@ -575,11 +575,16 @@ async def test_broker_consome_regra_submetida_e_o_resultado_do_worker(
     await broker.iniciar_consumers(MagicMock())
 
     consumidos = {consumer.nome: fila for fila, _, consumer in broker.consumidores}
-    assert set(consumidos) == {"regra-submetida", "simulacao-concluida", "job-encerrado"}
+    assert set(consumidos) == {
+        "regra-submetida",
+        "parametros-confirmados",
+        "simulacao-concluida",
+        "job-encerrado",
+    }
     assert consumidos["regra-submetida"] is broker.filas["regra-submetida"]
     assert consumidos["simulacao-concluida"] is broker.filas[FILA_SIMULACAO]
     assert consumidos["job-encerrado"] is broker.filas["job-encerrado"]
-    assert "parametros-confirmados" not in consumidos
+    assert consumidos["parametros-confirmados"] is broker.filas["parametros-confirmados"]
 
 
 async def test_consumer_reenfileira_quando_o_grafo_ainda_nao_pausou() -> None:

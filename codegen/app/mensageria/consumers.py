@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import suppress
+from typing import Literal
 from uuid import UUID
 
 import simplejson
@@ -13,8 +14,10 @@ from app.contratos.mensagens import (
 )
 from app.contratos.validacao import validar
 from app.core.logger import get_logger, job_id_ctx
+from app.core.metrics.global_metrics import parametros_confirmados
 from app.falhas import FalhaDoJobError
 from app.mensageria.roteamento import (
+    ContextoAusenteError,
     JobDesconhecidoError,
     JobEncerradoError,
     RetomadaIndisponivelError,
@@ -22,6 +25,10 @@ from app.mensageria.roteamento import (
 )
 
 logger = get_logger("app.mensageria.consumers")
+
+type CausaDescarte = Literal[
+    "contrato_invalido", "contexto_ausente", "job_desconhecido", "job_encerrado", "falha_do_job"
+]
 
 
 class Consumer:
@@ -45,12 +52,16 @@ class Consumer:
         if tarefa is not None:
             self._ativos.add(tarefa)
         token = job_id_ctx.set(None)
+        regra_id: UUID | None = None
         try:
             try:
                 payload = simplejson.loads(mensagem.body, use_decimal=True)
                 if isinstance(payload, dict) and isinstance(payload.get("job_id"), str):
                     with suppress(ValueError):
                         job_id_ctx.set(str(UUID(payload["job_id"])))
+                if isinstance(payload, dict) and isinstance(payload.get("regra_id"), str):
+                    with suppress(ValueError):
+                        regra_id = UUID(payload["regra_id"])
                 validar(self.nome, payload)
                 # O schema já verificou os tipos. Decimal como texto intermediário evita
                 # a conversão para float no parser JSON do Pydantic, mantendo strict=True.
@@ -61,8 +72,7 @@ class Consumer:
                 logger.warning(
                     "mensagem inválida rejeitada",
                     extra={
-                        "tipo_mensagem": self.nome,
-                        "causa": "contrato_invalido",
+                        **self._descarte("contrato_invalido", regra_id),
                         "decisao": "reject_sem_requeue",
                     },
                 )
@@ -72,12 +82,20 @@ class Consumer:
             job_id_ctx.set(str(dto.job_id))
             try:
                 await self.roteador.entregar(dto.job_id, dto)
+            except ContextoAusenteError:
+                logger.warning(
+                    "confirmação sem contexto descartada",
+                    extra={
+                        **self._descarte("contexto_ausente", regra_id),
+                        "decisao": "reject_sem_requeue",
+                    },
+                )
+                await mensagem.reject(requeue=False)
             except JobDesconhecidoError:
                 logger.warning(
                     "job sem grafo correspondente",
                     extra={
-                        "tipo_mensagem": self.nome,
-                        "causa": "job_desconhecido",
+                        **self._descarte("job_desconhecido", regra_id),
                         "decisao": "reject_sem_requeue",
                     },
                 )
@@ -88,8 +106,7 @@ class Consumer:
                 logger.info(
                     "mensagem de job encerrado descartada",
                     extra={
-                        "tipo_mensagem": self.nome,
-                        "causa": "job_encerrado",
+                        **self._descarte("job_encerrado", regra_id),
                         "decisao": "ack_sem_processar",
                     },
                 )
@@ -114,8 +131,7 @@ class Consumer:
                 logger.warning(
                     "processamento do job falhou de forma permanente",
                     extra={
-                        "tipo_mensagem": self.nome,
-                        "causa": "falha_do_job",
+                        **self._descarte("falha_do_job", regra_id),
                         "etapa": falha.etapa,
                         "decisao": "reject_sem_requeue",
                     },
@@ -138,3 +154,12 @@ class Consumer:
             job_id_ctx.reset(token)
             if tarefa is not None:
                 self._ativos.discard(tarefa)
+
+    def _descarte(self, causa: CausaDescarte, regra_id: UUID | None) -> dict[str, str]:
+        extra = {"tipo_mensagem": self.nome, "causa": causa}
+        if self.modelo is ParametrosConfirmados:
+            parametros_confirmados.labels(resultado="descartada").inc()
+            extra["resultado"] = "descartada"
+            if regra_id is not None:
+                extra["regra_id"] = str(regra_id)
+        return extra

@@ -4,7 +4,12 @@ from aio_pika import ExchangeType, connect_robust
 from aio_pika.abc import AbstractChannel, AbstractQueue, AbstractRobustConnection
 
 from app.config import Settings
-from app.contratos.mensagens import JobEncerrado, RegraSubmetida, SimulacaoConcluida
+from app.contratos.mensagens import (
+    JobEncerrado,
+    ParametrosConfirmados,
+    RegraSubmetida,
+    SimulacaoConcluida,
+)
 from app.core.logger import get_logger
 from app.mensageria.consumers import Consumer
 from app.mensageria.producers import Producers
@@ -42,14 +47,13 @@ class ConexaoBroker:
     consumidores: list[tuple[AbstractQueue, str, Consumer]] = field(default_factory=list)
 
     async def iniciar_consumers(self, roteador: RoteadorGrafo) -> None:
-        # `parametros-confirmados` segue sem consumer: retomar pela confirmação do usuário
-        # ainda não está implementado, e a fila preserva as mensagens até essa integração
-        # existir. O nome do contrato não é o da fila em `simulacao-concluida`: a validação de
+        # O nome do contrato não é o da fila em `simulacao-concluida`: a validação de
         # schema usa o do evento, e o fanout entrega numa fila própria do codegen.
         if self.consumidores:
             raise RuntimeError("Consumers já iniciados")
         entradas = (
             (RegraSubmetida, "regra-submetida", "regra-submetida"),
+            (ParametrosConfirmados, "parametros-confirmados", "parametros-confirmados"),
             (SimulacaoConcluida, "simulacao-concluida", FILA_SIMULACAO),
             (JobEncerrado, "job-encerrado", "job-encerrado"),
         )
