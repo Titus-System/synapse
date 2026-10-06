@@ -43,3 +43,22 @@ python contracts/validar-exemplos.py
 
 O script retorna código diferente de zero e identifica o arquivo e o campo
 quando um exemplo não atende ao schema correspondente.
+
+O mesmo comando valida a estrutura de `contracts/http/openapi.yaml` e seus exemplos
+de schemas, parâmetros, requisições e respostas. Os exemplos HTTP são conferidos
+por `$ref` ao schema no documento original, incluindo referências aos schemas de
+domínio; não há cópias dos schemas para testes. Exemplos reutilizados por `$ref`
+também são resolvidos antes da validação.
+No exemplo SSE, o JSON de cada campo `data:` é validado contra o schema do evento;
+os comentários de heartbeat não são dados do evento.
+
+Na T-251, os exemplos de `GET /jobs` e `GET /jobs/{id}` cobrem nome definido pelo
+usuário, nome padrão e ausência de nome. `PUT /jobs/{id}/nome` inclui requisições,
+resposta com o nome gravado e recusas. As regras de normalização e persistência
+serão exercitadas na implementação da API (T-253).
+
+Para conferir que o validador rejeita exemplos inválidos e referências quebradas:
+
+```bash
+python contracts/testar-validador.py
+```

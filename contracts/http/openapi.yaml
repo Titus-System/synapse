@@ -9,7 +9,7 @@ info:
     deste arquivo: `frontend` e `api` são escritos em paralelo contra ele e só se
     encontram na integração.
 
-    Dez operações. Nove são sobre o recurso `job`, que é a unidade de trabalho do
+    Onze operações. Dez são sobre o recurso `job`, que é a unidade de trabalho do
     sistema e o que a `api` possui de ponta a ponta, e uma recebe as submissões do
     usuário: a descrição de uma regra nova, digitada ou falada, e a correção
     enviada pelo chatbot. O ciclo é assíncrono: a criação devolve o job em
@@ -247,6 +247,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaginaJobs"
+              examples:
+                nomesResolvidos:
+                  summary: Nome definido pelo usuário, nome padrão e nome ausente
+                  value:
+                    itens:
+                      - id: "a2c4e6f8-0b1d-4e3f-8a5c-7e9b1d3f5a70"
+                        nome: Comissão de 2,5% para vendedores da loja 13
+                        status: gerando_regra
+                        competencias: ["2025-11"]
+                        orcamento: 485000.0
+                        criado_em: "2025-11-24T15:10:00Z"
+                      - id: "c3d5e7f9-1a2b-4c6d-8e0f-2a4b6c8d0e12"
+                        status: aguardando_transcricao
+                        competencias: ["2025-11"]
+                        orcamento: 485000.0
+                        criado_em: "2025-11-24T15:00:00Z"
+                      - id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                        nome: Comissão de novembro
+                        status: simulacao_inviavel
+                        competencias: ["2025-11"]
+                        orcamento: 485000.0
+                        criado_em: "2025-11-24T14:02:00Z"
+                    pagina: 0
+                    tamanho: 20
+                    total: 3
         "400":
           $ref: "#/components/responses/RequisicaoInvalida"
         "401":
@@ -279,7 +304,7 @@ paths:
                 $ref: "#/components/schemas/JobDetalhado"
               examples:
                 simulacaoInviavel:
-                  summary: Simulação concluída, acima do orçamento
+                  summary: Simulação concluída, acima do orçamento, com nome definido pelo usuário
                   value:
                     id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
                     nome: Comissão de novembro
@@ -365,16 +390,30 @@ paths:
                             cargo: { "100": 9200.0, "150": 2588.0 }
                             competencia: { "2025-11": 11788.0 }
                 descricaoEmExtracao:
-                  summary: Descrição em texto recém-enviada, ainda sem regra extraída
+                  summary: Descrição em texto com nome padrão, ainda sem regra extraída
+                  description: |
+                    A submissão inicial contém "  Comissão de 2,5%\tpara vendedores\nda loja 13  ".
+                    A API normaliza os espaços; o resultado tem menos de 50 caracteres.
                   value:
                     id: "a2c4e6f8-0b1d-4e3f-8a5c-7e9b1d3f5a70"
-                    nome: null
+                    nome: Comissão de 2,5% para vendedores da loja 13
                     status: gerando_regra
                     origem: texto
                     competencias: ["2025-11"]
                     orcamento: 485000.0
                     criado_em: "2025-11-24T15:10:00Z"
                     submissao_id: "e1f3a5c7-9b2d-4f6e-8a0c-2d4f6a8c0e19"
+                    regras: []
+                vozSemNome:
+                  summary: Voz ainda sem transcrição e sem nome definido pelo usuário
+                  value:
+                    id: "c3d5e7f9-1a2b-4c6d-8e0f-2a4b6c8d0e12"
+                    status: aguardando_transcricao
+                    origem: voz
+                    competencias: ["2025-11"]
+                    orcamento: 485000.0
+                    criado_em: "2025-11-24T15:00:00Z"
+                    submissao_id: "f2a4b6c8-0d1e-4f3a-8b5c-7d9e1f3a5b70"
                     regras: []
         "401":
           $ref: "#/components/responses/NaoAutenticado"
@@ -690,6 +729,83 @@ paths:
                       - ref: nucleo.vigencia
                         motivo: A competência final é anterior à inicial.
 
+  /jobs/{id}/nome:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    put:
+      tags: [jobs]
+      operationId: renomearJob
+      summary: Define o nome de exibição do job.
+      description: |
+        Grava em `jobs.nome` somente o nome definido pelo usuário, removendo os
+        espaços do início e do fim. O nome pertence ao job e é compartilhado por
+        todas as versões da regra. Nomes iguais são permitidos, inclusive entre
+        jobs do mesmo usuário. Repetir a mesma requisição produz o mesmo resultado.
+
+        Permitida em qualquer estado, inclusive terminal: não altera a regra, a
+        simulação nem o estado do job. Não registra renomeação na trilha de
+        auditoria nem em `job_acoes` e não emite evento no stream do job.
+
+        Exige sessão válida, papel `profissional-rh` e posse do job, como as demais
+        rotas operacionais. As recusas são `401 nao_autenticado`, `403 sem_permissao`
+        e `404 job_nao_encontrado`.
+
+        Nome ausente, nulo, vazio, só com espaços ou com mais de 100 caracteres
+        após remover os espaços das extremidades recebe `400 requisicao_invalida`.
+        Esta rota não permite apagar o nome para voltar ao nome padrão.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenomearJobRequisicao"
+            examples:
+              nomeDefinido:
+                value:
+                  nome: Comissão de novembro
+              espacosNasExtremidades:
+                summary: Os espaços das extremidades são removidos antes da gravação
+                value:
+                  nome: "  Comissão de novembro  "
+      responses:
+        "200":
+          description: Job detalhado com o nome novo, sem transição de estado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobDetalhado"
+              examples:
+                jobRenomeado:
+                  summary: Job terminal renomeado
+                  value:
+                    id: "a2c4e6f8-0b1d-4e3f-8a5c-7e9b1d3f5a70"
+                    nome: Comissão de novembro
+                    status: cancelado
+                    origem: texto
+                    competencias: ["2025-11"]
+                    orcamento: 485000.0
+                    criado_em: "2025-11-24T15:10:00Z"
+                    finalizado_em: "2025-11-24T15:11:00Z"
+                    submissao_id: "e1f3a5c7-9b2d-4f6e-8a0c-2d4f6a8c0e19"
+                    regras: []
+        "400":
+          description: Nome ausente ou inválido após remover os espaços das extremidades.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                nomeInvalido:
+                  value:
+                    codigo: requisicao_invalida
+                    mensagem: Informe um nome de 1 a 100 caracteres.
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/SemPermissao"
+        "404":
+          $ref: "#/components/responses/JobNaoEncontrado"
+
   /jobs/{id}/actions:
     parameters:
       - $ref: "#/components/parameters/JobId"
@@ -815,6 +931,11 @@ paths:
         **Nunca sobrescreve o original.** Cria um job novo, com `job_origem_id`
         apontando para o job informado no caminho e semeado com a representação da
         regra dele. O job anterior e sua trilha ficam intactos.
+
+        O nome definido pelo usuário em `jobs.nome` é copiado para o job novo.
+        Renomear qualquer um depois não altera o outro. O nome padrão não é
+        gravado: na leitura, a API segue `job_origem_id` até o primeiro job da
+        cadeia com submissão, conforme `nome` em `JobResumo` e `JobDetalhado`.
 
         O job novo nasce em `aguardando_confirmacao_parametros`: o usuário ajusta
         parâmetros e orçamento em `POST /jobs/{id}/parameters` antes de simular de
@@ -1592,6 +1713,27 @@ components:
             especificacoes: []
           orcamento: 485000.0
 
+    RenomearJobRequisicao:
+      type: object
+      title: Nome definido pelo usuário
+      description: Corpo de `PUT /jobs/{id}/nome`.
+      required: [nome]
+      properties:
+        nome:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: '\S'
+          description: |
+            Nome definido pelo usuário. A API remove os espaços do início e do fim
+            antes de validar o limite de 1 a 100 caracteres e gravar; os limites
+            se aplicam ao valor normalizado, contado por pontos de código Unicode.
+            Espaços internos são preservados. Ausência, null, string vazia ou só
+            com espaços são recusados com `requisicao_invalida`. Nomes iguais são
+            permitidos. Não permite remover o nome para restaurar o nome padrão.
+      examples:
+        - nome: Comissão de novembro
+
     ExecutarAcaoRequisicao:
       type: object
       title: Ação de finalização
@@ -1941,8 +2083,33 @@ components:
           description: Identificador do job, e a chave de correlação em toda a observabilidade.
         nome:
           type: [string, "null"]
-          description: Nome de exibição do job, compartilhado por todas as versões da regra. Opcional e nulo quando não definido.
-          examples: [Comissão de novembro, null]
+          description: |
+            Nome de exibição resolvido pela API, compartilhado por todas as versões
+            da regra. O nome definido pelo usuário em `jobs.nome` tem prioridade.
+            Sem ele, o nome padrão vem de `submissoes.transcricao` da submissão
+            inicial apontada por `jobs.submissao_id`, que guarda o texto digitado
+            ou a transcrição do áudio. O frontend não calcula o nome padrão.
+
+            A API remove espaços do início e do fim do texto, substitui cada
+            sequência de espaços, tabulações e quebras de linha por um único
+            espaço e usa os primeiros 50 caracteres do resultado, contados por
+            pontos de código Unicode para não cortar um emoji ao meio. Textos
+            com até 50 caracteres são usados inteiros, sem reticências. O nome
+            padrão não é persistido em `jobs.nome`.
+
+            No job reprocessado, sem submissão própria, a API segue
+            `jobs.job_origem_id` até o primeiro job da cadeia com submissão e usa
+            esse texto inicial para o nome padrão. O nome definido pelo usuário
+            no job de origem é copiado ao reprocessar; renomear um deles depois
+            não altera o outro. Correções e novas versões não mudam
+            `jobs.submissao_id`, portanto não mudam a origem do nome padrão.
+
+            Ausente quando não há nome definido pelo usuário nem texto inicial
+            não vazio após normalização, inclusive formulário com
+            `submissoes.transcricao` nulo e voz ainda sem transcrição. Nesse caso,
+            o frontend mostra o rótulo com a data de criação. O tipo aceita null
+            por compatibilidade com a T-200 D; a API omite o campo sem nome resolvido.
+          examples: [Comissão de novembro, "Comissão de 2,5% para vendedores da loja 13"]
         status:
           $ref: "#/components/schemas/StatusJob"
         origem:
@@ -2210,8 +2377,33 @@ components:
           format: uuid
         nome:
           type: [string, "null"]
-          description: Nome de exibição do job, compartilhado por todas as versões da regra. Opcional e nulo quando não definido.
-          examples: [Comissão de novembro, null]
+          description: |
+            Nome de exibição resolvido pela API, compartilhado por todas as versões
+            da regra. O nome definido pelo usuário em `jobs.nome` tem prioridade.
+            Sem ele, o nome padrão vem de `submissoes.transcricao` da submissão
+            inicial apontada por `jobs.submissao_id`, que guarda o texto digitado
+            ou a transcrição do áudio. O frontend não calcula o nome padrão.
+
+            A API remove espaços do início e do fim do texto, substitui cada
+            sequência de espaços, tabulações e quebras de linha por um único
+            espaço e usa os primeiros 50 caracteres do resultado, contados por
+            pontos de código Unicode para não cortar um emoji ao meio. Textos
+            com até 50 caracteres são usados inteiros, sem reticências. O nome
+            padrão não é persistido em `jobs.nome`.
+
+            No job reprocessado, sem submissão própria, a API segue
+            `jobs.job_origem_id` até o primeiro job da cadeia com submissão e usa
+            esse texto inicial para o nome padrão. O nome definido pelo usuário
+            no job de origem é copiado ao reprocessar; renomear um deles depois
+            não altera o outro. Correções e novas versões não mudam
+            `jobs.submissao_id`, portanto não mudam a origem do nome padrão.
+
+            Ausente quando não há nome definido pelo usuário nem texto inicial
+            não vazio após normalização, inclusive formulário com
+            `submissoes.transcricao` nulo e voz ainda sem transcrição. Nesse caso,
+            o frontend mostra o rótulo com a data de criação. O tipo aceita null
+            por compatibilidade com a T-200 D; a API omite o campo sem nome resolvido.
+          examples: [Comissão de novembro, "Comissão de 2,5% para vendedores da loja 13"]
         status:
           $ref: "#/components/schemas/StatusJob"
         competencias:

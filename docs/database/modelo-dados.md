@@ -74,7 +74,13 @@ Guardar o binário na mesma linha não pesa as leituras que não pedem a coluna.
 
 O processamento de uma submissão do início ao fim. O `id` desta tabela é a chave de correlação que reaparece em quase todas as outras e em todos os eventos do RabbitMQ.
 
-A coluna `nome` é texto nullable, sem valor padrão nem preenchimento retroativo. Identifica o job na listagem e no detalhe, compartilhado por todas as versões da regra. O contrato HTTP aceita `nome` ausente, nulo ou textual em `JobResumo` e `JobDetalhado`.
+A coluna `nome` é texto nullable, sem valor padrão nem preenchimento retroativo. Guarda somente o nome definido pelo usuário, com 1 a 100 caracteres após remover os espaços das extremidades, compartilhado por todas as versões da regra. Nomes iguais são permitidos. O nome padrão não é gravado nessa coluna.
+
+Em `JobResumo` e `JobDetalhado`, a API devolve um único `nome` resolvido: o nome definido pelo usuário tem prioridade; na ausência dele, usa `submissoes.transcricao` da submissão apontada por `jobs.submissao_id`. Remove espaços das extremidades, substitui cada sequência de espaços, tabulações e quebras de linha por um espaço e usa os primeiros 50 pontos de código Unicode, sem reticências. Textos de até 50 caracteres são usados inteiros. Correções e novas versões não mudam `jobs.submissao_id` nem a origem do nome padrão.
+
+No reprocessamento, a API segue `jobs.job_origem_id` até o primeiro job com submissão para obter o texto inicial. O nome definido pelo usuário no job de origem é copiado para o job novo; renomear um deles depois não altera o outro. A resolução na listagem deve fazer parte da consulta da página, sem uma consulta adicional por item.
+
+Sem nome definido pelo usuário nem texto inicial não vazio após normalização, a API omite `nome`: inclui formulário, cujo `transcricao` é nulo, e voz ainda sem transcrição. O frontend usa então o rótulo com a data de criação. O schema mantém a aceitação de `null` por compatibilidade com a T-200 D; a resolução definida na T-251 representa ausência pela omissão do campo.
 
 A coluna `competencias` é um array de texto com os meses a simular.
 
@@ -390,7 +396,7 @@ O histórico completo será consultável. Sair do chatbot preserva o estado do j
 
 ### Nome do job e apresentação como campanha
 
-A coluna nullable `jobs.nome` e o campo opcional nos contratos `JobResumo` e `JobDetalhado` estão definidos na T-200 D. A escrita e a exibição do nome pertencem às próximas entregas. A resolução do nome padrão fica na T-251 (#256): até 50 caracteres da entrada textual inicial ou da transcrição inicial; correções posteriores não alteram a origem. O nome pertence ao job, compartilhado por todas as versões da regra.
+A T-200 D define a coluna nullable `jobs.nome` e o campo opcional nos contratos `JobResumo` e `JobDetalhado`. A T-251 define em [`contracts/http/openapi.yaml`](../../contracts/http/openapi.yaml) a resolução do nome pela API, detalhada na seção `jobs`, e `PUT /jobs/{id}/nome`. A renomeação vale em qualquer estado, sem alterar regra, simulação ou estado; não grava trilha de auditoria nem `job_acoes` e não emite evento no stream. A implementação da API pertence à T-253, e a apresentação no frontend às T-254 e T-255.
 
 Campanha é a apresentação de um job com resultado viável. Não há nova tabela de campanhas nem agrupamento de vários jobs neste escopo. Versões anteriores continuam alcançáveis como histórico.
 

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import yaml
 from jsonschema import Draft202012Validator, FormatChecker
+from openapi_spec_validator import OpenAPIV31SpecValidator
 from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
 
@@ -13,6 +16,7 @@ from referencing.jsonschema import DRAFT202012
 DIRETORIO_CONTRATOS = Path(__file__).resolve().parent
 DIRETORIO_EXEMPLOS = DIRETORIO_CONTRATOS / "examples"
 ARQUIVO_MANIFESTO = DIRETORIO_EXEMPLOS / "manifesto.json"
+ARQUIVO_OPENAPI = DIRETORIO_CONTRATOS / "http" / "openapi.yaml"
 DIRETORIOS_ESQUEMAS = (DIRETORIO_CONTRATOS / "domain", DIRETORIO_CONTRATOS / "events")
 
 
@@ -32,13 +36,85 @@ def carregar_esquemas() -> dict[str, dict[str, Any]]:
 
 def criar_registro(esquemas: dict[str, dict[str, Any]]) -> Registry:
     registro = Registry()
-    for esquema in esquemas.values():
+    for caminho, esquema in esquemas.items():
         identificador = esquema.get("$id")
         if not isinstance(identificador, str):
             raise ValueError("Todo esquema deve declarar um $id textual.")
         recurso = Resource.from_contents(esquema, default_specification=DRAFT202012)
         registro = registro.with_resource(identificador, recurso)
+        registro = registro.with_resource((DIRETORIO_CONTRATOS / caminho).as_uri(), recurso)
     return registro
+
+
+def percorrer_documento(no: Any, ponteiro: str = "") -> Iterator[tuple[str, dict[str, Any]]]:
+    if isinstance(no, dict):
+        yield ponteiro, no
+        for chave, valor in no.items():
+            if chave not in {"example", "examples", "default"}:
+                segmento = chave.replace("~", "~0").replace("/", "~1")
+                yield from percorrer_documento(valor, f"{ponteiro}/{segmento}")
+    elif isinstance(no, list):
+        for indice, valor in enumerate(no):
+            yield from percorrer_documento(valor, f"{ponteiro}/{indice}")
+
+
+def validar_openapi(registro: Registry) -> tuple[list[str], int]:
+    with ARQUIVO_OPENAPI.open(encoding="utf-8") as arquivo:
+        documento = yaml.safe_load(arquivo)
+    uri = ARQUIVO_OPENAPI.as_uri()
+    erros = [
+        f"http/openapi.yaml: campo {formatar_caminho(list(erro.absolute_path))}: {erro.message}"
+        for erro in OpenAPIV31SpecValidator(documento, base_uri=uri).iter_errors()
+    ]
+    if erros:
+        return erros, 0
+
+    registro = registro.with_resource(
+        uri, Resource.from_contents(documento, default_specification=DRAFT202012)
+    )
+    quantidade = 0
+    for ponteiro, no in percorrer_documento(documento):
+        exemplos: list[tuple[str, Any]] = []
+        if isinstance(no.get("examples"), list):
+            exemplos.extend(
+                (str(indice), valor) for indice, valor in enumerate(no["examples"])
+            )
+        elif "schema" in no:
+            for nome, exemplo in no.get("examples", {}).items():
+                if "$ref" in exemplo:
+                    exemplo = registro.resolver(uri).lookup(exemplo["$ref"]).contents
+                exemplos.append((nome, exemplo["value"]))
+        if "example" in no:
+            exemplos.append(("example", no["example"]))
+
+        if not exemplos:
+            continue
+        if ponteiro.endswith("/content/text~1event-stream"):
+            eventos: list[tuple[str, Any]] = []
+            for nome, stream in exemplos:
+                for indice, bloco in enumerate(stream.split("\n\n")):
+                    dados = "\n".join(
+                        linha.removeprefix("data:").lstrip(" ")
+                        for linha in bloco.splitlines()
+                        if linha.startswith("data:")
+                    )
+                    if dados:
+                        eventos.append((f"{nome}[{indice}]", json.loads(dados)))
+            exemplos = eventos
+        referencia = f"{uri}#{ponteiro}"
+        if "schema" in no:
+            referencia += "/schema"
+        validador = Draft202012Validator(
+            {"$ref": referencia}, registry=registro, format_checker=FormatChecker()
+        )
+        for nome, exemplo in exemplos:
+            quantidade += 1
+            for erro in validador.iter_errors(exemplo):
+                campo = formatar_caminho(list(erro.absolute_path))
+                erros.append(
+                    f"http/openapi.yaml#{ponteiro}: exemplo {nome}, campo {campo}: {erro.message}"
+                )
+    return erros, quantidade
 
 
 def formatar_caminho(caminho: list[Any]) -> str:
@@ -109,6 +185,13 @@ def validar_exemplos() -> int:
             campo = formatar_caminho(list(erro.absolute_path))
             erros.append(f"{caminho_exemplo}: campo {campo}: {erro.message}")
 
+    try:
+        erros_http, quantidade_http = validar_openapi(registro)
+        erros.extend(erros_http)
+    except Exception as erro:
+        print(f"ERRO ao validar http/openapi.yaml: {erro}", file=sys.stderr)
+        return 1
+
     if erros:
         print("Exemplos de contrato inválidos:", file=sys.stderr)
         for erro in erros:
@@ -116,6 +199,7 @@ def validar_exemplos() -> int:
         return 1
 
     print(f"{len(exemplos)} exemplos validados contra {len(esquemas)} esquemas.")
+    print(f"OpenAPI 3.1 válido; {quantidade_http} exemplos HTTP validados por referência.")
     return 0
 
 

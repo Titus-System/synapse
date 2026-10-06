@@ -89,6 +89,10 @@ export interface ConfirmarParametrosRequisicao {
   competencias?: string[]
 }
 
+export interface RenomearJobRequisicao {
+  nome: string
+}
+
 export interface ExecutarAcaoRequisicao {
   acao: AcaoJob
 }

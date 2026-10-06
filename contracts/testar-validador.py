@@ -10,6 +10,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 
 DIRETORIO_CONTRATOS = Path(__file__).resolve().parent
 
@@ -35,6 +37,155 @@ def validar_com_alteracao(
             check=False,
             encoding="utf-8",
         )
+
+
+def validar_openapi_com_alteracao(
+    alterar: Callable[[Any], None]
+) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as diretorio_temporario:
+        diretorio_copia = Path(diretorio_temporario) / "contracts"
+        shutil.copytree(DIRETORIO_CONTRATOS, diretorio_copia)
+        caminho_openapi = diretorio_copia / "http" / "openapi.yaml"
+        with caminho_openapi.open(encoding="utf-8") as arquivo:
+            documento = yaml.safe_load(arquivo)
+        alterar(documento)
+        with caminho_openapi.open("w", encoding="utf-8") as arquivo:
+            yaml.safe_dump(documento, arquivo, allow_unicode=True, sort_keys=False)
+        return subprocess.run(
+            [sys.executable, str(diretorio_copia / "validar-exemplos.py")],
+            capture_output=True,
+            check=False,
+            encoding="utf-8",
+        )
+
+
+class TestarOpenApi(unittest.TestCase):
+    def test_valida_limites_e_obrigatoriedade_do_nome(self) -> None:
+        for requisicao, valido in (
+            ({}, False),
+            ({"nome": None}, False),
+            ({"nome": 123}, False),
+            ({"nome": ""}, False),
+            ({"nome": " \t\n "}, False),
+            ({"nome": "a" * 101}, False),
+            ({"nome": "😀" * 101}, False),
+            ({"nome": "a"}, True),
+            ({"nome": "a" * 100}, True),
+            ({"nome": "😀" * 100}, True),
+            ({"nome": "  Comissão  de novembro  ", "campo_futuro": True}, True),
+        ):
+            with self.subTest(requisicao=requisicao):
+                def alterar(documento: Any) -> None:
+                    conteudo = documento["paths"]["/jobs/{id}/nome"]["put"]["requestBody"]
+                    conteudo["content"]["application/json"]["examples"] = {
+                        "caso": {"value": requisicao}
+                    }
+
+                resultado = validar_openapi_com_alteracao(alterar)
+                if valido:
+                    self.assertEqual(resultado.returncode, 0, resultado.stderr)
+                else:
+                    self.assertNotEqual(resultado.returncode, 0)
+                    self.assertIn("exemplo caso", resultado.stderr)
+
+    def test_resposta_usa_schema_referenciado_sem_copia(self) -> None:
+        def alterar(documento: Any) -> None:
+            documento["components"]["schemas"]["JobDetalhado"]["required"].append(
+                "campo_futuro_obrigatorio"
+            )
+
+        resultado = validar_openapi_com_alteracao(alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("exemplo jobRenomeado", resultado.stderr)
+        self.assertIn("'campo_futuro_obrigatorio' is a required property", resultado.stderr)
+
+    def test_rejeita_resposta_invalida_pelo_schema_de_dominio(self) -> None:
+        def alterar(documento: Any) -> None:
+            resposta = documento["paths"]["/jobs/{id}/nome"]["put"]["responses"]["200"]
+            resposta["content"]["application/json"]["examples"]["jobRenomeado"]["value"][
+                "orcamento"
+            ] = "invalido"
+
+        resultado = validar_openapi_com_alteracao(alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("exemplo jobRenomeado, campo $.orcamento", resultado.stderr)
+
+    def test_lista_usa_job_resumo_referenciado(self) -> None:
+        def alterar(documento: Any) -> None:
+            pagina = documento["paths"]["/jobs"]["get"]["responses"]["200"]
+            itens = pagina["content"]["application/json"]["examples"]["nomesResolvidos"][
+                "value"
+            ]["itens"]
+            itens[1]["nome"] = 123
+
+        resultado = validar_openapi_com_alteracao(alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.itens[1].nome", resultado.stderr)
+
+    def test_respostas_preservam_compatibilidade_com_nome_nulo_e_ausente(self) -> None:
+        def alterar(documento: Any) -> None:
+            documento["components"]["schemas"]["JobResumo"]["examples"][0]["nome"] = None
+            resposta = documento["paths"]["/jobs/{id}"]["get"]["responses"]["200"]
+            exemplos = resposta["content"]["application/json"]["examples"]
+            exemplos["descricaoEmExtracao"]["value"]["nome"] = None
+            del exemplos["simulacaoInviavel"]["value"]["nome"]
+
+        resultado = validar_openapi_com_alteracao(alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_estrutura_openapi_invalida(self) -> None:
+        def alterar(documento: Any) -> None:
+            del documento["paths"]["/jobs/{id}/nome"]["put"]["responses"]["200"]["description"]
+
+        resultado = validar_openapi_com_alteracao(alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("http/openapi.yaml", resultado.stderr)
+
+    def test_rejeita_referencias_quebradas(self) -> None:
+        for referencia in (
+            "#/components/schemas/Inexistente",
+            "../domain/inexistente.schema.json",
+        ):
+            with self.subTest(referencia=referencia):
+                def alterar(documento: Any) -> None:
+                    conteudo = documento["paths"]["/jobs/{id}/nome"]["put"]["requestBody"]
+                    conteudo["content"]["application/json"]["schema"] = {"$ref": referencia}
+
+                resultado = validar_openapi_com_alteracao(alterar)
+
+                self.assertNotEqual(resultado.returncode, 0)
+                self.assertIn("http/openapi.yaml", resultado.stderr)
+
+    def test_valida_exemplo_reutilizado_por_referencia(self) -> None:
+        def alterar(documento: Any) -> None:
+            documento["components"]["examples"] = {"NomeInvalido": {"value": {"nome": 123}}}
+            conteudo = documento["paths"]["/jobs/{id}/nome"]["put"]["requestBody"]
+            conteudo["content"]["application/json"]["examples"] = {
+                "referenciado": {"$ref": "#/components/examples/NomeInvalido"}
+            }
+
+        resultado = validar_openapi_com_alteracao(alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("exemplo referenciado, campo $.nome", resultado.stderr)
+
+    def test_rejeita_evento_invalido_dentro_do_exemplo_sse(self) -> None:
+        def alterar(documento: Any) -> None:
+            resposta = documento["paths"]["/jobs/{id}/events"]["get"]["responses"]["200"]
+            exemplo = resposta["content"]["text/event-stream"]["examples"]["streamDeUmJob"]
+            exemplo["value"] = exemplo["value"].replace(
+                '"status":"gerando_regra"', '"status":"invalido"'
+            )
+
+        resultado = validar_openapi_com_alteracao(alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("exemplo streamDeUmJob", resultado.stderr)
 
 
 class TestarValidador(unittest.TestCase):
