@@ -11,15 +11,23 @@ from app.contratos.mensagens import (
     RegraSubmetida,
     SimulacaoConcluida,
 )
+from app.core.logger import get_logger
+from app.core.metrics.global_metrics import parametros_confirmados
 from app.falhas import FalhaDoJobError
 from app.graph.core.state import AgentState
-from app.graph.entrypoint import ResumeOutcome, resume_to_completion, run_to_completion
+from app.graph.entrypoint import ResumeOutcome, RunOutcome, resume_to_completion, run_to_completion
 from app.mensageria.limpeza import LimpezaDeCheckpoints
 from app.mensageria.producers import Producers
 from app.repositorio.encerramentos import EstadoDoEncerramento, JobInexistenteError
 from app.repositorio.resultados import ResultadoDesconhecidoError, buscar_regra_do_resultado
 
 type Entrada = RegraSubmetida | ParametrosConfirmados | SimulacaoConcluida | JobEncerrado
+
+logger = get_logger("app.mensageria.roteamento")
+
+
+class ContextoAusenteError(Exception):
+    """A confirmação não permite abrir um ciclo; descartá-la não é uma falha do job."""
 
 
 class JobDesconhecidoError(Exception):
@@ -47,8 +55,9 @@ class RoteadorGrafo(Protocol):
     async def entregar(self, job_id: UUID, mensagem: Entrada) -> None:
         """Retorna só após processamento persistido; reentregas devem ser idempotentes.
 
-        Resolve/cria o grafo de regra-submetida, retoma os demais pelo job_id e registra o
-        encerramento de job-encerrado. Lança JobDesconhecidoError se não houver grafo
+        Abre ciclos de regra-submetida e parametros-confirmados, retoma o resultado e registra
+        job-encerrado. ContextoAusenteError descarta confirmação sem competências, sem falhar
+        o job. Lança JobDesconhecidoError se não houver grafo
         correspondente à mensagem, JobEncerradoError quando a mensagem é de um job já
         encerrado, RetomadaIndisponivelError quando o grafo ainda não chegou à pausa, e
         `app.falhas.FalhaDoJobError` quando o processamento falha de forma permanente - depois de
@@ -59,12 +68,10 @@ class RoteadorGrafo(Protocol):
 
 @dataclass
 class GraphRouter:
-    """Concrete `RoteadorGrafo`: translates `RegraSubmetida` into the graph's initial state.
+    """Concrete `RoteadorGrafo`: opens a graph cycle for each submitted or confirmed rule.
 
     `sessoes`, `producers` and `limpeza` are set once by the app's lifespan, after the
     corresponding resource (database engine, broker connection) is ready - see `app/main.py`.
-    Handling `ParametrosConfirmados` (resuming after the user confirms the parameters) is out of
-    scope here.
 
     Every graph message runs under the job's shared lock and checks whether the `api` closed the
     job; `JobEncerrado` registers the closure and starts the checkpoint cleanup - see
@@ -86,33 +93,49 @@ class GraphRouter:
                 raise JobDesconhecidoError(str(job_id)) from erro
             return
 
-        if isinstance(mensagem, ParametrosConfirmados):
-            # Falta o que o ciclo novo precisa e o evento não carrega: `competencias` e
-            # `orcamento` estão em `jobs`, tabela em que o codegen não tem permissão.
-            raise NotImplementedError("GraphRouter does not handle parametros-confirmados yet")
-
         # Ciclos cuja mensagem foi assentada sem que eles terminassem: a limpeza pode descartá-los.
         assentados: set[str] = set()
         try:
             async with self.limpeza.durante_o_processamento(job_id) as encerramento:
                 _recusar_se_encerrado(job_id, mensagem, encerramento)
-                await self._processar(job_id, mensagem, self.sessoes, self.producers, assentados)
+                desfecho = await self._processar(
+                    job_id, mensagem, self.sessoes, self.producers, assentados
+                )
         finally:
             # Fora do lock compartilhado: o encerramento pode ter chegado durante o
             # processamento, e só agora a limpeza consegue o lock exclusivo.
             await self.limpeza.limpar(job_id, frozenset(assentados))
 
+        if isinstance(mensagem, ParametrosConfirmados):
+            resultado = "reentrega_ignorada" if desfecho is RunOutcome.IGNORED else "ciclo_aberto"
+            parametros_confirmados.labels(resultado=resultado).inc()
+            logger.info(
+                "confirmação de parâmetros processada",
+                extra={
+                    "tipo_mensagem": "parametros-confirmados",
+                    "resultado": resultado,
+                    "regra_id": str(mensagem.regra_id),
+                },
+            )
+
     async def _processar(
         self,
         job_id: UUID,
-        mensagem: RegraSubmetida | SimulacaoConcluida,
+        mensagem: RegraSubmetida | ParametrosConfirmados | SimulacaoConcluida,
         sessoes: async_sessionmaker[AsyncSession],
         producers: Producers,
         assentados: set[str],
-    ) -> None:
+    ) -> RunOutcome | None:
         try:
             if isinstance(mensagem, SimulacaoConcluida):
                 await self._retomar(job_id, mensagem, sessoes, producers, assentados)
+            elif isinstance(mensagem, ParametrosConfirmados):
+                return await run_to_completion(
+                    thread_do_ciclo(job_id, mensagem.regra_id),
+                    _estado_confirmado(mensagem),
+                    sessoes=sessoes,
+                    producers=producers,
+                )
             else:
                 await run_to_completion(
                     thread_do_ciclo(job_id, mensagem.regra_id),
@@ -129,6 +152,7 @@ class GraphRouter:
                 EtapaAlterada(job_id=job_id, etapa=falha.etapa, status="erro")
             )
             raise
+        return None
 
     async def _retomar(
         self,
@@ -166,13 +190,15 @@ class GraphRouter:
 
 def _recusar_se_encerrado(
     job_id: UUID,
-    mensagem: RegraSubmetida | SimulacaoConcluida,
+    mensagem: RegraSubmetida | ParametrosConfirmados | SimulacaoConcluida,
     encerramento: EstadoDoEncerramento | None,
 ) -> None:
     """Depois da limpeza, nada do job roda; antes dela, só um resultado ainda esperado."""
     if encerramento is EstadoDoEncerramento.LIMPO:
         raise JobEncerradoError(str(job_id))
-    if encerramento is EstadoDoEncerramento.REGISTRADO and isinstance(mensagem, RegraSubmetida):
+    if encerramento is EstadoDoEncerramento.REGISTRADO and isinstance(
+        mensagem, RegraSubmetida | ParametrosConfirmados
+    ):
         raise JobEncerradoError(str(job_id))
 
 
@@ -204,6 +230,19 @@ def _estado_inicial(mensagem: RegraSubmetida) -> AgentState:
     }
     if mensagem.regra_id is not None:
         estado["regra_id"] = str(mensagem.regra_id)
+    if mensagem.orcamento is not None:
+        estado["orcamento"] = str(mensagem.orcamento)
+    return estado
+
+
+def _estado_confirmado(mensagem: ParametrosConfirmados) -> AgentState:
+    if mensagem.competencias is None:
+        raise ContextoAusenteError("contexto_ausente")
+    estado: AgentState = {
+        "job_id": str(mensagem.job_id),
+        "regra_id": str(mensagem.regra_id),
+        "competencias": list(mensagem.competencias),
+    }
     if mensagem.orcamento is not None:
         estado["orcamento"] = str(mensagem.orcamento)
     return estado

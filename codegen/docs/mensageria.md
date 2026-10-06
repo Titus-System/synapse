@@ -37,17 +37,36 @@ Cada producer recebe um DTO pronto, serializa e valida o corpo serializado pelo 
 | Falha de processamento | `nack(requeue=True)` |
 | JSON/DTO/schema inválido | `reject(requeue=False)` |
 | `JobDesconhecidoError` do roteador | `reject(requeue=False)` e log correlacionado |
+| `ContextoAusenteError` do roteador | `reject(requeue=False)`, causa `contexto_ausente`, sem `etapa-alterada` |
 | `JobEncerradoError` do roteador | `ack()` sem processar e log correlacionado: mensagem antiga de um job que a `api` encerrou |
 | `FalhaDoJobError` do roteador | `reject(requeue=False)`, log correlacionado e `etapa-alterada` com `erro` |
 | Cancelamento | sem ACK; fechamento da conexão devolve mensagens não confirmadas |
 
 A rejeição de mensagens inválidas e jobs desconhecidos é a decisão mínima local para falhas não recuperáveis. **As filas de entrada do codegen não têm DLQ; essas rejeições descartam a mensagem.** Ausência de roteador configurado não é job desconhecido: nesse caso nenhum consumer é iniciado e as mensagens ficam nas filas. Falhas transitórias usam a reentrega do broker, sem republicação/retry manual. Sem backoff configurado, uma falha persistente pode causar reentregas repetidas.
 
+## Confirmação de parâmetros (T-218)
+
+`parametros-confirmados` abre o ciclo da versão `regra_id`, com thread `thread_do_ciclo(job_id, regra_id)`, passando por `run_to_completion`. O estado inicial contém `job_id`, `regra_id`, `competencias` e, quando informado, `orcamento` como texto decimal. `origem` não é preenchida. O ciclo começa em `load_rule` e segue pelos nós existentes.
+
+Campos opcionais ausentes preservam compatibilidade com a T-213. Sem competências, o roteador lança `ContextoAusenteError`, independente de `FalhaDoJobError`; o consumer descarta sem requeue e sem levar o job a erro. Sem orçamento, o ciclo começa e `dispatch_execution` mantém sua falha permanente. Depois de `job-encerrado`, confirmações recebem ACK sem criar checkpoints, inclusive quando a limpeza ainda está pendente.
+
+O guard do entrypoint reutiliza o checkpoint da mesma versão. Ciclo incompleto continua com entrada `None`; finalizado não executa novamente; à espera do worker permanece pausado. `run_to_completion` informa se houve atualização de nó, desconsiderando o sinal `__interrupt__`, para distinguir processamento de duplicatas sem nova execução.
+
+O contador `codegen_parametros_confirmados_total{resultado}` é carregado na composição de `app/main.py` e exposto em `/metrics`. Conta resultados do consumo, não jobs únicos:
+
+| `resultado` | Significado |
+| --- | --- |
+| `ciclo_aberto` | Entrega que avançou o ciclo até pausa/fim; inclui continuação bem-sucedida após falha transitória |
+| `reentrega_ignorada` | Checkpoint não produziu nova execução de nó, inclusive ciclo terminado ou aguardando worker |
+| `descartada` | Descarte definitivo por contrato, contexto ausente, job desconhecido/encerrado ou falha permanente |
+
+Falhas transitórias mantêm o log existente e reenfileiram; só o resultado definitivo incrementa o contador. Cancelamento não conta como conclusão. Os logs de resultado levam `job_id` pelo contexto e `regra_id` como referência, quando este é UUID válido. As causas de descarte são fechadas: `contrato_invalido`, `contexto_ausente`, `job_desconhecido`, `job_encerrado` e `falha_do_job`. Nenhum identificador vira label e nenhum artefato vai para telemetria. O `Consumer` restaura a correlação em `finally`.
+
 ## Encerramento do job e limpeza dos checkpoints
 
 `job-encerrado` chega quando a `api` leva o job a um estado terminal. O `GraphRouter` registra o encerramento em `jobs_grafo_encerrados` e só então confirma a mensagem; uma falha ao registrar reenfileira, porque o fato ainda não está durável, e um job que não existe em `jobs` é rejeitado. Depois do registro, `app/mensageria/limpeza.py` remove os checkpoints, blobs e writes de todos os ciclos do job (`job_id:regra_id` e o legado `job_id`) e preenche `limpo_em` quando nenhum resta.
 
-Toda mensagem de submissão ou de resultado é processada sob o lock compartilhado do job e consulta o registro antes de tocar o grafo: depois da limpeza ela é confirmada sem efeito (`JobEncerradoError`), e uma submissão de job encerrado nunca recomeça a geração. Um resultado de job encerrado e ainda não limpo é processado normalmente, porque os efeitos dele, como as publicações de auditoria, não podem se perder; a limpeza adia enquanto algum ciclo espera um resultado e é tentada de novo ao fim de cada processamento do job. Uma limpeza interrompida é retomada na subida do serviço, antes de os consumers começarem. A decisão está na [DEC-095](../../docs/decisoes/dec-095.md).
+Toda mensagem de submissão, confirmação ou resultado é processada sob o lock compartilhado do job e consulta o registro antes de tocar o grafo: depois da limpeza ela é confirmada sem efeito (`JobEncerradoError`), e uma submissão ou confirmação de job encerrado nunca recomeça a geração. Um resultado de job encerrado e ainda não limpo é processado normalmente, porque os efeitos dele, como as publicações de auditoria, não podem se perder; a limpeza adia enquanto algum ciclo espera um resultado e é tentada de novo ao fim de cada processamento do job. Uma limpeza interrompida é retomada na subida do serviço, antes de os consumers começarem. A decisão está na [DEC-095](../../docs/decisoes/dec-095.md).
 
 | Log | Quando |
 | --- | --- |
@@ -82,9 +101,9 @@ Logs usam o logger do codegen, `job_id_ctx` com restauração ao sair e atributo
 
 ## Ciclo de vida e configuração
 
-O lifespan cria o engine assíncrono do banco (`app/db.py`, `asyncpg`) e o `async_sessionmaker`, roda `checkpointer.setup()` (idempotente), abre a conexão RabbitMQ robusta, habilita confirmações e limita prefetch (padrão 1), declara topologia e disponibiliza `aplicacao.state.producers`. `criar_aplicacao(roteador=...)` injeta a implementação real de `RoteadorGrafo` e inicia os consumers de **regra-submetida** e **simulacao-concluida**; `parametros-confirmados` fica com as mensagens preservadas no broker até a retomada pela confirmação do usuário existir. Sem essa integração, o processo emite um aviso e mantém as mensagens no broker. `/health` continua sendo liveness do processo.
+O lifespan cria o engine assíncrono do banco (`app/db.py`, `asyncpg`) e o `async_sessionmaker`, roda `checkpointer.setup()` (idempotente), abre a conexão RabbitMQ robusta, habilita confirmações e limita prefetch (padrão 1), declara topologia e disponibiliza `aplicacao.state.producers`. `criar_aplicacao(roteador=...)` injeta a implementação real de `RoteadorGrafo` e inicia os consumers de **regra-submetida**, **parametros-confirmados**, **simulacao-concluida.codegen** e **job-encerrado**. Sem roteador configurado, o processo emite um aviso e mantém as mensagens no broker. `/health` continua sendo liveness do processo.
 
-`GraphRouter` (`app/mensageria/roteamento.py`) é o `RoteadorGrafo` real: traduz `RegraSubmetida` no estado inicial do grafo e chama `app/graph/entrypoint.py::run_to_completion`, nunca invocado diretamente pelo `Consumer`. Ele nasce sem `sessoes`/`producers`; o lifespan os atribui depois de criar o engine e conectar ao broker, porque `GraphRouter` existe antes de qualquer um dos dois estar pronto.
+`GraphRouter` (`app/mensageria/roteamento.py`) é o `RoteadorGrafo` real: traduz `RegraSubmetida` ou `ParametrosConfirmados` no estado inicial do grafo e chama `app/graph/entrypoint.py::run_to_completion`, nunca invocado diretamente pelo `Consumer`. Ele nasce sem `sessoes`/`producers`; o lifespan os atribui depois de criar o engine e conectar ao broker, porque `GraphRouter` existe antes de qualquer um dos dois estar pronto.
 
 Em uma reentrega, o entrypoint continua do último checkpoint do ciclo `job_id:regra_id` em vez de recomeçar do `START`: os nós já concluídos, como a chamada ao modelo e as gravações, não rodam de novo.
 
@@ -165,4 +184,4 @@ poetry run pytest -p no:cacheprovider -m rabbitmq
 Remove-Item Env:RUN_RABBITMQ_INTEGRATION
 ```
 
-Cada teste cria e remove somente seu próprio vhost `t049-<uuid>` no RabbitMQ real, usando `docker compose exec ... rabbitmqctl`; não há segundo ambiente RabbitMQ. As credenciais precisam permitir acesso a esse vhost. São sete cenários: entrega de `regra-submetida` e do resultado do worker ao roteador, `parametros-confirmados` retida sem consumer, fanout com cópia independente na fila da API, e três producers. Nenhum serviço API ou worker precisa ser iniciado. Sem `RUN_RABBITMQ_INTEGRATION=1`, esses testes são explicitamente pulados; habilitados, ausência de broker/Docker é falha, nunca aprovação simulada.
+Cada teste cria e remove somente seu próprio vhost `t049-<uuid>` no RabbitMQ real, usando `docker compose exec ... rabbitmqctl`; não há segundo ambiente RabbitMQ. As credenciais precisam permitir acesso a esse vhost. Os cenários cobrem entradas, encerramento, fanout e producers. O teste de `parametros-confirmados` publica mensagem válida, duplicata, mensagem sem contexto, contexto inválido e JSON malformado; passa pelo consumer, roteador e grafo reais, substituindo banco, modelo e produtores do grafo. Depois que os callbacks completam ACK/reject, consulta a fila passivamente e exige um consumer, profundidade zero e uma única delegação ao worker. Nenhum serviço API ou worker precisa ser iniciado. Sem `RUN_RABBITMQ_INTEGRATION=1`, esses testes são explicitamente pulados; habilitados, ausência de broker/Docker é falha, nunca aprovação simulada.

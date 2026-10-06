@@ -6,6 +6,7 @@ from prometheus_client import CONTENT_TYPE_LATEST
 
 from app.config import get_settings
 from app.core.logger import get_logger, stop_logger
+from app.core.metrics import global_metrics as global_metrics
 from app.core.metrics.prometheus import prometheus
 from app.db import criar_engine, criar_sessionmaker
 from app.graph.core.checkpointer import get_checkpointer

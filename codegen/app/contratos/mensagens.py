@@ -86,6 +86,8 @@ class RegraSubmetida(ModeloContrato):
 class ParametrosConfirmados(ModeloContrato):
     job_id: UUID
     regra_id: UUID
+    competencias: list[str] | None = Field(default=None, min_length=1)
+    orcamento: Decimal | None = Field(default=None, ge=0)
 
 
 class SimulacaoConcluida(ModeloContrato):

@@ -364,7 +364,7 @@ load_rule → code_generation → persist_response → extract_code
                                         └─ END
 ```
 
-O estado ativo é `AgentState`, em `app/graph/core/state.py`. O grafo lê uma regra já estruturada, recebe o orçamento no evento de entrada e usa um ciclo por `job_id:regra_id`. Consome `regra-submetida` e `simulacao-concluida.codegen`. O consumo de `parametros-confirmados`, a extração inicial e o loop de validação/correção ainda precisam ser integrados.
+O estado ativo é `AgentState`, em `app/graph/core/state.py`. O grafo lê uma regra já estruturada, recebe o orçamento no evento de entrada e usa um ciclo por `job_id:regra_id`. Consome `regra-submetida`, `parametros-confirmados` e `simulacao-concluida.codegen`. A confirmação abre o ciclo da versão com competências e orçamento do evento; sem competências, é descartada sem falhar o job. A extração inicial e os demais passos do loop de validação/correção ainda precisam ser integrados.
 
 O motor de extração e seu repositório existem separadamente do grafo (T-203). Usam a LLM configurada no registry e persistem prompt, resposta original e representação completa em uma transação; o artefato fica em `extracoes_regras`. A conexão ao grafo e a publicação pertencem à T-204; o consumo pela API e a criação da versão de `regras`, à T-202. Ver [extração no codegen](../codegen/docs/extracao.md).
 
@@ -553,7 +553,7 @@ A distinção não é cosmética: um imperativo no catálogo é sinalizador de d
 | Mensagem | Tipo | Publica | Consome | Canal | Conteúdo |
 | --- | --- | --- | --- | --- | --- |
 | `regra-submetida` | Evento | API | codegen | Fila | `job_id`, origem (`formulario` \| `texto` \| `voz` \| `reprocessamento`), **competências do job** (todas, nunca uma), id da submissão e id da versão da regra conforme a origem; orçamento opcional no schema e já enviado pela API |
-| `parametros-confirmados` | Evento | API | codegen | Fila | `job_id`, id da versão e, opcionalmente, competências e orçamento do job; abre o ciclo do codegen para a versão confirmada pelo usuário ou gravada a partir de `correcao-proposta`, sem retomar grafo pausado. Publicador ativo na API, ainda sem competências e orçamento; consumo pendente no codegen (E3) |
+| `parametros-confirmados` | Evento | API | codegen | Fila | `job_id`, id da versão e, opcionalmente, competências e orçamento do job; abre o ciclo do codegen para a versão confirmada pelo usuário ou gravada a partir de `correcao-proposta`, sem retomar grafo pausado. Consumidor ativo no codegen; mensagens sem competências são descartadas. O envio do contexto pela API integra a T-217 |
 | `correcao-submetida` | Evento | API | codegen | Fila | `job_id`, id da versão corrigida, id da submissão que guarda o texto da correção e, opcionalmente, as competências do job; contrato definido, publicação e consumo pendentes (E3) |
 | `executar-codigo` | **Comando** | codegen | Worker | Fila | `job_id`, id da linha do código gerado, **competências a processar** (todas numa execução só), critério de orçamento |
 | `simulacao-concluida` | Evento | Worker | **API e codegen** | **Fanout** | `job_id`, id da linha do resultado, status (`sucesso` \| `assercao_violada` \| `erro_codigo` \| `erro_infra`), totais apurados e veredito de viabilidade quando há sucesso |

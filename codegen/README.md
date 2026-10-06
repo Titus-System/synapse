@@ -33,7 +33,7 @@ A montagem padrão em `app/main.py::criar_aplicacao_padrao()` conecta o `GraphRo
 
 - `regra-submetida` inicia ou continua um ciclo.
 - `simulacao-concluida.codegen` retoma a espera pela execução, independentemente do consumer da API.
-- `parametros-confirmados` tem fila e publicador na API, mas seu consumo ainda não está implementado no codegen.
+- `parametros-confirmados` abre o ciclo da versão confirmada em `load_rule`, com competências e orçamento do evento. Mensagens antigas sem competências são descartadas sem falhar o job.
 
 Topologia, confirmações e integração estão em [Mensageria](docs/mensageria.md); o comportamento de retomada está em [Retomada após execução](docs/retomada-apos-execucao.md).
 

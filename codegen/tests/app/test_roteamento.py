@@ -19,6 +19,7 @@ from app.contratos.mensagens import (
 from app.graph.entrypoint import ResumeOutcome
 from app.mensageria import roteamento as modulo
 from app.mensageria.roteamento import (
+    ContextoAusenteError,
     GraphRouter,
     JobDesconhecidoError,
     JobEncerradoError,
@@ -146,13 +147,13 @@ async def test_entregar_nao_avisa_erro_numa_falha_transitoria(
     producers.etapa_alterada.assert_not_awaited()
 
 
-async def test_entregar_recusa_mensagens_diferentes_de_regra_submetida() -> None:
+async def test_entregar_recusa_confirmacao_sem_contexto_sem_falhar_o_job() -> None:
     from app.contratos.mensagens import ParametrosConfirmados
 
     roteador = GraphRouter(sessoes=object(), producers=object(), limpeza=LimpezaFalsa())
     mensagem = ParametrosConfirmados(job_id=JOB_ID, regra_id=REGRA_ID)
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ContextoAusenteError):
         await roteador.entregar(JOB_ID, mensagem)
 
 
