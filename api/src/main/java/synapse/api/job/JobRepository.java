@@ -116,7 +116,7 @@ class JobRepository {
 				    LIMIT 1
 				) ultima ON true
 				JOIN LATERAL (
-				    SELECT jsonb_agg(
+				    SELECT COALESCE(jsonb_agg(
 				        jsonb_build_object(
 				            'id', r.id,
 				            'versao', r.versao,
@@ -125,10 +125,10 @@ class JobRepository {
 				            'especificacoes', r.especificacoes,
 				            'criada_em', r.criada_em
 				        ) ORDER BY r.versao
-				    ) AS regras
+				    ), '[]'::jsonb) AS regras
 				    FROM regras r
 				    WHERE r.job_id = j.id
-				) regras ON regras.regras IS NOT NULL
+				) regras ON true
 				WHERE j.id = ?
 				""", (rs, rowNum) -> {
 			UUID id = rs.getObject("id", UUID.class);
@@ -445,17 +445,37 @@ class JobRepository {
 				""", (linha, numero) -> linha.getObject("id", UUID.class), resultadoId, jobId);
 	}
 
-	List<ContextoAdaptacao> buscarContextoAdaptacaoComTrava(UUID jobId, UUID regraOrigemId) {
+	List<ContextoDoJob> buscarContextoComTrava(UUID jobId) {
 		return this.jdbc.query("""
 				SELECT j.status, j.competencias, j.orcamento, j.submissao_id,
 				       CASE WHEN j.job_origem_id IS NOT NULL THEN 'reprocessamento' ELSE s.tipo END AS origem
 				FROM jobs j LEFT JOIN submissoes s ON s.id = j.submissao_id
 				WHERE j.id = ? FOR UPDATE OF j
 				""",
-				(rs, numero) -> new ContextoAdaptacao(JobStatus.deColuna(rs.getString("status")), new RegraSubmetidaDto(
-						jobId, rs.getString("origem"), List.of((String[]) rs.getArray("competencias").getArray()),
-						rs.getBigDecimal("orcamento"), rs.getObject("submissao_id", UUID.class), regraOrigemId)),
+				(rs, numero) -> new ContextoDoJob(jobId, JobStatus.deColuna(rs.getString("status")),
+						rs.getString("origem"), List.of((String[]) rs.getArray("competencias").getArray()),
+						rs.getBigDecimal("orcamento"), rs.getObject("submissao_id", UUID.class)),
 				jobId);
+	}
+
+	List<ExtracaoDaRegra> buscarExtracao(UUID extracaoId) {
+		return this.jdbc.query("""
+				SELECT job_id, submissao_id, representacao::text AS representacao
+				FROM extracoes_regras WHERE id = ?
+				""",
+				(rs, numero) -> new ExtracaoDaRegra(Objects.requireNonNull(rs.getObject("job_id", UUID.class)),
+						Objects.requireNonNull(rs.getObject("submissao_id", UUID.class)),
+						Objects.requireNonNull(rs.getString("representacao"))),
+				extracaoId);
+	}
+
+	UUID inserirVersaoDaExtracao(UUID jobId, int novaVersao, UUID extracaoId, String hash, Timestamp timestamp) {
+		return Objects.requireNonNull(this.jdbc.queryForObject("""
+				INSERT INTO regras (job_id, versao, origem, regra_origem_id, nucleo, especificacoes, hash, criada_em)
+				SELECT ?, ?, ?, NULL, e.representacao -> 'nucleo', e.representacao -> 'especificacoes', ?, ?
+				FROM extracoes_regras e WHERE e.id = ?
+				RETURNING id
+				""", UUID.class, jobId, novaVersao, VersoesDaRegra.ORIGEM_EXTRACAO, hash, timestamp, extracaoId));
 	}
 
 	@Nullable Boolean sugestaoElegivel(UUID jobId, UUID regraOrigemId, UUID resultadoId, String hash, BigDecimal percentual,
@@ -499,7 +519,22 @@ class JobRepository {
 	record JobDeOrigem(JobStatus status, UUID usuarioId, List<String> competencias, BigDecimal orcamento) {
 	}
 
-	record ContextoAdaptacao(JobStatus status, RegraSubmetidaDto entrada) {
+	/**
+	 * O que o {@code regra-submetida} de um ciclo novo repete do job. Lido sob trava da
+	 * linha do job, para que a decisão de reabrir o ciclo e o status em que ela se baseia
+	 * não corram com outra transição.
+	 */
+	record ContextoDoJob(UUID jobId, JobStatus status, String origem, List<String> competencias,
+			@Nullable BigDecimal orcamento, @Nullable UUID submissaoId) {
+
+		RegraSubmetidaDto regraSubmetida(UUID regraId) {
+			return new RegraSubmetidaDto(this.jobId, this.origem, this.competencias, this.orcamento, this.submissaoId,
+					regraId);
+		}
+
+	}
+
+	record ExtracaoDaRegra(UUID jobId, UUID submissaoId, String representacao) {
 	}
 
 }

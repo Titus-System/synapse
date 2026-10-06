@@ -59,6 +59,20 @@ class HashDaRegraTests {
 	}
 
 	@Test
+	void nucleoSemPercentualTemHashProprio() {
+		RepresentacaoRegraDto semPercentual = JSON.readValue("""
+				{"nucleo":{"marca":["10"]},"especificacoes":[]}
+				""", RepresentacaoRegraDto.class);
+		RepresentacaoRegraDto comPercentual = JSON.readValue("""
+				{"nucleo":{"marca":["10"],"percentual":0.025},"especificacoes":[]}
+				""", RepresentacaoRegraDto.class);
+
+		assertThat(HashDaRegra.calcular(semPercentual)).hasSize(64)
+			.isEqualTo(HashDaRegra.calcular(semPercentual))
+			.isNotEqualTo(HashDaRegra.calcular(comPercentual));
+	}
+
+	@Test
 	void preservaPrecisaoDecimalDoPercentual() {
 		String original = CriarJobControllerTests.FORMULARIO.replace("0.025", "0.025000000000000000001");
 		assertThat(CriarJobRequisicao.deJson(original).representacao().nucleo().percentual())

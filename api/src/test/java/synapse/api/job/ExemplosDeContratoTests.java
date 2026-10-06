@@ -100,6 +100,17 @@ class ExemplosDeContratoTests {
 		ContratoDeEvento.validar("regra-submetida", Files.readString(exemplo("events/regra-submetida-voz.json")));
 	}
 
+	@Test
+	void desserializaOEventoDeRegraExtraida() throws IOException {
+		RegraExtraidaDto evento = desserializar("events/regra-extraida.json", RegraExtraidaDto.class);
+
+		assertThat(evento.job_id()).isEqualTo(UUID.fromString("c4d5e6f7-8a9b-4c0d-9e1f-2a3b4c5d6e7f"));
+		assertThat(evento.submissao_id()).isEqualTo(UUID.fromString("d7e8f9a0-1b2c-4d3e-8f40-5a6b7c8d9e0f"));
+		assertThat(evento.extracao_id()).isEqualTo(UUID.fromString("2d963df3-e310-5d11-bf21-36918cae4ce4"));
+
+		ContratoDeEvento.validar("regra-extraida", Files.readString(exemplo("events/regra-extraida.json")));
+	}
+
 	@ParameterizedTest
 	@ValueSource(strings = { "0", "485000.1234567890123456789" })
 	void schemaAceitaOrcamentoNaoNegativo(String valor) throws IOException {

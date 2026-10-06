@@ -58,4 +58,26 @@ public class AppMetrics {
 			.register(this.registry);
 	}
 
+	/**
+	 * Entregas de {@code regra-extraida} com desfecho definitivo. Conta entregas, não
+	 * jobs: a reentrega de uma extração já gravada sai como {@code duplicada}, nunca como
+	 * outra {@code persistida}. A tentativa que falha e volta à fila não tem desfecho e
+	 * só aparece em {@link #regraExtraidaDuracao}.
+	 */
+	public Counter regraExtraidaConsumida(String resultado, String motivo) {
+		return Counter.builder("regra.extraida.consumo")
+			.description("Mensagens de regra-extraida por resultado do consumo")
+			.tag("resultado", resultado)
+			.tag("motivo", motivo)
+			.register(this.registry);
+	}
+
+	/** Cada tentativa de consumo de {@code regra-extraida}, inclusive as que falham. */
+	public Timer regraExtraidaDuracao(String resultado) {
+		return Timer.builder("regra.extraida.consumo.duracao")
+			.description("Duração de cada tentativa de consumo de regra-extraida")
+			.tag("resultado", resultado)
+			.register(this.registry);
+	}
+
 }

@@ -36,6 +36,8 @@ public class RabbitTopologyConfig {
 
 	public static final String SUGESTAO_ADAPTACAO_PROPOSTA = "sugestao-adaptacao-proposta";
 
+	public static final String REGRA_EXTRAIDA = "regra-extraida";
+
 	public static final String JOB_ENCERRADO = "job-encerrado";
 
 	public static final String SIMULACAO_CONCLUIDA_EXCHANGE = "simulacao-concluida";
@@ -55,8 +57,8 @@ public class RabbitTopologyConfig {
 		return new Declarables(QueueBuilder.durable(REGRA_SUBMETIDA).build(),
 				QueueBuilder.durable(PARAMETROS_CONFIRMADOS).build(), QueueBuilder.durable(ETAPA_ALTERADA).build(),
 				QueueBuilder.durable(NO_CONCLUIDO).build(), QueueBuilder.durable(SUGESTAO_ADAPTACAO_PROPOSTA).build(),
-				QueueBuilder.durable(JOB_ENCERRADO).build(), simulacaoConcluida, simulacaoConcluidaApi,
-				simulacaoConcluidaBinding);
+				QueueBuilder.durable(REGRA_EXTRAIDA).build(), QueueBuilder.durable(JOB_ENCERRADO).build(),
+				simulacaoConcluida, simulacaoConcluidaApi, simulacaoConcluidaBinding);
 	}
 
 	/**
@@ -76,8 +78,8 @@ public class RabbitTopologyConfig {
 			admin.initialize();
 			log.atInfo()
 				.addKeyValue("filas",
-						List.of(REGRA_SUBMETIDA, PARAMETROS_CONFIRMADOS, ETAPA_ALTERADA, NO_CONCLUIDO, JOB_ENCERRADO,
-								SIMULACAO_CONCLUIDA_API))
+						List.of(REGRA_SUBMETIDA, PARAMETROS_CONFIRMADOS, ETAPA_ALTERADA, NO_CONCLUIDO, REGRA_EXTRAIDA,
+								JOB_ENCERRADO, SIMULACAO_CONCLUIDA_API))
 				.addKeyValue("exchange", SIMULACAO_CONCLUIDA_EXCHANGE)
 				.log("topologia do RabbitMQ declarada");
 		};

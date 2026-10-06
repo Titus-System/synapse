@@ -336,7 +336,7 @@ Na implantação, a migration da API vai antes da versão do codegen que consome
 
 A API escreve `usuarios`, `submissoes`, `jobs`, `job_transicoes`, `job_acoes`, `simulacoes`, `trilhas_auditoria` e `outbox_events`. O codegen insere `prompts`, `respostas_modelo`, `extracoes_regras`, `codigos_gerados` e `explicacoes`, e registra em `jobs_grafo_encerrados` o encerramento recebido e a conclusão da limpeza; é a única tabela em que tem `UPDATE`, restrito a `limpo_em`. O worker insere só `resultados_simulacao`.
 
-`regras` ainda permite inserção pela API e pelo codegen nas permissões existentes. O fluxo usa a API para versões submetidas, confirmadas ou propostas na adaptação; na extração inicial, o codegen grava `extracoes_regras` e a API será responsável pela versão (T-202). Nenhum dos dois tem `UPDATE` ou `DELETE`: editar significa inserir uma versão nova encadeada por `regra_origem_id`.
+`regras` ainda permite inserção pela API e pelo codegen nas permissões existentes. O fluxo usa a API para versões submetidas, confirmadas ou propostas na adaptação; na extração inicial, o codegen grava `extracoes_regras` e a API cria a versão ao consumir `regra-extraida` (T-202). Nenhum dos dois tem `UPDATE` ou `DELETE`: editar significa inserir uma versão nova encadeada por `regra_origem_id`.
 
 O que impõe isso é a permissão do usuário de banco com que cada serviço conecta, definida nas migrations e portanto ausente do DBML. Quem insere também recebe `SELECT` na mesma tabela, porque o id nasce de `DEFAULT uuidv7()` no servidor e o `INSERT` o lê de volta no próprio comando.
 

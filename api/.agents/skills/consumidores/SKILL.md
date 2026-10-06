@@ -66,6 +66,11 @@ própria; cada um se apoia no que já tem:
 - **Por procedência e tentativa única** — `sugestao-adaptacao-proposta` confere resultado,
   versão original e ausência de outra sugestão sob a mesma trava. A reentrega tardia não
   cria uma terceira versão mesmo quando a alternativa também termina inviável.
+- **Por hash e origem da versão** — `regra-extraida` (`RegraExtraidaConsumidor`, T-202)
+  não carrega `evento_id` nem move o job. Sob a trava do job, uma versão `extracao` de
+  mesmo hash já gravada faz a entrega sair como `duplicada`, sem nova versão nem outro
+  `regra-submetida`; qualquer outra versão existente a descarta. O índice único
+  `(job_id, hash)` é a segunda barreira.
 - **Idempotência de escrita** (`INSERT ... ON CONFLICT DO NOTHING`) para o que não é
   transição de estado - `JobEventosService` grava `simulacoes` assim, porque a mesma linha
   pode ser tentada de novo por uma redelivery do próprio `no-concluido` ou pela ordem
