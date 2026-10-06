@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from decimal import Decimal
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
@@ -35,7 +36,9 @@ class ConfirmacaoFalsa:
         self.publicacoes: list[tuple[str, dict[str, Any]]] = []
         self.modelo = FakeChatModel(messages=iter([AIMessage(content=resposta) for _ in range(4)]))
         self.buscar_regra = AsyncMock(
-            return_value=RepresentacaoRegra.model_validate({"nucleo": {}, "especificacoes": []})
+            return_value=RepresentacaoRegra.model_validate(
+                {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []}
+            )
         )
 
         @asynccontextmanager

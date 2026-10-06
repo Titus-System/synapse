@@ -336,6 +336,14 @@ def test_contrato_explica_como_declarar_o_elemento_implementado(prompt: dict[str
     assert observado == oraculo["fatos"], oraculo["fontes"]
 
 
+def test_prompt_pede_declaracao_mesmo_sem_contribuicao(prompt: dict[str, Any]) -> None:
+    texto = prompt["instrucoes_fixas_do_sistema"]["contrato_regrafn"]
+
+    assert "**`elementos_implementados`**" in texto
+    assert "Entra todo elemento implementado, tenha ou não gerado contribuição no período." in texto
+    assert "Todo `elemento_ref` que aparece em `contribuicoes` também está nesta lista." in texto
+
+
 def test_regra_schema_bundle_descreve_a_entrada_com_referencias_resolviveis(
     prompt: dict[str, Any],
 ) -> None:

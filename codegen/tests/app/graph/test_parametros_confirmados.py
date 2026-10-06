@@ -329,6 +329,66 @@ async def test_metricas_e_logs_dos_tres_resultados_passam_pelo_roteador_real(
     assert "representacao_regra" not in simplejson.dumps(logs)
 
 
+@pytest.mark.parametrize("sem_elementos", [False, True], ids=["cobertura-enviada", "regra-vazia"])
+async def test_cobertura_passa_pelo_consumidor_grafo_e_observabilidade(
+    ambiente: ConfirmacaoFalsa,
+    cliente: AsyncClient,
+    logs: list[dict[str, Any]],
+    sem_elementos: bool,
+) -> None:
+    regra: dict[str, Any] = {"nucleo": {}, "especificacoes": []}
+    if not sem_elementos:
+        regra["especificacoes"] = [
+            {"ref": "elem.2", "construto": "generico", "descricao": "REGRA_PRIVADA", "campos": {}},
+            {"ref": "elem.1", "construto": "generico", "descricao": "REGRA_PRIVADA", "campos": {}},
+        ]
+    ambiente.buscar_regra.return_value = RepresentacaoRegra.model_validate(regra)
+    payload = exemplo("parametros-confirmados")
+    recebida = mensagem(payload)
+    antes = amostras((await cliente.get("/metrics")).text)
+
+    await ambiente.consumer.receber(recebida)
+
+    if sem_elementos:
+        recebida.reject.assert_awaited_once_with(requeue=False)
+        recebida.ack.assert_not_awaited()
+        ambiente.producers.executar_codigo.assert_not_awaited()
+        assert ambiente.publicacoes[-1] == (
+            "etapa-alterada",
+            {"job_id": payload["job_id"], "etapa": "delegacao_worker", "status": "erro"},
+        )
+        assert any(
+            log.get("extra", {}).get("etapa") == "delegacao_worker"
+            and log["extra"].get("decisao") == "reject_sem_requeue"
+            for log in logs
+        )
+    else:
+        recebida.ack.assert_awaited_once_with()
+        recebida.reject.assert_not_awaited()
+        [comando] = [p for nome, p in ambiente.publicacoes if nome == "executar-codigo"]
+        assert comando["elementos_exigidos"] == ["elem.2", "elem.1"]
+        assert (await ambiente.estado(payload)).next == ("await_execution",)
+    recebida.nack.assert_not_awaited()
+    depois = amostras((await cliente.get("/metrics")).text)
+    assert {nome: depois[nome] - antes[nome] for nome in antes} == {
+        "ciclo_aberto": 0 if sem_elementos else 1,
+        "reentrega_ignorada": 0,
+        "descartada": 1 if sem_elementos else 0,
+    }
+    validador = Draft202012Validator(
+        simplejson.loads((CONTRATOS / "observability/log.schema.json").read_bytes()),
+        format_checker=FormatChecker(),
+    )
+    assert logs
+    for log in logs:
+        validador.validate(log)
+        assert log["job_id"] == payload["job_id"]
+    for privado in ("REGRA_PRIVADA", "representacao_regra", "aplicar_regra"):
+        assert privado not in simplejson.dumps(logs)
+    assert job_id_ctx.get() is None
+    assert no_ctx.get() is None
+
+
 async def test_correlacao_anterior_e_restaurada_em_sucesso_e_descarte(
     ambiente: ConfirmacaoFalsa,
 ) -> None:

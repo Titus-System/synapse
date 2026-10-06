@@ -46,11 +46,23 @@ class OrcamentoAusenteError(FalhaDoJobError):
     etapa = ETAPA
 
 
+class ElementosExigidosAusentesError(FalhaDoJobError):
+    """An empty coverage list cannot be sent under the execution contract."""
+
+    etapa = ETAPA
+
+
 async def dispatch_execution(state: AgentState, config: RunnableConfig) -> AgentState:
     """Publish the command with a reference to the recorded code, never the code itself."""
     orcamento = state.get("orcamento")
     if orcamento is None:
         raise OrcamentoAusenteError("executar-codigo requires the job's orcamento")
+
+    representacao = state["representacao_regra"]
+    elementos_exigidos = ["nucleo.percentual"] if "percentual" in representacao["nucleo"] else []
+    elementos_exigidos.extend(elemento["ref"] for elemento in representacao["especificacoes"])
+    if not elementos_exigidos:
+        raise ElementosExigidosAusentesError("executar-codigo requires at least one rule element")
 
     job_id = UUID(state["job_id"])
     codigo_gerado_id = UUID(state["codigo_gerado_id"])
@@ -59,6 +71,7 @@ async def dispatch_execution(state: AgentState, config: RunnableConfig) -> Agent
         codigo_gerado_id=codigo_gerado_id,
         competencias=list(state["competencias"]),
         orcamento=Decimal(orcamento),
+        elementos_exigidos=elementos_exigidos,
     )
     producers = config["configurable"]["producers"]
 
