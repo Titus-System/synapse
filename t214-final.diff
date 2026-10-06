@@ -1,0 +1,589 @@
+diff --git a/api/src/test/java/synapse/api/core/persistence/MigrationTests.java b/api/src/test/java/synapse/api/core/persistence/MigrationTests.java
+index ce3d328..5604b85 100644
+--- a/api/src/test/java/synapse/api/core/persistence/MigrationTests.java
++++ b/api/src/test/java/synapse/api/core/persistence/MigrationTests.java
+@@ -2,7 +2,9 @@ package synapse.api.core.persistence;
+ 
+ import java.sql.Connection;
+ import java.sql.DriverManager;
++import java.sql.PreparedStatement;
+ import java.sql.ResultSet;
++import java.sql.SQLException;
+ import java.sql.Statement;
+ import java.util.ArrayList;
+ import java.util.HashMap;
+@@ -23,10 +25,14 @@ import org.junit.jupiter.api.BeforeAll;
+ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.Test;
+ import org.junit.jupiter.api.condition.EnabledIf;
++import org.junit.jupiter.params.ParameterizedTest;
++import org.junit.jupiter.params.provider.CsvSource;
++import org.junit.jupiter.params.provider.ValueSource;
+ import org.testcontainers.DockerClientFactory;
+ import org.testcontainers.postgresql.PostgreSQLContainer;
+ 
+ import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+ 
+ /**
+  * O changelog roda contra um Postgres de verdade, na mesma major que o compose: o
+@@ -39,9 +45,20 @@ class MigrationTests {
+ 
+ 	private static final List<String> TABELAS = List.of("usuarios", "submissoes", "jobs", "job_transicoes", "job_acoes",
+ 			"regras", "prompts", "respostas_modelo", "codigos_gerados", "resultados_simulacao", "explicacoes",
+-			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras");
++			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras",
++			"rodadas_correcao");
+ 
+-	private static final int CHANGESETS = 21;
++	private static final int CHANGESETS = 22;
++
++	private static final int CHANGESETS_ANTES_DAS_RODADAS = 21;
++
++	private static final UUID REGRA_ID = UUID.fromString("55555555-5555-4555-8555-555555555555");
++
++	private static final UUID SUBMISSAO_ID = UUID.fromString("44444444-4444-4444-8444-444444444444");
++
++	private static final String CONFLITOS = """
++			[{"elementos":["nucleo.percentual"],"motivo":"percentual ausente"}]
++			""";
+ 
+ 	private static final int CHANGESETS_ANTES_DO_NOME = 19;
+ 
+@@ -348,6 +365,269 @@ class MigrationTests {
+ 		}
+ 	}
+ 
++	@Test
++	void criaRodadasComTiposNulidadeEDefaultCorretosSemChecks() throws Exception {
++		atualizar();
++		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
++			try (ResultSet rs = statement.executeQuery("""
++					SELECT column_name, data_type, is_nullable, column_default
++					FROM information_schema.columns
++					WHERE table_schema = 'public' AND table_name = 'rodadas_correcao'
++					ORDER BY ordinal_position
++					""")) {
++				List<String> colunas = new ArrayList<>();
++				while (rs.next()) {
++					colunas.add(rs.getString("column_name") + ":" + rs.getString("data_type") + ":"
++							+ rs.getString("is_nullable"));
++					if ("id".equals(rs.getString("column_name"))) {
++						assertThat(rs.getString("column_default")).isEqualTo("uuidv7()");
++					}
++					else {
++						assertThat(rs.getString("column_default")).isNull();
++					}
++				}
++				assertThat(colunas).containsExactly("id:uuid:NO", "job_id:uuid:NO", "regra_analisada_id:uuid:NO",
++						"conflitos:jsonb:NO", "estado:text:NO", "submissao_correcao_id:uuid:YES",
++						"regra_resultante_id:uuid:YES", "rodada_anterior_id:uuid:YES",
++						"criada_em:timestamp with time zone:NO", "atualizada_em:timestamp with time zone:NO");
++			}
++			try (ResultSet rs = statement.executeQuery("""
++					SELECT contype, pg_get_constraintdef(oid) AS definicao FROM pg_constraint
++					WHERE conrelid = 'rodadas_correcao'::regclass AND contype IN ('p', 'c')
++					""")) {
++				assertThat(rs.next()).isTrue();
++				assertThat(rs.getString("contype")).isEqualTo("p");
++				assertThat(rs.getString("definicao")).isEqualTo("PRIMARY KEY (id)");
++				assertThat(rs.next()).isFalse();
++			}
++			semearParaRodadas(statement);
++			assertThat(inserirRodada(connection, "pendente", null).version()).isEqualTo(7);
++		}
++	}
++
++	@Test
++	void criaAsCincoChavesEstrangeirasDasRodadasSemCascade() throws Exception {
++		atualizar();
++		try (Connection connection = abrir();
++				Statement statement = connection.createStatement();
++				ResultSet rs = statement.executeQuery("""
++						SELECT conname, pg_get_constraintdef(oid) AS definicao, confdeltype
++						FROM pg_constraint WHERE conrelid = 'rodadas_correcao'::regclass AND contype = 'f'
++						""")) {
++			Map<String, String> fks = new HashMap<>();
++			while (rs.next()) {
++				fks.put(rs.getString("conname"), rs.getString("definicao"));
++				assertThat(rs.getString("confdeltype")).isEqualTo("a");
++			}
++			assertThat(fks).containsExactlyInAnyOrderEntriesOf(Map.of("fk_rodadas_correcao_job_id",
++					"FOREIGN KEY (job_id) REFERENCES jobs(id)", "fk_rodadas_correcao_regra_analisada_id",
++					"FOREIGN KEY (regra_analisada_id) REFERENCES regras(id)",
++					"fk_rodadas_correcao_submissao_correcao_id",
++					"FOREIGN KEY (submissao_correcao_id) REFERENCES submissoes(id)",
++					"fk_rodadas_correcao_regra_resultante_id",
++					"FOREIGN KEY (regra_resultante_id) REFERENCES regras(id)", "fk_rodadas_correcao_rodada_anterior_id",
++					"FOREIGN KEY (rodada_anterior_id) REFERENCES rodadas_correcao(id)"));
++		}
++	}
++
++	@ParameterizedTest
++	@ValueSource(ints = { 1, 2, 3, 4, 5 })
++	void recusaReferenciaInexistenteNaInsercaoDaRodada(int referencia) throws Exception {
++		atualizar();
++		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
++			semearParaRodadas(statement);
++			UUID anterior = inserirRodada(connection, "corrigida", null);
++			try (PreparedStatement insert = connection.prepareStatement("""
++					INSERT INTO rodadas_correcao (job_id, regra_analisada_id, submissao_correcao_id,
++					    regra_resultante_id, rodada_anterior_id, conflitos, estado, criada_em, atualizada_em)
++					VALUES (?, ?, ?, ?, ?, ?::jsonb, 'corrigida', now(), now())
++					""")) {
++				insert.setObject(1, UUID.fromString(JOB_ID));
++				insert.setObject(2, REGRA_ID);
++				insert.setObject(3, SUBMISSAO_ID);
++				insert.setObject(4, REGRA_ID);
++				insert.setObject(5, anterior);
++				insert.setString(6, CONFLITOS);
++				insert.setObject(referencia, UUID.randomUUID());
++				assertThatExceptionOfType(SQLException.class).isThrownBy(insert::executeUpdate)
++					.satisfies(e -> assertThat(e.getSQLState()).isEqualTo("23503"));
++			}
++		}
++	}
++
++	@Test
++	void criaSomenteOsDoisIndicesParciaisAlemDaChavePrimaria() throws Exception {
++		atualizar();
++		assertThat(definicaoDoIndice("uq_rodadas_correcao_rodada_anterior_id")).contains("UNIQUE",
++				"(rodada_anterior_id)", "WHERE (rodada_anterior_id IS NOT NULL)");
++		assertThat(definicaoDoIndice("uq_rodadas_correcao_job_id_aberta")).contains("UNIQUE", "(job_id)",
++				"WHERE (estado = ANY (ARRAY['pendente'::text, 'em_reextracao'::text]))");
++		try (Connection connection = abrir();
++				Statement statement = connection.createStatement();
++				ResultSet rs = statement
++					.executeQuery("SELECT count(*) FROM pg_indexes WHERE tablename = 'rodadas_correcao'")) {
++			assertThat(rs.next()).isTrue();
++			assertThat(rs.getInt(1)).isEqualTo(3);
++		}
++	}
++
++	@Test
++	void permiteCadeiaDeRodadasMasRecusaBifurcacao() throws Exception {
++		atualizar();
++		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
++			semearParaRodadas(statement);
++			UUID a = inserirRodada(connection, "corrigida", null);
++			UUID b = inserirRodada(connection, "reextracao_falhou", a);
++			inserirRodada(connection, "pendente", b);
++			assertThatExceptionOfType(SQLException.class).isThrownBy(() -> inserirRodada(connection, "abandonada", a))
++				.satisfies(e -> assertThat(e.getSQLState()).isEqualTo("23505"));
++		}
++	}
++
++	@ParameterizedTest
++	@CsvSource({ "pendente,pendente", "pendente,em_reextracao", "em_reextracao,pendente",
++			"em_reextracao,em_reextracao" })
++	void recusaDuasRodadasAbertasNoMesmoJob(String primeira, String segunda) throws Exception {
++		atualizar();
++		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
++			semearParaRodadas(statement);
++			inserirRodada(connection, primeira, null);
++			assertThatExceptionOfType(SQLException.class).isThrownBy(() -> inserirRodada(connection, segunda, null))
++				.satisfies(e -> assertThat(e.getSQLState()).isEqualTo("23505"));
++		}
++	}
++
++	@ParameterizedTest
++	@ValueSource(strings = { "corrigida", "reextracao_falhou", "abandonada" })
++	void permiteHistoricoFechadoEUmaRodadaAberta(String estadoFechado) throws Exception {
++		atualizar();
++		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
++			semearParaRodadas(statement);
++			inserirRodada(connection, estadoFechado, null);
++			inserirRodada(connection, estadoFechado, null);
++			inserirRodada(connection, "pendente", null);
++			try (ResultSet rs = statement.executeQuery("SELECT count(*) FROM rodadas_correcao")) {
++				assertThat(rs.next()).isTrue();
++				assertThat(rs.getInt(1)).isEqualTo(3);
++			}
++		}
++	}
++
++	@Test
++	void upgradeDasRodadasPreservaDadosEPermissoesAnteriores() throws Exception {
++		atualizar(CHANGESETS_ANTES_DAS_RODADAS);
++		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DAS_RODADAS);
++		assertThat(tabelasExistentes()).doesNotContain("rodadas_correcao");
++		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
++			semearParaRodadas(statement);
++		}
++		Map<String, String> dadosAntes = dadosAnterioresAsRodadas();
++		List<String> permissoesAntes = permissoesAnterioresAsRodadas();
++
++		atualizar();
++
++		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS);
++		assertThat(tabelasExistentes()).containsExactlyInAnyOrderElementsOf(TABELAS);
++		assertThat(dadosAnterioresAsRodadas()).isEqualTo(dadosAntes);
++		assertThat(permissoesAnterioresAsRodadas()).isEqualTo(permissoesAntes);
++		try (Connection connection = abrir();
++				Statement statement = connection.createStatement();
++				ResultSet rs = statement.executeQuery("SELECT count(*) FROM rodadas_correcao")) {
++			assertThat(rs.next()).isTrue();
++			assertThat(rs.getInt(1)).as("sem backfill de rodadas").isZero();
++		}
++	}
++
++	@Test
++	void rollbackDasRodadasRemoveSomenteATabelaESeusIndices() throws Exception {
++		atualizar();
++		assertThat(tabelasExistentes()).contains("rodadas_correcao");
++		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
++			semearParaRodadas(statement);
++			inserirRodada(connection, "pendente", null);
++		}
++		Map<String, String> dadosAntes = dadosAnterioresAsRodadas();
++		List<String> permissoesAntes = permissoesAnterioresAsRodadas();
++
++		reverter(1);
++
++		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DAS_RODADAS);
++		assertThat(tabelasExistentes())
++			.containsExactlyInAnyOrderElementsOf(TABELAS.stream().filter(t -> !t.equals("rodadas_correcao")).toList());
++		assertThat(dadosAnterioresAsRodadas()).isEqualTo(dadosAntes);
++		assertThat(permissoesAnterioresAsRodadas()).isEqualTo(permissoesAntes);
++		try (Connection connection = abrir();
++				Statement statement = connection.createStatement();
++				ResultSet rs = statement
++					.executeQuery("SELECT indexname FROM pg_indexes WHERE tablename = 'rodadas_correcao'")) {
++			assertThat(rs.next()).isFalse();
++		}
++	}
++
++	private static void semearParaRodadas(Statement statement) throws Exception {
++		semearUsuario(statement);
++		statement.execute("""
++				INSERT INTO submissoes (id, usuario_id, tipo, transcricao, criado_em)
++				VALUES ('%s', '22222222-2222-4222-8222-222222222222', 'texto', 'correcao de teste', now())
++				""".formatted(SUBMISSAO_ID));
++		semearJobComTrilha(statement, UUID.fromString(JOB_ID), "aguardando_confirmacao_parametros");
++		statement.execute("""
++				INSERT INTO regras (id, job_id, versao, origem, nucleo, especificacoes, hash, criada_em)
++				VALUES ('%s', '%s', 1, 'extracao', '{}'::jsonb, '[]'::jsonb, repeat('a', 64), now())
++				""".formatted(REGRA_ID, JOB_ID));
++	}
++
++	private static UUID inserirRodada(Connection connection, String estado, @Nullable UUID anterior) throws Exception {
++		try (PreparedStatement insert = connection.prepareStatement("""
++				INSERT INTO rodadas_correcao (job_id, regra_analisada_id, conflitos, estado,
++				    rodada_anterior_id, criada_em, atualizada_em)
++				VALUES (?, ?, ?::jsonb, ?, ?, now(), now()) RETURNING id
++				""")) {
++			insert.setObject(1, UUID.fromString(JOB_ID));
++			insert.setObject(2, REGRA_ID);
++			insert.setString(3, CONFLITOS);
++			insert.setString(4, estado);
++			insert.setObject(5, anterior);
++			try (ResultSet rs = insert.executeQuery()) {
++				assertThat(rs.next()).isTrue();
++				return rs.getObject(1, UUID.class);
++			}
++		}
++	}
++
++	private static Map<String, String> dadosAnterioresAsRodadas() throws Exception {
++		Map<String, String> dados = new HashMap<>();
++		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
++			for (String tabela : TABELAS) {
++				if (!tabela.equals("rodadas_correcao")) {
++					try (ResultSet rs = statement.executeQuery(
++							"SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM "
++									+ tabela + " t")) {
++						assertThat(rs.next()).isTrue();
++						dados.put(tabela, rs.getString(1));
++					}
++				}
++			}
++		}
++		return dados;
++	}
++
++	private static List<String> permissoesAnterioresAsRodadas() throws Exception {
++		List<String> permissoes = new ArrayList<>();
++		try (Connection connection = abrir();
++				Statement statement = connection.createStatement();
++				ResultSet rs = statement.executeQuery("""
++						SELECT (table_name, grantee, privilege_type, is_grantable)::text
++						FROM information_schema.table_privileges
++						WHERE table_schema = 'public' AND table_name <> 'rodadas_correcao' ORDER BY 1
++						""")) {
++			while (rs.next()) {
++				permissoes.add(rs.getString(1));
++			}
++		}
++		return permissoes;
++	}
++
+ 	// Liquibase.close() fecha a conexão JDBC por baixo, então cada operação abre a sua
+ 	// em vez de compartilhar uma com as afirmações.
+ 	private static void atualizar() throws Exception {
+diff --git a/api/src/test/java/synapse/api/core/persistence/PermissoesDeBancoTests.java b/api/src/test/java/synapse/api/core/persistence/PermissoesDeBancoTests.java
+index 8be7a04..747d760 100644
+--- a/api/src/test/java/synapse/api/core/persistence/PermissoesDeBancoTests.java
++++ b/api/src/test/java/synapse/api/core/persistence/PermissoesDeBancoTests.java
+@@ -2,8 +2,10 @@ package synapse.api.core.persistence;
+ 
+ import java.sql.Connection;
+ import java.sql.DriverManager;
++import java.sql.ResultSet;
+ import java.sql.SQLException;
+ import java.sql.Statement;
++import java.util.UUID;
+ 
+ import liquibase.Contexts;
+ import liquibase.Liquibase;
+@@ -270,8 +272,86 @@ class PermissoesDeBancoTests {
+ 		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, INSERE_EXTRACAO)).isEqualTo(PERMISSAO_NEGADA);
+ 	}
+ 
++	@Test
++	void aApiInsereLeEAtualizaRodada() throws Exception {
++		try (Connection connection = como(UsuariosDeBanco.API); Statement statement = connection.createStatement()) {
++			connection.setAutoCommit(false);
++			try {
++				UUID id;
++				try (ResultSet rs = statement.executeQuery(INSERE_RODADA + " RETURNING id")) {
++					assertThat(rs.next()).isTrue();
++					id = rs.getObject(1, UUID.class);
++				}
++				assertThat(statement.executeUpdate("""
++						UPDATE rodadas_correcao SET estado = 'corrigida',
++						    submissao_correcao_id = '44444444-4444-4444-8444-444444444444',
++						    regra_resultante_id = '55555555-5555-4555-8555-555555555555',
++						    atualizada_em = timestamptz '2026-10-06 12:00:00+00'
++						WHERE id = '%s'
++						""".formatted(id))).isEqualTo(1);
++				try (ResultSet rs = statement
++					.executeQuery("SELECT * FROM rodadas_correcao WHERE id = '%s'".formatted(id))) {
++					assertThat(rs.next()).isTrue();
++					assertThat(rs.getString("estado")).isEqualTo("corrigida");
++					assertThat(rs.getString("submissao_correcao_id")).isEqualTo("44444444-4444-4444-8444-444444444444");
++					assertThat(rs.getString("regra_resultante_id")).isEqualTo("55555555-5555-4555-8555-555555555555");
++					assertThat(rs.getTimestamp("atualizada_em").toInstant())
++						.isEqualTo(java.time.Instant.parse("2026-10-06T12:00:00Z"));
++				}
++			}
++			finally {
++				connection.rollback();
++			}
++		}
++	}
++
++	@Test
++	void aApiNaoApagaRodadas() {
++		assertThat(sqlStateAoFalhar(UsuariosDeBanco.API, "DELETE FROM rodadas_correcao")).isEqualTo(PERMISSAO_NEGADA);
++	}
++
++	@Test
++	void oCodegenLeRodadas() throws Exception {
++		try (Connection connection = como(UsuariosDeBanco.CODEGEN);
++				Statement statement = connection.createStatement();
++				ResultSet rs = statement.executeQuery("SELECT * FROM rodadas_correcao")) {
++			assertThat(rs.next()).isTrue();
++			assertThat(rs.getString("job_id")).isEqualTo(JOB_ID);
++			assertThat(rs.getString("regra_analisada_id")).isEqualTo("55555555-5555-4555-8555-555555555555");
++			assertThat(rs.getString("estado")).isEqualTo("abandonada");
++			assertThat(rs.next()).isFalse();
++		}
++	}
++
++	@Test
++	void oCodegenNaoEscreveRodadas() {
++		assertThat(sqlStateAoFalhar(UsuariosDeBanco.CODEGEN, INSERE_RODADA)).isEqualTo(PERMISSAO_NEGADA);
++		assertThat(sqlStateAoFalhar(UsuariosDeBanco.CODEGEN, "UPDATE rodadas_correcao SET estado = 'corrigida'"))
++			.isEqualTo(PERMISSAO_NEGADA);
++		assertThat(sqlStateAoFalhar(UsuariosDeBanco.CODEGEN, "DELETE FROM rodadas_correcao"))
++			.isEqualTo(PERMISSAO_NEGADA);
++	}
++
++	@Test
++	void oWorkerNaoAlcancaRodadas() {
++		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, "SELECT * FROM rodadas_correcao"))
++			.isEqualTo(PERMISSAO_NEGADA);
++		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, INSERE_RODADA)).isEqualTo(PERMISSAO_NEGADA);
++		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, "UPDATE rodadas_correcao SET estado = 'corrigida'"))
++			.isEqualTo(PERMISSAO_NEGADA);
++		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, "DELETE FROM rodadas_correcao"))
++			.isEqualTo(PERMISSAO_NEGADA);
++	}
++
+ 	private static final String JOB_ID = "11111111-1111-4111-8111-111111111111";
+ 
++	private static final String INSERE_RODADA = """
++			INSERT INTO rodadas_correcao (job_id, regra_analisada_id, conflitos, estado, criada_em, atualizada_em)
++			VALUES ('%s', '55555555-5555-4555-8555-555555555555',
++			    '[{"elementos":["nucleo.percentual"],"motivo":"percentual ausente"}]'::jsonb,
++			    'abandonada', now(), now())
++			""".formatted(JOB_ID);
++
+ 	private static final String CODIGO_ID = "33333333-3333-4333-8333-333333333333";
+ 
+ 	private static final String INSERE_EXTRACAO = """
+@@ -331,6 +411,7 @@ class PermissoesDeBancoTests {
+ 				VALUES ('77777777-7777-4777-8777-777777777777', '%s',
+ 				        '66666666-6666-4666-8666-666666666666', 'resposta', now())
+ 				""".formatted(JOB_ID));
++		statement.execute(INSERE_RODADA);
+ 	}
+ 
+ 	/** Roda o comando como {@code usuario} e devolve o SQLState da recusa. */
+diff --git a/docs/database/modelo-dados.dbml b/docs/database/modelo-dados.dbml
+index 34682a7..a6ed91a 100644
+--- a/docs/database/modelo-dados.dbml
++++ b/docs/database/modelo-dados.dbml
+@@ -62,7 +62,7 @@ Table submissoes {
+   conteudo jsonb [note: '''
+ Formato: contracts/domain/submissao-conteudo.schema.json
+ NULL quando tipo = texto ou voz - ali o que o usuario enviou e o texto digitado ou o audio.
+-Entrada original do fluxo; regras.nucleo e a representacao derivada, e trilhas_auditoria.conclusao registra o que cada no concluiu. O conteudo original nao e sobrescrito; a API pode preencher transcricao e transcrito_em depois do envio de voz. As rodadas de correcao da Sprint 2 serao armazenadas separadamente.
++Entrada original do fluxo; regras.nucleo e a representacao derivada, e trilhas_auditoria.conclusao registra o que cada no concluiu. O conteudo original nao e sobrescrito; a API pode preencher transcricao e transcrito_em depois do envio de voz. A tabela rodadas_correcao armazena separadamente as referencias das correcoes.
+ ''']
+   binario bytea [null, note: 'null quando tipo != voz. O audio enviado pelo usuario']
+   formato text [null, note: 'null quando tipo != voz. webm | ogg | wav | mp4: o conteiner gravado pelo navegador, declarado no Content-Type da parte audio']
+@@ -109,6 +109,26 @@ data real (Black Friday) - ver regras.especificacoes.
+   }
+ }
+ 
++Table rodadas_correcao {
++  id uuid [pk, default: `uuidv7()`]
++  job_id uuid [not null, ref: > jobs.id]
++  regra_analisada_id uuid [not null, ref: > regras.id, note: 'versao que produziu os conflitos']
++  conflitos jsonb [not null, note: 'Formato: contracts/domain/conflitos-rodada.schema.json']
++  estado text [not null, note: 'pendente | em_reextracao | reextracao_falhou | corrigida | abandonada']
++  submissao_correcao_id uuid [null, ref: > submissoes.id, note: 'null ate o envio da correcao; submissao propria e imutavel']
++  regra_resultante_id uuid [null, ref: > regras.id, note: 'null ate existir uma versao resultante; a versao permanece imutavel']
++  rodada_anterior_id uuid [null, ref: > rodadas_correcao.id, note: 'null na primeira rodada; encadeia o historico sem bifurcacao']
++  criada_em timestamptz [not null]
++  atualizada_em timestamptz [not null]
++
++  indexes {
++    (rodada_anterior_id) [unique, name: 'uq_rodadas_correcao_rodada_anterior_id', note: 'indice PARCIAL: WHERE rodada_anterior_id IS NOT NULL; impede bifurcacao da cadeia']
++    (job_id) [unique, name: 'uq_rodadas_correcao_job_id_aberta', note: "indice PARCIAL: WHERE estado IN ('pendente', 'em_reextracao'); no maximo uma rodada aberta por job"]
++  }
++
++  Note: 'Rodada mutavel: a API atualiza estado e referencias conforme o fluxo. A estrutura e da T-214; os fluxos pertencem a T-215/T-216/T-217/T-225.'
++}
++
+ Table job_transicoes {
+   id uuid [pk, default: `uuidv7()`]
+   job_id uuid [not null, ref: > jobs.id]
+diff --git a/docs/database/modelo-dados.md b/docs/database/modelo-dados.md
+index 5cf3021..d7bea5f 100644
+--- a/docs/database/modelo-dados.md
++++ b/docs/database/modelo-dados.md
+@@ -10,11 +10,11 @@ O arquivo [`modelo-dados.dbml`](modelo-dados.dbml) é a fonte canônica e define
+ 
+ O formato das colunas `jsonb` é definido pelos schemas em [`contracts/domain/`](../../contracts/domain/), que dizem quais chaves são obrigatórias, que tipo cada uma tem e que valores aceita. Os exemplos deste documento são ilustrativos e servem para leitura; o que vale para implementar é o schema.
+ 
+-O esquema abaixo é o existente. As extensões aprovadas para a Sprint 2 estão na seção 6 e em [Fluxo e decisões da Sprint 2](../FLUXO-SPRINT-2.md); não são tabelas ou colunas já disponíveis.
++O DBML reúne a estrutura existente e as extensões aprovadas para a Sprint 2. A seção 6 distingue a estrutura implementada dos fluxos e migrations pendentes, conforme [Fluxo e decisões da Sprint 2](../FLUXO-SPRINT-2.md).
+ 
+ ## 1. As tabelas
+ 
+-São catorze, num schema único. Cada uma aparece abaixo com o que guarda e, quando tem coluna `jsonb` ou array, com um exemplo do conteúdo dela, porque é ali que mora a maior chance de confusão.
++São 17 tabelas no DBML, num schema único. As seções abaixo explicam o que guardam e, quando há coluna `jsonb` ou array, mostram exemplos dos conteúdos mais propensos a confusão.
+ 
+ ### `usuarios`
+ 
+@@ -86,6 +86,30 @@ O job cobre o período inteiro em uma simulação, com os meses agregados. Qualq
+ 
+ A procedência é `submissao_id` ou `job_origem_id`, nunca as duas. É dela que se deduz o ponto de entrada no grafo, sem precisar de coluna dedicada.
+ 
++### `rodadas_correcao`
++
++A estrutura criada pela T-214 guarda uma linha por rodada de validação/correção. `job_id` identifica o job e `regra_analisada_id` a versão que produziu os conflitos. `conflitos` é `jsonb NOT NULL`, no formato de [`contracts/domain/conflitos-rodada.schema.json`](../../contracts/domain/conflitos-rodada.schema.json); o banco não replica a validação desse contrato em `CHECK`.
++
++`submissao_correcao_id` fica nula até o envio da correção e `regra_resultante_id` até existir uma versão resultante. `rodada_anterior_id`, nula na primeira rodada, encadeia o histórico. Os cinco vínculos são chaves estrangeiras, sem exclusão em cascata. `id` nasce de `uuidv7()`, e `criada_em` e `atualizada_em` são obrigatórias, fornecidas por quem grava.
++
++A rodada é mutável: a API atualiza seu estado e suas referências conforme o fluxo. A submissão da correção continua sendo um envio próprio e imutável, sem sobrescrever o texto anterior, e a regra resultante continua sendo uma versão imutável. Esta migration não altera as permissões existentes de `submissoes` ou `regras`. Nenhum serviço recebe `DELETE` em `rodadas_correcao`.
++
++`estado` é `text NOT NULL`, sem `CHECK` ou enum nativo. O vocabulário documentado é `pendente | em_reextracao | reextracao_falhou | corrigida | abandonada`. Apenas `pendente` e `em_reextracao` contam como abertas nesta migration; a ampliação para `em_transcricao` pertence à T-238.
++
++Exemplo de três rodadas do mesmo job:
++
++| Rodada | Regra analisada | Estado | Submissão de correção | Regra resultante | Anterior |
++| --- | --- | --- | --- | --- | --- |
++| A | v1 | `corrigida` | S1 | v2 | `null` |
++| B | v2 | `reextracao_falhou` | S2 | `null` | A |
++| C | v2 | `pendente` | `null` | `null` | B |
++
++A cadeia `A → B → C` é permitida. `A → B` e `A → C` juntas são recusadas pelo índice único parcial `uq_rodadas_correcao_rodada_anterior_id`, cujo predicado é `WHERE rodada_anterior_id IS NOT NULL`. Cada rodada pode ter no máximo uma sucessora; este índice não faz validação recursiva de ciclos.
++
++Várias rodadas fechadas podem coexistir para o mesmo job, mas apenas uma em `pendente` ou `em_reextracao`. O índice único parcial `uq_rodadas_correcao_job_id_aberta` aplica `WHERE estado IN ('pendente', 'em_reextracao')`, preservando o histórico fechado.
++
++A tabela existe, mas criar a estrutura não torna o loop funcional: os fluxos que a preenchem pertencem às T-215/T-216/T-217/T-225. O envio de correção por `POST /submissoes` e a consulta em `GET /jobs/{id}/rodadas` ainda dependem das tarefas de implementação correspondentes.
++
+ ### `regras`
+ 
+ A representação estruturada da regra, armazenada em `nucleo` e `especificacoes`. O fluxo atual de formulário gera versões com especificações vazias. Na Sprint 2, extração e reextração produzem a regra completa; validação sem problemas permite geração automática, enquanto problemas acionam o chatbot.
+@@ -328,6 +352,8 @@ Na implantação, a migration da API vai antes da versão do codegen que consome
+ 
+ ## 2. Quem escreve o quê
+ 
++Em `rodadas_correcao`, a API tem `SELECT`, `INSERT` e `UPDATE`, sem `DELETE`. O codegen tem apenas `SELECT`, sem permissão para inserir, alterar ou apagar rodadas. O worker não tem acesso.
++
+ A API escreve `usuarios`, `submissoes`, `jobs`, `job_transicoes`, `job_acoes`, `simulacoes`, `trilhas_auditoria` e `outbox_events`. O codegen insere `prompts`, `respostas_modelo`, `extracoes_regras`, `codigos_gerados` e `explicacoes`, e registra em `jobs_grafo_encerrados` o encerramento recebido e a conclusão da limpeza; é a única tabela em que tem `UPDATE`, restrito a `limpo_em`. O worker insere só `resultados_simulacao`.
+ 
+ `regras` ainda permite inserção pela API e pelo codegen nas permissões existentes. O fluxo usa a API para versões submetidas, confirmadas ou propostas na adaptação; na extração inicial, o codegen grava `extracoes_regras` e a API será responsável pela versão (T-202). Nenhum dos dois tem `UPDATE` ou `DELETE`: editar significa inserir uma versão nova encadeada por `regra_origem_id`.
+@@ -362,7 +388,7 @@ Partindo de um job, chega-se a tudo. A procedência leva a `submissoes` e à ent
+ 
+ O caminho inverso, de um resultado até a submissão, são dois saltos: `job_id` até `jobs` e `submissao_id` até `submissoes`. Em job de reprocessamento `submissao_id` é nulo, e o percurso sobe por `job_origem_id` até encontrar o job que tem submissão, o que faz disso uma consulta recursiva e não um join fixo. Há um caminho redundante que serve de conferência, por `codigo_gerado_id` até `codigos_gerados` e daí por `regra_id` até `regras`, que também carrega `job_id`; os dois têm que dar no mesmo job.
+ 
+-No fluxo atual, a entrada e as versões permitem comparar parâmetros. Para o chatbot da Sprint 2, a relação entre versão analisada, conflito, submissão de correção e versão resultante será preservada em uma tabela de rodadas; o esquema existente não registra sozinho essa sequência.
++No fluxo atual, a entrada e as versões permitem comparar parâmetros. `rodadas_correcao` fornece a estrutura para preservar a relação entre versão analisada, conflito, submissão de correção e versão resultante. Seu preenchimento e a apresentação do histórico no chatbot dependem dos fluxos posteriores à T-214.
+ 
+ Duas coisas o esquema não reconstrói. Qual simulação foi liberada, porque `job_acoes` registra a ação sem apontar simulação, e num job com várias alternativas isso só se infere pela ordem dos timestamps. E um nó cujo evento se perdeu entre a gravação dos artefatos e a publicação: os artefatos continuam alcançáveis pelo `job_id`, mas a sequência de nós fica com um buraco que nada denuncia.
+ 
+@@ -378,11 +404,11 @@ Os enums do DBML são vocabulário documentado e não `CHECK`. Exclusão mútua
+ 
+ ## 6. Extensões aprovadas para a Sprint 2
+ 
+-Esta seção descreve trabalho planejado, exceto pela coluna `jobs.nome` e seu contrato HTTP, já definidos no modelo. As demais migrations e schemas devem acompanhar a implementação.
++Esta seção distingue estrutura e fluxos: `jobs.nome` e seu contrato HTTP já estão definidos, e a T-214 implementa a estrutura de `rodadas_correcao`. A existência dessas estruturas não conclui os fluxos; as demais migrations e schemas devem acompanhar suas tarefas de implementação.
+ 
+ ### Rodadas de validação e correção
+ 
+-Tabela própria relacionada a `jobs` e à versão de `regras` analisada, com lista de conflitos em `jsonb`, referência à submissão de correção e à versão resultante. `rodada_anterior_id` encadeia as rodadas. Cada correção textual ou de voz é uma submissão separada; não incorpora nem sobrescreve as anteriores.
++A tabela `rodadas_correcao`, implementada pela T-214 e descrita na seção 1, relaciona `jobs` à versão de `regras` analisada, com conflitos em `jsonb` e referências à submissão e à versão resultante. Os fluxos que a preenchem continuam nas T-215/T-216/T-217/T-225. Cada correção textual ou de voz será uma submissão separada; não incorporará nem sobrescreverá as anteriores.
+ 
+ O formato da lista de conflitos é [`contracts/domain/conflitos-rodada.schema.json`](../../contracts/domain/conflitos-rodada.schema.json). Os estados da rodada (`pendente`, `em_reextracao`, `reextracao_falhou`, `corrigida` e `abandonada`) e sua exposição em `GET /jobs/{id}/rodadas` estão em [`contracts/http/openapi.yaml`](../../contracts/http/openapi.yaml).
+ 
+diff --git a/api/src/main/resources/db/changelog/changesets/021-cria-rodadas-correcao.sql b/api/src/main/resources/db/changelog/changesets/021-cria-rodadas-correcao.sql
+new file mode 100644
+index 0000000..e9ed9cc
+--- /dev/null
++++ b/api/src/main/resources/db/changelog/changesets/021-cria-rodadas-correcao.sql
+@@ -0,0 +1,30 @@
++-- liquibase formatted sql
++
++-- changeset synapse:021-cria-rodadas-correcao
++CREATE TABLE rodadas_correcao (
++    id uuid PRIMARY KEY DEFAULT uuidv7(),
++    job_id uuid NOT NULL,
++    regra_analisada_id uuid NOT NULL,
++    conflitos jsonb NOT NULL,
++    estado text NOT NULL,
++    submissao_correcao_id uuid,
++    regra_resultante_id uuid,
++    rodada_anterior_id uuid,
++    criada_em timestamptz NOT NULL,
++    atualizada_em timestamptz NOT NULL,
++    CONSTRAINT fk_rodadas_correcao_job_id FOREIGN KEY (job_id) REFERENCES jobs (id),
++    CONSTRAINT fk_rodadas_correcao_regra_analisada_id FOREIGN KEY (regra_analisada_id) REFERENCES regras (id),
++    CONSTRAINT fk_rodadas_correcao_submissao_correcao_id FOREIGN KEY (submissao_correcao_id) REFERENCES submissoes (id),
++    CONSTRAINT fk_rodadas_correcao_regra_resultante_id FOREIGN KEY (regra_resultante_id) REFERENCES regras (id),
++    CONSTRAINT fk_rodadas_correcao_rodada_anterior_id FOREIGN KEY (rodada_anterior_id) REFERENCES rodadas_correcao (id)
++);
++
++CREATE UNIQUE INDEX uq_rodadas_correcao_rodada_anterior_id ON rodadas_correcao (rodada_anterior_id)
++WHERE rodada_anterior_id IS NOT NULL;
++
++CREATE UNIQUE INDEX uq_rodadas_correcao_job_id_aberta ON rodadas_correcao (job_id)
++WHERE estado IN ('pendente', 'em_reextracao');
++
++GRANT SELECT, INSERT, UPDATE ON rodadas_correcao TO ${usuario_api};
++GRANT SELECT ON rodadas_correcao TO ${usuario_codegen};
++-- rollback DROP TABLE rodadas_correcao;

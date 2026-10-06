@@ -10,11 +10,11 @@ O arquivo [`modelo-dados.dbml`](modelo-dados.dbml) é a fonte canônica e define
 
 O formato das colunas `jsonb` é definido pelos schemas em [`contracts/domain/`](../../contracts/domain/), que dizem quais chaves são obrigatórias, que tipo cada uma tem e que valores aceita. Os exemplos deste documento são ilustrativos e servem para leitura; o que vale para implementar é o schema.
 
-O esquema abaixo é o existente. As extensões aprovadas para a Sprint 2 estão na seção 6 e em [Fluxo e decisões da Sprint 2](../FLUXO-SPRINT-2.md); não são tabelas ou colunas já disponíveis.
+O DBML reúne a estrutura existente e as extensões aprovadas para a Sprint 2. A seção 6 distingue a estrutura implementada dos fluxos e migrations pendentes, conforme [Fluxo e decisões da Sprint 2](../FLUXO-SPRINT-2.md).
 
 ## 1. As tabelas
 
-São catorze, num schema único. Cada uma aparece abaixo com o que guarda e, quando tem coluna `jsonb` ou array, com um exemplo do conteúdo dela, porque é ali que mora a maior chance de confusão.
+São 17 tabelas no DBML, num schema único. As seções abaixo explicam o que guardam e, quando há coluna `jsonb` ou array, mostram exemplos dos conteúdos mais propensos a confusão.
 
 ### `usuarios`
 
@@ -85,6 +85,30 @@ A coluna `competencias` é um array de texto com os meses a simular.
 O job cobre o período inteiro em uma simulação, com os meses agregados. Qualquer subconjunto das cinco competências canônicas de agosto a dezembro de 2025 é válido, contíguo ou não, e a lista nunca fica vazia. A forma canônica é ordem crescente sem repetição. Competência usa `AAAA-MM`; datas diárias de vendas existem somente na particularidade de novembro/Black Friday.
 
 A procedência é `submissao_id` ou `job_origem_id`, nunca as duas. É dela que se deduz o ponto de entrada no grafo, sem precisar de coluna dedicada.
+
+### `rodadas_correcao`
+
+A estrutura criada pela T-214 guarda uma linha por rodada de validação/correção. `job_id` identifica o job e `regra_analisada_id` a versão que produziu os conflitos. `conflitos` é `jsonb NOT NULL`, no formato de [`contracts/domain/conflitos-rodada.schema.json`](../../contracts/domain/conflitos-rodada.schema.json); o banco não replica a validação desse contrato em `CHECK`.
+
+`submissao_correcao_id` fica nula até o envio da correção e `regra_resultante_id` até existir uma versão resultante. `rodada_anterior_id`, nula na primeira rodada, encadeia o histórico. Os cinco vínculos são chaves estrangeiras, sem exclusão em cascata. `id` nasce de `uuidv7()`, e `criada_em` e `atualizada_em` são obrigatórias, fornecidas por quem grava.
+
+A rodada é mutável: a API atualiza seu estado e suas referências conforme o fluxo. A submissão da correção continua sendo um envio próprio e imutável, sem sobrescrever o texto anterior, e a regra resultante continua sendo uma versão imutável. Esta migration não altera as permissões existentes de `submissoes` ou `regras`. Nenhum serviço recebe `DELETE` em `rodadas_correcao`.
+
+`estado` é `text NOT NULL`, sem `CHECK` ou enum nativo. O vocabulário documentado é `pendente | em_reextracao | reextracao_falhou | corrigida | abandonada`. Apenas `pendente` e `em_reextracao` contam como abertas nesta migration; a ampliação para `em_transcricao` pertence à T-238.
+
+Exemplo de três rodadas do mesmo job:
+
+| Rodada | Regra analisada | Estado | Submissão de correção | Regra resultante | Anterior |
+| --- | --- | --- | --- | --- | --- |
+| A | v1 | `corrigida` | S1 | v2 | `null` |
+| B | v2 | `reextracao_falhou` | S2 | `null` | A |
+| C | v2 | `pendente` | `null` | `null` | B |
+
+A cadeia `A → B → C` é permitida. `A → B` e `A → C` juntas são recusadas pelo índice único parcial `uq_rodadas_correcao_rodada_anterior_id`, cujo predicado é `WHERE rodada_anterior_id IS NOT NULL`. Cada rodada pode ter no máximo uma sucessora; este índice não faz validação recursiva de ciclos.
+
+Várias rodadas fechadas podem coexistir para o mesmo job, mas apenas uma em `pendente` ou `em_reextracao`. O índice único parcial `uq_rodadas_correcao_job_id_aberta` aplica `WHERE estado IN ('pendente', 'em_reextracao')`, preservando o histórico fechado.
+
+A tabela existe, mas criar a estrutura não torna o loop funcional: os fluxos que a preenchem pertencem às T-215/T-216/T-217/T-225. O envio de correção por `POST /submissoes` e a consulta em `GET /jobs/{id}/rodadas` ainda dependem das tarefas de implementação correspondentes.
 
 ### `regras`
 
@@ -328,6 +352,8 @@ Na implantação, a migration da API vai antes da versão do codegen que consome
 
 ## 2. Quem escreve o quê
 
+Em `rodadas_correcao`, a API tem `SELECT`, `INSERT` e `UPDATE`, sem `DELETE`. O codegen tem apenas `SELECT`, sem permissão para inserir, alterar ou apagar rodadas. O worker não tem acesso.
+
 A API escreve `usuarios`, `submissoes`, `jobs`, `job_transicoes`, `job_acoes`, `simulacoes`, `trilhas_auditoria` e `outbox_events`. O codegen insere `prompts`, `respostas_modelo`, `extracoes_regras`, `codigos_gerados` e `explicacoes`, e registra em `jobs_grafo_encerrados` o encerramento recebido e a conclusão da limpeza; é a única tabela em que tem `UPDATE`, restrito a `limpo_em`. O worker insere só `resultados_simulacao`.
 
 `regras` ainda permite inserção pela API e pelo codegen nas permissões existentes. O fluxo usa a API para versões submetidas, confirmadas ou propostas na adaptação; na extração inicial, o codegen grava `extracoes_regras` e a API será responsável pela versão (T-202). Nenhum dos dois tem `UPDATE` ou `DELETE`: editar significa inserir uma versão nova encadeada por `regra_origem_id`.
@@ -362,7 +388,7 @@ Partindo de um job, chega-se a tudo. A procedência leva a `submissoes` e à ent
 
 O caminho inverso, de um resultado até a submissão, são dois saltos: `job_id` até `jobs` e `submissao_id` até `submissoes`. Em job de reprocessamento `submissao_id` é nulo, e o percurso sobe por `job_origem_id` até encontrar o job que tem submissão, o que faz disso uma consulta recursiva e não um join fixo. Há um caminho redundante que serve de conferência, por `codigo_gerado_id` até `codigos_gerados` e daí por `regra_id` até `regras`, que também carrega `job_id`; os dois têm que dar no mesmo job.
 
-No fluxo atual, a entrada e as versões permitem comparar parâmetros. Para o chatbot da Sprint 2, a relação entre versão analisada, conflito, submissão de correção e versão resultante será preservada em uma tabela de rodadas; o esquema existente não registra sozinho essa sequência.
+No fluxo atual, a entrada e as versões permitem comparar parâmetros. `rodadas_correcao` fornece a estrutura para preservar a relação entre versão analisada, conflito, submissão de correção e versão resultante. Seu preenchimento e a apresentação do histórico no chatbot dependem dos fluxos posteriores à T-214.
 
 Duas coisas o esquema não reconstrói. Qual simulação foi liberada, porque `job_acoes` registra a ação sem apontar simulação, e num job com várias alternativas isso só se infere pela ordem dos timestamps. E um nó cujo evento se perdeu entre a gravação dos artefatos e a publicação: os artefatos continuam alcançáveis pelo `job_id`, mas a sequência de nós fica com um buraco que nada denuncia.
 
@@ -378,11 +404,11 @@ Os enums do DBML são vocabulário documentado e não `CHECK`. Exclusão mútua 
 
 ## 6. Extensões aprovadas para a Sprint 2
 
-Esta seção descreve trabalho planejado, exceto pela coluna `jobs.nome` e seu contrato HTTP, já definidos no modelo. As demais migrations e schemas devem acompanhar a implementação.
+Esta seção distingue estrutura e fluxos: `jobs.nome` e seu contrato HTTP já estão definidos, e a T-214 implementa a estrutura de `rodadas_correcao`. A existência dessas estruturas não conclui os fluxos; as demais migrations e schemas devem acompanhar suas tarefas de implementação.
 
 ### Rodadas de validação e correção
 
-Tabela própria relacionada a `jobs` e à versão de `regras` analisada, com lista de conflitos em `jsonb`, referência à submissão de correção e à versão resultante. `rodada_anterior_id` encadeia as rodadas. Cada correção textual ou de voz é uma submissão separada; não incorpora nem sobrescreve as anteriores.
+A tabela `rodadas_correcao`, implementada pela T-214 e descrita na seção 1, relaciona `jobs` à versão de `regras` analisada, com conflitos em `jsonb` e referências à submissão e à versão resultante. Os fluxos que a preenchem continuam nas T-215/T-216/T-217/T-225. Cada correção textual ou de voz será uma submissão separada; não incorporará nem sobrescreverá as anteriores.
 
 O formato da lista de conflitos é [`contracts/domain/conflitos-rodada.schema.json`](../../contracts/domain/conflitos-rodada.schema.json). Os estados da rodada (`pendente`, `em_reextracao`, `reextracao_falhou`, `corrigida` e `abandonada`) e sua exposição em `GET /jobs/{id}/rodadas` estão em [`contracts/http/openapi.yaml`](../../contracts/http/openapi.yaml).
 

@@ -2,8 +2,10 @@ package synapse.api.core.persistence;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.UUID;
 
 import liquibase.Contexts;
 import liquibase.Liquibase;
@@ -270,7 +272,85 @@ class PermissoesDeBancoTests {
 		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, INSERE_EXTRACAO)).isEqualTo(PERMISSAO_NEGADA);
 	}
 
+	@Test
+	void aApiInsereLeEAtualizaRodada() throws Exception {
+		try (Connection connection = como(UsuariosDeBanco.API); Statement statement = connection.createStatement()) {
+			connection.setAutoCommit(false);
+			try {
+				UUID id;
+				try (ResultSet rs = statement.executeQuery(INSERE_RODADA + " RETURNING id")) {
+					assertThat(rs.next()).isTrue();
+					id = rs.getObject(1, UUID.class);
+				}
+				assertThat(statement.executeUpdate("""
+						UPDATE rodadas_correcao SET estado = 'corrigida',
+						    submissao_correcao_id = '44444444-4444-4444-8444-444444444444',
+						    regra_resultante_id = '55555555-5555-4555-8555-555555555555',
+						    atualizada_em = timestamptz '2026-10-06 12:00:00+00'
+						WHERE id = '%s'
+						""".formatted(id))).isEqualTo(1);
+				try (ResultSet rs = statement
+					.executeQuery("SELECT * FROM rodadas_correcao WHERE id = '%s'".formatted(id))) {
+					assertThat(rs.next()).isTrue();
+					assertThat(rs.getString("estado")).isEqualTo("corrigida");
+					assertThat(rs.getString("submissao_correcao_id")).isEqualTo("44444444-4444-4444-8444-444444444444");
+					assertThat(rs.getString("regra_resultante_id")).isEqualTo("55555555-5555-4555-8555-555555555555");
+					assertThat(rs.getTimestamp("atualizada_em").toInstant())
+						.isEqualTo(java.time.Instant.parse("2026-10-06T12:00:00Z"));
+				}
+			}
+			finally {
+				connection.rollback();
+			}
+		}
+	}
+
+	@Test
+	void aApiNaoApagaRodadas() {
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.API, "DELETE FROM rodadas_correcao")).isEqualTo(PERMISSAO_NEGADA);
+	}
+
+	@Test
+	void oCodegenLeRodadas() throws Exception {
+		try (Connection connection = como(UsuariosDeBanco.CODEGEN);
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("SELECT * FROM rodadas_correcao")) {
+			assertThat(rs.next()).isTrue();
+			assertThat(rs.getString("job_id")).isEqualTo(JOB_ID);
+			assertThat(rs.getString("regra_analisada_id")).isEqualTo("55555555-5555-4555-8555-555555555555");
+			assertThat(rs.getString("estado")).isEqualTo("abandonada");
+			assertThat(rs.next()).isFalse();
+		}
+	}
+
+	@Test
+	void oCodegenNaoEscreveRodadas() {
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.CODEGEN, INSERE_RODADA)).isEqualTo(PERMISSAO_NEGADA);
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.CODEGEN, "UPDATE rodadas_correcao SET estado = 'corrigida'"))
+			.isEqualTo(PERMISSAO_NEGADA);
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.CODEGEN, "DELETE FROM rodadas_correcao"))
+			.isEqualTo(PERMISSAO_NEGADA);
+	}
+
+	@Test
+	void oWorkerNaoAlcancaRodadas() {
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, "SELECT * FROM rodadas_correcao"))
+			.isEqualTo(PERMISSAO_NEGADA);
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, INSERE_RODADA)).isEqualTo(PERMISSAO_NEGADA);
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, "UPDATE rodadas_correcao SET estado = 'corrigida'"))
+			.isEqualTo(PERMISSAO_NEGADA);
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, "DELETE FROM rodadas_correcao"))
+			.isEqualTo(PERMISSAO_NEGADA);
+	}
+
 	private static final String JOB_ID = "11111111-1111-4111-8111-111111111111";
+
+	private static final String INSERE_RODADA = """
+			INSERT INTO rodadas_correcao (job_id, regra_analisada_id, conflitos, estado, criada_em, atualizada_em)
+			VALUES ('%s', '55555555-5555-4555-8555-555555555555',
+			    '[{"elementos":["nucleo.percentual"],"motivo":"percentual ausente"}]'::jsonb,
+			    'abandonada', now(), now())
+			""".formatted(JOB_ID);
 
 	private static final String CODIGO_ID = "33333333-3333-4333-8333-333333333333";
 
@@ -331,6 +411,7 @@ class PermissoesDeBancoTests {
 				VALUES ('77777777-7777-4777-8777-777777777777', '%s',
 				        '66666666-6666-4666-8666-666666666666', 'resposta', now())
 				""".formatted(JOB_ID));
+		statement.execute(INSERE_RODADA);
 	}
 
 	/** Roda o comando como {@code usuario} e devolve o SQLState da recusa. */
