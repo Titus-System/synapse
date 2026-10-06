@@ -1,0 +1,131 @@
+{
+    "version":  1,
+    "status":  "complemento_preliminar_conteudo_pendente",
+    "started_at_utc":  "2026-10-06T14:22:07.6477217Z",
+    "readings_verified":  false,
+    "complete_coverage":  false,
+    "candidates":  [
+                       {
+                           "id":  "deepgram-nova3",
+                           "provider":  "deepgram",
+                           "model":  "nova-3",
+                           "endpoint":  "https://api.eu.deepgram.com/v1/listen"
+                       },
+                       {
+                           "id":  "groq-whisper-large-v3",
+                           "provider":  "groq",
+                           "model":  "whisper-large-v3",
+                           "endpoint":  "https://api.groq.com/openai/v1/audio/transcriptions"
+                       }
+                   ],
+    "runs":  [
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-a-long-quiet-1791296431491",
+                     "attempt":  1,
+                     "audio_sha256":  "014a996329b0662251dd5667060e8c245a237c7f70d9fb1f8e6a3efcc9fa7ea9",
+                     "started_at_utc":  "2026-10-06T14:22:07.7994058Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  6216,
+                     "text":  "na loja treze a comissão da marca dez para o cargo cem será de dois vírgula cinco por cento acrescente zero vírgula cinco ponto percentual na comissão da marca trinta mas não aplique esse bônus aos gerentes a matrícula nove zero zero zero zero um recebe um bônus fixo de quinhentos reais no comissionamento final para a matrícula nove zero zero zero dois acrescente vinte mil reais à base de vendas sem somar esse valor à comissão final essa regra vale de primeiro de novembro até dois mil e vinte e cinco até trinta de novembro de dois mil e vinte e cinco só na loja vinte e um quem foi admitido até dez de outubro de dois mil e vinte e cinco no cargo sempre ganha mil reais de bônus no valor final nas marcas dez e vinte venda nas marcas dez e vinte vendas semanais acima de quarenta mil reais e até cinquenta mil reais dão um bônus de três mil e quinhentos reais para o gerente se a loja vender mais de cento e vinte e cinco mil reais e até cento e quarenta mil reais no mês pague cinco mil reais de bônus olha na loja zero sete para a marca trinta e o cargo cem muda a comissão para zero vírgula vinte e cinco por cento a matrícula zero zero zero zero três ganha mil duzentos e cinquenta reais e cinquenta centavos mas a matrícula nove zero zero zero zero quatro fica de fora de vinte e três de dezembro de dois mil e vinte e cinco a cinco de janeiro de dois mil e vinte e seis a marca dez na loja vinte e um paga três vírgula zero cinco por cento repita a sequência até o tempo indicado registre a sequência efetivamente lida no manifesto",
+                     "failure_reason":  "",
+                     "request_id":  "01a11197-df3c-7fe3-9482-f3f99df6de5f",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-a-r01-quiet-1791296271306",
+                     "attempt":  1,
+                     "audio_sha256":  "d0933d6b79a06666b274f59b607ac1dbf7a1439dd9a309b333a6f7c42620bccc",
+                     "started_at_utc":  "2026-10-06T14:22:14.1072588Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  1492,
+                     "text":  "o código é código de",
+                     "failure_reason":  "",
+                     "request_id":  "01a11197-f5c4-7302-8e71-e423fffd8b16",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-a-r01-quiet-1791296307437",
+                     "attempt":  1,
+                     "audio_sha256":  "4015c4709ffc128cdb1479cb4f22e5ac6e5d5edc1c266e042633800956a674ed",
+                     "started_at_utc":  "2026-10-06T14:22:15.6066415Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  1853,
+                     "text":  "essa regra vale de primeiro de novembro de dois mil e vinte e cinco até trinta de novembro de dois mil e vinte e cinco só na loja vinte e um quem foi admitido até dez de outubro de dois mil e um e vinte e cinco e vinte e cinco no cargo cem ganha mil reais de bônus no valor final na loja treze a comissão",
+                     "failure_reason":  "",
+                     "request_id":  "01a11197-fba3-72e2-9290-84f215d6fb82",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-a-long-quiet-1791296431491",
+                     "attempt":  1,
+                     "audio_sha256":  "014a996329b0662251dd5667060e8c245a237c7f70d9fb1f8e6a3efcc9fa7ea9",
+                     "started_at_utc":  "2026-10-06T14:22:17.4801659Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  2337,
+                     "text":  " Na loja 13, a comissão da marca 10 para o cargo 100 será de 2,5%. Acrescente 0,5 ponto percentual na comissão da marca 30, mas não aplique esse bônus ao gerente. A matrícula matric 90001 recebe um bônus fixo de R$ 500 no comissionamento final. Para a matrícula matric 90002, acrescente R$ 20.000,00 à base de vendas, sem somar esse valor à comissão final. Essa regra vale de 1º de novembro até 2025, até 30 de novembro de 2025, só na loja 21. Quem foi admitido até 10 de outubro de 2025 no cargo 100, ganha R$ 1.000,00 de bônus no valor final. Nas marcas 10 e 20, vendas semanais acima de R$ 40 mil e até R$ 50 mil dão um bônus de R$ 3.500. Para o gerente, se a loja vender mais de R$ 125 mil e até R$ 140 mil no mês, pague R$ 5 mil de bônus. Ó, na loja 07 para a marca 30 e o cargo 100, muda a comissão para 0,25%. A matrícula matric 90003 ganha R$ 1.250,50, mas a matrícula matric 90004 fica de fora. De 23 de dezembro de 2025 a 5 de janeiro de 2026, a marca 10 na loja 21 paga 3,05%. Repita a sequência até o tempo indicado. Registre a sequência efetivamente lida no manifesto.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48sg0zjee2rfatjtafqwdce",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-a-r01-quiet-1791296271306",
+                     "attempt":  1,
+                     "audio_sha256":  "d0933d6b79a06666b274f59b607ac1dbf7a1439dd9a309b333a6f7c42620bccc",
+                     "started_at_utc":  "2026-10-06T14:22:23.8667646Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  345,
+                     "text":  " E aí",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48sg6x4e90axrddg4gr2h5p",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-a-r01-quiet-1791296307437",
+                     "attempt":  1,
+                     "audio_sha256":  "4015c4709ffc128cdb1479cb4f22e5ac6e5d5edc1c266e042633800956a674ed",
+                     "started_at_utc":  "2026-10-06T14:22:28.2348735Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  1212,
+                     "text":  " Essa regra vale de 1º de novembro de 2025 até 30 de novembro de 2025, só na loja 21. Quem foi admitido até 10 de outubro de 2021 e 25 no cargo 100 ganha R$ 1.000 de bônus no valor final. Na loja 13 a comissão...",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48sgb8deyr8eex5kw4hsc4q",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 }
+             ]
+}

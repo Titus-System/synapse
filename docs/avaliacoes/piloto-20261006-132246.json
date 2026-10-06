@@ -1,0 +1,438 @@
+{
+    "version":  1,
+    "status":  "piloto_nao_aceito_como_avaliacao_final",
+    "started_at_utc":  "2026-10-06T13:22:46.5751172Z",
+    "readings_verified":  false,
+    "complete_coverage":  false,
+    "attempts_per_file":  1,
+    "candidates":  [
+                       {
+                           "id":  "deepgram-nova3",
+                           "provider":  "deepgram",
+                           "model":  "nova-3",
+                           "endpoint":  "https://api.eu.deepgram.com/v1/listen"
+                       },
+                       {
+                           "id":  "openai-4o-transcribe",
+                           "provider":  "openai",
+                           "model":  "gpt-4o-transcribe",
+                           "endpoint":  "https://api.openai.com/v1/audio/transcriptions"
+                       }
+                   ],
+    "runs":  [
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-a-r01-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "f55ed8d76fe67ff9eaeef7146ae40ec642d848d11afc2304f2aa94f6ae234943",
+                     "started_at_utc":  "2026-10-06T13:22:46.7013138Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  2700,
+                     "text":  "na loja treze a comissão da marca dez para o cargo cem será de dois vírgula cinco por cento",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-88f6-7402-bd3c-42895c08cd55",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-a-r02-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "2b2e055b7227361a22d02884f27c2f49d119db20555ee26e51b0a3cf3a334a04",
+                     "started_at_utc":  "2026-10-06T13:22:49.5544708Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  591,
+                     "text":  "acrescente zero vírgula cinco ponto percentual na comissão da marca trinta mas não aplique esse bônus aos gerentes",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-91a0-72b3-a1bc-ea3c41142378",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-a-r03-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "079a6ba6161c9d0ff12a7a9691b3c5195e8b77b01195b46d0f39b67941816b75",
+                     "started_at_utc":  "2026-10-06T13:22:50.1603513Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  4110,
+                     "text":  "a matrícula matric nove mil um recebe um bônus fixo de quinhentos reais no comissionamento final",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-93ff-7450-8ff3-ff13589c9234",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-a-r04-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "2125c90614f3b5e62751e543a8aeba6033cb25982d4ac2e30c877e7282dcf4d0",
+                     "started_at_utc":  "2026-10-06T13:22:54.2805685Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  584,
+                     "text":  "essa regra vale de primeiro de novembro de dois mil e vinte e cinco até trinta de novembro de dois mil e vinte e cinco só na loja vinte e um",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-a416-73b0-aecf-fab9b6882d1d",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-a-r05-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "f652fa793e5d141e0a1add62df8d6b4dd21115bef97985889f58d5f9f96ad363",
+                     "started_at_utc":  "2026-10-06T13:22:54.8758698Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  598,
+                     "text":  "quem foi admitido até dez de outubro de dois mil e vinte e cinco no cargo cem ganha mil reais de bônus no valor final",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-a669-7ff2-9cdb-c2e8709c3fc4",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-a-r06-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "c271a4e443e094ed9e838e8802f0e0d99c3ee5f4bb4040b41d054ae6978a35d5",
+                     "started_at_utc":  "2026-10-06T13:22:55.4853295Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  516,
+                     "text":  "nas marcas dez e vinte vendas mensais acima de quarenta mil reais e até cinquenta mil reais dão um bônus de três mil e quinhentos reais",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-a8ca-78d2-9869-164bdb36055d",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-a-r07-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "be10e07a3a413a8443f85d45dd2a13d360d979e5e0a814416315e75fd8aa902e",
+                     "started_at_utc":  "2026-10-06T13:22:56.0053321Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  511,
+                     "text":  "para o gerente se a loja vender mais de cento e vinte mil reais e até cento e quarenta mil reais no mês pague cinco mil reais de bônus",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-aad4-7732-8b8d-eb8188bba971",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-a-r08-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "185a6d34b342a891e48e3a7b6ccea9cfff7bf0671309980f790f28f2b21b3fb2",
+                     "started_at_utc":  "2026-10-06T13:22:56.5562066Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  558,
+                     "text":  "pague um vírgula setenta e cinco por cento para o cargo duzentos na marca vinte exceto na loja treze",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-acf8-7611-8972-2898a2cdb9de",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-a-r10-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "976c992f684cee9a843362309354511d4cdd4867d5e22f7745cde9fb6cc2420e",
+                     "started_at_utc":  "2026-10-06T13:22:57.1197318Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  619,
+                     "text":  "oh na loja zero sete para a marca trinta o cargo cem muda a comissão para zero vírgula vinte e cinco por cento",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-af2b-70b2-8591-526edb844a6b",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-a-r11-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "79da63310851f41631f2783eeb428b20b5bf1da9cf3ffe0c810bd3b1bf91a1b6",
+                     "started_at_utc":  "2026-10-06T13:22:57.7556856Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  515,
+                     "text":  "a matrícula nove mil - zero três ganha mil duzentos e cinquenta reais e cinquenta centavos mas a matrícula matric nove zero zero zero zero quatro fica de fora",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-b1a9-79f2-a730-e114cbdf1ded",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-a-r12-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "1f422e1c25be2db9c41523a4d5d7f2152d5054e7fe84f398e39f9e17090cb095",
+                     "started_at_utc":  "2026-10-06T13:22:58.2918303Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  635,
+                     "text":  "de vinte e três de dezembro de dois mil e vinte e cinco a cinco de janeiro de dois mil e vinte e seis a marca dez na loja vinte e um paga três vírgula zero cinco por cento",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-b3c0-7093-8007-2abfe65715ce",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-b-r01-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "af031fc1bce15d6160c691204c5349dc27ddab8be2d1dc501cc0ee4a2caa1541",
+                     "started_at_utc":  "2026-10-06T13:22:58.9353435Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  935,
+                     "text":  "na loja treze a comissão da marca dez para o carro cem será de dois vírgula cinco por cento",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-b649-7703-981a-26bb930703e7",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-b-r02-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "76c3a8a73e6b79d6ac92edd27c5c0c6dcad3d82c643d36cbb64c2dbc6385951e",
+                     "started_at_utc":  "2026-10-06T13:22:59.8859857Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  763,
+                     "text":  "acrescente zero vírgula cinco ponto percentual na comissão da marca trinta mas não aplique esse bônus ao gerente",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-b9fb-7e12-8a09-3da541260a0e",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-b-r03-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "e035b27aadcfdcf91eb84646bef1a5d949624b07395c4044decd8186b28acaaa",
+                     "started_at_utc":  "2026-10-06T13:23:00.6747333Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  684,
+                     "text":  "a matrícula matric nove zero zero zero um recebeu um bônus fixo de quinhentos reais no comissionamento final",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-bd13-7b80-9ffe-ada799d8e322",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-b-r04-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "6d58c995ef37bd24fa9af7cd4a8c840fe54f5f1a89d700b38a42841739567b10",
+                     "started_at_utc":  "2026-10-06T13:23:01.3722752Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  571,
+                     "text":  "para a matrícula a matrícula nove zero zero zero dois representa vinte mil reais à base de vendas sem somar esse valor à comissão final",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-bfc9-72b1-a8cc-72413489fdef",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-b-r05-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "b57eb39caa72edfb5a391bb83e7af0d178b9103baaaf7fa8cc7e6dd150e6f6c7",
+                     "started_at_utc":  "2026-10-06T13:23:01.9593835Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  525,
+                     "text":  "essa regra vale de primeiro de novembro de dois mil e vinte e cinco até trinta de novembro de dois mil e vinte e cinco só na loja vinte e um",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-c218-7570-8d12-8e745e2026ef",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-b-r06-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "d3f3a14b3f9a437f3f1425ddd93819c3201703bfad16840c706e71a7e6423def",
+                     "started_at_utc":  "2026-10-06T13:23:02.5029305Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  1168,
+                     "text":  "quem foi admitido até dez de outubro de dois mil e vinte e cinco o carro de cem ganha mil reais de bônus no valor final",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-c435-77d2-9c16-0017f1d35ccf",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-b-r07-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "d9e1f424bf0969b111095e45becdc0c8dc17d205d932a6cc1657857c932e6a99",
+                     "started_at_utc":  "2026-10-06T13:23:03.6908636Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  3302,
+                     "text":  "nas marcas dez e vinte vendas mensais acima de quarenta mil reais e até cinquenta mil reais dão um bônus de três mil e quinhentos reais",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-c8d8-7e60-8a45-84207010defa",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-b-r08-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "276a79fd8c92b3c410eb1134d2aa11f247c9d4c2a9f4f62fa677c56261607e12",
+                     "started_at_utc":  "2026-10-06T13:23:07.0043962Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  647,
+                     "text":  "para os gerentes se a loja vender mais de cento e vinte mil reais e até cento e quarenta mil reais no mês pague cinco mil reais o bônus",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-d5cb-7f01-81fa-72d5d5189b12",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-b-r10-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "60cad29345140286a2bd223f084063f31eb4e3e310ffa43f26cb592f3f4220a2",
+                     "started_at_utc":  "2026-10-06T13:23:07.6575613Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  623,
+                     "text":  "oh na loja zero sete para a marca trinta e o cargo cem muda a comissão para zero vírgula vinte e cinco por cento",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-d85d-7060-8475-a75d10d69200",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-b-r11-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "081a557158d91859fb13ce08974162d36f4b60451c930ff1eac70d7b9da85e71",
+                     "started_at_utc":  "2026-10-06T13:23:08.3037845Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  905,
+                     "text":  "a matrícula nove zero zero zero zero três ganha mil duzentos e cinquenta reais e cinquenta centavos mas a matrícula matric nove zero zero zero zero quatro fica de fora",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-dae0-7493-87d5-b827cccbd012",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-b-r12-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "d8d1163f1803291bb920c995caedeb4e0c55661ddde369eec8003c98809a1f06",
+                     "started_at_utc":  "2026-10-06T13:23:09.2339259Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  609,
+                     "text":  "de vinte e três de dezembro de dois mil e vinte e cinco a cinco de janeiro de dois mil e vinte e seis a marca dez na loja vinte e um paga três vírgula zero cinco por cento",
+                     "failure_reason":  "",
+                     "request_id":  "01a11161-de81-7b73-a153-773b4f7fe2a1",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "openai-4o-transcribe",
+                     "recording_id":  "voz-a-r01-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "f55ed8d76fe67ff9eaeef7146ae40ec642d848d11afc2304f2aa94f6ae234943",
+                     "started_at_utc":  "2026-10-06T13:23:09.8517589Z",
+                     "status":  "error",
+                     "http_status":  429,
+                     "latency_ms":  1400,
+                     "text":  "",
+                     "failure_reason":  "http_error",
+                     "request_id":  "req_1966e9c9b9a043b29afabdf0c4954988",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 }
+             ]
+}

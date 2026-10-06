@@ -1,0 +1,36 @@
+﻿{
+    "version":  1,
+    "status":  "nao_incluido_na_matriz_final",
+    "recordings":  [
+                       {
+                           "file":  "audio/voz-a-long-quiet-1791296431491.webm",
+                           "sha256":  "014a996329b0662251dd5667060e8c245a237c7f70d9fb1f8e6a3efcc9fa7ea9",
+                           "format":  "webm",
+                           "codec":  "opus",
+                           "duration_seconds":  113.159531,
+                           "size_bytes":  1823236,
+                           "status":  "conteudo_e_tipo_pendentes_de_confirmacao",
+                           "expected_text":  null
+                       },
+                       {
+                           "file":  "audio/voz-a-r01-quiet-1791296271306.webm",
+                           "sha256":  "d0933d6b79a06666b274f59b607ac1dbf7a1439dd9a309b333a6f7c42620bccc",
+                           "format":  "webm",
+                           "codec":  "opus",
+                           "duration_seconds":  6.779984,
+                           "size_bytes":  110420,
+                           "status":  "silencio_confirmado_incorporado_ao_manifesto",
+                           "expected_text":  ""
+                       },
+                       {
+                           "file":  "audio/voz-a-r01-quiet-1791296307437.webm",
+                           "sha256":  "4015c4709ffc128cdb1479cb4f22e5ac6e5d5edc1c266e042633800956a674ed",
+                           "format":  "webm",
+                           "codec":  "opus",
+                           "duration_seconds":  30.539865,
+                           "size_bytes":  492988,
+                           "status":  "conteudo_e_tipo_pendentes_de_confirmacao",
+                           "expected_text":  null
+                       }
+                   ]
+}

@@ -1,0 +1,6 @@
+﻿{
+    "date_utc":  "2026-10-06T13:27:00.4528024Z",
+    "http":  429,
+    "error_code":  "credit_balance_exhausted",
+    "error_type":  "insufficient_quota"
+}

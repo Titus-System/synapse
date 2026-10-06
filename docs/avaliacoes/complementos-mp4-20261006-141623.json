@@ -1,0 +1,95 @@
+{
+    "version":  1,
+    "status":  "complemento_preliminar",
+    "started_at_utc":  "2026-10-06T14:16:23.4051522Z",
+    "readings_verified":  false,
+    "complete_coverage":  false,
+    "candidates":  [
+                       {
+                           "id":  "deepgram-nova3",
+                           "provider":  "deepgram",
+                           "model":  "nova-3",
+                           "endpoint":  "https://api.eu.deepgram.com/v1/listen"
+                       },
+                       {
+                           "id":  "groq-whisper-large-v3",
+                           "provider":  "groq",
+                           "model":  "whisper-large-v3",
+                           "endpoint":  "https://api.groq.com/openai/v1/audio/transcriptions"
+                       }
+                   ],
+    "runs":  [
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-a-r01-office_noise-mp4",
+                     "attempt":  1,
+                     "audio_sha256":  "4a49634bef1714acbb28daa6b30e9372347959dff8ff133e649bc8723e221181",
+                     "started_at_utc":  "2026-10-06T14:16:23.5568063Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  3930,
+                     "text":  "na loja treze a comissão da marca dez para o cargo cem será de dois vírgula cinco por cento",
+                     "failure_reason":  "",
+                     "request_id":  "01a11192-9eda-7013-94ca-fdf2262bede9",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "deepgram-nova3",
+                     "recording_id":  "voz-b-r01-fast-mp4",
+                     "attempt":  1,
+                     "audio_sha256":  "0a76568d8cff73c55c060a39c543780b1b892590da42b7fdf52f9d315670125f",
+                     "started_at_utc":  "2026-10-06T14:16:27.6291418Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  925,
+                     "text":  "na loja treze a comissão da marca dez para o cargo cem será de dois vírgula cinco por cento",
+                     "failure_reason":  "",
+                     "request_id":  "01a11192-ac5d-72b0-91fe-c702a90d6321",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-a-r01-office_noise-mp4",
+                     "attempt":  1,
+                     "audio_sha256":  "4a49634bef1714acbb28daa6b30e9372347959dff8ff133e649bc8723e221181",
+                     "started_at_utc":  "2026-10-06T14:16:28.5701501Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  478,
+                     "text":  " Na loja 13, a comissão da marca 10 para o cargo 100 será de 2,5%.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48s5c0vee0sya9x1x6z2vky",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-b-r01-fast-mp4",
+                     "attempt":  1,
+                     "audio_sha256":  "0a76568d8cff73c55c060a39c543780b1b892590da42b7fdf52f9d315670125f",
+                     "started_at_utc":  "2026-10-06T14:16:29.0884077Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  628,
+                     "text":  " Na loja 13, a comissão da marca 10 para o cargo 100 será de 2,5%.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48s5cecejdtk8rjkazb8kgm",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 }
+             ]
+}

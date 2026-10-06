@@ -1,0 +1,118 @@
+﻿{
+    "version":  1,
+    "reviewed_by":  "revisor-01",
+    "reviewed_at":  "2026-10-06T14:09:37.105Z",
+    "source":  "Conferencia humana exportada pelo usuario e mantida localmente em outputs/conferencia-audios.json",
+    "recordings":  [
+                       {
+                           "id":  "voz-a-r01-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-a-r02-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-a-r03-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-a-r04-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-a-r05-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-a-r06-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-a-r07-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-a-r08-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-a-r10-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-a-r11-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-a-r12-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-b-r01-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-b-r02-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-b-r03-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-b-r04-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-b-r05-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-b-r06-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-b-r07-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-b-r08-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-b-r10-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-b-r11-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       },
+                       {
+                           "id":  "voz-b-r12-ogg",
+                           "result":  "matches",
+                           "notes":  ""
+                       }
+                   ]
+}

@@ -1,0 +1,1739 @@
+{
+  "status": "historico_contestado_nao_usar_para_decisao",
+  "final_acceptance": false,
+  "sources": [
+    "piloto-20261006-132246.json",
+    "piloto-groq-20261006-135904.json"
+  ],
+  "annotations": [
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r01-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "13",
+      "correct": true,
+      "evidence": "na loja treze a comissão da marca dez para o cargo cem será de dois vírgula cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r01-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "10",
+      "correct": true,
+      "evidence": "na loja treze a comissão da marca dez para o cargo cem será de dois vírgula cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r01-ogg",
+      "element_id": "cargo",
+      "type": "cargo",
+      "expected_value": "100",
+      "correct": true,
+      "evidence": "na loja treze a comissão da marca dez para o cargo cem será de dois vírgula cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r01-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "2.5",
+      "correct": true,
+      "evidence": "na loja treze a comissão da marca dez para o cargo cem será de dois vírgula cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r02-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "0.5 ponto percentual",
+      "correct": true,
+      "evidence": "acrescente zero vírgula cinco ponto percentual na comissão da marca trinta mas não aplique esse bônus aos gerentes",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r02-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "30",
+      "correct": true,
+      "evidence": "acrescente zero vírgula cinco ponto percentual na comissão da marca trinta mas não aplique esse bônus aos gerentes",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r02-ogg",
+      "element_id": "exclusao",
+      "type": "exclusao",
+      "expected_value": "excluir gerentes",
+      "correct": true,
+      "evidence": "acrescente zero vírgula cinco ponto percentual na comissão da marca trinta mas não aplique esse bônus aos gerentes",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r03-ogg",
+      "element_id": "matricula",
+      "type": "matricula",
+      "expected_value": "MATRIC-900001",
+      "correct": false,
+      "evidence": "a matrícula matric nove mil um recebe um bônus fixo de quinhentos reais no comissionamento final",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r03-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "500.00",
+      "correct": true,
+      "evidence": "a matrícula matric nove mil um recebe um bônus fixo de quinhentos reais no comissionamento final",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r04-ogg",
+      "element_id": "matricula",
+      "type": "matricula",
+      "expected_value": "MATRIC-900002",
+      "correct": false,
+      "evidence": "essa regra vale de primeiro de novembro de dois mil e vinte e cinco até trinta de novembro de dois mil e vinte e cinco só na loja vinte e um",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r04-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "20000.00",
+      "correct": false,
+      "evidence": "essa regra vale de primeiro de novembro de dois mil e vinte e cinco até trinta de novembro de dois mil e vinte e cinco só na loja vinte e um",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r04-ogg",
+      "element_id": "exclusao",
+      "type": "exclusao",
+      "expected_value": "não somar à comissão final",
+      "correct": false,
+      "evidence": "essa regra vale de primeiro de novembro de dois mil e vinte e cinco até trinta de novembro de dois mil e vinte e cinco só na loja vinte e um",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r05-ogg",
+      "element_id": "inicio",
+      "type": "data",
+      "expected_value": "2025-11-01",
+      "correct": false,
+      "evidence": "quem foi admitido até dez de outubro de dois mil e vinte e cinco no cargo cem ganha mil reais de bônus no valor final",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r05-ogg",
+      "element_id": "fim",
+      "type": "data",
+      "expected_value": "2025-11-30",
+      "correct": false,
+      "evidence": "quem foi admitido até dez de outubro de dois mil e vinte e cinco no cargo cem ganha mil reais de bônus no valor final",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r05-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "21",
+      "correct": false,
+      "evidence": "quem foi admitido até dez de outubro de dois mil e vinte e cinco no cargo cem ganha mil reais de bônus no valor final",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r06-ogg",
+      "element_id": "data",
+      "type": "data",
+      "expected_value": "2025-10-10",
+      "correct": false,
+      "evidence": "nas marcas dez e vinte vendas mensais acima de quarenta mil reais e até cinquenta mil reais dão um bônus de três mil e quinhentos reais",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r06-ogg",
+      "element_id": "cargo",
+      "type": "cargo",
+      "expected_value": "100",
+      "correct": false,
+      "evidence": "nas marcas dez e vinte vendas mensais acima de quarenta mil reais e até cinquenta mil reais dão um bônus de três mil e quinhentos reais",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r06-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "1000.00",
+      "correct": false,
+      "evidence": "nas marcas dez e vinte vendas mensais acima de quarenta mil reais e até cinquenta mil reais dão um bônus de três mil e quinhentos reais",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r07-ogg",
+      "element_id": "marca1",
+      "type": "marca",
+      "expected_value": "10",
+      "correct": false,
+      "evidence": "para o gerente se a loja vender mais de cento e vinte mil reais e até cento e quarenta mil reais no mês pague cinco mil reais de bônus",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r07-ogg",
+      "element_id": "marca2",
+      "type": "marca",
+      "expected_value": "20",
+      "correct": false,
+      "evidence": "para o gerente se a loja vender mais de cento e vinte mil reais e até cento e quarenta mil reais no mês pague cinco mil reais de bônus",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r07-ogg",
+      "element_id": "limite_inferior",
+      "type": "monetario",
+      "expected_value": ">40000.00",
+      "correct": false,
+      "evidence": "para o gerente se a loja vender mais de cento e vinte mil reais e até cento e quarenta mil reais no mês pague cinco mil reais de bônus",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r07-ogg",
+      "element_id": "limite_superior",
+      "type": "monetario",
+      "expected_value": "<=50000.00",
+      "correct": false,
+      "evidence": "para o gerente se a loja vender mais de cento e vinte mil reais e até cento e quarenta mil reais no mês pague cinco mil reais de bônus",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r07-ogg",
+      "element_id": "bonus",
+      "type": "monetario",
+      "expected_value": "3500.00",
+      "correct": false,
+      "evidence": "para o gerente se a loja vender mais de cento e vinte mil reais e até cento e quarenta mil reais no mês pague cinco mil reais de bônus",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r08-ogg",
+      "element_id": "limite_inferior",
+      "type": "monetario",
+      "expected_value": ">120000.00",
+      "correct": false,
+      "evidence": "pague um vírgula setenta e cinco por cento para o cargo duzentos na marca vinte exceto na loja treze",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r08-ogg",
+      "element_id": "limite_superior",
+      "type": "monetario",
+      "expected_value": "<=140000.00",
+      "correct": false,
+      "evidence": "pague um vírgula setenta e cinco por cento para o cargo duzentos na marca vinte exceto na loja treze",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r08-ogg",
+      "element_id": "bonus",
+      "type": "monetario",
+      "expected_value": "5000.00",
+      "correct": false,
+      "evidence": "pague um vírgula setenta e cinco por cento para o cargo duzentos na marca vinte exceto na loja treze",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r10-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "07",
+      "correct": true,
+      "evidence": "oh na loja zero sete para a marca trinta o cargo cem muda a comissão para zero vírgula vinte e cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r10-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "30",
+      "correct": true,
+      "evidence": "oh na loja zero sete para a marca trinta o cargo cem muda a comissão para zero vírgula vinte e cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r10-ogg",
+      "element_id": "cargo",
+      "type": "cargo",
+      "expected_value": "100",
+      "correct": true,
+      "evidence": "oh na loja zero sete para a marca trinta o cargo cem muda a comissão para zero vírgula vinte e cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r10-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "0.25",
+      "correct": true,
+      "evidence": "oh na loja zero sete para a marca trinta o cargo cem muda a comissão para zero vírgula vinte e cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r11-ogg",
+      "element_id": "incluida",
+      "type": "matricula",
+      "expected_value": "MATRIC-900003",
+      "correct": false,
+      "evidence": "a matrícula nove mil - zero três ganha mil duzentos e cinquenta reais e cinquenta centavos mas a matrícula matric nove zero zero zero zero quatro fica de fora",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r11-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "1250.50",
+      "correct": true,
+      "evidence": "a matrícula nove mil - zero três ganha mil duzentos e cinquenta reais e cinquenta centavos mas a matrícula matric nove zero zero zero zero quatro fica de fora",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r11-ogg",
+      "element_id": "excluida",
+      "type": "matricula",
+      "expected_value": "MATRIC-900004",
+      "correct": true,
+      "evidence": "a matrícula nove mil - zero três ganha mil duzentos e cinquenta reais e cinquenta centavos mas a matrícula matric nove zero zero zero zero quatro fica de fora",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r11-ogg",
+      "element_id": "exclusao",
+      "type": "exclusao",
+      "expected_value": "excluir MATRIC-900004",
+      "correct": true,
+      "evidence": "a matrícula nove mil - zero três ganha mil duzentos e cinquenta reais e cinquenta centavos mas a matrícula matric nove zero zero zero zero quatro fica de fora",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r12-ogg",
+      "element_id": "inicio",
+      "type": "data",
+      "expected_value": "2025-12-23",
+      "correct": true,
+      "evidence": "de vinte e três de dezembro de dois mil e vinte e cinco a cinco de janeiro de dois mil e vinte e seis a marca dez na loja vinte e um paga três vírgula zero cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r12-ogg",
+      "element_id": "fim",
+      "type": "data",
+      "expected_value": "2026-01-05",
+      "correct": true,
+      "evidence": "de vinte e três de dezembro de dois mil e vinte e cinco a cinco de janeiro de dois mil e vinte e seis a marca dez na loja vinte e um paga três vírgula zero cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r12-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "10",
+      "correct": true,
+      "evidence": "de vinte e três de dezembro de dois mil e vinte e cinco a cinco de janeiro de dois mil e vinte e seis a marca dez na loja vinte e um paga três vírgula zero cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r12-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "21",
+      "correct": true,
+      "evidence": "de vinte e três de dezembro de dois mil e vinte e cinco a cinco de janeiro de dois mil e vinte e seis a marca dez na loja vinte e um paga três vírgula zero cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-a-r12-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "3.05",
+      "correct": true,
+      "evidence": "de vinte e três de dezembro de dois mil e vinte e cinco a cinco de janeiro de dois mil e vinte e seis a marca dez na loja vinte e um paga três vírgula zero cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r01-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "13",
+      "correct": true,
+      "evidence": "na loja treze a comissão da marca dez para o carro cem será de dois vírgula cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r01-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "10",
+      "correct": true,
+      "evidence": "na loja treze a comissão da marca dez para o carro cem será de dois vírgula cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r01-ogg",
+      "element_id": "cargo",
+      "type": "cargo",
+      "expected_value": "100",
+      "correct": false,
+      "evidence": "na loja treze a comissão da marca dez para o carro cem será de dois vírgula cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r01-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "2.5",
+      "correct": true,
+      "evidence": "na loja treze a comissão da marca dez para o carro cem será de dois vírgula cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r02-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "0.5 ponto percentual",
+      "correct": true,
+      "evidence": "acrescente zero vírgula cinco ponto percentual na comissão da marca trinta mas não aplique esse bônus ao gerente",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r02-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "30",
+      "correct": true,
+      "evidence": "acrescente zero vírgula cinco ponto percentual na comissão da marca trinta mas não aplique esse bônus ao gerente",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r02-ogg",
+      "element_id": "exclusao",
+      "type": "exclusao",
+      "expected_value": "excluir gerentes",
+      "correct": true,
+      "evidence": "acrescente zero vírgula cinco ponto percentual na comissão da marca trinta mas não aplique esse bônus ao gerente",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r03-ogg",
+      "element_id": "matricula",
+      "type": "matricula",
+      "expected_value": "MATRIC-900001",
+      "correct": false,
+      "evidence": "a matrícula matric nove zero zero zero um recebeu um bônus fixo de quinhentos reais no comissionamento final",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r03-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "500.00",
+      "correct": true,
+      "evidence": "a matrícula matric nove zero zero zero um recebeu um bônus fixo de quinhentos reais no comissionamento final",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r04-ogg",
+      "element_id": "matricula",
+      "type": "matricula",
+      "expected_value": "MATRIC-900002",
+      "correct": false,
+      "evidence": "para a matrícula a matrícula nove zero zero zero dois representa vinte mil reais à base de vendas sem somar esse valor à comissão final",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r04-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "20000.00",
+      "correct": false,
+      "evidence": "para a matrícula a matrícula nove zero zero zero dois representa vinte mil reais à base de vendas sem somar esse valor à comissão final",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r04-ogg",
+      "element_id": "exclusao",
+      "type": "exclusao",
+      "expected_value": "não somar à comissão final",
+      "correct": true,
+      "evidence": "para a matrícula a matrícula nove zero zero zero dois representa vinte mil reais à base de vendas sem somar esse valor à comissão final",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r05-ogg",
+      "element_id": "inicio",
+      "type": "data",
+      "expected_value": "2025-11-01",
+      "correct": true,
+      "evidence": "essa regra vale de primeiro de novembro de dois mil e vinte e cinco até trinta de novembro de dois mil e vinte e cinco só na loja vinte e um",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r05-ogg",
+      "element_id": "fim",
+      "type": "data",
+      "expected_value": "2025-11-30",
+      "correct": true,
+      "evidence": "essa regra vale de primeiro de novembro de dois mil e vinte e cinco até trinta de novembro de dois mil e vinte e cinco só na loja vinte e um",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r05-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "21",
+      "correct": true,
+      "evidence": "essa regra vale de primeiro de novembro de dois mil e vinte e cinco até trinta de novembro de dois mil e vinte e cinco só na loja vinte e um",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r06-ogg",
+      "element_id": "data",
+      "type": "data",
+      "expected_value": "2025-10-10",
+      "correct": true,
+      "evidence": "quem foi admitido até dez de outubro de dois mil e vinte e cinco o carro de cem ganha mil reais de bônus no valor final",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r06-ogg",
+      "element_id": "cargo",
+      "type": "cargo",
+      "expected_value": "100",
+      "correct": false,
+      "evidence": "quem foi admitido até dez de outubro de dois mil e vinte e cinco o carro de cem ganha mil reais de bônus no valor final",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r06-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "1000.00",
+      "correct": true,
+      "evidence": "quem foi admitido até dez de outubro de dois mil e vinte e cinco o carro de cem ganha mil reais de bônus no valor final",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r07-ogg",
+      "element_id": "marca1",
+      "type": "marca",
+      "expected_value": "10",
+      "correct": true,
+      "evidence": "nas marcas dez e vinte vendas mensais acima de quarenta mil reais e até cinquenta mil reais dão um bônus de três mil e quinhentos reais",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r07-ogg",
+      "element_id": "marca2",
+      "type": "marca",
+      "expected_value": "20",
+      "correct": true,
+      "evidence": "nas marcas dez e vinte vendas mensais acima de quarenta mil reais e até cinquenta mil reais dão um bônus de três mil e quinhentos reais",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r07-ogg",
+      "element_id": "limite_inferior",
+      "type": "monetario",
+      "expected_value": ">40000.00",
+      "correct": true,
+      "evidence": "nas marcas dez e vinte vendas mensais acima de quarenta mil reais e até cinquenta mil reais dão um bônus de três mil e quinhentos reais",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r07-ogg",
+      "element_id": "limite_superior",
+      "type": "monetario",
+      "expected_value": "<=50000.00",
+      "correct": true,
+      "evidence": "nas marcas dez e vinte vendas mensais acima de quarenta mil reais e até cinquenta mil reais dão um bônus de três mil e quinhentos reais",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r07-ogg",
+      "element_id": "bonus",
+      "type": "monetario",
+      "expected_value": "3500.00",
+      "correct": true,
+      "evidence": "nas marcas dez e vinte vendas mensais acima de quarenta mil reais e até cinquenta mil reais dão um bônus de três mil e quinhentos reais",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r08-ogg",
+      "element_id": "limite_inferior",
+      "type": "monetario",
+      "expected_value": ">120000.00",
+      "correct": true,
+      "evidence": "para os gerentes se a loja vender mais de cento e vinte mil reais e até cento e quarenta mil reais no mês pague cinco mil reais o bônus",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r08-ogg",
+      "element_id": "limite_superior",
+      "type": "monetario",
+      "expected_value": "<=140000.00",
+      "correct": true,
+      "evidence": "para os gerentes se a loja vender mais de cento e vinte mil reais e até cento e quarenta mil reais no mês pague cinco mil reais o bônus",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r08-ogg",
+      "element_id": "bonus",
+      "type": "monetario",
+      "expected_value": "5000.00",
+      "correct": true,
+      "evidence": "para os gerentes se a loja vender mais de cento e vinte mil reais e até cento e quarenta mil reais no mês pague cinco mil reais o bônus",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r10-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "07",
+      "correct": true,
+      "evidence": "oh na loja zero sete para a marca trinta e o cargo cem muda a comissão para zero vírgula vinte e cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r10-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "30",
+      "correct": true,
+      "evidence": "oh na loja zero sete para a marca trinta e o cargo cem muda a comissão para zero vírgula vinte e cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r10-ogg",
+      "element_id": "cargo",
+      "type": "cargo",
+      "expected_value": "100",
+      "correct": true,
+      "evidence": "oh na loja zero sete para a marca trinta e o cargo cem muda a comissão para zero vírgula vinte e cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r10-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "0.25",
+      "correct": true,
+      "evidence": "oh na loja zero sete para a marca trinta e o cargo cem muda a comissão para zero vírgula vinte e cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r11-ogg",
+      "element_id": "incluida",
+      "type": "matricula",
+      "expected_value": "MATRIC-900003",
+      "correct": false,
+      "evidence": "a matrícula nove zero zero zero zero três ganha mil duzentos e cinquenta reais e cinquenta centavos mas a matrícula matric nove zero zero zero zero quatro fica de fora",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r11-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "1250.50",
+      "correct": true,
+      "evidence": "a matrícula nove zero zero zero zero três ganha mil duzentos e cinquenta reais e cinquenta centavos mas a matrícula matric nove zero zero zero zero quatro fica de fora",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r11-ogg",
+      "element_id": "excluida",
+      "type": "matricula",
+      "expected_value": "MATRIC-900004",
+      "correct": true,
+      "evidence": "a matrícula nove zero zero zero zero três ganha mil duzentos e cinquenta reais e cinquenta centavos mas a matrícula matric nove zero zero zero zero quatro fica de fora",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r11-ogg",
+      "element_id": "exclusao",
+      "type": "exclusao",
+      "expected_value": "excluir MATRIC-900004",
+      "correct": true,
+      "evidence": "a matrícula nove zero zero zero zero três ganha mil duzentos e cinquenta reais e cinquenta centavos mas a matrícula matric nove zero zero zero zero quatro fica de fora",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r12-ogg",
+      "element_id": "inicio",
+      "type": "data",
+      "expected_value": "2025-12-23",
+      "correct": true,
+      "evidence": "de vinte e três de dezembro de dois mil e vinte e cinco a cinco de janeiro de dois mil e vinte e seis a marca dez na loja vinte e um paga três vírgula zero cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r12-ogg",
+      "element_id": "fim",
+      "type": "data",
+      "expected_value": "2026-01-05",
+      "correct": true,
+      "evidence": "de vinte e três de dezembro de dois mil e vinte e cinco a cinco de janeiro de dois mil e vinte e seis a marca dez na loja vinte e um paga três vírgula zero cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r12-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "10",
+      "correct": true,
+      "evidence": "de vinte e três de dezembro de dois mil e vinte e cinco a cinco de janeiro de dois mil e vinte e seis a marca dez na loja vinte e um paga três vírgula zero cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r12-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "21",
+      "correct": true,
+      "evidence": "de vinte e três de dezembro de dois mil e vinte e cinco a cinco de janeiro de dois mil e vinte e seis a marca dez na loja vinte e um paga três vírgula zero cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "deepgram-nova3",
+      "recording_id": "voz-b-r12-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "3.05",
+      "correct": true,
+      "evidence": "de vinte e três de dezembro de dois mil e vinte e cinco a cinco de janeiro de dois mil e vinte e seis a marca dez na loja vinte e um paga três vírgula zero cinco por cento",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r01-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "13",
+      "correct": true,
+      "evidence": " Na loja 13, a conexão da marca 10 para o cargo 100 será de 2,5%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r01-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "10",
+      "correct": true,
+      "evidence": " Na loja 13, a conexão da marca 10 para o cargo 100 será de 2,5%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r01-ogg",
+      "element_id": "cargo",
+      "type": "cargo",
+      "expected_value": "100",
+      "correct": true,
+      "evidence": " Na loja 13, a conexão da marca 10 para o cargo 100 será de 2,5%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r01-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "2.5",
+      "correct": false,
+      "evidence": " Na loja 13, a conexão da marca 10 para o cargo 100 será de 2,5%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r02-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "0.5 ponto percentual",
+      "correct": true,
+      "evidence": " Acrescente 0,5 ponto percentual na comissão da marca 30, mas não aplique esse bônus aos gerentes.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r02-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "30",
+      "correct": true,
+      "evidence": " Acrescente 0,5 ponto percentual na comissão da marca 30, mas não aplique esse bônus aos gerentes.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r02-ogg",
+      "element_id": "exclusao",
+      "type": "exclusao",
+      "expected_value": "excluir gerentes",
+      "correct": true,
+      "evidence": " Acrescente 0,5 ponto percentual na comissão da marca 30, mas não aplique esse bônus aos gerentes.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r03-ogg",
+      "element_id": "matricula",
+      "type": "matricula",
+      "expected_value": "MATRIC-900001",
+      "correct": true,
+      "evidence": " A matrícula Matric 900001 recebe um bônus fixo de 500 reais no comissionamento final.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r03-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "500.00",
+      "correct": true,
+      "evidence": " A matrícula Matric 900001 recebe um bônus fixo de 500 reais no comissionamento final.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r04-ogg",
+      "element_id": "matricula",
+      "type": "matricula",
+      "expected_value": "MATRIC-900002",
+      "correct": false,
+      "evidence": " Essa regra vale de 1º de novembro de 2025 até 30 de novembro de 2025, só na loja 21.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r04-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "20000.00",
+      "correct": false,
+      "evidence": " Essa regra vale de 1º de novembro de 2025 até 30 de novembro de 2025, só na loja 21.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r04-ogg",
+      "element_id": "exclusao",
+      "type": "exclusao",
+      "expected_value": "não somar à comissão final",
+      "correct": false,
+      "evidence": " Essa regra vale de 1º de novembro de 2025 até 30 de novembro de 2025, só na loja 21.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r05-ogg",
+      "element_id": "inicio",
+      "type": "data",
+      "expected_value": "2025-11-01",
+      "correct": false,
+      "evidence": " Quem foi admitido até 10 de outubro de 2025 no cargo 100 ganha R$ 1.000,00 de bônus no valor final.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r05-ogg",
+      "element_id": "fim",
+      "type": "data",
+      "expected_value": "2025-11-30",
+      "correct": false,
+      "evidence": " Quem foi admitido até 10 de outubro de 2025 no cargo 100 ganha R$ 1.000,00 de bônus no valor final.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r05-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "21",
+      "correct": false,
+      "evidence": " Quem foi admitido até 10 de outubro de 2025 no cargo 100 ganha R$ 1.000,00 de bônus no valor final.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r06-ogg",
+      "element_id": "data",
+      "type": "data",
+      "expected_value": "2025-10-10",
+      "correct": false,
+      "evidence": " Nas marcas 10 e 20, vendas mensais acima de R$ 40 mil e até R$ 50 mil dão um bônus de R$ 3.500.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r06-ogg",
+      "element_id": "cargo",
+      "type": "cargo",
+      "expected_value": "100",
+      "correct": false,
+      "evidence": " Nas marcas 10 e 20, vendas mensais acima de R$ 40 mil e até R$ 50 mil dão um bônus de R$ 3.500.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r06-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "1000.00",
+      "correct": false,
+      "evidence": " Nas marcas 10 e 20, vendas mensais acima de R$ 40 mil e até R$ 50 mil dão um bônus de R$ 3.500.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r07-ogg",
+      "element_id": "marca1",
+      "type": "marca",
+      "expected_value": "10",
+      "correct": false,
+      "evidence": " Para o gerente, se a loja vender mais de R$ 120 mil e até R$ 140 mil no mês, pague R$ 5 mil de bônus.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r07-ogg",
+      "element_id": "marca2",
+      "type": "marca",
+      "expected_value": "20",
+      "correct": false,
+      "evidence": " Para o gerente, se a loja vender mais de R$ 120 mil e até R$ 140 mil no mês, pague R$ 5 mil de bônus.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r07-ogg",
+      "element_id": "limite_inferior",
+      "type": "monetario",
+      "expected_value": ">40000.00",
+      "correct": false,
+      "evidence": " Para o gerente, se a loja vender mais de R$ 120 mil e até R$ 140 mil no mês, pague R$ 5 mil de bônus.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r07-ogg",
+      "element_id": "limite_superior",
+      "type": "monetario",
+      "expected_value": "<=50000.00",
+      "correct": false,
+      "evidence": " Para o gerente, se a loja vender mais de R$ 120 mil e até R$ 140 mil no mês, pague R$ 5 mil de bônus.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r07-ogg",
+      "element_id": "bonus",
+      "type": "monetario",
+      "expected_value": "3500.00",
+      "correct": false,
+      "evidence": " Para o gerente, se a loja vender mais de R$ 120 mil e até R$ 140 mil no mês, pague R$ 5 mil de bônus.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r08-ogg",
+      "element_id": "limite_inferior",
+      "type": "monetario",
+      "expected_value": ">120000.00",
+      "correct": false,
+      "evidence": " Pague 1,75% para o cargo 200 na marca VINC, exceto na loja 13.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r08-ogg",
+      "element_id": "limite_superior",
+      "type": "monetario",
+      "expected_value": "<=140000.00",
+      "correct": false,
+      "evidence": " Pague 1,75% para o cargo 200 na marca VINC, exceto na loja 13.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r08-ogg",
+      "element_id": "bonus",
+      "type": "monetario",
+      "expected_value": "5000.00",
+      "correct": false,
+      "evidence": " Pague 1,75% para o cargo 200 na marca VINC, exceto na loja 13.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r10-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "07",
+      "correct": true,
+      "evidence": " Ó, na loja 07, para a marca 30, o cargo 100 muda a comissão para 0,25%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r10-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "30",
+      "correct": true,
+      "evidence": " Ó, na loja 07, para a marca 30, o cargo 100 muda a comissão para 0,25%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r10-ogg",
+      "element_id": "cargo",
+      "type": "cargo",
+      "expected_value": "100",
+      "correct": true,
+      "evidence": " Ó, na loja 07, para a marca 30, o cargo 100 muda a comissão para 0,25%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r10-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "0.25",
+      "correct": true,
+      "evidence": " Ó, na loja 07, para a marca 30, o cargo 100 muda a comissão para 0,25%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r11-ogg",
+      "element_id": "incluida",
+      "type": "matricula",
+      "expected_value": "MATRIC-900003",
+      "correct": false,
+      "evidence": " A matrícula Matric 90003 ganha R$ 1.250,50, mas a matrícula Matric 90004 fica de fora.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r11-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "1250.50",
+      "correct": true,
+      "evidence": " A matrícula Matric 90003 ganha R$ 1.250,50, mas a matrícula Matric 90004 fica de fora.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r11-ogg",
+      "element_id": "excluida",
+      "type": "matricula",
+      "expected_value": "MATRIC-900004",
+      "correct": false,
+      "evidence": " A matrícula Matric 90003 ganha R$ 1.250,50, mas a matrícula Matric 90004 fica de fora.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r11-ogg",
+      "element_id": "exclusao",
+      "type": "exclusao",
+      "expected_value": "excluir MATRIC-900004",
+      "correct": false,
+      "evidence": " A matrícula Matric 90003 ganha R$ 1.250,50, mas a matrícula Matric 90004 fica de fora.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r12-ogg",
+      "element_id": "inicio",
+      "type": "data",
+      "expected_value": "2025-12-23",
+      "correct": true,
+      "evidence": " De 23 de dezembro de 2025 a 5 de janeiro de 2026, a marca 10 na loja 21 paga 3,05%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r12-ogg",
+      "element_id": "fim",
+      "type": "data",
+      "expected_value": "2026-01-05",
+      "correct": true,
+      "evidence": " De 23 de dezembro de 2025 a 5 de janeiro de 2026, a marca 10 na loja 21 paga 3,05%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r12-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "10",
+      "correct": true,
+      "evidence": " De 23 de dezembro de 2025 a 5 de janeiro de 2026, a marca 10 na loja 21 paga 3,05%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r12-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "21",
+      "correct": true,
+      "evidence": " De 23 de dezembro de 2025 a 5 de janeiro de 2026, a marca 10 na loja 21 paga 3,05%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-a-r12-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "3.05",
+      "correct": true,
+      "evidence": " De 23 de dezembro de 2025 a 5 de janeiro de 2026, a marca 10 na loja 21 paga 3,05%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r01-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "13",
+      "correct": true,
+      "evidence": " Na loja 13, a comissão da marca 10 para o cargo 100 será de 2,5%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r01-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "10",
+      "correct": true,
+      "evidence": " Na loja 13, a comissão da marca 10 para o cargo 100 será de 2,5%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r01-ogg",
+      "element_id": "cargo",
+      "type": "cargo",
+      "expected_value": "100",
+      "correct": true,
+      "evidence": " Na loja 13, a comissão da marca 10 para o cargo 100 será de 2,5%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r01-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "2.5",
+      "correct": true,
+      "evidence": " Na loja 13, a comissão da marca 10 para o cargo 100 será de 2,5%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r02-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "0.5 ponto percentual",
+      "correct": true,
+      "evidence": " Acrescente 0,5 ponto percentual na comissão da marca Trita. Mas não aplique esse bônus ao gerente.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r02-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "30",
+      "correct": false,
+      "evidence": " Acrescente 0,5 ponto percentual na comissão da marca Trita. Mas não aplique esse bônus ao gerente.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r02-ogg",
+      "element_id": "exclusao",
+      "type": "exclusao",
+      "expected_value": "excluir gerentes",
+      "correct": true,
+      "evidence": " Acrescente 0,5 ponto percentual na comissão da marca Trita. Mas não aplique esse bônus ao gerente.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r03-ogg",
+      "element_id": "matricula",
+      "type": "matricula",
+      "expected_value": "MATRIC-900001",
+      "correct": true,
+      "evidence": " A matrícula matric 900001 recebe um bônus fixo de 500 reais em comissionamento final.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r03-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "500.00",
+      "correct": true,
+      "evidence": " A matrícula matric 900001 recebe um bônus fixo de 500 reais em comissionamento final.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r04-ogg",
+      "element_id": "matricula",
+      "type": "matricula",
+      "expected_value": "MATRIC-900002",
+      "correct": false,
+      "evidence": " Para a matrícula matrícula 900002, eu presentei 20 mil reais à base de vendas, sem somar esse valor à comissão final.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r04-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "20000.00",
+      "correct": false,
+      "evidence": " Para a matrícula matrícula 900002, eu presentei 20 mil reais à base de vendas, sem somar esse valor à comissão final.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r04-ogg",
+      "element_id": "exclusao",
+      "type": "exclusao",
+      "expected_value": "não somar à comissão final",
+      "correct": true,
+      "evidence": " Para a matrícula matrícula 900002, eu presentei 20 mil reais à base de vendas, sem somar esse valor à comissão final.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r05-ogg",
+      "element_id": "inicio",
+      "type": "data",
+      "expected_value": "2025-11-01",
+      "correct": true,
+      "evidence": " Essa regra vale de 1º de novembro de 2025 até 30 de novembro de 2025. Só na loja 21.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r05-ogg",
+      "element_id": "fim",
+      "type": "data",
+      "expected_value": "2025-11-30",
+      "correct": true,
+      "evidence": " Essa regra vale de 1º de novembro de 2025 até 30 de novembro de 2025. Só na loja 21.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r05-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "21",
+      "correct": true,
+      "evidence": " Essa regra vale de 1º de novembro de 2025 até 30 de novembro de 2025. Só na loja 21.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r06-ogg",
+      "element_id": "data",
+      "type": "data",
+      "expected_value": "2025-10-10",
+      "correct": false,
+      "evidence": " Quem for admitido até 10 de outubro de 2025, do cargo 100, ganha R$ 1.000,00 de bônus de valor final.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r06-ogg",
+      "element_id": "cargo",
+      "type": "cargo",
+      "expected_value": "100",
+      "correct": true,
+      "evidence": " Quem for admitido até 10 de outubro de 2025, do cargo 100, ganha R$ 1.000,00 de bônus de valor final.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r06-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "1000.00",
+      "correct": true,
+      "evidence": " Quem for admitido até 10 de outubro de 2025, do cargo 100, ganha R$ 1.000,00 de bônus de valor final.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r07-ogg",
+      "element_id": "marca1",
+      "type": "marca",
+      "expected_value": "10",
+      "correct": true,
+      "evidence": " Nas marcas 10 e 20, vendas mensais acima de 40 mil reais e até 50 mil reais dão um bônus de 3.500 reais.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r07-ogg",
+      "element_id": "marca2",
+      "type": "marca",
+      "expected_value": "20",
+      "correct": true,
+      "evidence": " Nas marcas 10 e 20, vendas mensais acima de 40 mil reais e até 50 mil reais dão um bônus de 3.500 reais.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r07-ogg",
+      "element_id": "limite_inferior",
+      "type": "monetario",
+      "expected_value": ">40000.00",
+      "correct": true,
+      "evidence": " Nas marcas 10 e 20, vendas mensais acima de 40 mil reais e até 50 mil reais dão um bônus de 3.500 reais.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r07-ogg",
+      "element_id": "limite_superior",
+      "type": "monetario",
+      "expected_value": "<=50000.00",
+      "correct": true,
+      "evidence": " Nas marcas 10 e 20, vendas mensais acima de 40 mil reais e até 50 mil reais dão um bônus de 3.500 reais.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r07-ogg",
+      "element_id": "bonus",
+      "type": "monetario",
+      "expected_value": "3500.00",
+      "correct": true,
+      "evidence": " Nas marcas 10 e 20, vendas mensais acima de 40 mil reais e até 50 mil reais dão um bônus de 3.500 reais.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r08-ogg",
+      "element_id": "limite_inferior",
+      "type": "monetario",
+      "expected_value": ">120000.00",
+      "correct": true,
+      "evidence": " Para o gerente, se a loja vender mais de 120 mil reais e até 140 mil reais no mês, pague 5 mil reais de bônus.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r08-ogg",
+      "element_id": "limite_superior",
+      "type": "monetario",
+      "expected_value": "<=140000.00",
+      "correct": true,
+      "evidence": " Para o gerente, se a loja vender mais de 120 mil reais e até 140 mil reais no mês, pague 5 mil reais de bônus.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r08-ogg",
+      "element_id": "bonus",
+      "type": "monetario",
+      "expected_value": "5000.00",
+      "correct": true,
+      "evidence": " Para o gerente, se a loja vender mais de 120 mil reais e até 140 mil reais no mês, pague 5 mil reais de bônus.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r10-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "07",
+      "correct": true,
+      "evidence": " Ó, na loja 07, para a marca 30 e o cargo 100, muda a comissão para 0,25%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r10-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "30",
+      "correct": true,
+      "evidence": " Ó, na loja 07, para a marca 30 e o cargo 100, muda a comissão para 0,25%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r10-ogg",
+      "element_id": "cargo",
+      "type": "cargo",
+      "expected_value": "100",
+      "correct": true,
+      "evidence": " Ó, na loja 07, para a marca 30 e o cargo 100, muda a comissão para 0,25%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r10-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "0.25",
+      "correct": true,
+      "evidence": " Ó, na loja 07, para a marca 30 e o cargo 100, muda a comissão para 0,25%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r11-ogg",
+      "element_id": "incluida",
+      "type": "matricula",
+      "expected_value": "MATRIC-900003",
+      "correct": false,
+      "evidence": " A matrícula matrique 900003 ganha R$ 1.250,50, mas a matrícula matrique 900004 fica de fora.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r11-ogg",
+      "element_id": "valor",
+      "type": "monetario",
+      "expected_value": "1250.50",
+      "correct": true,
+      "evidence": " A matrícula matrique 900003 ganha R$ 1.250,50, mas a matrícula matrique 900004 fica de fora.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r11-ogg",
+      "element_id": "excluida",
+      "type": "matricula",
+      "expected_value": "MATRIC-900004",
+      "correct": false,
+      "evidence": " A matrícula matrique 900003 ganha R$ 1.250,50, mas a matrícula matrique 900004 fica de fora.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r11-ogg",
+      "element_id": "exclusao",
+      "type": "exclusao",
+      "expected_value": "excluir MATRIC-900004",
+      "correct": false,
+      "evidence": " A matrícula matrique 900003 ganha R$ 1.250,50, mas a matrícula matrique 900004 fica de fora.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r12-ogg",
+      "element_id": "inicio",
+      "type": "data",
+      "expected_value": "2025-12-23",
+      "correct": true,
+      "evidence": " De 23 de dezembro de 2025 a 5 de janeiro de 2026, a marca 10 na loja 21 paga 3,05%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r12-ogg",
+      "element_id": "fim",
+      "type": "data",
+      "expected_value": "2026-01-05",
+      "correct": true,
+      "evidence": " De 23 de dezembro de 2025 a 5 de janeiro de 2026, a marca 10 na loja 21 paga 3,05%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r12-ogg",
+      "element_id": "marca",
+      "type": "marca",
+      "expected_value": "10",
+      "correct": true,
+      "evidence": " De 23 de dezembro de 2025 a 5 de janeiro de 2026, a marca 10 na loja 21 paga 3,05%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r12-ogg",
+      "element_id": "loja",
+      "type": "loja",
+      "expected_value": "21",
+      "correct": true,
+      "evidence": " De 23 de dezembro de 2025 a 5 de janeiro de 2026, a marca 10 na loja 21 paga 3,05%.",
+      "review_status": "historico_contestado"
+    },
+    {
+      "candidate_id": "groq-whisper-large-v3",
+      "recording_id": "voz-b-r12-ogg",
+      "element_id": "percentual",
+      "type": "percentual",
+      "expected_value": "3.05",
+      "correct": true,
+      "evidence": " De 23 de dezembro de 2025 a 5 de janeiro de 2026, a marca 10 na loja 21 paga 3,05%.",
+      "review_status": "historico_contestado"
+    }
+  ],
+  "metrics": {
+    "deepgram-nova3": {
+      "speech_runs": 22,
+      "correct": 53,
+      "total": 78,
+      "by_type": {
+        "cargo": {
+          "correct": 3,
+          "total": 6
+        },
+        "data": {
+          "correct": 7,
+          "total": 10
+        },
+        "exclusao": {
+          "correct": 5,
+          "total": 6
+        },
+        "loja": {
+          "correct": 7,
+          "total": 8
+        },
+        "marca": {
+          "correct": 10,
+          "total": 12
+        },
+        "matricula": {
+          "correct": 2,
+          "total": 8
+        },
+        "monetario": {
+          "correct": 11,
+          "total": 20
+        },
+        "percentual": {
+          "correct": 8,
+          "total": 8
+        }
+      },
+      "sensitivity_excluding_suspect_files": {
+        "correct": 53,
+        "total": 61,
+        "by_type": {
+          "cargo": {
+            "correct": 3,
+            "total": 5
+          },
+          "data": {
+            "correct": 7,
+            "total": 7
+          },
+          "exclusao": {
+            "correct": 5,
+            "total": 5
+          },
+          "loja": {
+            "correct": 7,
+            "total": 7
+          },
+          "marca": {
+            "correct": 10,
+            "total": 10
+          },
+          "matricula": {
+            "correct": 2,
+            "total": 7
+          },
+          "monetario": {
+            "correct": 11,
+            "total": 12
+          },
+          "percentual": {
+            "correct": 8,
+            "total": 8
+          }
+        }
+      },
+      "wer_errors": 148,
+      "wer_words": 572,
+      "wer": 0.25874125874125875,
+      "latency_mean_ms": 1030.409090909091,
+      "latency_p50_ms": 619,
+      "latency_p95_ms": 3302
+    },
+    "groq-whisper-large-v3": {
+      "speech_runs": 22,
+      "correct": 50,
+      "total": 78,
+      "by_type": {
+        "cargo": {
+          "correct": 5,
+          "total": 6
+        },
+        "data": {
+          "correct": 6,
+          "total": 10
+        },
+        "exclusao": {
+          "correct": 3,
+          "total": 6
+        },
+        "loja": {
+          "correct": 7,
+          "total": 8
+        },
+        "marca": {
+          "correct": 9,
+          "total": 12
+        },
+        "matricula": {
+          "correct": 2,
+          "total": 8
+        },
+        "monetario": {
+          "correct": 11,
+          "total": 20
+        },
+        "percentual": {
+          "correct": 7,
+          "total": 8
+        }
+      },
+      "sensitivity_excluding_suspect_files": {
+        "correct": 50,
+        "total": 61,
+        "by_type": {
+          "cargo": {
+            "correct": 5,
+            "total": 5
+          },
+          "data": {
+            "correct": 6,
+            "total": 7
+          },
+          "exclusao": {
+            "correct": 3,
+            "total": 5
+          },
+          "loja": {
+            "correct": 7,
+            "total": 7
+          },
+          "marca": {
+            "correct": 9,
+            "total": 10
+          },
+          "matricula": {
+            "correct": 2,
+            "total": 7
+          },
+          "monetario": {
+            "correct": 11,
+            "total": 12
+          },
+          "percentual": {
+            "correct": 7,
+            "total": 8
+          }
+        }
+      },
+      "wer_errors": 343,
+      "wer_words": 572,
+      "wer": 0.5996503496503497,
+      "latency_mean_ms": 582.1818181818181,
+      "latency_p50_ms": 447,
+      "latency_p95_ms": 1160
+    }
+  },
+  "correction_note": "Usuario confirmou correspondencia das transcricoes com a fala; anotacoes anteriores foram contestadas. Sem escuta direta pelo assistente ou nova pontuacao por elemento."
+}

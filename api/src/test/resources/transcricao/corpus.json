@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "language": "pt-BR",
+  "phrases": [
+    {
+      "id": "r01",
+      "source": "coloquial",
+      "text": "Na loja treze, a comissão da marca dez para o cargo cem será de dois vírgula cinco por cento.",
+      "elements": [
+        {"id": "loja", "type": "loja", "value": "13", "spoken": "loja treze"},
+        {"id": "marca", "type": "marca", "value": "10", "spoken": "marca dez"},
+        {"id": "cargo", "type": "cargo", "value": "100", "spoken": "cargo cem"},
+        {"id": "percentual", "type": "percentual", "value": "2.5", "spoken": "dois vírgula cinco por cento"}
+      ]
+    },
+    {
+      "id": "r02",
+      "source": "Especificacao.md, outubro, acréscimo da marca 30; adaptação sem dados pessoais",
+      "text": "Acrescente zero vírgula cinco ponto percentual na comissão da marca trinta, mas não aplique esse bônus aos gerentes.",
+      "elements": [
+        {"id": "percentual", "type": "percentual", "value": "0.5 ponto percentual", "spoken": "zero vírgula cinco ponto percentual"},
+        {"id": "marca", "type": "marca", "value": "30", "spoken": "marca trinta"},
+        {"id": "exclusao", "type": "exclusao", "value": "excluir gerentes", "spoken": "não aplique esse bônus aos gerentes"}
+      ]
+    },
+    {
+      "id": "r03",
+      "source": "Especificacao.md, bônus fixo; matrícula substituída por identificador fictício",
+      "text": "A matrícula MATRIC nove zero zero zero zero um recebe um bônus fixo de quinhentos reais no comissionamento final.",
+      "elements": [
+        {"id": "matricula", "type": "matricula", "value": "MATRIC-900001", "spoken": "MATRIC nove zero zero zero zero um"},
+        {"id": "valor", "type": "monetario", "value": "500.00", "spoken": "quinhentos reais"}
+      ]
+    },
+    {
+      "id": "r04",
+      "source": "Especificacao.md, bônus por tempo de casa; matrícula substituída por identificador fictício",
+      "text": "Para a matrícula MATRIC nove zero zero zero zero dois, acrescente vinte mil reais à base de vendas, sem somar esse valor à comissão final.",
+      "elements": [
+        {"id": "matricula", "type": "matricula", "value": "MATRIC-900002", "spoken": "MATRIC nove zero zero zero zero dois"},
+        {"id": "valor", "type": "monetario", "value": "20000.00", "spoken": "vinte mil reais"},
+        {"id": "exclusao", "type": "exclusao", "value": "não somar à comissão final", "spoken": "sem somar esse valor à comissão final"}
+      ]
+    },
+    {
+      "id": "r05",
+      "source": "coloquial",
+      "text": "Essa regra vale de primeiro de novembro de dois mil e vinte e cinco até trinta de novembro de dois mil e vinte e cinco, só na loja vinte e um.",
+      "elements": [
+        {"id": "inicio", "type": "data", "value": "2025-11-01", "spoken": "primeiro de novembro de dois mil e vinte e cinco"},
+        {"id": "fim", "type": "data", "value": "2025-11-30", "spoken": "trinta de novembro de dois mil e vinte e cinco"},
+        {"id": "loja", "type": "loja", "value": "21", "spoken": "loja vinte e um"}
+      ]
+    },
+    {
+      "id": "r06",
+      "source": "Especificacao.md, outubro, bônus por admissão; ano explicitado",
+      "text": "Quem foi admitido até dez de outubro de dois mil e vinte e cinco no cargo cem ganha mil reais de bônus no valor final.",
+      "elements": [
+        {"id": "data", "type": "data", "value": "2025-10-10", "spoken": "dez de outubro de dois mil e vinte e cinco"},
+        {"id": "cargo", "type": "cargo", "value": "100", "spoken": "cargo cem"},
+        {"id": "valor", "type": "monetario", "value": "1000.00", "spoken": "mil reais"}
+      ]
+    },
+    {
+      "id": "r07",
+      "source": "Especificacao.md, dezembro, faixa de vendas individuais",
+      "text": "Nas marcas dez e vinte, vendas mensais acima de quarenta mil reais e até cinquenta mil reais dão um bônus de três mil e quinhentos reais.",
+      "elements": [
+        {"id": "marca1", "type": "marca", "value": "10", "spoken": "marcas dez e vinte"},
+        {"id": "marca2", "type": "marca", "value": "20", "spoken": "marcas dez e vinte"},
+        {"id": "limite_inferior", "type": "monetario", "value": ">40000.00", "spoken": "acima de quarenta mil reais"},
+        {"id": "limite_superior", "type": "monetario", "value": "<=50000.00", "spoken": "até cinquenta mil reais"},
+        {"id": "bonus", "type": "monetario", "value": "3500.00", "spoken": "três mil e quinhentos reais"}
+      ]
+    },
+    {
+      "id": "r08",
+      "source": "Especificacao.md, dezembro, faixa de vendas de loja",
+      "text": "Para os gerentes, se a loja vender mais de cento e vinte mil reais e até cento e quarenta mil reais no mês, pague cinco mil reais de bônus.",
+      "elements": [
+        {"id": "limite_inferior", "type": "monetario", "value": ">120000.00", "spoken": "mais de cento e vinte mil reais"},
+        {"id": "limite_superior", "type": "monetario", "value": "<=140000.00", "spoken": "até cento e quarenta mil reais"},
+        {"id": "bonus", "type": "monetario", "value": "5000.00", "spoken": "cinco mil reais"}
+      ]
+    },
+    {
+      "id": "r09",
+      "source": "coloquial",
+      "text": "Pague um vírgula setenta e cinco por cento para o cargo duzentos na marca vinte, exceto na loja treze.",
+      "elements": [
+        {"id": "percentual", "type": "percentual", "value": "1.75", "spoken": "um vírgula setenta e cinco por cento"},
+        {"id": "cargo", "type": "cargo", "value": "200", "spoken": "cargo duzentos"},
+        {"id": "marca", "type": "marca", "value": "20", "spoken": "marca vinte"},
+        {"id": "loja", "type": "loja", "value": "13", "spoken": "loja treze"},
+        {"id": "exclusao", "type": "exclusao", "value": "excluir loja 13", "spoken": "exceto na loja treze"}
+      ]
+    },
+    {
+      "id": "r10",
+      "source": "coloquial; código com zero inicial inventado para o teste",
+      "text": "Ó, na loja zero sete, para a marca trinta e o cargo cem, muda a comissão para zero vírgula vinte e cinco por cento.",
+      "elements": [
+        {"id": "loja", "type": "loja", "value": "07", "spoken": "loja zero sete"},
+        {"id": "marca", "type": "marca", "value": "30", "spoken": "marca trinta"},
+        {"id": "cargo", "type": "cargo", "value": "100", "spoken": "cargo cem"},
+        {"id": "percentual", "type": "percentual", "value": "0.25", "spoken": "zero vírgula vinte e cinco por cento"}
+      ]
+    },
+    {
+      "id": "r11",
+      "source": "coloquial; matrículas fictícias",
+      "text": "A matrícula MATRIC nove zero zero zero zero três ganha mil duzentos e cinquenta reais e cinquenta centavos, mas a matrícula MATRIC nove zero zero zero zero quatro fica de fora.",
+      "elements": [
+        {"id": "incluida", "type": "matricula", "value": "MATRIC-900003", "spoken": "MATRIC nove zero zero zero zero três"},
+        {"id": "valor", "type": "monetario", "value": "1250.50", "spoken": "mil duzentos e cinquenta reais e cinquenta centavos"},
+        {"id": "excluida", "type": "matricula", "value": "MATRIC-900004", "spoken": "MATRIC nove zero zero zero zero quatro"},
+        {"id": "exclusao", "type": "exclusao", "value": "excluir MATRIC-900004", "spoken": "mas a matrícula MATRIC nove zero zero zero zero quatro fica de fora"}
+      ]
+    },
+    {
+      "id": "r12",
+      "source": "coloquial",
+      "text": "De vinte e três de dezembro de dois mil e vinte e cinco a cinco de janeiro de dois mil e vinte e seis, a marca dez na loja vinte e um paga três vírgula zero cinco por cento.",
+      "elements": [
+        {"id": "inicio", "type": "data", "value": "2025-12-23", "spoken": "vinte e três de dezembro de dois mil e vinte e cinco"},
+        {"id": "fim", "type": "data", "value": "2026-01-05", "spoken": "cinco de janeiro de dois mil e vinte e seis"},
+        {"id": "marca", "type": "marca", "value": "10", "spoken": "marca dez"},
+        {"id": "loja", "type": "loja", "value": "21", "spoken": "loja vinte e um"},
+        {"id": "percentual", "type": "percentual", "value": "3.05", "spoken": "três vírgula zero cinco por cento"}
+      ]
+    }
+  ]
+}

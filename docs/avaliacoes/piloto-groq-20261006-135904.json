@@ -1,0 +1,420 @@
+{
+    "version":  1,
+    "status":  "piloto_nao_aceito_como_avaliacao_final",
+    "started_at_utc":  "2026-10-06T13:59:04.6829665Z",
+    "readings_verified":  false,
+    "complete_coverage":  false,
+    "attempts_per_file":  1,
+    "candidates":  [
+                       {
+                           "id":  "groq-whisper-large-v3",
+                           "provider":  "groq",
+                           "model":  "whisper-large-v3",
+                           "endpoint":  "https://api.groq.com/openai/v1/audio/transcriptions",
+                           "language":  "pt",
+                           "settings":  {
+                                            "prompt_omitted":  true,
+                                            "temperature_default":  0,
+                                            "response_format":  "json"
+                                        }
+                       }
+                   ],
+    "runs":  [
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-a-r01-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "f55ed8d76fe67ff9eaeef7146ae40ec642d848d11afc2304f2aa94f6ae234943",
+                     "started_at_utc":  "2026-10-06T13:59:04.8875444Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  894,
+                     "text":  " Na loja 13, a conexão da marca 10 para o cargo 100 será de 2,5%.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r5gvkefe8mvfr08zvv5tp",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-a-r02-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "2b2e055b7227361a22d02884f27c2f49d119db20555ee26e51b0a3cf3a334a04",
+                     "started_at_utc":  "2026-10-06T13:59:09.9172134Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  389,
+                     "text":  " Acrescente 0,5 ponto percentual na comissão da marca 30, mas não aplique esse bônus aos gerentes.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r5nkxe8za95q0v16caev7",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-a-r03-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "079a6ba6161c9d0ff12a7a9691b3c5195e8b77b01195b46d0f39b67941816b75",
+                     "started_at_utc":  "2026-10-06T13:59:14.3407056Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  399,
+                     "text":  " A matrícula Matric 900001 recebe um bônus fixo de 500 reais no comissionamento final.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r5sxreqq8628dbfp1hqhd",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-a-r04-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "2125c90614f3b5e62751e543a8aeba6033cb25982d4ac2e30c877e7282dcf4d0",
+                     "started_at_utc":  "2026-10-06T13:59:18.7585087Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  522,
+                     "text":  " Essa regra vale de 1º de novembro de 2025 até 30 de novembro de 2025, só na loja 21.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r5y7ve84ry6zsbay3bwrw",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-a-r05-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "f652fa793e5d141e0a1add62df8d6b4dd21115bef97985889f58d5f9f96ad363",
+                     "started_at_utc":  "2026-10-06T13:59:23.3379901Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  369,
+                     "text":  " Quem foi admitido até 10 de outubro de 2025 no cargo 100 ganha R$ 1.000,00 de bônus no valor final.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r62pse8xak8hpw2sd04yy",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-a-r06-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "c271a4e443e094ed9e838e8802f0e0d99c3ee5f4bb4040b41d054ae6978a35d5",
+                     "started_at_utc":  "2026-10-06T13:59:27.7124636Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  447,
+                     "text":  " Nas marcas 10 e 20, vendas mensais acima de R$ 40 mil e até R$ 50 mil dão um bônus de R$ 3.500.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r66zme08vag34sapkjhrf",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-a-r07-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "be10e07a3a413a8443f85d45dd2a13d360d979e5e0a814416315e75fd8aa902e",
+                     "started_at_utc":  "2026-10-06T13:59:32.1718723Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  454,
+                     "text":  " Para o gerente, se a loja vender mais de R$ 120 mil e até R$ 140 mil no mês, pague R$ 5 mil de bônus.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r6bc0ezjr3y368r69rkp1",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-a-r08-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "185a6d34b342a891e48e3a7b6ccea9cfff7bf0671309980f790f28f2b21b3fb2",
+                     "started_at_utc":  "2026-10-06T13:59:36.6417942Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  769,
+                     "text":  " Pague 1,75% para o cargo 200 na marca VINC, exceto na loja 13.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r6fpkecmtw8dregnn5cvd",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-a-r10-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "976c992f684cee9a843362309354511d4cdd4867d5e22f7745cde9fb6cc2420e",
+                     "started_at_utc":  "2026-10-06T13:59:41.4258919Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  1160,
+                     "text":  " Ó, na loja 07, para a marca 30, o cargo 100 muda a comissão para 0,25%.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r6mc5eb2v16rrrbt12zqe",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-a-r11-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "79da63310851f41631f2783eeb428b20b5bf1da9cf3ffe0c810bd3b1bf91a1b6",
+                     "started_at_utc":  "2026-10-06T13:59:46.5999375Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  417,
+                     "text":  " A matrícula Matric 90003 ganha R$ 1.250,50, mas a matrícula Matric 90004 fica de fora.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r6se8ev3r6g8q8y3cv5bj",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-a-r12-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "1f422e1c25be2db9c41523a4d5d7f2152d5054e7fe84f398e39f9e17090cb095",
+                     "started_at_utc":  "2026-10-06T13:59:51.0418878Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  379,
+                     "text":  " De 23 de dezembro de 2025 a 5 de janeiro de 2026, a marca 10 na loja 21 paga 3,05%.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r6xrye9dr0hmtcrsf2j8w",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-b-r01-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "af031fc1bce15d6160c691204c5349dc27ddab8be2d1dc501cc0ee4a2caa1541",
+                     "started_at_utc":  "2026-10-06T13:59:55.4540126Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  704,
+                     "text":  " Na loja 13, a comissão da marca 10 para o cargo 100 será de 2,5%.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r722neaaa1cwwp2c3yfdx",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-b-r02-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "76c3a8a73e6b79d6ac92edd27c5c0c6dcad3d82c643d36cbb64c2dbc6385951e",
+                     "started_at_utc":  "2026-10-06T14:00:00.1804730Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  426,
+                     "text":  " Acrescente 0,5 ponto percentual na comissão da marca Trita. Mas não aplique esse bônus ao gerente.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r76p4e6vssgc9tqjwk4m4",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-b-r03-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "e035b27aadcfdcf91eb84646bef1a5d949624b07395c4044decd8186b28acaaa",
+                     "started_at_utc":  "2026-10-06T14:00:04.6336246Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  1075,
+                     "text":  " A matrícula matric 900001 recebe um bônus fixo de 500 reais em comissionamento final.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r7b1zeawb61te54zz4mdj",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-b-r04-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "6d58c995ef37bd24fa9af7cd4a8c840fe54f5f1a89d700b38a42841739567b10",
+                     "started_at_utc":  "2026-10-06T14:00:09.7479045Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  424,
+                     "text":  " Para a matrícula matrícula 900002, eu presentei 20 mil reais à base de vendas, sem somar esse valor à comissão final.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r7g19eqj81c97vwpb9p37",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-b-r05-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "b57eb39caa72edfb5a391bb83e7af0d178b9103baaaf7fa8cc7e6dd150e6f6c7",
+                     "started_at_utc":  "2026-10-06T14:00:14.1947806Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  457,
+                     "text":  " Essa regra vale de 1º de novembro de 2025 até 30 de novembro de 2025. Só na loja 21.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r7mccecb94pdtycw5dw12",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-b-r06-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "d3f3a14b3f9a437f3f1425ddd93819c3201703bfad16840c706e71a7e6423def",
+                     "started_at_utc":  "2026-10-06T14:00:18.6914455Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  386,
+                     "text":  " Quem for admitido até 10 de outubro de 2025, do cargo 100, ganha R$ 1.000,00 de bônus de valor final.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r7rrse4vtm04mf23exnmb",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-b-r07-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "d9e1f424bf0969b111095e45becdc0c8dc17d205d932a6cc1657857c932e6a99",
+                     "started_at_utc":  "2026-10-06T14:00:23.1132324Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  465,
+                     "text":  " Nas marcas 10 e 20, vendas mensais acima de 40 mil reais e até 50 mil reais dão um bônus de 3.500 reais.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r7x2te71sgbhnyt7n1vqj",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-b-r08-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "276a79fd8c92b3c410eb1134d2aa11f247c9d4c2a9f4f62fa677c56261607e12",
+                     "started_at_utc":  "2026-10-06T14:00:27.5898370Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  1352,
+                     "text":  " Para o gerente, se a loja vender mais de 120 mil reais e até 140 mil reais no mês, pague 5 mil reais de bônus.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r81f8eada89ybycfsb3qp",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-b-r10-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "60cad29345140286a2bd223f084063f31eb4e3e310ffa43f26cb592f3f4220a2",
+                     "started_at_utc":  "2026-10-06T14:00:32.9901857Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  406,
+                     "text":  " Ó, na loja 07, para a marca 30 e o cargo 100, muda a comissão para 0,25%.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r86qnemta6eaamc3bqq5r",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-b-r11-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "081a557158d91859fb13ce08974162d36f4b60451c930ff1eac70d7b9da85e71",
+                     "started_at_utc":  "2026-10-06T14:00:37.4126505Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  538,
+                     "text":  " A matrícula matrique 900003 ganha R$ 1.250,50, mas a matrícula matrique 900004 fica de fora.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r8b1see6vbwseq43vtgqy",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 },
+                 {
+                     "candidate_id":  "groq-whisper-large-v3",
+                     "recording_id":  "voz-b-r12-ogg",
+                     "attempt":  1,
+                     "audio_sha256":  "d8d1163f1803291bb920c995caedeb4e0c55661ddde369eec8003c98809a1f06",
+                     "started_at_utc":  "2026-10-06T14:00:41.9863422Z",
+                     "status":  "ok",
+                     "http_status":  200,
+                     "latency_ms":  376,
+                     "text":  " De 23 de dezembro de 2025 a 5 de janeiro de 2026, a marca 10 na loja 21 paga 3,05%.",
+                     "failure_reason":  "",
+                     "request_id":  "req_01m48r8fgrev3bc7jkk5k4z04s",
+                     "reviewed_by":  "",
+                     "unexpected_elements":  null,
+                     "annotations":  [
+
+                                     ]
+                 }
+             ]
+}
