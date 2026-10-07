@@ -329,19 +329,25 @@ async def test_metricas_e_logs_dos_tres_resultados_passam_pelo_roteador_real(
     assert "representacao_regra" not in simplejson.dumps(logs)
 
 
-@pytest.mark.parametrize("sem_elementos", [False, True], ids=["cobertura-enviada", "regra-vazia"])
+@pytest.mark.parametrize(
+    ("refs", "falha_permanente"),
+    [(["elem.2", "elem.1"], False), ([], True), (["elem.1", "elem.1"], True)],
+    ids=["cobertura-enviada", "regra-vazia", "referencias-repetidas"],
+)
 async def test_cobertura_passa_pelo_consumidor_grafo_e_observabilidade(
     ambiente: ConfirmacaoFalsa,
     cliente: AsyncClient,
     logs: list[dict[str, Any]],
-    sem_elementos: bool,
+    refs: list[str],
+    falha_permanente: bool,
 ) -> None:
-    regra: dict[str, Any] = {"nucleo": {}, "especificacoes": []}
-    if not sem_elementos:
-        regra["especificacoes"] = [
-            {"ref": "elem.2", "construto": "generico", "descricao": "REGRA_PRIVADA", "campos": {}},
-            {"ref": "elem.1", "construto": "generico", "descricao": "REGRA_PRIVADA", "campos": {}},
-        ]
+    regra: dict[str, Any] = {
+        "nucleo": {},
+        "especificacoes": [
+            {"ref": ref, "construto": "generico", "descricao": "REGRA_PRIVADA", "campos": {}}
+            for ref in refs
+        ],
+    }
     ambiente.buscar_regra.return_value = RepresentacaoRegra.model_validate(regra)
     payload = exemplo("parametros-confirmados")
     recebida = mensagem(payload)
@@ -349,14 +355,18 @@ async def test_cobertura_passa_pelo_consumidor_grafo_e_observabilidade(
 
     await ambiente.consumer.receber(recebida)
 
-    if sem_elementos:
+    if falha_permanente:
         recebida.reject.assert_awaited_once_with(requeue=False)
         recebida.ack.assert_not_awaited()
         ambiente.producers.executar_codigo.assert_not_awaited()
-        assert ambiente.publicacoes[-1] == (
-            "etapa-alterada",
-            {"job_id": payload["job_id"], "etapa": "delegacao_worker", "status": "erro"},
-        )
+        delegacoes = [
+            p
+            for nome, p in ambiente.publicacoes
+            if nome == "etapa-alterada" and p["etapa"] == "delegacao_worker"
+        ]
+        assert delegacoes == [
+            {"job_id": payload["job_id"], "etapa": "delegacao_worker", "status": "erro"}
+        ]
         assert any(
             log.get("extra", {}).get("etapa") == "delegacao_worker"
             and log["extra"].get("decisao") == "reject_sem_requeue"
@@ -371,9 +381,9 @@ async def test_cobertura_passa_pelo_consumidor_grafo_e_observabilidade(
     recebida.nack.assert_not_awaited()
     depois = amostras((await cliente.get("/metrics")).text)
     assert {nome: depois[nome] - antes[nome] for nome in antes} == {
-        "ciclo_aberto": 0 if sem_elementos else 1,
+        "ciclo_aberto": 0 if falha_permanente else 1,
         "reentrega_ignorada": 0,
-        "descartada": 1 if sem_elementos else 0,
+        "descartada": 1 if falha_permanente else 0,
     }
     validador = Draft202012Validator(
         simplejson.loads((CONTRATOS / "observability/log.schema.json").read_bytes()),

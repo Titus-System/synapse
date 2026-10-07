@@ -227,6 +227,28 @@ async def test_dispatch_execution_recusa_regra_sem_elementos_antes_de_publicar()
     producers.no_concluido.assert_not_awaited()
 
 
+async def test_dispatch_execution_recusa_referencias_repetidas_antes_de_publicar() -> None:
+    producers = _producers()
+    regra = RepresentacaoRegra.model_validate(
+        {
+            "nucleo": {"percentual": Decimal("0.025")},
+            "especificacoes": [
+                {"ref": "elem.1", "construto": "generico", "descricao": descricao}
+                for descricao in ("primeiro elemento", "segundo elemento")
+            ],
+        }
+    )
+    estado = _estado(codigo_gerado_id=str(uuid4()), representacao_regra=regra.para_contrato())
+
+    with pytest.raises(FalhaDoJobError, match="requires unique rule elements") as falha:
+        await dispatch_execution(estado, _config(producers=producers))
+
+    assert falha.value.etapa == "delegacao_worker"
+    producers.executar_codigo.assert_not_awaited()
+    producers.etapa_alterada.assert_not_awaited()
+    producers.no_concluido.assert_not_awaited()
+
+
 async def test_dispatch_execution_publica_os_tres_eventos_na_ordem_do_contrato() -> None:
     """A ordem é a garantia, nas duas pontas.
 
