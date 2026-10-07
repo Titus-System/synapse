@@ -1,0 +1,25 @@
+{
+  "id": "generico-admissao",
+  "descricao": "Núcleo mais um elemento generico que os dados permitem calcular e que não cabe em nenhum construto tipado: um acréscimo para quem foi admitido antes de uma data. O período é o padrão, as cinco competências.",
+  "leitura": "A comissão de quem é da marca 10 no cargo 100 passa a ser 2,5% das vendas do mês (nucleo.percentual). Dentro desse mesmo recorte, quem tem data_admiss anterior a 01/01/2020 na base de RH da competência ganha mais 1 ponto percentual, ficando com 3,5% das vendas do mês; o acréscimo não alcança quem está fora do recorte do núcleo. A diferença de cada pessoa se divide entre os dois elementos: elem.1 fica com 1% das vendas do mês de quem foi admitido antes do corte, e nucleo.percentual com o restante.",
+  "representacao": {
+    "nucleo": {
+      "marca": ["10"],
+      "cargo": ["100"],
+      "percentual": 0.025
+    },
+    "especificacoes": [
+      {
+        "ref": "elem.1",
+        "construto": "generico",
+        "descricao": "acrescentar 1 ponto percentual ao percentual da regra para quem foi admitido antes de 01/01/2020",
+        "campos": {
+          "acrescimo_percentual": 0.01,
+          "data_corte_admissao": "2020-01-01",
+          "campo_data": "data_admiss"
+        }
+      }
+    ]
+  },
+  "competencias": ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
+}
