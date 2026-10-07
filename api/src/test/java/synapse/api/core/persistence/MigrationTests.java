@@ -48,17 +48,11 @@ class MigrationTests {
 			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras",
 			"rodadas_correcao");
 
-	private static final int CHANGESETS = 22;
+	private static final int CHANGESETS = 23;
 
-	private static final int CHANGESETS_ANTES_DAS_RODADAS = 21;
+	private static final int CHANGESETS_ANTES_DAS_RODADAS = 22;
 
-	private static final UUID REGRA_ID = UUID.fromString("55555555-5555-4555-8555-555555555555");
-
-	private static final UUID SUBMISSAO_ID = UUID.fromString("44444444-4444-4444-8444-444444444444");
-
-	private static final String CONFLITOS = """
-			[{"elementos":["nucleo.percentual"],"motivo":"percentual ausente"}]
-			""";
+	private static final int CHANGESETS_ANTES_DAS_LINHAS = 21;
 
 	private static final int CHANGESETS_ANTES_DO_NOME = 19;
 
@@ -68,6 +62,14 @@ class MigrationTests {
 	private static final String JOB_ID = "11111111-1111-4111-8111-111111111111";
 
 	private static final String CODIGO_ID = "33333333-3333-4333-8333-333333333333";
+
+	private static final UUID SUBMISSAO_ID = UUID.fromString("44444444-4444-4444-8444-444444444444");
+
+	private static final UUID REGRA_ID = UUID.fromString("55555555-5555-4555-8555-555555555555");
+
+	private static final String CONFLITOS = """
+			[{"elementos": ["nucleo.percentual"], "motivo": "percentual ausente"}]
+			""";
 
 	/**
 	 * As colunas que o worker grava hoje, sem {@code diagnostico}: é o INSERT de quem
@@ -184,6 +186,57 @@ class MigrationTests {
 			assertThat(rs.next()).as("coluna diagnostico não existe").isTrue();
 			assertThat(rs.getString("data_type")).isEqualTo("jsonb");
 			assertThat(rs.getString("is_nullable")).isEqualTo("YES");
+		}
+	}
+
+	@Test
+	void criaLinhasComoJsonbNulavelSemValorPadrao() throws Exception {
+		atualizar();
+
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("""
+						SELECT data_type, is_nullable, column_default FROM information_schema.columns
+						WHERE table_schema = 'public' AND table_name = 'resultados_simulacao' AND column_name = 'linhas'
+						""")) {
+			assertThat(rs.next()).as("coluna linhas não existe").isTrue();
+			assertThat(rs.getString("data_type")).isEqualTo("jsonb");
+			assertThat(rs.getString("is_nullable")).isEqualTo("YES");
+			assertThat(rs.getString("column_default")).isNull();
+		}
+	}
+
+	@Test
+	void preservaResultadosExistentesESemDetalhamentoAoMigrarEReverter() throws Exception {
+		atualizar(CHANGESETS_ANTES_DAS_LINHAS);
+		String anterior;
+		String linhaAntes;
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearCodigoGerado(statement);
+			anterior = inserirComoOWorker(statement);
+			linhaAntes = linhaSemDiagnostico(statement, anterior);
+		}
+
+		atualizar(1);
+
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			String posterior = inserirComoOWorker(statement);
+			assertThat(linhaSemDiagnostico(statement, anterior)).isEqualTo(linhaAntes);
+			try (ResultSet rs = statement.executeQuery("SELECT linhas FROM resultados_simulacao")) {
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getString("linhas")).isNull();
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getString("linhas")).isNull();
+				assertThat(rs.next()).isFalse();
+			}
+			assertThat(linhaSemDiagnostico(statement, posterior)).isNotEmpty();
+		}
+
+		reverter(1);
+
+		assertThat(colunasDeResultados()).doesNotContain("linhas").contains("diagnostico", "decomposicao");
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			assertThat(linhaSemDiagnostico(statement, anterior)).isEqualTo(linhaAntes);
 		}
 	}
 
