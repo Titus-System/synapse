@@ -14,6 +14,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 
@@ -29,13 +30,35 @@ import org.springframework.validation.annotation.Validated;
  * @param sse stream de acompanhamento do job
  * @param outbox publicação dos eventos gravados no outbox transacional
  * @param keycloak emissor e chaves públicas dos JWTs usados pela API
+ * @param transcription cliente de transcrição de áudio
  */
 @ConfigurationProperties("app")
 @Validated
 public record AppProperties(@NotBlank String environment, @NotNull @Valid Service service, @NotNull @Valid Cors cors,
 		@NotNull @Valid Observability observability, @NotNull @Valid Postgres postgres,
 		@NotNull @Valid Rabbitmq rabbitmq, @NotNull @Valid Sse sse, @NotNull @Valid Outbox outbox,
-		@NotNull @Valid Keycloak keycloak) {
+		@NotNull @Valid Keycloak keycloak, @DefaultValue @NotNull @Valid Transcription transcription) {
+
+	/**
+	 * Configura a chamada ao provedor de transcrição.
+	 *
+	 * @param apiKey chave do Deepgram; vazia deixa o cliente não configurado
+	 * @param baseUrl endereço do provedor, sem caminho
+	 * @param connectTimeoutMs tempo limite de conexão, em milissegundos
+	 * @param readTimeoutMs tempo limite da resposta, em milissegundos; junto da conexão
+	 * deve ficar abaixo do prazo de reserva do processamento
+	 */
+	public record Transcription(@DefaultValue("") @NotNull String apiKey,
+			@DefaultValue("https://api.eu.deepgram.com") @NotBlank String baseUrl,
+			@DefaultValue("5000") @Positive int connectTimeoutMs, @DefaultValue("60000") @Positive int readTimeoutMs) {
+
+		@Override
+		public String toString() {
+			return "Transcription[apiKey=REDACTED, connectTimeoutMs=" + this.connectTimeoutMs + ", readTimeoutMs="
+					+ this.readTimeoutMs + "]";
+		}
+
+	}
 
 	/**
 	 * Configura a identidade pública do serviço.
