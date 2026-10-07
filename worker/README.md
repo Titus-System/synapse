@@ -215,3 +215,7 @@ O worker insere a linha em `resultados_simulacao` (usuario com `SELECT` e `INSER
 
 Sobe o worker como processo real e o trata como caixa-preta: publica o comando no RabbitMQ (vhost isolado), espera o evento e confere banco, filas, containers e log, em todos os desfechos, na reentrega, com `kill -9` e SIGTERM no meio de um job, com `/health` durante a execucao e na falha de subida. Pede o compose de pe e leva alguns minutos, por isso fica fora do `verify.sh`. Veja [o que garante, como isola e as duas lacunas que encontrou e ja foram corrigidas](docs/e2e-ciclo-de-vida.md).
 
+## Avaliador de codigo gerado (T-243)
+
+Ferramenta de desenvolvimento, fora do fluxo da aplicacao: prova que um `regra.py` gerado pela IA calcula o que a regra pede. Cada caso em `tests/fixtures/casos_geracao/<id>/` tem a representacao, o periodo, uma implementacao de referencia escrita a mao e o resultado esperado que ela produz no sandbox. `poetry run python -m scripts.gravar_esperado` grava o esperado (`--check` confere sem escrever), e `poetry run python -m scripts.avaliar_geracao --codigo PASTA` roda `PASTA/<id>.py` no sandbox, pelo mesmo caminho da fila, e compara o total simulado e a quebra por elemento, com tolerancia de um centavo por linha do periodo. Sai com codigo diferente de zero se algum caso nao passar. Veja [o formato, os casos, os quatro desfechos e a tolerancia](docs/t243-avaliador-de-geracao.md).
+
