@@ -14,6 +14,7 @@ from app.graph.nodes.code_generation import code_generation
 from app.graph.nodes.decision import ENCAMINHAMENTO_SUGESTAO, decision
 from app.graph.nodes.dispatch_execution import dispatch_execution
 from app.graph.nodes.extract_code import extract_code
+from app.graph.nodes.extract_rule import extract_rule
 from app.graph.nodes.load_rule import load_rule
 from app.graph.nodes.persist_response import persist_response
 from app.graph.nodes.suggest_adaptation import suggest_adaptation
@@ -27,6 +28,7 @@ SUGGEST_ADAPTATION = "suggest_adaptation"
 def load_nodes(graph: StateGraph[AgentState]) -> None:
     """Load all nodes into the graph."""
     graph.add_node("load_rule", load_rule)
+    graph.add_node("extract_rule", extract_rule)
     graph.add_node("code_generation", code_generation)
     graph.add_node("persist_response", persist_response)
     graph.add_node("extract_code", extract_code)
@@ -47,15 +49,19 @@ def _apos_a_decisao(state: AgentState) -> str:
     return END
 
 
-def load_edges(graph: StateGraph[AgentState]) -> None:
-    """Load all edges into the graph.
+def _entrada(state: AgentState) -> str:
+    return "load_rule" if state.get("regra_id") is not None else "extract_rule"
 
-    Uma linha reta até a pausa, e uma ramificação depois dela: o grafo pausa dentro de
-    `await_execution` até o resultado do worker retomá-lo, `decision` encaminha conforme o
-    veredito apurado, e a adaptação volta a `END` porque a alternativa é gravada e
-    re-simulada pela `api`, não por um laço interno.
+
+def load_edges(graph: StateGraph[AgentState]) -> None:
+    """Extraction ends after publication; persisted rules continue to worker execution.
+
+    The api owns rule versions and opens the next cycle after persisting a proposal.
     """
-    graph.add_edge(START, "load_rule")
+    graph.add_conditional_edges(
+        START, _entrada, {"load_rule": "load_rule", "extract_rule": "extract_rule"}
+    )
+    graph.add_edge("extract_rule", END)
     graph.add_edge("load_rule", "code_generation")
     graph.add_edge("code_generation", "persist_response")
     graph.add_edge("persist_response", "extract_code")

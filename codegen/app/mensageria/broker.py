@@ -18,6 +18,7 @@ from app.mensageria.roteamento import RoteadorGrafo
 logger = get_logger("app.mensageria.broker")
 FILAS_SIMPLES = (
     "regra-submetida",
+    "regra-extraida",
     "parametros-confirmados",
     "executar-codigo",
     "etapa-alterada",

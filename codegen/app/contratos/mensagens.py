@@ -83,6 +83,12 @@ class RegraSubmetida(ModeloContrato):
     orcamento: Decimal | None = Field(default=None, ge=0)
 
 
+class RegraExtraida(ModeloContrato):
+    job_id: UUID
+    submissao_id: UUID
+    extracao_id: UUID
+
+
 class ParametrosConfirmados(ModeloContrato):
     job_id: UUID
     regra_id: UUID
