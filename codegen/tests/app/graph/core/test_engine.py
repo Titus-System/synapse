@@ -23,7 +23,9 @@ from tests.app.graph.conftest import FakeChatModel
 
 ScriptedModel = Callable[[Iterable[AIMessage]], FakeChatModel]
 
-_REGRA = RepresentacaoRegra.model_validate({"nucleo": {}, "especificacoes": []})
+_REGRA = RepresentacaoRegra.model_validate(
+    {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []}
+)
 
 
 def test_build_graph_is_the_pipeline_and_nothing_else() -> None:

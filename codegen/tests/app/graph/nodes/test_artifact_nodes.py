@@ -10,10 +10,12 @@ from langchain_core.runnables import RunnableConfig
 from app.codigo_gerado import CodigoInvalidoError
 from app.contratos.mensagens import EtapaAlterada, ExecutarCodigo
 from app.contratos.serializacao import serializar
+from app.falhas import FalhaDoJobError
 from app.graph.core.state import AgentState
 from app.graph.nodes.dispatch_execution import OrcamentoAusenteError, dispatch_execution
 from app.graph.nodes.extract_code import extract_code
 from app.graph.nodes.persist_response import persist_response
+from app.representacao_regra import RepresentacaoRegra
 from tests.app.banco_falso import BancoFalso
 from tests.app.test_mensageria import oficial
 
@@ -39,6 +41,7 @@ def _estado(**sobrescritas: Any) -> AgentState:
         "regra_id": REGRA_ID,
         "competencias": ["2025-08", "2025-11"],
         "orcamento": "485000.10",
+        "representacao_regra": {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []},
         "prompt_enviado": "prompt",
         "resposta_bruta": RESPOSTA,
         "modelo": {"provedor": "google", "modelo": "m", "versao": "stable"},
@@ -158,7 +161,92 @@ async def test_dispatch_execution_publica_so_referencias() -> None:
         codigo_gerado_id=UUID(codigo_gerado_id),
         competencias=["2025-08", "2025-11"],
         orcamento=Decimal("485000.10"),
+        elementos_exigidos=["nucleo.percentual"],
     )
+
+
+@pytest.mark.parametrize(
+    ("nucleo", "refs", "esperados"),
+    [
+        ({"percentual": Decimal("0.025")}, [], ["nucleo.percentual"]),
+        ({"percentual": Decimal("0")}, [], ["nucleo.percentual"]),
+        (
+            {"percentual": Decimal("0.025"), "loja": ["13"], "marca": ["10"], "cargo": ["100"]},
+            ["elem.2", "elem.1"],
+            ["nucleo.percentual", "elem.2", "elem.1"],
+        ),
+        ({"loja": ["13"]}, ["elem.2", "elem.1"], ["elem.2", "elem.1"]),
+    ],
+    ids=["so-nucleo", "percentual-zero", "especificacoes-na-ordem", "sem-percentual"],
+)
+async def test_dispatch_execution_envia_elementos_da_representacao(
+    nucleo: dict[str, Any], refs: list[str], esperados: list[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    regra = RepresentacaoRegra.model_validate(
+        {
+            "nucleo": nucleo,
+            "especificacoes": [
+                {"ref": ref, "construto": "generico", "descricao": "REGRA_PRIVADA", "campos": {}}
+                for ref in refs
+            ],
+        }
+    )
+    producers = _producers()
+    # A resposta tenta declarar outra cobertura; a lista deve vir somente da regra.
+    estado = _estado(
+        codigo_gerado_id=str(uuid4()),
+        representacao_regra=regra.para_contrato(),
+        resposta_bruta='{"elementos_exigidos": ["elem.999"]}',
+        codigo_fonte="CODIGO_PRIVADO",
+    )
+    with caplog.at_level("INFO", logger="app.graph.nodes.dispatch_execution"):
+        await dispatch_execution(estado, _config(producers=producers))
+
+    [comando] = producers.executar_codigo.await_args.args
+    payload = simplejson.loads(serializar(comando), use_decimal=True)
+    assert payload["elementos_exigidos"] == esperados
+    oficial("executar-codigo").validate(payload)
+    logs = repr([record.__dict__ for record in caplog.records])
+    assert "execution command published" in logs
+    for privado in ("REGRA_PRIVADA", "CODIGO_PRIVADO", "representacao_regra", "elem.999"):
+        assert privado not in logs
+
+
+async def test_dispatch_execution_recusa_regra_sem_elementos_antes_de_publicar() -> None:
+    producers = _producers()
+    estado = _estado(
+        codigo_gerado_id=str(uuid4()), representacao_regra={"nucleo": {}, "especificacoes": []}
+    )
+
+    with pytest.raises(FalhaDoJobError, match="requires at least one rule element") as falha:
+        await dispatch_execution(estado, _config(producers=producers))
+
+    assert falha.value.etapa == "delegacao_worker"
+    producers.executar_codigo.assert_not_awaited()
+    producers.etapa_alterada.assert_not_awaited()
+    producers.no_concluido.assert_not_awaited()
+
+
+async def test_dispatch_execution_recusa_referencias_repetidas_antes_de_publicar() -> None:
+    producers = _producers()
+    regra = RepresentacaoRegra.model_validate(
+        {
+            "nucleo": {"percentual": Decimal("0.025")},
+            "especificacoes": [
+                {"ref": "elem.1", "construto": "generico", "descricao": descricao}
+                for descricao in ("primeiro elemento", "segundo elemento")
+            ],
+        }
+    )
+    estado = _estado(codigo_gerado_id=str(uuid4()), representacao_regra=regra.para_contrato())
+
+    with pytest.raises(FalhaDoJobError, match="requires unique rule elements") as falha:
+        await dispatch_execution(estado, _config(producers=producers))
+
+    assert falha.value.etapa == "delegacao_worker"
+    producers.executar_codigo.assert_not_awaited()
+    producers.etapa_alterada.assert_not_awaited()
+    producers.no_concluido.assert_not_awaited()
 
 
 async def test_dispatch_execution_publica_os_tres_eventos_na_ordem_do_contrato() -> None:

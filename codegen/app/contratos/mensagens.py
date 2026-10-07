@@ -120,6 +120,7 @@ class ExecutarCodigo(ModeloContrato):
     codigo_gerado_id: UUID
     competencias: list[str] = Field(min_length=1)
     orcamento: Decimal = Field(ge=0)
+    elementos_exigidos: list[ReferenciaDeElemento] | None = Field(default=None, min_length=1)
 
 
 class EtapaAlterada(ModeloContrato):
