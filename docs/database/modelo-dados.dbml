@@ -62,7 +62,7 @@ Table submissoes {
   conteudo jsonb [note: '''
 Formato: contracts/domain/submissao-conteudo.schema.json
 NULL quando tipo = texto ou voz - ali o que o usuario enviou e o texto digitado ou o audio.
-Entrada original do fluxo; regras.nucleo e a representacao derivada, e trilhas_auditoria.conclusao registra o que cada no concluiu. O conteudo original nao e sobrescrito; a API pode preencher transcricao e transcrito_em depois do envio de voz. As rodadas de correcao da Sprint 2 serao armazenadas separadamente.
+Entrada original do fluxo; regras.nucleo e a representacao derivada, e trilhas_auditoria.conclusao registra o que cada no concluiu. O conteudo original nao e sobrescrito; a API pode preencher transcricao e transcrito_em depois do envio de voz. A tabela rodadas_correcao armazena separadamente as referencias das correcoes.
 ''']
   binario bytea [null, note: 'null quando tipo != voz. O audio enviado pelo usuario']
   formato text [null, note: 'null quando tipo != voz. webm | ogg | wav | mp4: o conteiner gravado pelo navegador, declarado no Content-Type da parte audio']
@@ -107,6 +107,26 @@ data real (Black Friday) - ver regras.especificacoes.
     (status) [note: 'varreduras operacionais']
     (job_origem_id)
   }
+}
+
+Table rodadas_correcao {
+  id uuid [pk, default: `uuidv7()`]
+  job_id uuid [not null, ref: > jobs.id]
+  regra_analisada_id uuid [not null, ref: > regras.id, note: 'versao que produziu os conflitos']
+  conflitos jsonb [not null, note: 'Formato: contracts/domain/conflitos-rodada.schema.json']
+  estado text [not null, note: 'pendente | em_reextracao | reextracao_falhou | corrigida | abandonada']
+  submissao_correcao_id uuid [null, ref: > submissoes.id, note: 'null ate o envio da correcao; submissao propria e imutavel']
+  regra_resultante_id uuid [null, ref: > regras.id, note: 'null ate existir uma versao resultante; a versao permanece imutavel']
+  rodada_anterior_id uuid [null, ref: > rodadas_correcao.id, note: 'null na primeira rodada; encadeia o historico sem bifurcacao']
+  criada_em timestamptz [not null]
+  atualizada_em timestamptz [not null]
+
+  indexes {
+    (rodada_anterior_id) [unique, name: 'uq_rodadas_correcao_rodada_anterior_id', note: 'indice PARCIAL: WHERE rodada_anterior_id IS NOT NULL; impede bifurcacao da cadeia']
+    (job_id) [unique, name: 'uq_rodadas_correcao_job_id_aberta', note: "indice PARCIAL: WHERE estado IN ('pendente', 'em_reextracao'); no maximo uma rodada aberta por job"]
+  }
+
+  Note: 'Rodada mutavel: a API atualiza estado e referencias conforme o fluxo. A estrutura e da T-214; os fluxos pertencem a T-215/T-216/T-217/T-225.'
 }
 
 Table job_transicoes {

@@ -2,7 +2,9 @@ package synapse.api.core.persistence;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -23,10 +25,14 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 /**
  * O changelog roda contra um Postgres de verdade, na mesma major que o compose: o
@@ -39,7 +45,8 @@ class MigrationTests {
 
 	private static final List<String> TABELAS = List.of("usuarios", "submissoes", "jobs", "job_transicoes", "job_acoes",
 			"regras", "prompts", "respostas_modelo", "codigos_gerados", "resultados_simulacao", "explicacoes",
-			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras");
+			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras",
+			"rodadas_correcao");
 
 	private static final int CHANGESETS = 22;
 
@@ -397,6 +404,269 @@ class MigrationTests {
 				assertThat(rs.getInt("versao")).isEqualTo(7);
 			}
 		}
+	}
+
+	@Test
+	void criaRodadasComTiposNulidadeEDefaultCorretosSemChecks() throws Exception {
+		atualizar();
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			try (ResultSet rs = statement.executeQuery("""
+					SELECT column_name, data_type, is_nullable, column_default
+					FROM information_schema.columns
+					WHERE table_schema = 'public' AND table_name = 'rodadas_correcao'
+					ORDER BY ordinal_position
+					""")) {
+				List<String> colunas = new ArrayList<>();
+				while (rs.next()) {
+					colunas.add(rs.getString("column_name") + ":" + rs.getString("data_type") + ":"
+							+ rs.getString("is_nullable"));
+					if ("id".equals(rs.getString("column_name"))) {
+						assertThat(rs.getString("column_default")).isEqualTo("uuidv7()");
+					}
+					else {
+						assertThat(rs.getString("column_default")).isNull();
+					}
+				}
+				assertThat(colunas).containsExactly("id:uuid:NO", "job_id:uuid:NO", "regra_analisada_id:uuid:NO",
+						"conflitos:jsonb:NO", "estado:text:NO", "submissao_correcao_id:uuid:YES",
+						"regra_resultante_id:uuid:YES", "rodada_anterior_id:uuid:YES",
+						"criada_em:timestamp with time zone:NO", "atualizada_em:timestamp with time zone:NO");
+			}
+			try (ResultSet rs = statement.executeQuery("""
+					SELECT contype, pg_get_constraintdef(oid) AS definicao FROM pg_constraint
+					WHERE conrelid = 'rodadas_correcao'::regclass AND contype IN ('p', 'c')
+					""")) {
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getString("contype")).isEqualTo("p");
+				assertThat(rs.getString("definicao")).isEqualTo("PRIMARY KEY (id)");
+				assertThat(rs.next()).isFalse();
+			}
+			semearParaRodadas(statement);
+			assertThat(inserirRodada(connection, "pendente", null).version()).isEqualTo(7);
+		}
+	}
+
+	@Test
+	void criaAsCincoChavesEstrangeirasDasRodadasSemCascade() throws Exception {
+		atualizar();
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("""
+						SELECT conname, pg_get_constraintdef(oid) AS definicao, confdeltype
+						FROM pg_constraint WHERE conrelid = 'rodadas_correcao'::regclass AND contype = 'f'
+						""")) {
+			Map<String, String> fks = new HashMap<>();
+			while (rs.next()) {
+				fks.put(rs.getString("conname"), rs.getString("definicao"));
+				assertThat(rs.getString("confdeltype")).isEqualTo("a");
+			}
+			assertThat(fks).containsExactlyInAnyOrderEntriesOf(Map.of("fk_rodadas_correcao_job_id",
+					"FOREIGN KEY (job_id) REFERENCES jobs(id)", "fk_rodadas_correcao_regra_analisada_id",
+					"FOREIGN KEY (regra_analisada_id) REFERENCES regras(id)",
+					"fk_rodadas_correcao_submissao_correcao_id",
+					"FOREIGN KEY (submissao_correcao_id) REFERENCES submissoes(id)",
+					"fk_rodadas_correcao_regra_resultante_id",
+					"FOREIGN KEY (regra_resultante_id) REFERENCES regras(id)", "fk_rodadas_correcao_rodada_anterior_id",
+					"FOREIGN KEY (rodada_anterior_id) REFERENCES rodadas_correcao(id)"));
+		}
+	}
+
+	@ParameterizedTest
+	@ValueSource(ints = { 1, 2, 3, 4, 5 })
+	void recusaReferenciaInexistenteNaInsercaoDaRodada(int referencia) throws Exception {
+		atualizar();
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearParaRodadas(statement);
+			UUID anterior = inserirRodada(connection, "corrigida", null);
+			try (PreparedStatement insert = connection.prepareStatement("""
+					INSERT INTO rodadas_correcao (job_id, regra_analisada_id, submissao_correcao_id,
+					    regra_resultante_id, rodada_anterior_id, conflitos, estado, criada_em, atualizada_em)
+					VALUES (?, ?, ?, ?, ?, ?::jsonb, 'corrigida', now(), now())
+					""")) {
+				insert.setObject(1, UUID.fromString(JOB_ID));
+				insert.setObject(2, REGRA_ID);
+				insert.setObject(3, SUBMISSAO_ID);
+				insert.setObject(4, REGRA_ID);
+				insert.setObject(5, anterior);
+				insert.setString(6, CONFLITOS);
+				insert.setObject(referencia, UUID.randomUUID());
+				assertThatExceptionOfType(SQLException.class).isThrownBy(insert::executeUpdate)
+					.satisfies(e -> assertThat(e.getSQLState()).isEqualTo("23503"));
+			}
+		}
+	}
+
+	@Test
+	void criaSomenteOsDoisIndicesParciaisAlemDaChavePrimaria() throws Exception {
+		atualizar();
+		assertThat(definicaoDoIndice("uq_rodadas_correcao_rodada_anterior_id")).contains("UNIQUE",
+				"(rodada_anterior_id)", "WHERE (rodada_anterior_id IS NOT NULL)");
+		assertThat(definicaoDoIndice("uq_rodadas_correcao_job_id_aberta")).contains("UNIQUE", "(job_id)",
+				"WHERE (estado = ANY (ARRAY['pendente'::text, 'em_reextracao'::text]))");
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement
+					.executeQuery("SELECT count(*) FROM pg_indexes WHERE tablename = 'rodadas_correcao'")) {
+			assertThat(rs.next()).isTrue();
+			assertThat(rs.getInt(1)).isEqualTo(3);
+		}
+	}
+
+	@Test
+	void permiteCadeiaDeRodadasMasRecusaBifurcacao() throws Exception {
+		atualizar();
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearParaRodadas(statement);
+			UUID a = inserirRodada(connection, "corrigida", null);
+			UUID b = inserirRodada(connection, "reextracao_falhou", a);
+			inserirRodada(connection, "pendente", b);
+			assertThatExceptionOfType(SQLException.class).isThrownBy(() -> inserirRodada(connection, "abandonada", a))
+				.satisfies(e -> assertThat(e.getSQLState()).isEqualTo("23505"));
+		}
+	}
+
+	@ParameterizedTest
+	@CsvSource({ "pendente,pendente", "pendente,em_reextracao", "em_reextracao,pendente",
+			"em_reextracao,em_reextracao" })
+	void recusaDuasRodadasAbertasNoMesmoJob(String primeira, String segunda) throws Exception {
+		atualizar();
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearParaRodadas(statement);
+			inserirRodada(connection, primeira, null);
+			assertThatExceptionOfType(SQLException.class).isThrownBy(() -> inserirRodada(connection, segunda, null))
+				.satisfies(e -> assertThat(e.getSQLState()).isEqualTo("23505"));
+		}
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "corrigida", "reextracao_falhou", "abandonada" })
+	void permiteHistoricoFechadoEUmaRodadaAberta(String estadoFechado) throws Exception {
+		atualizar();
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearParaRodadas(statement);
+			inserirRodada(connection, estadoFechado, null);
+			inserirRodada(connection, estadoFechado, null);
+			inserirRodada(connection, "pendente", null);
+			try (ResultSet rs = statement.executeQuery("SELECT count(*) FROM rodadas_correcao")) {
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getInt(1)).isEqualTo(3);
+			}
+		}
+	}
+
+	@Test
+	void upgradeDasRodadasPreservaDadosEPermissoesAnteriores() throws Exception {
+		atualizar(CHANGESETS_ANTES_DAS_RODADAS);
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DAS_RODADAS);
+		assertThat(tabelasExistentes()).doesNotContain("rodadas_correcao");
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearParaRodadas(statement);
+		}
+		Map<String, String> dadosAntes = dadosAnterioresAsRodadas();
+		List<String> permissoesAntes = permissoesAnterioresAsRodadas();
+
+		atualizar();
+
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS);
+		assertThat(tabelasExistentes()).containsExactlyInAnyOrderElementsOf(TABELAS);
+		assertThat(dadosAnterioresAsRodadas()).isEqualTo(dadosAntes);
+		assertThat(permissoesAnterioresAsRodadas()).isEqualTo(permissoesAntes);
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("SELECT count(*) FROM rodadas_correcao")) {
+			assertThat(rs.next()).isTrue();
+			assertThat(rs.getInt(1)).as("sem backfill de rodadas").isZero();
+		}
+	}
+
+	@Test
+	void rollbackDasRodadasRemoveSomenteATabelaESeusIndices() throws Exception {
+		atualizar();
+		assertThat(tabelasExistentes()).contains("rodadas_correcao");
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearParaRodadas(statement);
+			inserirRodada(connection, "pendente", null);
+		}
+		Map<String, String> dadosAntes = dadosAnterioresAsRodadas();
+		List<String> permissoesAntes = permissoesAnterioresAsRodadas();
+
+		reverter(1);
+
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DAS_RODADAS);
+		assertThat(tabelasExistentes())
+			.containsExactlyInAnyOrderElementsOf(TABELAS.stream().filter(t -> !t.equals("rodadas_correcao")).toList());
+		assertThat(dadosAnterioresAsRodadas()).isEqualTo(dadosAntes);
+		assertThat(permissoesAnterioresAsRodadas()).isEqualTo(permissoesAntes);
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement
+					.executeQuery("SELECT indexname FROM pg_indexes WHERE tablename = 'rodadas_correcao'")) {
+			assertThat(rs.next()).isFalse();
+		}
+	}
+
+	private static void semearParaRodadas(Statement statement) throws Exception {
+		semearUsuario(statement);
+		statement.execute("""
+				INSERT INTO submissoes (id, usuario_id, tipo, transcricao, criado_em)
+				VALUES ('%s', '22222222-2222-4222-8222-222222222222', 'texto', 'correcao de teste', now())
+				""".formatted(SUBMISSAO_ID));
+		semearJobComTrilha(statement, UUID.fromString(JOB_ID), "aguardando_confirmacao_parametros");
+		statement.execute("""
+				INSERT INTO regras (id, job_id, versao, origem, nucleo, especificacoes, hash, criada_em)
+				VALUES ('%s', '%s', 1, 'extracao', '{}'::jsonb, '[]'::jsonb, repeat('a', 64), now())
+				""".formatted(REGRA_ID, JOB_ID));
+	}
+
+	private static UUID inserirRodada(Connection connection, String estado, @Nullable UUID anterior) throws Exception {
+		try (PreparedStatement insert = connection.prepareStatement("""
+				INSERT INTO rodadas_correcao (job_id, regra_analisada_id, conflitos, estado,
+				    rodada_anterior_id, criada_em, atualizada_em)
+				VALUES (?, ?, ?::jsonb, ?, ?, now(), now()) RETURNING id
+				""")) {
+			insert.setObject(1, UUID.fromString(JOB_ID));
+			insert.setObject(2, REGRA_ID);
+			insert.setString(3, CONFLITOS);
+			insert.setString(4, estado);
+			insert.setObject(5, anterior);
+			try (ResultSet rs = insert.executeQuery()) {
+				assertThat(rs.next()).isTrue();
+				return rs.getObject(1, UUID.class);
+			}
+		}
+	}
+
+	private static Map<String, String> dadosAnterioresAsRodadas() throws Exception {
+		Map<String, String> dados = new HashMap<>();
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			for (String tabela : TABELAS) {
+				if (!tabela.equals("rodadas_correcao")) {
+					try (ResultSet rs = statement.executeQuery(
+							"SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM "
+									+ tabela + " t")) {
+						assertThat(rs.next()).isTrue();
+						dados.put(tabela, rs.getString(1));
+					}
+				}
+			}
+		}
+		return dados;
+	}
+
+	private static List<String> permissoesAnterioresAsRodadas() throws Exception {
+		List<String> permissoes = new ArrayList<>();
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("""
+						SELECT (table_name, grantee, privilege_type, is_grantable)::text
+						FROM information_schema.table_privileges
+						WHERE table_schema = 'public' AND table_name <> 'rodadas_correcao' ORDER BY 1
+						""")) {
+			while (rs.next()) {
+				permissoes.add(rs.getString(1));
+			}
+		}
+		return permissoes;
 	}
 
 	// Liquibase.close() fecha a conexão JDBC por baixo, então cada operação abre a sua
