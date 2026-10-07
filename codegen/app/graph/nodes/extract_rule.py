@@ -7,6 +7,7 @@ from time import perf_counter
 from typing import Any
 from uuid import UUID
 
+from httpx import NetworkError, TimeoutException
 from langchain_core.runnables import RunnableConfig
 
 from app.contratos.mensagens import (
@@ -47,6 +48,17 @@ class FalhaTransitoriaExtracaoError(RuntimeError):
     """Sanitized infrastructure failure; the consumer retries the message."""
 
 
+def _motivo_da_falha(erro: BaseException, classe: str) -> str:
+    # Classify by type: exception text can contain artifacts or credentials.
+    if isinstance(erro, FalhaDoJobError | asyncio.CancelledError):
+        return classe
+    if isinstance(erro, TimeoutError | TimeoutException):
+        return "timeout"
+    if isinstance(erro, ConnectionError | NetworkError):
+        return "conexao"
+    return "falha_na_operacao"
+
+
 async def extract_rule(state: AgentState, config: RunnableConfig) -> AgentState:
     job_id = UUID(state["job_id"])
     token_job = job_id_ctx.set(str(job_id))
@@ -55,11 +67,14 @@ async def extract_rule(state: AgentState, config: RunnableConfig) -> AgentState:
     job_runs.labels(job_name="extract_rule").inc()
     logger.info("extraction started")
     classe = "publicacao"
+    operacao = "publicar_etapa_alterada"
+    extracao_reutilizada = False
     try:
         producers = config["configurable"]["producers"]
         sessoes = config["configurable"]["sessoes"]
         await producers.etapa_alterada(EtapaAlterada(job_id=job_id, etapa=ETAPA, status="iniciada"))
         classe = "entrada_invalida"
+        operacao = "validar_entrada"
         if (
             state.get("regra_id")
             or state.get("origem") not in ("voz", "texto")
@@ -68,17 +83,25 @@ async def extract_rule(state: AgentState, config: RunnableConfig) -> AgentState:
             raise EntradaExtracaoInvalidaError("Invalid extraction input")
         submissao_id = UUID(state["submissao_id"])
         classe = "persistencia"
+        operacao = "buscar_transcricao"
         texto = await buscar_transcricao(sessoes, submissao_id)
+        operacao = "buscar_extracao"
         salvo = await buscar_extracao(sessoes, job_id=job_id, submissao_id=submissao_id)
+        extracao_reutilizada = salvo is not None
         if salvo is None:
             classe = "provedor"
+            operacao = "carregar_modelo"
+            modelo = registry.get_model("extraction")
+            metadados_modelo = registry.get_model_metadata("extraction")
+            operacao = "extrair_regra"
             resultado = await extrair_regra(
                 texto,
                 state["competencias"],
-                modelo=registry.get_model("extraction"),
-                metadados_modelo=registry.get_model_metadata("extraction"),
+                modelo=modelo,
+                metadados_modelo=metadados_modelo,
             )
             classe = "persistencia"
+            operacao = "gravar_extracao"
             salvo = await gravar_extracao(
                 sessoes,
                 job_id=job_id,
@@ -86,12 +109,14 @@ async def extract_rule(state: AgentState, config: RunnableConfig) -> AgentState:
                 resultado=resultado,
             )
         classe = "publicacao"
+        operacao = "publicar_regra_extraida"
         await producers.regra_extraida(
             RegraExtraida(job_id=job_id, submissao_id=submissao_id, extracao_id=salvo.id)
         )
         regra: dict[str, Any] = salvo.representacao.para_contrato()
         referencias = [f"nucleo.{campo}" for campo in regra["nucleo"]]
         referencias.extend(e["ref"] for e in regra["especificacoes"])
+        operacao = "publicar_no_concluido"
         await producers.no_concluido(
             NoConcluido(
                 evento_id=id_do_evento_de_trilha(job_id, ETAPA, salvo.id),
@@ -120,6 +145,7 @@ async def extract_rule(state: AgentState, config: RunnableConfig) -> AgentState:
             "extraction finished",
             extra={
                 "extracao_id": str(salvo.id),
+                "extracao_reutilizada": extracao_reutilizada,
                 "elementos_por_construto": dict(contagens),
                 "rebaixamentos_por_motivo": dict(rebaixamentos),
             },
@@ -134,7 +160,15 @@ async def extract_rule(state: AgentState, config: RunnableConfig) -> AgentState:
             classe = "cancelamento"
         job_failures.labels(job_name="extract_rule").inc()
         falhas_extracao.labels(classe=classe).inc()
-        logger.warning("extraction failed", extra={"classe": classe, "motivo": classe})
+        logger.warning(
+            "extraction failed",
+            extra={
+                "classe": classe,
+                "motivo": _motivo_da_falha(erro, classe),
+                "operacao": operacao,
+                "extracao_reutilizada": extracao_reutilizada,
+            },
+        )
         if isinstance(erro, FalhaDoJobError | asyncio.CancelledError):
             raise
     finally:

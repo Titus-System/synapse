@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import simplejson
-from httpx import AsyncClient
+from httpx import AsyncClient, ConnectError, ReadTimeout
 from jsonschema import Draft202012Validator, FormatChecker
 from langchain_core.messages import AIMessage
 from prometheus_client.parser import text_string_to_metric_families
@@ -176,32 +176,58 @@ async def test_falha_transitoria_reentrega_sem_erro_do_job(monkeypatch: pytest.M
 
 async def test_reentrega_apos_publicacao_reusa_artefato_e_nao_duplica_trilha(
     monkeypatch: pytest.MonkeyPatch,
+    cliente: AsyncClient,
+    logs: list[dict[str, Any]],
 ) -> None:
     ambiente = AmbienteExtracao(monkeypatch)
     payload = ambiente.entrada()
+    antes = (await cliente.get("/metrics")).text
     original = ambiente.producers.no_concluido.side_effect
     ambiente.producers.no_concluido.side_effect = RuntimeError("BROKER_PRIVADO")
     primeira = mensagem(payload)
     await ambiente.consumer.receber(primeira)
     primeira.nack.assert_awaited_once_with(requeue=True)
     primeiro_evento = ambiente.producers.no_concluido.await_args.args[0]
-    ambiente.producers.no_concluido.side_effect = original
-
     segunda = mensagem(payload)
     await ambiente.consumer.receber(segunda)
+    segunda.nack.assert_awaited_once_with(requeue=True)
 
-    segunda.ack.assert_awaited_once_with()
+    ambiente.producers.no_concluido.side_effect = original
+    terceira = mensagem(payload)
+    await ambiente.consumer.receber(terceira)
+    terceira.ack.assert_awaited_once_with()
     assert len(ambiente.modelo_extracao.seen_messages) == 1
     assert all(
         len(ambiente.banco.tabela(t)) == 1
         for t in ("prompts", "respostas_modelo", "extracoes_regras")
     )
     assert ambiente.producers.no_concluido.await_args.args[0].evento_id == primeiro_evento.evento_id
+    desfechos = [
+        log for log in logs if log["message"] in ("extraction failed", "extraction finished")
+    ]
+    assert [log["extra"]["extracao_reutilizada"] for log in desfechos] == [False, True, True]
+    depois = (await cliente.get("/metrics")).text
+    for nome, delta in (
+        ("job_runs_total", 3),
+        ("job_failures_total", 2),
+        ("job_duration_seconds_count", 3),
+    ):
+        rotulos = {"job_name": "extract_rule"}
+        assert amostra(depois, nome, rotulos) - amostra(antes, nome, rotulos) == delta
+    assert amostra(depois, "codegen_extracao_elementos_total", {"construto": "nucleo"}) - amostra(
+        antes, "codegen_extracao_elementos_total", {"construto": "nucleo"}
+    ) == len(NUCLEO)
     anteriores = list(ambiente.publicacoes)
-    terceira = mensagem(payload)
-    await ambiente.consumer.receber(terceira)
-    terceira.ack.assert_awaited_once_with()
+    logs_anteriores = list(logs)
+    quarta = mensagem(payload)
+    await ambiente.consumer.receber(quarta)
+    quarta.ack.assert_awaited_once_with()
     assert ambiente.publicacoes == anteriores
+    assert logs == logs_anteriores
+    posteriores = (await cliente.get("/metrics")).text
+    assert amostra(posteriores, "job_runs_total", rotulos) == amostra(
+        depois, "job_runs_total", rotulos
+    )
     assert len(ambiente.modelo_extracao.seen_messages) == 1
 
 
@@ -337,6 +363,7 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
     for log in logs:
         validador.validate(log)
         assert log["job_id"] == payload["job_id"]
+    assert do_no[-1]["extra"]["extracao_reutilizada"] is False
     for privado in (
         TEXTO,
         "PARAFRASE_PRIVADA",
@@ -349,6 +376,110 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
         assert privado not in simplejson.dumps(logs)
     assert job_id_ctx.get() is None
     assert no_ctx.get() is None
+
+
+@pytest.mark.parametrize(
+    ("tipo_erro", "motivo"),
+    [
+        (TimeoutError, "timeout"),
+        (ReadTimeout, "timeout"),
+        (ConnectionError, "conexao"),
+        (ConnectError, "conexao"),
+        (RuntimeError, "falha_na_operacao"),
+    ],
+)
+async def test_falha_do_provedor_identifica_motivo_sem_expor_excecao(
+    monkeypatch: pytest.MonkeyPatch,
+    logs: list[dict[str, Any]],
+    tipo_erro: type[Exception],
+    motivo: str,
+) -> None:
+    ambiente = AmbienteExtracao(monkeypatch)
+    payload = ambiente.entrada()
+    monkeypatch.setattr(
+        FakeChatModel, "ainvoke", AsyncMock(side_effect=tipo_erro("SEGREDO_DO_PROVEDOR"))
+    )
+    recebida = mensagem(payload)
+
+    await ambiente.consumer.receber(recebida)
+
+    recebida.nack.assert_awaited_once_with(requeue=True)
+    [falha] = [log for log in logs if log["message"] == "extraction failed"]
+    assert falha["job_id"] == payload["job_id"]
+    assert falha["no"] == "extracao_parametros"
+    assert falha["extra"] == {
+        "classe": "provedor",
+        "motivo": motivo,
+        "operacao": "extrair_regra",
+        "extracao_reutilizada": False,
+    }
+    assert "SEGREDO_DO_PROVEDOR" not in simplejson.dumps(logs)
+    assert "exception" not in falha
+
+
+@pytest.mark.parametrize(
+    ("metodo", "operacao"),
+    [
+        ("etapa_alterada", "publicar_etapa_alterada"),
+        ("regra_extraida", "publicar_regra_extraida"),
+        ("no_concluido", "publicar_no_concluido"),
+    ],
+)
+async def test_falha_de_publicacao_identifica_o_evento_sem_expor_excecao(
+    monkeypatch: pytest.MonkeyPatch,
+    logs: list[dict[str, Any]],
+    metodo: str,
+    operacao: str,
+) -> None:
+    ambiente = AmbienteExtracao(monkeypatch)
+    getattr(ambiente.producers, metodo).side_effect = ConnectionError("SEGREDO_DO_BROKER")
+    recebida = mensagem(ambiente.entrada())
+
+    await ambiente.consumer.receber(recebida)
+
+    recebida.nack.assert_awaited_once_with(requeue=True)
+    [falha] = [log for log in logs if log["message"] == "extraction failed"]
+    assert falha["extra"] == {
+        "classe": "publicacao",
+        "motivo": "conexao",
+        "operacao": operacao,
+        "extracao_reutilizada": False,
+    }
+    assert "SEGREDO_DO_BROKER" not in simplejson.dumps(logs)
+
+
+@pytest.mark.parametrize(("duracao", "falha"), [(45.0, False), (180.0, True)])
+async def test_duracao_longa_ocupa_buckets_finitos_em_sucesso_e_falha(
+    monkeypatch: pytest.MonkeyPatch,
+    cliente: AsyncClient,
+    duracao: float,
+    falha: bool,
+) -> None:
+    ambiente = AmbienteExtracao(monkeypatch)
+    instantes = iter([0.0, duracao])
+    monkeypatch.setattr("app.graph.nodes.extract_rule.perf_counter", lambda: next(instantes))
+    if falha:
+        monkeypatch.setattr(FakeChatModel, "ainvoke", AsyncMock(side_effect=ReadTimeout("privado")))
+    antes = (await cliente.get("/metrics")).text
+    recebida = mensagem(ambiente.entrada())
+
+    await ambiente.consumer.receber(recebida)
+
+    if falha:
+        recebida.nack.assert_awaited_once_with(requeue=True)
+    else:
+        recebida.ack.assert_awaited_once_with()
+    depois = (await cliente.get("/metrics")).text
+    for limite in (10.0, 30.0, 60.0, 120.0, 240.0, 300.0):
+        rotulos = {"job_name": "extract_rule", "le": str(limite)}
+        assert amostra(depois, "job_duration_seconds_bucket", rotulos) - amostra(
+            antes, "job_duration_seconds_bucket", rotulos
+        ) == (1 if duracao <= limite else 0)
+    for nome, delta in (("job_duration_seconds_sum", duracao), ("job_duration_seconds_count", 1)):
+        rotulos = {"job_name": "extract_rule"}
+        assert amostra(depois, nome, rotulos) - amostra(antes, nome, rotulos) == pytest.approx(
+            delta
+        )
 
 
 @pytest.mark.parametrize(

@@ -1,3 +1,5 @@
+from prometheus_client import Histogram
+
 from .prometheus import prometheus
 
 # Conta entregas processadas, inclusive continuação após falha transitória; não jobs únicos.
@@ -49,6 +51,8 @@ job_duration = prometheus.register_histogram(
     "job_duration_seconds",
     "Execution duration of jobs in seconds",
     ["job_name"],
+    # Preserve existing bounds and cover the model's 60-second timeout plus retries.
+    buckets=(*Histogram.DEFAULT_BUCKETS[:-1], 15, 30, 45, 60, 90, 120, 180, 240, 300, float("inf")),
 )
 
 CONSTRUTOS_DA_EXTRACAO = (

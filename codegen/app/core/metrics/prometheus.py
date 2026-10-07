@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Literal
 
 from prometheus_client import Counter, Gauge, Histogram, generate_latest
@@ -25,10 +25,15 @@ class Prometheus:
         return self._gauges[nome]
 
     def register_histogram(
-        self, nome: str, descricao: str, rotulos: list[str] | None = None
+        self,
+        nome: str,
+        descricao: str,
+        rotulos: list[str] | None = None,
+        *,
+        buckets: Sequence[float] = Histogram.DEFAULT_BUCKETS,
     ) -> Histogram:
         if nome not in self._histograms:
-            self._histograms[nome] = Histogram(nome, descricao, rotulos or [])
+            self._histograms[nome] = Histogram(nome, descricao, rotulos or [], buckets=buckets)
         return self._histograms[nome]
 
     def get_all(self) -> bytes:
