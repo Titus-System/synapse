@@ -34,7 +34,7 @@ class TopologiaRabbitTests {
 
 	private static final List<String> FILAS_SIMPLES = List.of(RabbitTopologyConfig.REGRA_SUBMETIDA,
 			RabbitTopologyConfig.PARAMETROS_CONFIRMADOS, RabbitTopologyConfig.ETAPA_ALTERADA,
-			RabbitTopologyConfig.NO_CONCLUIDO);
+			RabbitTopologyConfig.NO_CONCLUIDO, RabbitTopologyConfig.REGRA_EXTRAIDA);
 
 	private static final String FILA_CODEGEN_SIMULADA = "simulacao-concluida.codegen";
 
@@ -65,7 +65,8 @@ class TopologiaRabbitTests {
 	void limparOBroker() throws Exception {
 		for (String fila : List.of(RabbitTopologyConfig.REGRA_SUBMETIDA, RabbitTopologyConfig.PARAMETROS_CONFIRMADOS,
 				RabbitTopologyConfig.ETAPA_ALTERADA, RabbitTopologyConfig.NO_CONCLUIDO,
-				RabbitTopologyConfig.SIMULACAO_CONCLUIDA_API, FILA_CODEGEN_SIMULADA)) {
+				RabbitTopologyConfig.REGRA_EXTRAIDA, RabbitTopologyConfig.SIMULACAO_CONCLUIDA_API,
+				FILA_CODEGEN_SIMULADA)) {
 			manter("delete", "queue", "name=" + fila);
 		}
 		manter("delete", "exchange", "name=" + RabbitTopologyConfig.SIMULACAO_CONCLUIDA_EXCHANGE);
@@ -81,7 +82,7 @@ class TopologiaRabbitTests {
 	// --- Cenários ---------------------------------------------------------------------
 
 	@Test
-	void declaraAsQuatroFilasSimplesDuraveis() throws Exception {
+	void declaraAsFilasSimplesDuraveis() throws Exception {
 		this.contexto = subirAApi();
 
 		for (String fila : FILAS_SIMPLES) {

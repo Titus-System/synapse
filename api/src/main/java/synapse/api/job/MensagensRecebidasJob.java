@@ -65,3 +65,14 @@ record SimulacaoConcluidaDto(@Nullable UUID job_id, @Nullable UUID resultado_id,
 record SugestaoAdaptacaoPropostaDto(@Nullable UUID job_id, @Nullable UUID regra_origem_id, @Nullable UUID resultado_id,
 		@Nullable RepresentacaoRegraDto representacao) {
 }
+
+/**
+ * Forma de entrada do evento {@code regra-extraida}
+ * ({@code contracts/events/regra-extraida.schema.json}). Payload vindo da fila: nada é
+ * garantido em runtime, por isso todo componente é {@code @Nullable} - é
+ * {@link RegraExtraidaConsumidor} quem valida antes de gravar, nunca a desserialização.
+ * Só referências viajam (ADR-001): a representação fica em {@code extracoes_regras}, de
+ * onde a api a lê pelo {@code extracao_id}.
+ */
+record RegraExtraidaDto(@Nullable UUID job_id, @Nullable UUID submissao_id, @Nullable UUID extracao_id) {
+}

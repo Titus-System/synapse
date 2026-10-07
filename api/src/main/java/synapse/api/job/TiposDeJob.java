@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.JsonNode;
 
@@ -34,6 +35,12 @@ record ConteudoSubmissaoDto(
 		@Nullable String texto_livre) {
 }
 
+/**
+ * Todo campo do núcleo é opcional no contrato, e o schema recusa {@code null} explícito:
+ * campo ausente tem que sair ausente, como numa extração que não citou loja nem
+ * percentual.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 record NucleoRegraDto(
 
 		@Nullable VigenciaDto vigencia,

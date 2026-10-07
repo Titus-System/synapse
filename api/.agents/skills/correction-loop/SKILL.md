@@ -75,7 +75,7 @@ O serviço devolve ao consumidor o que ele precisa emitir. `EtapaAlteradaConsumi
 
 O modelo é `SugestaoAdaptacaoConsumidor` com `aplicarSugestaoAdaptacao`: valida os campos obrigatórios no consumidor, abre a correlação, delega a um método `@Transactional` que trava o job e grava a versão e o outbox, e emite o SSE `estado` depois.
 
-**`HashDaRegra.calcular` lança `NullPointerException` sem `percentual`.** Ele faz `Objects.requireNonNull(nucleo.percentual())`, e `regra-nucleo.schema.json` não exige o campo. Percentual ausente é justamente um conflito que a validação aponta, e uma correção pode não resolvê-lo. Sem tratamento, a exceção sobe do consumidor, a mensagem volta à fila e entra em loop. O hash canônico precisa aceitar núcleo incompleto antes de gravar versões vindas de correção, e o mesmo vale para a regra extraída (`regra-extraida`, T-202). `aplicarSugestaoAdaptacao` só escapa porque recusa antes uma sugestão sem percentual positivo.
+**Núcleo incompleto é representação válida.** `regra-nucleo.schema.json` não exige campo algum, e percentual ausente é justamente um conflito que a validação aponta, que uma correção pode não resolver. `HashDaRegra.calcular` aceita núcleo sem `percentual`, e `NucleoRegraDto` omite os campos ausentes ao serializar, em vez de gravar `null`, que o schema recusa. A regra extraída (`regra-extraida`, T-202) já passa por esse caminho. Antes de calcular o hash de uma representação vinda de fora, confira-a contra o schema, como faz `RepresentacaoExtraida`: um valor de tipo errado quebraria a conversão numa exceção que a reentrega repetiria para sempre.
 
 O restante, numa transação:
 

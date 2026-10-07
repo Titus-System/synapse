@@ -1,5 +1,6 @@
 package synapse.api.job;
 
+import java.time.Duration;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -14,9 +15,12 @@ import org.springframework.util.StringUtils;
 
 import synapse.api.core.logging.CorrelationContext;
 import synapse.api.core.messaging.RabbitTopologyConfig;
+import synapse.api.core.metrics.AppMetrics;
 import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
 import synapse.api.job.JobEventosService.DesfechoAplicado;
+import synapse.api.job.JobEventosService.DesfechoDaExtracao;
+import synapse.api.job.JobEventosService.ExtracaoAplicada;
 import synapse.api.job.JobEventosService.SugestaoAplicada;
 
 /**
@@ -304,6 +308,90 @@ class SugestaoAdaptacaoConsumidor {
 			this.emissores.emitir(jobId, EventoSse.de("estado",
 					EventoEstadoDto.transicao(jobId, aplicada.origem(), JobStatus.GERANDO_REGRA, null)));
 			log.atDebug().addKeyValue("regra_id", aplicada.versao().id()).log("sugestao-adaptacao-proposta aplicada");
+		}
+	}
+
+}
+
+/**
+ * Consome {@code regra-extraida} (T-202): grava a versão raiz de um job de texto ou voz a
+ * partir do artefato que o codegen deixou em {@code extracoes_regras} e reabre o ciclo do
+ * codegen ({@link JobEventosService#aplicarRegraExtraida}). Sem a versão, o job ficaria
+ * em {@code gerando_regra} sem progresso, por isso todo descarte sai em {@code WARN} e na
+ * métrica. Descarte confirma a mensagem, porque a reentrega não o corrigiria; falha de
+ * banco propaga e vira redelivery. Nada da regra entra em log: só referências.
+ */
+@Component
+class RegraExtraidaConsumidor {
+
+	private static final Logger log = LoggerFactory.getLogger(RegraExtraidaConsumidor.class);
+
+	private static final String FALHA = "falha";
+
+	private final JobEventosService servico;
+
+	private final CorrelationContext correlacao;
+
+	private final AppMetrics metricas;
+
+	RegraExtraidaConsumidor(JobEventosService servico, CorrelationContext correlacao, AppMetrics metricas) {
+		this.servico = servico;
+		this.correlacao = correlacao;
+		this.metricas = metricas;
+	}
+
+	@RabbitListener(queues = RabbitTopologyConfig.REGRA_EXTRAIDA)
+	void receber(RegraExtraidaDto evento) {
+		UUID jobId = evento.job_id();
+		try (var escopo = this.correlacao.abrir((jobId != null) ? jobId.toString() : null, null)) {
+			log.atInfo().addKeyValue("extracao_id", evento.extracao_id()).log("consumo de regra-extraida iniciado");
+			long inicio = System.nanoTime();
+			String resultado = FALHA;
+			try {
+				ExtracaoAplicada aplicada = aplicar(evento);
+				resultado = aplicada.desfecho().resultado();
+				registrar(aplicada);
+			}
+			catch (RuntimeException ex) {
+				log.atWarn()
+					.addKeyValue("classe_falha", ex.getClass().getSimpleName())
+					.log("consumo de regra-extraida falhou; a mensagem volta para a fila");
+				throw ex;
+			}
+			finally {
+				this.metricas.regraExtraidaDuracao(resultado).record(Duration.ofNanos(System.nanoTime() - inicio));
+			}
+		}
+	}
+
+	private ExtracaoAplicada aplicar(RegraExtraidaDto evento) {
+		UUID jobId = evento.job_id();
+		UUID submissaoId = evento.submissao_id();
+		UUID extracaoId = evento.extracao_id();
+		if (jobId == null || submissaoId == null || extracaoId == null) {
+			return ExtracaoAplicada.descartada(DesfechoDaExtracao.EVENTO_INVALIDO);
+		}
+		return this.servico.aplicarRegraExtraida(jobId, submissaoId, extracaoId);
+	}
+
+	private void registrar(ExtracaoAplicada aplicada) {
+		DesfechoDaExtracao desfecho = aplicada.desfecho();
+		this.metricas.regraExtraidaConsumida(desfecho.resultado(), desfecho.motivo()).increment();
+		switch (desfecho) {
+			case PERSISTIDA -> log.atInfo()
+				.addKeyValue("resultado", desfecho.resultado())
+				.addKeyValue("motivo", desfecho.motivo())
+				.addKeyValue("regra_id", aplicada.regraId())
+				.log("regra-extraida persistida; ciclo do codegen reaberto");
+			case REENTREGA -> log.atInfo()
+				.addKeyValue("resultado", desfecho.resultado())
+				.addKeyValue("motivo", desfecho.motivo())
+				.addKeyValue("regra_id", aplicada.regraId())
+				.log("regra-extraida reentregue; versão já gravada, nada publicado de novo");
+			default -> log.atWarn()
+				.addKeyValue("resultado", desfecho.resultado())
+				.addKeyValue("motivo", desfecho.motivo())
+				.log("regra-extraida descartada; job sem nova versão");
 		}
 	}
 

@@ -16,7 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import synapse.api.core.outbox.EventoOutbox;
 import synapse.api.core.outbox.Outbox;
-import synapse.api.job.JobRepository.ContextoAdaptacao;
+import synapse.api.job.JobRepository.ContextoDoJob;
+import synapse.api.job.JobRepository.ExtracaoDaRegra;
 import synapse.api.job.VersoesDaRegra.VersaoRegra;
 
 @Service
@@ -135,11 +136,11 @@ class JobEventosService {
 		if (percentual == null || percentual.signum() <= 0) {
 			return null;
 		}
-		List<ContextoAdaptacao> contextos = this.repository.buscarContextoAdaptacaoComTrava(jobId, regraOrigemId);
+		List<ContextoDoJob> contextos = this.repository.buscarContextoComTrava(jobId);
 		if (contextos.isEmpty()) {
 			return null;
 		}
-		ContextoAdaptacao contexto = contextos.getFirst();
+		ContextoDoJob contexto = contextos.getFirst();
 		if (!List.of(JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO, JobStatus.SIMULACAO_INVIAVEL)
 			.contains(contexto.status())) {
 			return null;
@@ -172,13 +173,116 @@ class JobEventosService {
 		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		VersaoRegra versao = this.versoes.resolver(jobId, representacao, hash, "sugestao_adaptacao", regraOrigemId,
 				Timestamp.from(agora), agora);
-		RegraSubmetidaDto entrada = contexto.entrada();
-		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, new RegraSubmetidaDto(jobId, entrada.origem(),
-				entrada.competencias(), entrada.orcamento(), entrada.submissao_id(), versao.id()));
+		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, contexto.regraSubmetida(versao.id()));
 		return new SugestaoAplicada(origem, versao, desfechoOriginal);
 	}
 
 	record SugestaoAplicada(JobStatus origem, VersaoRegra versao, @Nullable DesfechoAplicado desfechoOriginal) {
+	}
+
+	/**
+	 * Grava a versão raiz de um job de texto ou voz a partir da extração do codegen e
+	 * registra o {@code regra-submetida} que reabre o ciclo, na mesma transação. Não move
+	 * o job: ele segue em {@code gerando_regra}. A trava do job serializa duas entregas
+	 * da mesma extração, e a segunda encontra a versão já gravada.
+	 */
+	@Transactional
+	ExtracaoAplicada aplicarRegraExtraida(UUID jobId, UUID submissaoId, UUID extracaoId) {
+		List<ContextoDoJob> contextos = this.repository.buscarContextoComTrava(jobId);
+		if (contextos.isEmpty()) {
+			return ExtracaoAplicada.descartada(DesfechoDaExtracao.JOB_INEXISTENTE);
+		}
+		ContextoDoJob contexto = contextos.getFirst();
+		if (!submissaoId.equals(contexto.submissaoId())) {
+			return ExtracaoAplicada.descartada(DesfechoDaExtracao.SUBMISSAO_DIVERGENTE);
+		}
+		List<ExtracaoDaRegra> extracoes = this.repository.buscarExtracao(extracaoId);
+		if (extracoes.isEmpty()) {
+			return ExtracaoAplicada.descartada(DesfechoDaExtracao.EXTRACAO_INEXISTENTE);
+		}
+		ExtracaoDaRegra extracao = extracoes.getFirst();
+		if (!extracao.jobId().equals(jobId) || !extracao.submissaoId().equals(submissaoId)) {
+			return ExtracaoAplicada.descartada(DesfechoDaExtracao.EXTRACAO_DIVERGENTE);
+		}
+		RepresentacaoRegraDto representacao = RepresentacaoExtraida.validada(extracao.representacao());
+		if (representacao == null) {
+			return ExtracaoAplicada.descartada(DesfechoDaExtracao.REPRESENTACAO_INVALIDA);
+		}
+
+		String hash = HashDaRegra.calcular(representacao);
+		List<VersaoRegra> jaGravada = this.repository.buscarRegraPorHash(jobId, hash);
+		if (!jaGravada.isEmpty() && VersoesDaRegra.ORIGEM_EXTRACAO.equals(jaGravada.getFirst().origem())) {
+			return new ExtracaoAplicada(DesfechoDaExtracao.REENTREGA, jaGravada.getFirst().id());
+		}
+		if (contexto.status() != JobStatus.GERANDO_REGRA) {
+			return ExtracaoAplicada.descartada(DesfechoDaExtracao.ESTADO_INCOMPATIVEL);
+		}
+		Integer maiorVersao = this.repository.buscarMaiorVersao(jobId);
+		if (maiorVersao != null && maiorVersao > 0) {
+			return ExtracaoAplicada.descartada(DesfechoDaExtracao.VERSAO_EXISTENTE);
+		}
+
+		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		VersaoRegra versao = this.versoes.resolverExtracao(jobId, extracaoId, hash, Timestamp.from(agora), agora);
+		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, contexto.regraSubmetida(versao.id()));
+		return new ExtracaoAplicada(DesfechoDaExtracao.PERSISTIDA, versao.id());
+	}
+
+	/**
+	 * {@code regraId} existe quando há versão da extração: gravada agora ou reentregue.
+	 */
+	record ExtracaoAplicada(DesfechoDaExtracao desfecho, @Nullable UUID regraId) {
+
+		static ExtracaoAplicada descartada(DesfechoDaExtracao desfecho) {
+			return new ExtracaoAplicada(desfecho, null);
+		}
+
+	}
+
+	/**
+	 * Desfecho do consumo de {@code regra-extraida}: o {@code resultado} e o
+	 * {@code motivo} que vão para log e métrica, de conjunto fechado. Todo descarte é
+	 * definitivo - a reentrega da mesma mensagem não o corrigiria.
+	 */
+	enum DesfechoDaExtracao {
+
+		PERSISTIDA("persistida", "nenhum"),
+
+		REENTREGA("duplicada", "reentrega"),
+
+		EVENTO_INVALIDO("descartada", "evento_invalido"),
+
+		JOB_INEXISTENTE("descartada", "job_inexistente"),
+
+		SUBMISSAO_DIVERGENTE("descartada", "submissao_divergente"),
+
+		EXTRACAO_INEXISTENTE("descartada", "extracao_inexistente"),
+
+		EXTRACAO_DIVERGENTE("descartada", "extracao_divergente"),
+
+		REPRESENTACAO_INVALIDA("descartada", "representacao_invalida"),
+
+		ESTADO_INCOMPATIVEL("descartada", "estado_incompativel"),
+
+		VERSAO_EXISTENTE("descartada", "versao_existente");
+
+		private final String resultado;
+
+		private final String motivo;
+
+		DesfechoDaExtracao(String resultado, String motivo) {
+			this.resultado = resultado;
+			this.motivo = motivo;
+		}
+
+		String resultado() {
+			return this.resultado;
+		}
+
+		String motivo() {
+			return this.motivo;
+		}
+
 	}
 
 }
