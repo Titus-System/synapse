@@ -4,11 +4,12 @@ No tools are bound here - the model only replies with text, never picks a next s
 """
 
 from typing import Any
+from uuid import UUID
 
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-from app.contratos.mensagens import NoGrafo
+from app.contratos.mensagens import EtapaAlterada, NoGrafo
 from app.core.logger import get_logger, no_ctx
 from app.falhas import FalhaDoJobError
 from app.graph.core.llm.registry import get_model, get_model_metadata
@@ -46,6 +47,9 @@ async def code_generation(state: AgentState, config: RunnableConfig) -> AgentSta
     Raises `RespostaModeloInvalidaError` when the reply is empty, blocked or truncated - a
     provider error propagates as-is. Neither case leaves partial state (AGENTS.md).
     """
+    await config["configurable"]["producers"].etapa_alterada(
+        EtapaAlterada(job_id=UUID(state["job_id"]), etapa=NO_GERACAO_CODIGO, status="iniciada")
+    )
     rule = RepresentacaoRegra.model_validate(state["representacao_regra"])
     prompt = montar_prompt_geracao(rule)
 

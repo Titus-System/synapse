@@ -9,9 +9,9 @@ Os épicos e as tarefas publicados no [projeto da Sprint 2](https://github.com/o
 - O formulário de núcleo fecha o fluxo de geração, execução em sandbox, comparação com o baseline e apresentação do resultado.
 - O núcleo contém `vigencia`, `loja`, `marca`, `cargo` e `percentual`. Matrícula pode ser alvo de uma especificação; não é campo do núcleo.
 - A representação já admite `faixa_valor`, `condicao_limiar`, `janela_datas`, `exclusao`, `bonus_fixo` e `generico`. O fluxo atual de entrada não produz essas especificações.
-- O grafo ativo começa lendo uma regra já estruturada: `load_rule → code_generation → persist_response → extract_code → dispatch_execution → await_execution → decision`, com desvio condicional para `suggest_adaptation`.
-- O codegen consome `regra-submetida` e `simulacao-concluida.codegen`. A API publica `parametros-confirmados`, mas o codegen ainda não o consome.
-- A validação de domínio existe no caminho de adaptação; sua aplicação no fluxo principal ainda é trabalho da Sprint 2.
+- O ciclo de regra estruturada percorre `load_rule → validate_domain → code_generation → persist_response → extract_code → dispatch_execution → await_execution → decision`, com desvio para `reject_rule` quando há conflitos e para `suggest_adaptation` conforme o veredito. Sem versão de regra, `extract_rule` publica a referência da extração e encerra o ciclo.
+- O codegen consome `regra-submetida`, `parametros-confirmados` e `simulacao-concluida.codegen`. A confirmação abre o ciclo da versão informada com competências e orçamento; o consumo de `regra-extraida` pela API e a abertura do ciclo após extração pertencem à T-202.
+- Toda versão estruturada passa por `validate_domain`, entre `load_rule` e `code_generation`, usando a mesma função determinística `verificar` da adaptação. Uma regra com conflitos segue para `reject_rule` e termina em erro na etapa `validacao_dominio`, sem chamar o modelo nem gravar prompts ou respostas. O chatbot de correção continua sendo trabalho do E3.
 - O worker grava o resultado. A API consulta o artefato e atualiza o estado do job; não substitui o worker como produtor dos valores.
 - O dataset publicado e os baselines abrangem agosto a dezembro de 2025. Julho existe na fonte bruta e está excluído da simulação.
 

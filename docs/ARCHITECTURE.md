@@ -358,15 +358,19 @@ O escopo e as decisões de integração estão consolidados em [Fluxo e decisõe
 **Grafo implementado:**
 
 ```text
-load_rule → code_generation → persist_response → extract_code
+load_rule → validate_domain
+            ├─ barrada → reject_rule → erro (validacao_dominio)
+            └─ liberada → code_generation → persist_response → extract_code
 → dispatch_execution → await_execution → decision
                                         ├─ suggest_adaptation → END
                                         └─ END
 ```
 
-O estado ativo é `AgentState`, em `app/graph/core/state.py`. O grafo lê uma regra já estruturada, recebe o orçamento no evento de entrada e usa um ciclo por `job_id:regra_id`. Consome `regra-submetida`, `parametros-confirmados` e `simulacao-concluida.codegen`. A confirmação abre o ciclo da versão com competências e orçamento do evento; sem competências, é descartada sem falhar o job. A extração inicial e os demais passos do loop de validação/correção ainda precisam ser integrados.
+O estado ativo é `AgentState`, em `app/graph/core/state.py`. O grafo lê uma regra já estruturada, recebe o orçamento no evento de entrada e usa um ciclo por `job_id:regra_id`. Consome `regra-submetida`, `parametros-confirmados` e `simulacao-concluida.codegen`. A confirmação abre o ciclo da versão com competências e orçamento do evento; sem competências, é descartada sem falhar o job. Toda versão passa pela validação determinística de domínio, independentemente da origem. O estado guarda `regra_liberada` e conflitos como dicionários com `elementos` e `motivo`; motivos e valores da regra não vão para telemetria. Regra barrada termina em erro antes da geração; o loop de correção continua como evolução do E3.
 
-O motor de extração e seu repositório existem separadamente do grafo (T-203). Usam a LLM configurada no registry e persistem prompt, resposta original e representação completa em uma transação; o artefato fica em `extracoes_regras`. A conexão ao grafo e a publicação pertencem à T-204; o consumo pela API e a criação da versão de `regras`, à T-202. Ver [extração no codegen](../codegen/docs/extracao.md).
+Sem `regra_id`, o nó `extract_rule` usa o motor de extração e seu repositório (T-203/T-204), persiste prompt, resposta original e representação completa em uma transação e publica a referência em `regra-extraida`. Esse ciclo termina após a publicação. O consumo pela API, a criação da versão de `regras` e a abertura do ciclo estruturado pertencem à T-202; esse ciclo passa por `load_rule` e `validate_domain`. Ver [extração no codegen](../codegen/docs/extracao.md).
+
+`load_rule` anuncia `validacao_dominio` antes da leitura. `validate_domain` publica `no-concluido` nos dois desfechos, com identidade derivada de job, nó e versão; o resumo inclui somente contagem e referências dos elementos em conflito. `code_generation` anuncia `geracao_codigo` apenas quando a regra foi liberada. Os logs do nó usam `job_id` e `no = validacao_dominio`; as métricas contam execuções e duração em `job_runs_total`/`job_duration_seconds` com `job_name = validate_domain`, falhas do nó em `job_failures_total` e resultados em `codegen_validacao_dominio_resultados_total` (`liberada` ou `barrada`). Uma regra barrada não conta como falha do nó; reentrega descartada pelo checkpoint não conta novamente.
 
 **Evolução aprovada para a Sprint 2:**
 
