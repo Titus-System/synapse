@@ -230,6 +230,8 @@ def _estado_inicial(mensagem: RegraSubmetida) -> AgentState:
     }
     if mensagem.regra_id is not None:
         estado["regra_id"] = str(mensagem.regra_id)
+    if mensagem.submissao_id is not None:
+        estado["submissao_id"] = str(mensagem.submissao_id)
     if mensagem.orcamento is not None:
         estado["orcamento"] = str(mensagem.orcamento)
     return estado

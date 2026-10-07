@@ -24,6 +24,7 @@ class AgentState(TypedDict, total=False):
     # T-094 (initial state, from `regra-submetida`)
     job_id: str
     regra_id: str
+    submissao_id: str
     origem: str
     competencias: list[str]
     orcamento: str  # decimal text, never float - see `app/tipos_estado.py::Orcamento`

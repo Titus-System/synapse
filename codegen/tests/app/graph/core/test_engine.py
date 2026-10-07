@@ -41,6 +41,7 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
     assert set(drawable.nodes) == {
         "__start__",
         "load_rule",
+        "extract_rule",
         "code_generation",
         "persist_response",
         "extract_code",
@@ -53,6 +54,8 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
     edges = {(edge.source, edge.target) for edge in drawable.edges}
     assert edges == {
         ("__start__", "load_rule"),
+        ("__start__", "extract_rule"),
+        ("extract_rule", "__end__"),
         ("load_rule", "code_generation"),
         ("code_generation", "persist_response"),
         ("persist_response", "extract_code"),

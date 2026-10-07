@@ -6,12 +6,15 @@ from app.contratos.mensagens import (
     EtapaAlterada,
     ExecutarCodigo,
     NoConcluido,
+    RegraExtraida,
     SugestaoAdaptacaoProposta,
 )
 from app.contratos.serializacao import serializar
 from app.contratos.validacao import validar
 
-type Saida = ExecutarCodigo | EtapaAlterada | NoConcluido | SugestaoAdaptacaoProposta
+type Saida = (
+    ExecutarCodigo | EtapaAlterada | NoConcluido | SugestaoAdaptacaoProposta | RegraExtraida
+)
 
 
 class ProdutorError(Exception):
@@ -44,6 +47,9 @@ class Producers:
 
     async def executar_codigo(self, dto: ExecutarCodigo) -> None:
         await self._publicar(dto, "executar-codigo")
+
+    async def regra_extraida(self, dto: RegraExtraida) -> None:
+        await self._publicar(dto, "regra-extraida")
 
     async def etapa_alterada(self, dto: EtapaAlterada) -> None:
         await self._publicar(dto, "etapa-alterada")

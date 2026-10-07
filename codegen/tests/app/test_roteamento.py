@@ -82,6 +82,7 @@ async def test_entregar_monta_o_estado_inicial_a_partir_do_evento(
         "origem": "formulario",
         "competencias": ["2025-11"],
         "regra_id": str(REGRA_ID),
+        "submissao_id": str(SUBMISSAO_ID),
         "orcamento": "485000.00",
     }
 

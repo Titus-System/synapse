@@ -68,7 +68,8 @@ class ConfirmacaoFalsa:
         return publicar
 
     async def estado(self, payload: dict[str, Any]) -> StateSnapshot:
-        thread = thread_do_ciclo(UUID(payload["job_id"]), UUID(payload["regra_id"]))
+        regra_id = payload.get("regra_id")
+        thread = thread_do_ciclo(UUID(payload["job_id"]), UUID(regra_id) if regra_id else None)
         return await build_graph(self.saver).aget_state({"configurable": {"thread_id": thread}})
 
 
