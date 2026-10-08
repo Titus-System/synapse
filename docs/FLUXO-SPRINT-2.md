@@ -99,15 +99,22 @@ Há uma tentativa automática de regra alternativa para o recorte suportado: reg
 
 Esse mecanismo não garante uma alternativa para toda regra inviável e não deve ser apresentado como suporte já comprovado para adaptações de todos os construtos.
 
-### Cenário de vendas planejado
+### Simulação na meta e sugestões planejadas
 
-E5 acrescenta uma leitura mantendo a regra e variando o volume de vendas. A premissa aprovada é uma taxa global uniforme aplicada proporcionalmente às vendas existentes: R$ 100 e R$ 200 tornam-se R$ 110 e R$ 220 sob crescimento de 10%. As proporções entre lojas, pessoas, marcas e competências são preservadas.
+O usuário pode dizer, no texto ou no áudio da regra, uma meta de venda e um orçamento de comissão; os dois são opcionais. A T-269 define o contrato, com a compatibilidade campo a campo em [`contracts/domain/README.md`](../contracts/domain/README.md).
 
-Esse resultado é um cenário hipotético, não uma previsão nem uma correlação causal. A taxa, as vendas e as comissões de cada candidato precisam ser apuradas por código determinístico no worker; o codegen coordena o processamento e apresenta referências ao resultado.
+- **Simulação na meta.** A meta é o total de vendas das competências do job. As vendas de todas as lojas, marcas e cargos são escaladas por um fator único, `meta_venda / total histórico de vendas do período`, preservando as proporções: com total histórico de R$ 10 milhões e meta de R$ 11 milhões, R$ 100 e R$ 200 tornam-se R$ 110 e R$ 220. A simulação é exata: o sandbox escala as vendas e reapura o baseline antes de chamar o código gerado, porque a apuração não é linear nas vendas. Vale para qualquer regra, com ou sem especificações. Sem meta, a simulação usa as vendas históricas. O total histórico do período sai no resultado, em `totais.vendas_historicas`.
+- **Sem orçamento.** A simulação é feita sem a verificação de orçamento. O resultado é só o valor da comissão, sem veredito, e nenhuma das duas sugestões é feita, porque as duas dependem do orçamento.
+- **Taxa nova.** Quando a regra é só de núcleo e a comissão na meta passa do orçamento, o codegen sugere uma taxa nova. Como o percentual é uma constante do código gerado, cada taxa candidata é uma versão alternativa com geração e simulação próprias, em até três tentativas (`sugestao-adaptacao-proposta.tentativa`). A primeira é estimada a partir dos totais na meta, e as seguintes refinam a estimativa com as tentativas anteriores. Sem taxa que caiba, a iteração termina com `etapa-alterada` em `sugestao_adaptacao` e `status = sem_alternativa`. O usuário vê só a alternativa que coube ou o fim das tentativas.
+- **Meta maior.** Quando a regra é só de núcleo e a comissão na meta fica abaixo do orçamento, o codegen busca a maior meta em que a comissão ainda cabe, com a regra mantida. Cada candidata é uma simulação real do mesmo código, sem chamar a LLM, publicada com `proposito = busca_meta`, e não é desfecho do job. A busca termina com `meta-venda-sugerida`: a meta encontrada, com a referência da execução que a simulou, ou `sem_solucao` com o motivo. Aceita pelo usuário (`aceitar_meta`), a simulação dessa execução passa a ser a vigente do job, sem versão nova da regra.
 
-Não se pode prometer que aumentar vendas faça uma comissão caber em um orçamento absoluto fixo. Algumas regras aumentam o custo junto com as vendas; outras têm faixas, bônus ou descontinuidades. A busca precisa explicitar seu critério, intervalo e tratamento de ausência de solução. Bisseção só é adequada onde a condição pesquisada tiver a monotonicidade necessária.
+Esse resultado é um cenário hipotético, não uma previsão nem uma correlação causal. A taxa, as vendas e as comissões de cada candidato são apuradas por código determinístico no worker; o codegen coordena o processamento, escolhe o próximo candidato por aritmética sobre os resultados do worker e apresenta referências ao resultado.
+
+Não se pode prometer que aumentar vendas faça uma comissão caber em um orçamento absoluto fixo. Algumas regras aumentam o custo junto com as vendas; outras têm faixas, bônus ou descontinuidades. A busca da meta parte de um candidato que passa do orçamento e estreita o intervalo entre a maior meta que cabe e a menor que não cabe. Ela só confia nesse intervalo enquanto a comissão não diminui quando a meta aumenta: um candidato maior com comissão menor encerra a busca com `sem_solucao` e motivo `nao_monotonica`. O limite de candidatos esgotado antes de passar do orçamento é `intervalo_esgotado`, e uma candidata que não termina em sucesso é `falha_execucao`.
 
 A saída complementar está prevista na [T-200 B](https://github.com/Titus-System/synapse/issues/186). Ela é distinta da proposta de regra alternativa.
+
+A implementação é das T-270 (worker), T-271 a T-273 (codegen), T-274 e T-275 (api), T-276 (frontend) e T-281 (simulação sem orçamento).
 
 ## 6. Rastreabilidade dos valores
 
@@ -135,11 +142,11 @@ A T-258 implementa a migration, a T-259 produz e grava o artefato, a T-260 imple
 
 ## 7. Campanhas, nomes e navegação
 
-“Campanha” é a apresentação de um job com resultado final válido e veredito viável. Neste escopo, não é uma entidade nova que agrupa vários jobs. O job técnico continua existindo mesmo quando não há campanha válida.
+“Campanha” é a apresentação de um job com resultado final válido e veredito viável, ou com resultado final válido sem orçamento, que não tem veredito. Neste escopo, não é uma entidade nova que agrupa vários jobs. O job técnico continua existindo mesmo quando não há campanha válida.
 
 - A campanha reúne as versões da regra, suas simulações e seus resultados.
 - A versão nova proveniente de sugestão substitui a anterior como regra vigente, preservando as anteriores no histórico.
-- Uma simulação viável oferece a opção de salvar na finalização; essa tela encaminha para salvos.
+- Uma simulação viável, ou feita sem orçamento, oferece a opção de salvar na finalização; essa tela encaminha para salvos.
 - Se a regra for inviável e o usuário não seguir com a sugestão, ela não é salva como campanha e permanece acessível na lista de conversas do menu lateral.
 - A tela de salvos leva ao relatório e não exibe status.
 - Os filtros de loja, marca, cargo e vigência devem admitir múltiplas seleções.

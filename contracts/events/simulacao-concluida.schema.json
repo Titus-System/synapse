@@ -37,15 +37,15 @@
         "inviavel",
         "indeterminado"
       ],
-      "description": "Viabilidade orçamentária, derivada do total simulado contra o orçamento aplicado. Ausente quando o status não é sucesso, porque aí não há número que sustente veredito."
+      "description": "Viabilidade orçamentária, derivada do total simulado contra o orçamento aplicado. Ausente quando o status não é sucesso, porque aí não há número que sustente veredito. Ausente também num sucesso cujo comando de execução não trouxe orçamento: o número vale, mas não há critério que o julgue, e totais.orcamento fica ausente no resultado gravado. Um sucesso sem veredito só é publicado depois de a API reconhecê-lo como resultado válido (T-281)."
     },
     "total_baseline": {
       "$ref": "../domain/comum.schema.json#/$defs/brl",
-      "description": "Comissionamento apurado pelas regras vigentes, somado no período. Ausente quando o status não é sucesso."
+      "description": "Comissionamento apurado pelas regras vigentes, somado no período. Com meta_venda, é o baseline reapurado sobre as vendas escaladas até a meta. Ausente quando o status não é sucesso."
     },
     "total_simulado": {
       "$ref": "../domain/comum.schema.json#/$defs/brl",
-      "description": "Comissionamento apurado pela regra proposta, somado no período. Ausente quando o status não é sucesso."
+      "description": "Comissionamento apurado pela regra proposta, somado no período. Com meta_venda, é apurado sobre as vendas escaladas até a meta. Ausente quando o status não é sucesso."
     },
     "diferenca_abs": {
       "$ref": "../domain/comum.schema.json#/$defs/brl",
@@ -54,6 +54,14 @@
     "diferenca_pct": {
       "$ref": "../domain/comum.schema.json#/$defs/fracao",
       "description": "Diferença absoluta sobre o baseline, expressa como fração e nunca como porcentagem: 0.025 são 2,5%."
+    },
+    "meta_venda": {
+      "$ref": "executar-codigo.schema.json#/properties/meta_venda",
+      "description": "Meta de venda em que a execução foi simulada, a mesma do comando executar-codigo e gravada em resultados_simulacao.meta_venda. Ausente quando a execução usou as vendas históricas. É por ela que o codegen associa cada execução candidata da busca à meta que testou."
+    },
+    "proposito": {
+      "$ref": "executar-codigo.schema.json#/properties/proposito",
+      "description": "Propósito recebido no comando executar-codigo, devolvido como veio e gravado em resultados_simulacao.proposito. Ausente equivale a simulacao. Com busca_meta, a execução é candidata da busca da meta maior: a API não a trata como desfecho do job, não muda o estado nem anuncia o resultado ao usuário, e só o codegen a usa para escolher o próximo candidato."
     }
   },
   "examples": [

@@ -47,6 +47,18 @@
     "events/parametros-confirmados-meta-venda.json": "events/parametros-confirmados.schema.json",
     "events/correcao-submetida-parametros.json": "events/correcao-submetida.schema.json",
     "events/correcao-proposta-parametros.json": "events/correcao-proposta.schema.json",
-    "events/etapa-alterada-conflitos-parametros.json": "events/etapa-alterada.schema.json"
+    "events/etapa-alterada-conflitos-parametros.json": "events/etapa-alterada.schema.json",
+    "events/executar-codigo-meta-venda.json": "events/executar-codigo.schema.json",
+    "events/executar-codigo-busca-meta.json": "events/executar-codigo.schema.json",
+    "events/executar-codigo-sem-orcamento.json": "events/executar-codigo.schema.json",
+    "domain/resultado-totais-meta-venda.json": "domain/resultado-totais.schema.json",
+    "domain/resultado-totais-sem-orcamento.json": "domain/resultado-totais.schema.json",
+    "events/simulacao-concluida-meta-venda.json": "events/simulacao-concluida.schema.json",
+    "events/simulacao-concluida-busca-meta.json": "events/simulacao-concluida.schema.json",
+    "events/simulacao-concluida-sem-orcamento.json": "events/simulacao-concluida.schema.json",
+    "events/meta-venda-sugerida.json": "events/meta-venda-sugerida.schema.json",
+    "events/meta-venda-sugerida-sem-solucao.json": "events/meta-venda-sugerida.schema.json",
+    "events/sugestao-adaptacao-proposta-tentativa.json": "events/sugestao-adaptacao-proposta.schema.json",
+    "events/etapa-alterada-sem-alternativa.json": "events/etapa-alterada.schema.json"
   }
 }

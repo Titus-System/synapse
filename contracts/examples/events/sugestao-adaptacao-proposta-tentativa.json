@@ -1,0 +1,25 @@
+{
+  "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+  "regra_origem_id": "6b5a4938-2716-4e5d-8c3b-2a1f0e9d8c7b",
+  "resultado_id": "7a6b5c4d-3e2f-4a1b-9c8d-7e6f5a4b3c2d",
+  "representacao": {
+    "nucleo": {
+      "vigencia": {
+        "inicio": "2025-08",
+        "fim": "2025-12"
+      },
+      "loja": [
+        "13"
+      ],
+      "marca": [
+        "10"
+      ],
+      "cargo": [
+        "100"
+      ],
+      "percentual": 0.0183
+    },
+    "especificacoes": []
+  },
+  "tentativa": 2
+}

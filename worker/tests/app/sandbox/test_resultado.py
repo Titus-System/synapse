@@ -621,8 +621,8 @@ def cenario_varias_dimensoes_em_duas_competencias() -> Cenario:
 def com_orcamento(resultado: ResultadoSimulacao) -> dict[str, Any]:
     """O passo que o worker faz fora do container (T-066).
 
-    O schema exige `totais.orcamento`, que o container não recebe; o teste faz aqui
-    o que o worker fará lá.
+    O container não recebe o orçamento, e o worker o acrescenta a `totais` quando o comando o
+    traz; o teste faz aqui o que o worker fará lá.
     """
     payload: dict[str, Any] = dict(resultado)
     payload["totais"] = {**resultado["totais"], "orcamento": 485000.0}
@@ -676,7 +676,6 @@ def test_saida_valida_contra_o_schema_pelo_validador_do_contrato(cenario: Cenari
 @pytest.mark.parametrize(
     ("adulteracao", "trecho_do_erro"),
     [
-        (lambda p: p["totais"].pop("orcamento"), "orcamento"),
         (lambda p: p.pop("decomposicao"), "decomposicao"),
         (lambda p: p["decomposicao"].pop("competencia"), "competencia"),
         (lambda p: p["decomposicao"]["elemento"].update({"foo": 1.0}), "foo"),
@@ -684,7 +683,6 @@ def test_saida_valida_contra_o_schema_pelo_validador_do_contrato(cenario: Cenari
         (lambda p: p["decomposicao"]["loja"].update({"13": "abc"}), "abc"),
     ],
     ids=[
-        "sem_orcamento",
         "sem_decomposicao",
         "sem_quebra_por_competencia",
         "elemento_ref_invalido",

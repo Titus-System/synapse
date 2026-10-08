@@ -29,12 +29,10 @@ EXEMPLOS_DE_DIAGNOSTICO = sorted(
 )
 
 
-def test_o_schema_exige_o_orcamento_que_o_container_nao_tem() -> None:
-    """A razão de o worker acrescentar `totais.orcamento` antes de validar: o schema o exige
-    e a saída do container nunca o traz."""
-    erros = [e.validator for e in validador().iter_errors(RESULTADO)]
-
-    assert "required" in erros
+def test_o_schema_aceita_totais_sem_orcamento() -> None:
+    """Job sem orçamento é simulado sem a verificação de orçamento (T-269): o schema não exige
+    `totais.orcamento`, e quem o acrescenta, quando o comando o traz, é o worker."""
+    assert list(validador().iter_errors(RESULTADO)) == []
 
 
 def test_o_resultado_do_container_valida_com_o_orcamento_do_worker() -> None:
