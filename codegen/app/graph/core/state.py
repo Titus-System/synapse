@@ -7,6 +7,11 @@ from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
 
+class ConflitoDominio(TypedDict):
+    elementos: list[str]
+    motivo: str
+
+
 class AgentState(TypedDict, total=False):
     """Shared graph state - see `.agents/skills/graph/SKILL.md`.
 
@@ -31,6 +36,8 @@ class AgentState(TypedDict, total=False):
 
     # T-096 (this task)
     representacao_regra: dict[str, Any]
+    regra_liberada: bool
+    conflitos: list[ConflitoDominio]
     prompt_enviado: str
     resposta_bruta: str
     modelo: dict[str, Any]

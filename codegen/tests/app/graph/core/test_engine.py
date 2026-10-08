@@ -32,8 +32,8 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
     """Every registered node is reachable, from START to END.
 
     Guards against a node left in the graph without an edge, which reads as part of the
-    pipeline in `docs/graph.md` but never runs. Uma linha reta até a pausa e uma única
-    ramificação depois dela, no nó de decisão.
+    pipeline in `docs/graph.md` but never runs. Conflicts branch before generation;
+    the worker's verdict routes the flow after the execution pause.
     """
     graph = build_graph(InMemorySaver())
 
@@ -42,6 +42,8 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
         "__start__",
         "load_rule",
         "extract_rule",
+        "validate_domain",
+        "reject_rule",
         "code_generation",
         "persist_response",
         "extract_code",
@@ -56,7 +58,10 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
         ("__start__", "load_rule"),
         ("__start__", "extract_rule"),
         ("extract_rule", "__end__"),
-        ("load_rule", "code_generation"),
+        ("load_rule", "validate_domain"),
+        ("validate_domain", "code_generation"),
+        ("validate_domain", "reject_rule"),
+        ("reject_rule", "__end__"),
         ("code_generation", "persist_response"),
         ("persist_response", "extract_code"),
         ("extract_code", "dispatch_execution"),

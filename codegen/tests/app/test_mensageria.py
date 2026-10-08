@@ -366,7 +366,7 @@ async def test_falha_ao_registrar_o_encerramento_reentrega_a_mensagem() -> None:
 @pytest.mark.parametrize(
     ("falha", "etapa"),
     [
-        (RegraInvalidaError, "geracao_codigo"),
+        (RegraInvalidaError, "validacao_dominio"),
         (RespostaModeloInvalidaError, "geracao_codigo"),
         (CodigoInvalidoError, "geracao_codigo"),
         (OrcamentoAusenteError, "delegacao_worker"),

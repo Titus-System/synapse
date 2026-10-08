@@ -1,6 +1,7 @@
 import logging
 import re
 from collections.abc import Callable, Iterable
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
@@ -14,13 +15,18 @@ from tests.app.graph.conftest import FakeChatModel
 
 ScriptedModel = Callable[[Iterable[AIMessage]], FakeChatModel]
 
-_REGRA: AgentState = {"representacao_regra": {"nucleo": {}, "especificacoes": []}}
+_REGRA: AgentState = {
+    "job_id": "d9cf3b9e-c99e-4c1e-9f9e-2e6e3a5b0a11",
+    "representacao_regra": {"nucleo": {}, "especificacoes": []},
+}
 
 
 @pytest.mark.llm
 @pytest.mark.skipif(not get_settings().GOOGLE_API_KEY, reason="requer GOOGLE_API_KEY")
 async def test_code_generation_calls_the_real_provider_and_returns_one_python_block() -> None:
-    update = await code_generation(_REGRA, {"configurable": {}})
+    update = await code_generation(
+        _REGRA, {"configurable": {"producers": MagicMock(etapa_alterada=AsyncMock())}}
+    )
 
     assert re.findall(r"```python\b", update["resposta_bruta"]) == ["```python"]
     assert update["resposta_bruta"].count("```") == 2
@@ -35,7 +41,9 @@ async def test_code_generation_sends_exactly_the_generation_prompt(
 ) -> None:
     model = scripted_model([AIMessage(content="```python\ndef aplicar_regra(): ...\n```")])
 
-    await code_generation(_REGRA, {"configurable": {}})
+    await code_generation(
+        _REGRA, {"configurable": {"producers": MagicMock(etapa_alterada=AsyncMock())}}
+    )
 
     regra = RepresentacaoRegra.model_validate(_REGRA["representacao_regra"])
     esperado = montar_prompt_geracao(regra)
@@ -59,7 +67,9 @@ async def test_code_generation_sends_only_its_prompt_and_ignores_the_message_his
         ],
     }
 
-    await code_generation(state, {"configurable": {}})
+    await code_generation(
+        state, {"configurable": {"producers": MagicMock(etapa_alterada=AsyncMock())}}
+    )
 
     regra = RepresentacaoRegra.model_validate(_REGRA["representacao_regra"])
     assert [m.content for m in model.seen_messages[0]] == [montar_prompt_geracao(regra)]
@@ -68,7 +78,9 @@ async def test_code_generation_sends_only_its_prompt_and_ignores_the_message_his
 async def test_code_generation_binds_no_tools(scripted_model: ScriptedModel) -> None:
     model = scripted_model([AIMessage(content="```python\n...\n```")])
 
-    await code_generation(_REGRA, {"configurable": {}})
+    await code_generation(
+        _REGRA, {"configurable": {"producers": MagicMock(etapa_alterada=AsyncMock())}}
+    )
 
     assert model.bound_tools == []
 
@@ -88,7 +100,9 @@ async def test_code_generation_extracts_text_from_a_list_of_content_parts(
     )
     scripted_model([resposta])
 
-    update = await code_generation(_REGRA, {"configurable": {}})
+    update = await code_generation(
+        _REGRA, {"configurable": {"producers": MagicMock(etapa_alterada=AsyncMock())}}
+    )
 
     assert update["resposta_bruta"] == "```python\ndef aplicar_regra(): ...\n```"
 
@@ -98,7 +112,9 @@ async def test_code_generation_returns_prompt_and_raw_response_verbatim(
 ) -> None:
     scripted_model([AIMessage(content="```python\ndef aplicar_regra(): ...\n```")])
 
-    update = await code_generation(_REGRA, {"configurable": {}})
+    update = await code_generation(
+        _REGRA, {"configurable": {"producers": MagicMock(etapa_alterada=AsyncMock())}}
+    )
 
     assert update["resposta_bruta"] == "```python\ndef aplicar_regra(): ...\n```"
     assert update["prompt_enviado"] == montar_prompt_geracao(
@@ -109,7 +125,9 @@ async def test_code_generation_returns_prompt_and_raw_response_verbatim(
 async def test_code_generation_records_model_metadata(scripted_model: ScriptedModel) -> None:
     scripted_model([AIMessage(content="```python\n...\n```")])
 
-    update = await code_generation(_REGRA, {"configurable": {}})
+    update = await code_generation(
+        _REGRA, {"configurable": {"producers": MagicMock(etapa_alterada=AsyncMock())}}
+    )
 
     assert update["modelo"] == {
         "provedor": "google",
@@ -128,7 +146,9 @@ async def test_code_generation_records_token_usage_when_the_provider_reports_it(
     )
     scripted_model([resposta])
 
-    update = await code_generation(_REGRA, {"configurable": {}})
+    update = await code_generation(
+        _REGRA, {"configurable": {"producers": MagicMock(etapa_alterada=AsyncMock())}}
+    )
 
     assert update["consumo_tokens"] == {"tokens_in": 120, "tokens_out": 40}
 
@@ -138,7 +158,9 @@ async def test_code_generation_omits_token_usage_when_the_provider_does_not_repo
 ) -> None:
     scripted_model([AIMessage(content="```python\n...\n```")])
 
-    update = await code_generation(_REGRA, {"configurable": {}})
+    update = await code_generation(
+        _REGRA, {"configurable": {"producers": MagicMock(etapa_alterada=AsyncMock())}}
+    )
 
     assert "consumo_tokens" not in update
 
@@ -147,7 +169,9 @@ async def test_code_generation_raises_on_an_empty_response(scripted_model: Scrip
     scripted_model([AIMessage(content="")])
 
     with pytest.raises(RespostaModeloInvalidaError):
-        await code_generation(_REGRA, {"configurable": {}})
+        await code_generation(
+            _REGRA, {"configurable": {"producers": MagicMock(etapa_alterada=AsyncMock())}}
+        )
 
 
 @pytest.mark.parametrize(
@@ -175,7 +199,9 @@ async def test_code_generation_raises_when_the_provider_does_not_stop_cleanly(
     scripted_model([resposta])
 
     with pytest.raises(RespostaModeloInvalidaError):
-        await code_generation(_REGRA, {"configurable": {}})
+        await code_generation(
+            _REGRA, {"configurable": {"producers": MagicMock(etapa_alterada=AsyncMock())}}
+        )
 
 
 async def test_code_generation_raises_when_the_provider_reports_no_finish_reason(
@@ -187,7 +213,9 @@ async def test_code_generation_raises_when_the_provider_reports_no_finish_reason
     scripted_model([resposta])
 
     with pytest.raises(RespostaModeloInvalidaError):
-        await code_generation(_REGRA, {"configurable": {}})
+        await code_generation(
+            _REGRA, {"configurable": {"producers": MagicMock(etapa_alterada=AsyncMock())}}
+        )
 
 
 async def test_code_generation_never_logs_the_rule_prompt_or_response(
@@ -199,7 +227,9 @@ async def test_code_generation_never_logs_the_rule_prompt_or_response(
         caplog.at_level(logging.ERROR, logger="app.graph.nodes.code_generation"),
         pytest.raises(RespostaModeloInvalidaError),
     ):
-        await code_generation(_REGRA, {"configurable": {}})
+        await code_generation(
+            _REGRA, {"configurable": {"producers": MagicMock(etapa_alterada=AsyncMock())}}
+        )
 
     texto = " ".join(registro.getMessage() for registro in caplog.records)
     assert "aplicar_regra" not in texto

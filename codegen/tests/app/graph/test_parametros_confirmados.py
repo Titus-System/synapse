@@ -70,6 +70,8 @@ async def test_confirmacao_abre_load_rule_e_delega_contexto_exato(
         "etapa-alterada",
         "no-concluido",
         "etapa-alterada",
+        "no-concluido",
+        "etapa-alterada",
         "executar-codigo",
         "no-concluido",
     ]
@@ -311,7 +313,12 @@ async def test_metricas_e_logs_dos_tres_resultados_passam_pelo_roteador_real(
         "reentrega_ignorada": 1,
         "descartada": 1,
     }
-    resultados = [log for log in logs if "resultado" in log.get("extra", {})]
+    resultados = [
+        log
+        for log in logs
+        if "resultado" in log.get("extra", {})
+        and log["extra"].get("tipo_mensagem") == "parametros-confirmados"
+    ]
     assert [
         (log["extra"]["resultado"], log["job_id"], log["extra"]["regra_id"]) for log in resultados
     ] == [
@@ -342,7 +349,7 @@ async def test_cobertura_passa_pelo_consumidor_grafo_e_observabilidade(
     falha_permanente: bool,
 ) -> None:
     regra: dict[str, Any] = {
-        "nucleo": {},
+        "nucleo": {"percentual": Decimal("0.025")} if refs else {},
         "especificacoes": [
             {"ref": ref, "construto": "generico", "descricao": "REGRA_PRIVADA", "campos": {}}
             for ref in refs
@@ -359,16 +366,15 @@ async def test_cobertura_passa_pelo_consumidor_grafo_e_observabilidade(
         recebida.reject.assert_awaited_once_with(requeue=False)
         recebida.ack.assert_not_awaited()
         ambiente.producers.executar_codigo.assert_not_awaited()
+        etapa = "delegacao_worker" if refs else "validacao_dominio"
         delegacoes = [
             p
             for nome, p in ambiente.publicacoes
-            if nome == "etapa-alterada" and p["etapa"] == "delegacao_worker"
+            if nome == "etapa-alterada" and p["etapa"] == etapa and p["status"] == "erro"
         ]
-        assert delegacoes == [
-            {"job_id": payload["job_id"], "etapa": "delegacao_worker", "status": "erro"}
-        ]
+        assert delegacoes == [{"job_id": payload["job_id"], "etapa": etapa, "status": "erro"}]
         assert any(
-            log.get("extra", {}).get("etapa") == "delegacao_worker"
+            log.get("extra", {}).get("etapa") == etapa
             and log["extra"].get("decisao") == "reject_sem_requeue"
             for log in logs
         )
@@ -376,7 +382,7 @@ async def test_cobertura_passa_pelo_consumidor_grafo_e_observabilidade(
         recebida.ack.assert_awaited_once_with()
         recebida.reject.assert_not_awaited()
         [comando] = [p for nome, p in ambiente.publicacoes if nome == "executar-codigo"]
-        assert comando["elementos_exigidos"] == ["elem.2", "elem.1"]
+        assert comando["elementos_exigidos"] == ["nucleo.percentual", "elem.2", "elem.1"]
         assert (await ambiente.estado(payload)).next == ("await_execution",)
     recebida.nack.assert_not_awaited()
     depois = amostras((await cliente.get("/metrics")).text)
