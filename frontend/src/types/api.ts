@@ -35,7 +35,7 @@ export type StatusJob =
   | 'erro'
 
 export type OrigemJob = 'formulario' | 'voz' | 'reprocessamento' | 'texto'
-export type AcaoJob = 'confirmar_liberar' | 'cancelar' | 'salvar' | 'arquivar'
+export type AcaoJob = 'confirmar_liberar' | 'cancelar' | 'salvar' | 'arquivar' | 'aceitar_meta'
 export type Veredito = 'viavel' | 'inviavel' | 'indeterminado'
 export type StatusResultado = 'sucesso' | 'assercao_violada' | 'erro_codigo' | 'erro_infra'
 
@@ -107,7 +107,8 @@ export interface TotaisSimulacao {
   simulado: number
   diferenca_abs: number
   diferenca_pct: number
-  orcamento: number
+  orcamento?: number
+  vendas_historicas?: number
 }
 
 export interface ResultadoAssercao {
@@ -154,8 +155,23 @@ export interface Simulacao {
   status: StatusResultado | null
   flag_baixa_rastreabilidade: boolean
   veredito?: Veredito | null
+  meta_venda?: number
   resultado?: ResultadoSimulacao | null
 }
+
+export type MotivoMetaSemSolucao = 'nao_monotonica' | 'intervalo_esgotado' | 'falha_execucao'
+
+export interface MetaEncontrada {
+  meta_venda: number
+  total_simulado: number
+  orcamento: number
+}
+
+export interface MetaSemSolucao {
+  sem_solucao: { motivo: MotivoMetaSemSolucao }
+}
+
+export type MetaSugerida = MetaEncontrada | MetaSemSolucao
 
 interface JobBase {
   id: string
@@ -181,6 +197,7 @@ export interface Job extends JobBase {
   regras: RegraVersionada[]
   simulacao?: Simulacao | null
   simulacoes?: Simulacao[]
+  meta_sugerida?: MetaSugerida
 }
 
 export interface JobResumo {

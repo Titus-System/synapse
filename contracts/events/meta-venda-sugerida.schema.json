@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/events/meta-venda-sugerida.schema.json",
+  "title": "meta-venda-sugerida",
+  "description": "Evento publicado pelo codegen ao fim da busca da meta maior e consumido pela API. A busca roda quando a simulação do job, na meta do job ou nas vendas históricas, cabe no orçamento com margem, a regra é só de núcleo e a versão ainda não teve busca. Ela procura a maior meta de venda em que a comissão simulada ainda cabe no orçamento, com a regra mantida: cada candidato é uma execução real do mesmo código gerado na meta candidata, publicada em executar-codigo com proposito busca_meta, sem chamar a LLM. O evento leva exatamente uma de duas formas: a meta encontrada, com a referência da execução candidata que fecha a busca, ou sem_solucao com o motivo. A meta sugerida não é uma regra nova e por isso não cabe em sugestao-adaptacao-proposta, que exige representação. A API registra a sugestão no job e a anuncia ao usuário; aceitá-la torna vigente a simulação de resultado_id, e recusá-la não exige ação.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "regra_id"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job cuja simulação coube no orçamento com margem."
+    },
+    "regra_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Versão da regra em regras cuja simulação motivou a busca, a mesma de todas as execuções candidatas. Cada versão tem no máximo uma busca, e é por este campo que a API associa a sugestão à versão certa e descarta uma reentrega."
+    },
+    "resultado_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Linha de resultados_simulacao da execução candidata que fecha a busca: a da meta sugerida, com proposito busca_meta. É a simulação que passa a ser a vigente do job se o usuário aceitar a meta. Os totais não viajam: a comissão simulada e o orçamento são lidos pela referência. Presente só com meta_venda."
+    },
+    "meta_venda": {
+      "$ref": "executar-codigo.schema.json#/properties/meta_venda",
+      "description": "A meta sugerida: a maior meta candidata em que a comissão simulada coube no orçamento, a mesma meta_venda da execução de resultado_id. Presente só com resultado_id."
+    },
+    "sem_solucao": {
+      "type": "object",
+      "required": [
+        "motivo"
+      ],
+      "description": "A busca terminou sem meta para sugerir. Ausente quando há meta_venda.",
+      "properties": {
+        "motivo": {
+          "type": "string",
+          "enum": [
+            "nao_monotonica",
+            "intervalo_esgotado",
+            "falha_execucao"
+          ],
+          "description": "Por que não há meta sugerida, em vocabulário fechado. nao_monotonica: um candidato de meta maior teve comissão simulada menor que a de um candidato anterior, e o intervalo entre a maior meta que cabe e a menor que não cabe deixou de ser confiável. intervalo_esgotado: o limite de candidatos acabou antes de aparecer uma meta cuja comissão passa do orçamento. falha_execucao: uma execução candidata não terminou em sucesso, e a busca ficou sem número para escolher o próximo candidato."
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "meta_venda",
+        "resultado_id"
+      ]
+    },
+    {
+      "required": [
+        "sem_solucao"
+      ]
+    }
+  ],
+  "dependentRequired": {
+    "resultado_id": [
+      "meta_venda"
+    ],
+    "meta_venda": [
+      "resultado_id"
+    ]
+  },
+  "examples": [
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
+      "resultado_id": "0192d4a3-1b7f-7c42-8e6d-2a3b4c5d6e7f",
+      "meta_venda": 28500000.0
+    },
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
+      "sem_solucao": {
+        "motivo": "intervalo_esgotado"
+      }
+    }
+  ]
+}

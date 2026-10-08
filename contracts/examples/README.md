@@ -39,6 +39,18 @@ Como todo `contracts/`, isto é insumo de build e nunca dependência de runtime.
 | [events/regra-extraida.json](events/regra-extraida.json) | `events/regra-extraida.schema.json` | Referências ao job, à submissão e ao artefato em `extracoes_regras`, sem representação no corpo |
 | [domain/rebaixamentos-extracao.json](domain/rebaixamentos-extracao.json) | `domain/rebaixamentos-extracao.schema.json` | Motivos de conversão de elementos para genérico, armazenados fora da representação |
 | [domain/rebaixamentos-extracao-parametros.json](domain/rebaixamentos-extracao-parametros.json) | `domain/rebaixamentos-extracao.schema.json` | Códigos fora do vocabulário ou ambíguos, e parâmetros da simulação sem lastro ou com período não resolvido |
+| [events/executar-codigo-meta-venda.json](events/executar-codigo-meta-venda.json) | `events/executar-codigo.schema.json` | Simulação do job na meta de venda, com orçamento: o sandbox escala as vendas até a meta |
+| [events/executar-codigo-busca-meta.json](events/executar-codigo-busca-meta.json) | `events/executar-codigo.schema.json` | Execução candidata da busca da meta maior: o mesmo código numa meta candidata, com `proposito = busca_meta` |
+| [events/executar-codigo-sem-orcamento.json](events/executar-codigo-sem-orcamento.json) | `events/executar-codigo.schema.json` | Job sem orçamento: simulação sem a verificação de orçamento |
+| [domain/resultado-totais-meta-venda.json](domain/resultado-totais-meta-venda.json) | `domain/resultado-totais.schema.json` | Totais apurados na meta, com o orçamento e o total histórico de vendas do período |
+| [domain/resultado-totais-sem-orcamento.json](domain/resultado-totais-sem-orcamento.json) | `domain/resultado-totais.schema.json` | Totais de um job sem orçamento: sem `orcamento`, com o total histórico de vendas |
+| [events/simulacao-concluida-meta-venda.json](events/simulacao-concluida-meta-venda.json) | `events/simulacao-concluida.schema.json` | Simulação do job na meta de venda, viável |
+| [events/simulacao-concluida-busca-meta.json](events/simulacao-concluida-busca-meta.json) | `events/simulacao-concluida.schema.json` | Execução candidata da busca, que a API não trata como desfecho do job |
+| [events/simulacao-concluida-sem-orcamento.json](events/simulacao-concluida-sem-orcamento.json) | `events/simulacao-concluida.schema.json` | Sucesso sem veredito, de um job sem orçamento |
+| [events/meta-venda-sugerida.json](events/meta-venda-sugerida.json) | `events/meta-venda-sugerida.schema.json` | Meta maior encontrada, com a referência da execução candidata que fecha a busca |
+| [events/meta-venda-sugerida-sem-solucao.json](events/meta-venda-sugerida-sem-solucao.json) | `events/meta-venda-sugerida.schema.json` | Busca sem meta para sugerir, com o motivo |
+| [events/sugestao-adaptacao-proposta-tentativa.json](events/sugestao-adaptacao-proposta-tentativa.json) | `events/sugestao-adaptacao-proposta.schema.json` | Segunda tentativa de taxa nova, derivada da alternativa anterior que não coube |
+| [events/etapa-alterada-sem-alternativa.json](events/etapa-alterada-sem-alternativa.json) | `events/etapa-alterada.schema.json` | Fim das tentativas de taxa nova sem uma taxa que caiba no orçamento |
 
 Schema alterado mantém pelo menos um exemplo válido atualizado na mesma mudança.
 

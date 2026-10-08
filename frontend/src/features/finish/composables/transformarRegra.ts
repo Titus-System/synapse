@@ -135,7 +135,7 @@ export function transformarResultado(
   return [
     `comissão = ${formatarMoeda(totais.simulado)}`,
     `orçamento = ${
-      totais.simulado <= totais.orcamento
+      totais.simulado <= (totais.orcamento ?? totais.simulado)
         ? 'OK'
         : 'Ultrapassado'
     }`,

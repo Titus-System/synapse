@@ -1011,5 +1011,246 @@ class TestarResultadoLinhas(unittest.TestCase):
         self.assertEqual(resultado.returncode, 0, resultado.stderr)
 
 
+class TestarSimulacaoNaMeta(unittest.TestCase):
+    def test_execucao_sem_os_campos_novos_continua_valida(self) -> None:
+        # Os campos são aditivos: comando e evento publicados antes deles continuam válidos.
+        for exemplo in (
+            "events/executar-codigo-busca-meta.json",
+            "events/simulacao-concluida-busca-meta.json",
+        ):
+            with self.subTest(exemplo=exemplo):
+
+                def alterar(mensagem: Any) -> None:
+                    del mensagem["meta_venda"]
+                    del mensagem["proposito"]
+
+                resultado = validar_com_alteracao(exemplo, alterar)
+
+                self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_meta_venda_zero_ou_negativa(self) -> None:
+        for exemplo in (
+            "events/executar-codigo-meta-venda.json",
+            "events/simulacao-concluida-meta-venda.json",
+        ):
+            for valor in (0, -1):
+                with self.subTest(exemplo=exemplo, valor=valor):
+
+                    def alterar(mensagem: Any, valor: int = valor) -> None:
+                        mensagem["meta_venda"] = valor
+
+                    resultado = validar_com_alteracao(exemplo, alterar)
+
+                    self.assertNotEqual(resultado.returncode, 0)
+                    self.assertIn(f"{exemplo}: campo $.meta_venda", resultado.stderr)
+
+    def test_rejeita_proposito_fora_do_vocabulario(self) -> None:
+        def alterar(comando: Any) -> None:
+            comando["proposito"] = "candidata"
+
+        resultado = validar_com_alteracao("events/executar-codigo-busca-meta.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.proposito", resultado.stderr)
+
+    def test_eventos_usam_a_definicao_do_comando(self) -> None:
+        # Alterar o comando deve afetar o resultado e a sugestão, que o referenciam.
+        def alterar(schema: Any) -> None:
+            schema["properties"]["meta_venda"]["const"] = 1
+            schema["properties"]["proposito"]["const"] = "simulacao"
+
+        resultado = validar_com_alteracao("../events/executar-codigo.schema.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        for erro in (
+            "events/simulacao-concluida-meta-venda.json: campo $.meta_venda",
+            "events/simulacao-concluida-busca-meta.json: campo $.proposito",
+            "events/meta-venda-sugerida.json: campo $.meta_venda",
+        ):
+            self.assertIn(erro, resultado.stderr)
+
+
+class TestarSemOrcamento(unittest.TestCase):
+    def test_aceita_comando_sem_orcamento(self) -> None:
+        def alterar(comando: Any) -> None:
+            del comando["orcamento"]
+
+        resultado = validar_com_alteracao("events/executar-codigo.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_aceita_sucesso_sem_veredito(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["veredito"]
+
+        resultado = validar_com_alteracao("events/simulacao-concluida.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_aceita_totais_sem_orcamento(self) -> None:
+        def alterar(totais: Any) -> None:
+            del totais["orcamento"]
+
+        resultado = validar_com_alteracao("domain/resultado-totais.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_totais_continuam_exigindo_os_numeros_apurados(self) -> None:
+        for campo in ("baseline", "simulado", "diferenca_abs", "diferenca_pct"):
+            with self.subTest(campo=campo):
+
+                def alterar(totais: Any, campo: str = campo) -> None:
+                    del totais[campo]
+
+                resultado = validar_com_alteracao(
+                    "domain/resultado-totais-sem-orcamento.json", alterar
+                )
+
+                self.assertNotEqual(resultado.returncode, 0)
+                self.assertIn(f"'{campo}' is a required property", resultado.stderr)
+
+
+class TestarMetaVendaSugerida(unittest.TestCase):
+    def test_rejeita_evento_sem_meta_e_sem_solucao(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["meta_venda"]
+            del evento["resultado_id"]
+
+        resultado = validar_com_alteracao("events/meta-venda-sugerida.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("events/meta-venda-sugerida.json: campo $:", resultado.stderr)
+
+    def test_rejeita_as_duas_formas_juntas(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["sem_solucao"] = {"motivo": "intervalo_esgotado"}
+
+        resultado = validar_com_alteracao("events/meta-venda-sugerida.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("events/meta-venda-sugerida.json: campo $:", resultado.stderr)
+
+    def test_rejeita_meta_sem_a_execucao_que_a_simulou(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["resultado_id"]
+
+        resultado = validar_com_alteracao("events/meta-venda-sugerida.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("events/meta-venda-sugerida.json: campo $:", resultado.stderr)
+
+    def test_rejeita_execucao_na_forma_sem_solucao(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["resultado_id"] = "0192d4a3-1b7f-7c42-8e6d-2a3b4c5d6e7f"
+
+        resultado = validar_com_alteracao("events/meta-venda-sugerida-sem-solucao.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("events/meta-venda-sugerida-sem-solucao.json: campo $:", resultado.stderr)
+
+    def test_rejeita_motivo_ausente_ou_fora_do_vocabulario(self) -> None:
+        for sem_solucao in ({}, {"motivo": "orcamento_insuficiente"}):
+            with self.subTest(sem_solucao=sem_solucao):
+
+                def alterar(evento: Any, sem_solucao: dict[str, str] = sem_solucao) -> None:
+                    evento["sem_solucao"] = sem_solucao
+
+                resultado = validar_com_alteracao(
+                    "events/meta-venda-sugerida-sem-solucao.json", alterar
+                )
+
+                self.assertNotEqual(resultado.returncode, 0)
+                self.assertIn("events/meta-venda-sugerida-sem-solucao.json", resultado.stderr)
+
+    def test_rejeita_meta_sugerida_zero(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["meta_venda"] = 0
+
+        resultado = validar_com_alteracao("events/meta-venda-sugerida.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("events/meta-venda-sugerida.json: campo $.meta_venda", resultado.stderr)
+
+
+class TestarTentativaDaTaxa(unittest.TestCase):
+    def test_aceita_proposta_sem_tentativa(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["tentativa"]
+
+        resultado = validar_com_alteracao(
+            "events/sugestao-adaptacao-proposta-tentativa.json", alterar
+        )
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_tentativa_fora_de_1_a_3(self) -> None:
+        for tentativa in (0, 4):
+            with self.subTest(tentativa=tentativa):
+
+                def alterar(evento: Any, tentativa: int = tentativa) -> None:
+                    evento["tentativa"] = tentativa
+
+                resultado = validar_com_alteracao(
+                    "events/sugestao-adaptacao-proposta-tentativa.json", alterar
+                )
+
+                self.assertNotEqual(resultado.returncode, 0)
+                self.assertIn("campo $.tentativa", resultado.stderr)
+
+
+class TestarMetaSugeridaHttp(unittest.TestCase):
+    @staticmethod
+    def exemplo_do_job(documento: Any) -> Any:
+        resposta = documento["paths"]["/jobs/{id}"]["get"]["responses"]["200"]
+        exemplos = resposta["content"]["application/json"]["examples"]
+        return exemplos["simulacaoNaMetaComMetaSugerida"]["value"]
+
+    def test_aceita_a_forma_sem_solucao(self) -> None:
+        def alterar(documento: Any) -> None:
+            self.exemplo_do_job(documento)["meta_sugerida"] = {
+                "sem_solucao": {"motivo": "nao_monotonica"}
+            }
+
+        resultado = validar_openapi_com_alteracao(alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_meta_sem_os_valores_que_a_tela_mostra_ou_com_as_duas_formas(self) -> None:
+        for alteracao in (
+            {"total_simulado": None},
+            {"orcamento": None},
+            {"sem_solucao": {"motivo": "intervalo_esgotado"}},
+        ):
+            with self.subTest(alteracao=alteracao):
+
+                def alterar(documento: Any, alteracao: dict[str, Any] = alteracao) -> None:
+                    meta = self.exemplo_do_job(documento)["meta_sugerida"]
+                    for campo, valor in alteracao.items():
+                        if valor is None:
+                            del meta[campo]
+                        else:
+                            meta[campo] = valor
+
+                resultado = validar_openapi_com_alteracao(alterar)
+
+                self.assertNotEqual(resultado.returncode, 0)
+                self.assertIn(
+                    "exemplo simulacaoNaMetaComMetaSugerida, campo $.meta_sugerida",
+                    resultado.stderr,
+                )
+
+    def test_rejeita_meta_da_simulacao_que_nao_e_positiva(self) -> None:
+        def alterar(documento: Any) -> None:
+            self.exemplo_do_job(documento)["simulacao"]["meta_venda"] = 0
+
+        resultado = validar_openapi_com_alteracao(alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn(
+            "exemplo simulacaoNaMetaComMetaSugerida, campo $.simulacao.meta_venda",
+            resultado.stderr,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

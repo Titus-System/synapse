@@ -179,7 +179,7 @@ Uma linha por mudança de status do job. É a trilha da máquina de estados da A
 
 ### `job_acoes`
 
-As ações de finalização que o usuário dispara sobre um job. Junto com `jobs`, é o que sustenta a tela de histórico, e por isso não existe tabela de histórico separada.
+As ações de finalização que o usuário dispara sobre um job. Junto com `jobs`, é o que sustenta a tela de histórico, e por isso não existe tabela de histórico separada. `aceitar_meta` não finaliza o job: registra que o usuário aceitou a meta de venda sugerida, cuja simulação passa a ser a vigente, e ele segue para as ações de fechamento.
 
 ### `simulacoes`
 
@@ -270,6 +270,18 @@ A coluna `totais` traz os agregados do período inteiro, somando todas as compet
 ```
 
 Os valores são em reais, com exceção de `diferenca_pct`, que é fração. O orçamento aparece aqui embora também exista em `jobs.orcamento`: como esta tabela só aceita `INSERT`, guardar o critério junto do veredito impede que o parâmetro que produziu aquele julgamento seja alterado depois.
+
+Definido pela T-269, o job sem orçamento é simulado sem a verificação de orçamento: `totais.orcamento` fica ausente e `veredito` fica nulo num `sucesso`, porque o número vale e não há critério que o julgue. `totais.vendas_historicas` é o total de vendas das competências do job antes de qualquer escalonamento, acrescentado pelo worker fora do container.
+
+```json
+{ "baseline": 529520.00, "simulado": 541900.00,
+  "diferenca_abs": 12380.00, "diferenca_pct": 0.0234,
+  "orcamento": 600000.00, "vendas_historicas": 23583194.87 }
+```
+
+`meta_venda` é a meta em que a execução foi simulada, nula quando ela usou as vendas históricas. Com meta, o sandbox escala todas as vendas do período pelo fator `meta_venda / vendas_historicas` e reapura o baseline antes de chamar o código gerado, e por isso `baseline` e `simulado` são os da meta. A coluna repete o valor do comando pelo mesmo motivo do orçamento: a entrada que produziu o número fica junto dele.
+
+`proposito` separa a simulação do job (`simulacao`) da execução candidata da busca da meta maior (`busca_meta`). A busca roda o mesmo código gerado em várias metas candidatas, e cada candidata é gravada aqui como qualquer resultado. Nenhuma delas é desfecho do job: a API não muda o estado por elas nem as liga a `simulacoes` pelo `codigo_gerado_id`. Só a candidata que fecha a busca é referenciada, por `meta-venda-sugerida`, e passa a ser a simulação vigente se o usuário aceita a meta. O padrão `simulacao` cobre as linhas anteriores à coluna. A migration das colunas é da T-281; o registro da meta sugerida e da aceitação é da T-274.
 
 A coluna `assercoes` tem o desfecho de cada invariante verificada dentro do sandbox, e fica vazia quando o erro foi de infraestrutura e nada chegou a rodar.
 
