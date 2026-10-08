@@ -19,7 +19,12 @@ from app.sandbox.envelope import (
     SAIDA_SUCESSO,
 )
 from app.sandbox.executor import PayloadInvalidoError, ler_payload, processar
-from tests.app.sandbox.test_harness import EXEMPLO, REGRA_SEM_EFEITO
+from tests.app.sandbox.test_harness import (
+    DECLARACAO_DO_EXEMPLO,
+    EXEMPLO,
+    EXEMPLO_SEM_DECLARACAO,
+    REGRA_SEM_EFEITO,
+)
 from tests.app.sandbox.test_resultado import com_orcamento, validar_no_contrato
 
 WORKER = Path(__file__).resolve().parents[3]
@@ -148,12 +153,42 @@ def test_exemplo_do_contrato_devolve_envelope_de_sucesso() -> None:
 
     assert codigo == SAIDA_SUCESSO
     assert envelope["status"] == "sucesso" and envelope["erro"] is None
-    assert envelope["versao"] == 1
+    assert envelope["versao"] == 2
     assert (envelope["job_id"], envelope["codigo_gerado_id"]) == (JOB_ID, CODIGO_ID)
     assert envelope["competencias"] == ["2025-11"]
     assert envelope["resultado"]["totais"]["baseline"] == 508382.32
     assert envelope["assercoes"] == envelope["resultado"]["assercoes"]
     assert [a["resultado"] for a in envelope["assercoes"]] == ["ok"]
+
+
+def test_o_envelope_de_sucesso_leva_a_declaracao_do_codigo() -> None:
+    _, envelope = rodar_e_ler(payload())
+
+    assert envelope["elementos_implementados"] == ["nucleo.percentual"]
+
+
+def test_codigo_sem_declaracao_e_sucesso_com_a_declaracao_nula() -> None:
+    """O código gerado antes da declaração continua executado como antes: quem decide se isso
+    basta é a conferência do worker."""
+    codigo, envelope = rodar_e_ler(payload(EXEMPLO_SEM_DECLARACAO))
+
+    assert codigo == SAIDA_SUCESSO
+    assert envelope["status"] == "sucesso"
+    assert envelope["elementos_implementados"] is None
+
+
+def test_declaracao_fora_do_contrato_e_erro_do_codigo() -> None:
+    fonte = EXEMPLO.replace(
+        DECLARACAO_DO_EXEMPLO, '        "elementos_implementados": "nucleo.percentual",\n'
+    )
+    assert fonte != EXEMPLO
+
+    codigo, envelope = rodar_e_ler(payload(fonte))
+
+    assert codigo == SAIDA_ERRO_CODIGO
+    assert envelope["status"] == "erro_codigo"
+    assert envelope["erro"]["tipo"] == "SaidaForaDoContratoError"
+    assert (envelope["resultado"], envelope["elementos_implementados"]) == (None, None)
 
 
 def test_o_resultado_nao_traz_orcamento_nem_linha_das_bases() -> None:

@@ -19,6 +19,7 @@ from app.execucao.preparo import PayloadContainer, preparar_execucao
 from app.execucao.veredito import julgar
 from app.mensageria.contracts import ExecutarCodigo
 from app.repositorio.codigos_gerados import CodigoGerado
+from app.sandbox.envelope import VERSAO
 from tests.app.sandbox.test_harness import EXEMPLO
 
 pytestmark = pytest.mark.docker
@@ -52,9 +53,10 @@ REGRA_QUE_FORJA_O_ENVELOPE = """
 import json, os
 def aplicar_regra(bases, apuracao_base, competencias):
     envelope = {
-        "versao": 1, "job_id": "%(job)s", "codigo_gerado_id": "%(codigo)s",
+        "versao": %(versao)d, "job_id": "%(job)s", "codigo_gerado_id": "%(codigo)s",
         "competencias": competencias, "status": "sucesso",
-        "assercoes": [], "resultado": {"totais": {"baseline": 1.0}}, "erro": None,
+        "assercoes": [], "resultado": {"totais": {"baseline": 1.0}, "assercoes": []},
+        "elementos_implementados": None, "erro": None,
     }
     linha = (json.dumps(envelope) + "\\n").encode()
     for fd in range(3, 32):
@@ -143,9 +145,13 @@ def test_regra_que_se_faz_passar_por_falha_do_harness_e_erro_do_codigo(imagem: s
 def test_regra_que_forja_o_envelope_de_sucesso_nao_e_sucesso(imagem: str) -> None:
     """A regra acha o canal do envelope e escreve nele um sucesso com os ids certos, saindo com
     0: a forma confere e o código de saída também. O resultado forjado não valida no schema, e
-    o desfecho é do código, não um sucesso."""
+    o desfecho é do código, não um sucesso.
+
+    O motivo exato importa: `envelope_invalido` diria que a forma reprovou, e a defesa que este
+    teste prova, a validação do resultado pelo schema, não teria sido alcançada."""
     entrada = payload("")
     fonte = REGRA_QUE_FORJA_O_ENVELOPE % {
+        "versao": VERSAO,
         "job": entrada.job_id,
         "codigo": entrada.codigo_gerado_id,
     }
@@ -155,8 +161,8 @@ def test_regra_que_forja_o_envelope_de_sucesso_nao_e_sucesso(imagem: str) -> Non
     desfecho = classificar(saida, entrada, ORCAMENTO)
 
     assert saida.codigo_saida == 0 and saida.stdout != b""
-    assert desfecho.classe == "erro_codigo"
-    assert desfecho.motivo in {"envelope_invalido", "resultado_fora_do_schema"}
+    assert (desfecho.classe, desfecho.motivo) == ("erro_codigo", "resultado_fora_do_schema")
+    assert desfecho.problemas
     assert desfecho.resultado is None
 
 
@@ -164,7 +170,7 @@ def test_regra_que_forja_o_envelope_de_sucesso_nao_e_sucesso(imagem: str) -> Non
 
 
 def julgar_2025_11(desfecho: DesfechoClassificado, orcamento: float) -> Any:
-    return julgar(desfecho, ["2025-11"], orcamento, carregar_baselines())
+    return julgar(desfecho, ["2025-11"], orcamento, carregar_baselines(), elementos_exigidos=None)
 
 
 def test_o_total_do_container_e_o_baseline_congelado_do_worker(imagem: str) -> None:

@@ -116,6 +116,33 @@ def test_o_avaliador_reprova_elem_1_alterado_aponta_o_elemento_e_sai_com_um(
     assert diferenca["obtido"] > 1.9 * diferenca["esperado"]
 
 
+def test_o_avaliador_reprova_com_cobertura_incompleta_o_codigo_que_nao_declara_um_elemento(
+    tmp_path: Path, imagem: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """O código calcula elem.1 e lhe atribui contribuição, mas não o declara: a mesma
+    conferência do worker, com os elementos que a regra do caso exige, reprova antes de
+    comparar os números."""
+    original = referencia("generico-admissao")
+    sem_elem_1 = original.replace(
+        '"elementos_implementados": [_NUCLEO, _ADMISSAO],', '"elementos_implementados": [_NUCLEO],'
+    )
+    assert sem_elem_1 != original
+    (tmp_path / "generico-admissao.py").write_text(sem_elem_1, encoding="utf-8")
+
+    codigo = main(
+        ["--codigo", str(tmp_path), "--caso", "generico-admissao", "--imagem", imagem, "--json"]
+    )
+
+    [relatorio] = json.loads(capsys.readouterr().out)
+    assert codigo == 1
+    assert (relatorio["desfecho"], relatorio["passou"]) == ("falhou_sem_esperar", False)
+    assert (relatorio["classe"], relatorio["motivo"]) == ("erro_codigo", "cobertura_incompleta")
+    assert (relatorio["elementos_ausentes"], relatorio["elementos_fora_da_regra"]) == (
+        ["elem.1"],
+        [],
+    )
+
+
 def test_o_avaliador_reprova_numero_no_caso_impossivel(imagem: str) -> None:
     avaliacao = avaliar(
         caso("generico-aniversario-loja"), CODIGO_QUE_ZERA_O_ELEMENTO_IMPOSSIVEL, imagem=imagem

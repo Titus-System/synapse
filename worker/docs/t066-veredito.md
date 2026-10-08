@@ -1,13 +1,15 @@
 # T-066: conferência contra o baseline e veredito de orçamento
 
 Depois de o container devolver o resultado e a T-065 o classificar, o processo do `worker`,
-fora do container, faz três coisas, nesta ordem:
+fora do container, faz quatro coisas, nesta ordem:
 
 1. **confere** o `totais.baseline` que saiu do container contra o baseline congelado (T-032)
    que o worker lê por conta própria, e que os totais fecham entre si;
 2. com isso, **a diferença** absoluta e percentual do container passam a ser as do baseline do
    worker, e seguem como vieram, sem recomposição;
-3. **aplica o orçamento** e emite o veredito.
+3. quando o comando trouxe `elementos_exigidos`, **confere a cobertura** dos elementos da regra
+   (T-241, `docs/t241-conferencia-de-cobertura.md`);
+4. **aplica o orçamento** e emite o veredito.
 
 O orçamento é o único parâmetro que **julga** o resultado, e nunca entrou no container: código
 gerado que o enxergasse poderia mirar nele.

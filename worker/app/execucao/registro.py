@@ -5,8 +5,9 @@ Funções puras: nada aqui toca o banco nem o broker. A linha e o evento saem da
 encontra já gravado, então os dois caminhos publicam exatamente a mesma coisa.
 
 Um `erro_codigo` leva na linha o diagnóstico da falha (T-204): a causa classificada e, quando
-existirem, a falha que o sandbox capturou e os problemas de schema. O evento continua só com a
-referência; quem precisa do diagnóstico o lê da linha pelo `resultado_id`.
+existirem, a falha que o sandbox capturou, os problemas de schema e os elementos que a conferência
+de cobertura reprovou (T-241). O evento continua só com a referência; quem precisa do diagnóstico
+o lê da linha pelo `resultado_id`.
 """
 
 from dataclasses import dataclass, field
@@ -33,6 +34,10 @@ class Diagnostico(TypedDict):
     falha: NotRequired[Falha]
     # Só quando o resultado saiu do schema.
     problemas: NotRequired[list[Problema]]
+    # Só com a cobertura incompleta, e cada lista só quando tem item: os elementos exigidos que o
+    # código não declarou, e os que receberam contribuição sem ser exigidos.
+    elementos_ausentes: NotRequired[list[str]]
+    elementos_fora_da_regra: NotRequired[list[str]]
 
 
 class DiagnosticoForaDoContratoError(ValueError):
@@ -70,6 +75,11 @@ def diagnostico_do_julgamento(julgamento: Julgamento) -> Diagnostico | None:
         diagnostico["falha"] = desfecho.erro
     if desfecho is not None and desfecho.problemas:
         diagnostico["problemas"] = list(desfecho.problemas)
+    cobertura = julgamento.cobertura
+    if cobertura is not None and cobertura.ausentes:
+        diagnostico["elementos_ausentes"] = list(cobertura.ausentes)
+    if cobertura is not None and cobertura.fora_da_regra:
+        diagnostico["elementos_fora_da_regra"] = list(cobertura.fora_da_regra)
     problemas = validar_diagnostico(diagnostico)
     if problemas:
         raise DiagnosticoForaDoContratoError(problemas)

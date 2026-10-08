@@ -80,6 +80,31 @@ def test_o_generico_impossivel_espera_a_falha_da_regra() -> None:
     assert ler_esperado(caso("generico-aniversario-loja")) == FALHA_ESPERADA
 
 
+@pytest.mark.parametrize(
+    ("caso_id", "exigidos"),
+    [
+        ("generico-admissao", ["nucleo.percentual", "elem.1"]),
+        ("generico-aniversario-loja", ["nucleo.percentual", "elem.1"]),
+        ("nucleo-controle", ["nucleo.percentual"]),
+    ],
+)
+def test_os_elementos_exigidos_sao_os_que_o_comando_levaria(
+    caso_id: str, exigidos: list[str]
+) -> None:
+    """A regra da T-240: nucleo.percentual quando o núcleo tem percentual, e o ref de cada
+    especificação. É com eles que o avaliador confere a cobertura (T-241)."""
+    assert caso(caso_id).elementos_exigidos == exigidos
+
+
+def test_nucleo_sem_percentual_nao_exige_nucleo_percentual(tmp_path: Path) -> None:
+    def sem_percentual(dados: dict[str, Any]) -> None:
+        del dados["representacao"]["nucleo"]["percentual"]
+
+    alvo = carregar_caso(copiar_caso("generico-admissao", tmp_path, sem_percentual))
+
+    assert alvo.elementos_exigidos == ["elem.1"]
+
+
 def test_o_caso_impossivel_usa_a_representacao_do_contrato() -> None:
     exemplo = RAIZ_MONOREPO / "contracts/examples/domain/representacao-regra-generico.json"
 
@@ -397,6 +422,29 @@ def test_o_relatorio_em_json_traz_o_mesmo() -> None:
         ("d", "falhou_sem_esperar", False),
     ]
     assert relatorio[1]["diferencas"] == [{"elemento": "elem.1", "esperado": 40.0, "obtido": 40.5}]
+
+
+def test_o_relatorio_aponta_os_elementos_que_reprovaram_a_cobertura() -> None:
+    cobertura = Medicao(
+        "erro_codigo",
+        "cobertura_incompleta",
+        elementos_ausentes=("elem.1",),
+        elementos_fora_da_regra=("elem.9",),
+    )
+    avaliacao = comparar_um_centavo("e", ESPERADO, cobertura)
+
+    assert relatorio_texto([avaliacao]).splitlines() == [
+        "e: falhou sem esperar (erro_codigo/cobertura_incompleta)",
+        "  elementos não declarados: elem.1",
+        "  elementos fora da regra: elem.9",
+        "0 de 1 casos passaram",
+    ]
+    [relatorio] = json.loads(relatorio_json([avaliacao]))
+    assert (relatorio["motivo"], relatorio["passou"]) == ("cobertura_incompleta", False)
+    assert (relatorio["elementos_ausentes"], relatorio["elementos_fora_da_regra"]) == (
+        ["elem.1"],
+        ["elem.9"],
+    )
 
 
 def test_o_relatorio_nao_mostra_o_tipo_do_erro_do_codigo_gerado() -> None:

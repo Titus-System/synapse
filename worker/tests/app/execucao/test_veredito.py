@@ -1,4 +1,4 @@
-"""O julgamento do resultado contra o baseline e o orçamento (T-066).
+"""O julgamento do resultado contra o baseline, a cobertura e o orçamento (T-066, T-241).
 
 Cada teste monta o resultado que o harness produziria para um baseline real (os totais são
 os do manifesto, conferidos pelo worker) e exige **classe, motivo e veredito**. O que está em
@@ -7,7 +7,9 @@ impede de vir de um total adulterado.
 """
 
 import copy
+import dataclasses
 import json
+from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any
 
@@ -49,8 +51,19 @@ def sucesso(baseline: str, simulado: str, /, **mudancas: Any) -> DesfechoClassif
     return DesfechoClassificado("sucesso", "ok", [ASSERCAO_OK], resultado=resultado)
 
 
-def julgar_2025_11(desfecho: DesfechoClassificado, orcamento: float = 600000.0) -> Any:
-    return julgar(desfecho, ["2025-11"], orcamento, carregar_baselines())
+def julgar_2025_11(
+    desfecho: DesfechoClassificado,
+    orcamento: float = 600000.0,
+    *,
+    elementos_exigidos: Sequence[str] | None = None,
+) -> Any:
+    return julgar(
+        desfecho,
+        ["2025-11"],
+        orcamento,
+        carregar_baselines(),
+        elementos_exigidos=elementos_exigidos,
+    )
 
 
 # ---- o veredito ----
@@ -134,7 +147,9 @@ def test_a_diferenca_absoluta_e_a_percentual_acompanham_o_veredito() -> None:
 def test_periodo_de_varias_competencias_confere_a_soma_dos_baselines() -> None:
     desfecho = sucesso(BASELINE_2025_08_11, "880000.00")
 
-    julgamento = julgar(desfecho, ["2025-08", "2025-11"], 900000.0, carregar_baselines())
+    julgamento = julgar(
+        desfecho, ["2025-08", "2025-11"], 900000.0, carregar_baselines(), elementos_exigidos=None
+    )
 
     assert (julgamento.classe, julgamento.veredito) == ("sucesso", "viavel")
 
@@ -222,7 +237,9 @@ def test_competencia_sem_baseline_no_worker_e_divergencia() -> None:
     imagem tem um baseline que o worker não tem, e o número não tem com o que ser conferido."""
     baselines = BaselinesCongelados({"2025-11": Decimal(BASELINE_2025_11)})
 
-    julgamento = julgar(sucesso(BASELINE_2025_11, "520000.00"), ["2026-01"], 1.0, baselines)
+    julgamento = julgar(
+        sucesso(BASELINE_2025_11, "520000.00"), ["2026-01"], 1.0, baselines, elementos_exigidos=None
+    )
 
     assert (julgamento.classe, julgamento.motivo) == ("erro_codigo", "baseline_divergente")
 
@@ -231,9 +248,162 @@ def test_baseline_zero_tem_fracao_zero_como_na_t035() -> None:
     baselines = BaselinesCongelados({"2025-11": Decimal("0.00")})
     desfecho = sucesso("0.00", "10.00")
 
-    julgamento = julgar(desfecho, ["2025-11"], 100.0, baselines)
+    julgamento = julgar(desfecho, ["2025-11"], 100.0, baselines, elementos_exigidos=None)
 
     assert (julgamento.classe, julgamento.veredito) == ("sucesso", "viavel")
+
+
+# ---- a conferência de cobertura (T-241) ----
+
+# A decomposição de RESULTADO tem contribuição de nucleo.percentual e de elem.1.
+EXIGIDOS_DO_RESULTADO = ["nucleo.percentual", "elem.1"]
+
+
+def declarando(
+    desfecho: DesfechoClassificado, elementos: tuple[str, ...] | None
+) -> DesfechoClassificado:
+    return dataclasses.replace(desfecho, elementos_implementados=elementos)
+
+
+def test_cobertura_completa_segue_para_o_veredito_com_o_mesmo_resultado_de_antes() -> None:
+    desfecho = declarando(sucesso(BASELINE_2025_11, "520000.00"), ("nucleo.percentual", "elem.1"))
+
+    conferido = julgar_2025_11(desfecho, 485000.0, elementos_exigidos=EXIGIDOS_DO_RESULTADO)
+    sem_conferencia = julgar_2025_11(desfecho, 485000.0, elementos_exigidos=None)
+
+    assert conferido == sem_conferencia
+    assert (conferido.classe, conferido.motivo, conferido.veredito) == (
+        "sucesso",
+        "ok",
+        "inviavel",
+    )
+    assert conferido.cobertura is None
+    assert conferido.totais == {
+        "baseline": 508382.32,
+        "simulado": 520000.0,
+        "diferenca_abs": 11617.68,
+        "diferenca_pct": float(Decimal("11617.68") / Decimal("508382.32")),
+        "orcamento": 485000.0,
+    }
+
+
+def test_elemento_exigido_que_o_codigo_nao_declara_e_cobertura_incompleta() -> None:
+    """elem.2 não tem contribuição nem declaração: ficou sem implementação, e o número que sai
+    parece completo sem ele."""
+    desfecho = declarando(sucesso(BASELINE_2025_11, "520000.00"), ("nucleo.percentual", "elem.1"))
+
+    julgamento = julgar_2025_11(desfecho, elementos_exigidos=[*EXIGIDOS_DO_RESULTADO, "elem.2"])
+
+    assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == (
+        "erro_codigo",
+        "cobertura_incompleta",
+        "indeterminado",
+    )
+    assert julgamento.resultado is None
+    assert julgamento.cobertura is not None
+    assert (julgamento.cobertura.ausentes, julgamento.cobertura.fora_da_regra) == (("elem.2",), ())
+
+
+def test_elemento_com_contribuicao_e_sem_declaracao_e_cobertura_incompleta() -> None:
+    """A decomposição tem elem.1, mas a declaração não: ela precisa descrever o código inteiro."""
+    desfecho = declarando(sucesso(BASELINE_2025_11, "520000.00"), ("nucleo.percentual",))
+
+    julgamento = julgar_2025_11(desfecho, elementos_exigidos=EXIGIDOS_DO_RESULTADO)
+
+    assert (julgamento.classe, julgamento.motivo) == ("erro_codigo", "cobertura_incompleta")
+    assert julgamento.cobertura is not None
+    assert (julgamento.cobertura.ausentes, julgamento.cobertura.fora_da_regra) == (("elem.1",), ())
+
+
+def test_contribuicao_de_elemento_que_a_regra_nao_tem_e_cobertura_incompleta_mesmo_declarado() -> (
+    None
+):
+    """elem.1 está declarado e tem contribuição, mas o comando não o exige: é valor atribuído a
+    um elemento que a regra não tem."""
+    desfecho = declarando(sucesso(BASELINE_2025_11, "520000.00"), ("nucleo.percentual", "elem.1"))
+
+    julgamento = julgar_2025_11(desfecho, elementos_exigidos=["nucleo.percentual"])
+
+    assert (julgamento.classe, julgamento.motivo) == ("erro_codigo", "cobertura_incompleta")
+    assert julgamento.cobertura is not None
+    assert (julgamento.cobertura.ausentes, julgamento.cobertura.fora_da_regra) == ((), ("elem.1",))
+
+
+def test_elemento_fora_da_regra_cujas_contribuicoes_somam_zero_e_cobertura_incompleta() -> None:
+    """A chave de um elemento cujas contribuições se anulam fica na decomposição com zero
+    (T-035), e a condição é sobre o elemento ter contribuição, não sobre o valor que ela soma."""
+    desfecho = declarando(sucesso(BASELINE_2025_11, "520000.00"), ("nucleo.percentual", "elem.1"))
+    assert desfecho.resultado is not None
+    desfecho.resultado["decomposicao"]["elemento"]["elem.9"] = 0.0
+
+    julgamento = julgar_2025_11(desfecho, elementos_exigidos=EXIGIDOS_DO_RESULTADO)
+
+    assert (julgamento.classe, julgamento.motivo) == ("erro_codigo", "cobertura_incompleta")
+    assert julgamento.cobertura is not None
+    assert (julgamento.cobertura.ausentes, julgamento.cobertura.fora_da_regra) == ((), ("elem.9",))
+
+
+def test_elemento_declarado_sem_contribuicao_e_aceito() -> None:
+    """elem.2 é uma exclusão, uma condição de limiar ou não ocorre no período: implementado, sem
+    valor próprio, sem chave na decomposição."""
+    desfecho = declarando(
+        sucesso(BASELINE_2025_11, "520000.00"), ("nucleo.percentual", "elem.1", "elem.2")
+    )
+
+    julgamento = julgar_2025_11(desfecho, elementos_exigidos=[*EXIGIDOS_DO_RESULTADO, "elem.2"])
+
+    assert (julgamento.classe, julgamento.motivo) == ("sucesso", "ok")
+
+
+def test_declarar_a_mais_sem_contribuicao_nao_reprova() -> None:
+    desfecho = declarando(
+        sucesso(BASELINE_2025_11, "520000.00"), ("nucleo.percentual", "elem.1", "elem.7")
+    )
+
+    julgamento = julgar_2025_11(desfecho, elementos_exigidos=EXIGIDOS_DO_RESULTADO)
+
+    assert (julgamento.classe, julgamento.motivo) == ("sucesso", "ok")
+
+
+def test_codigo_sem_declaracao_num_comando_que_exige_elementos_nao_declarou_nenhum() -> None:
+    desfecho = declarando(sucesso(BASELINE_2025_11, "520000.00"), None)
+
+    julgamento = julgar_2025_11(desfecho, elementos_exigidos=EXIGIDOS_DO_RESULTADO)
+
+    assert (julgamento.classe, julgamento.motivo) == ("erro_codigo", "cobertura_incompleta")
+    assert julgamento.cobertura is not None
+    assert julgamento.cobertura.ausentes == ("nucleo.percentual", "elem.1")
+
+
+def test_comando_sem_elementos_exigidos_julga_codigo_sem_declaracao_como_antes() -> None:
+    desfecho = declarando(sucesso(BASELINE_2025_11, "520000.00"), None)
+
+    julgamento = julgar_2025_11(desfecho, 485000.0, elementos_exigidos=None)
+
+    assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == (
+        "sucesso",
+        "ok",
+        "inviavel",
+    )
+
+
+def test_o_baseline_divergente_e_conferido_antes_da_cobertura() -> None:
+    """Com as duas falhas, o motivo é o da integridade do número que saiu do container."""
+    desfecho = declarando(sucesso("508382.33", "520000.00"), None)
+
+    julgamento = julgar_2025_11(desfecho, elementos_exigidos=EXIGIDOS_DO_RESULTADO)
+
+    assert (julgamento.classe, julgamento.motivo) == ("erro_codigo", "baseline_divergente")
+    assert julgamento.cobertura is None
+
+
+def test_desfecho_que_nao_e_sucesso_nao_passa_pela_cobertura() -> None:
+    desfecho = DesfechoClassificado("assercao_violada", "assercao", [ASSERCAO_VIOLADA])
+
+    julgamento = julgar_2025_11(desfecho, elementos_exigidos=EXIGIDOS_DO_RESULTADO)
+
+    assert (julgamento.classe, julgamento.motivo) == ("assercao_violada", "assercao")
+    assert julgamento.cobertura is None
 
 
 # ---- pela cadeia inteira: o que a T-065 entrega é o que a T-066 julga ----
@@ -250,7 +420,9 @@ def test_o_desfecho_classificado_de_sucesso_e_julgado_sem_o_acrescimo_da_t065() 
     desfecho = _por_classificar("871403.78", "880000.00")
     assert desfecho.classe == "sucesso"
 
-    julgamento = julgar(desfecho, PAYLOAD.competencias, 485000.0, carregar_baselines())
+    julgamento = julgar(
+        desfecho, PAYLOAD.competencias, 485000.0, carregar_baselines(), elementos_exigidos=None
+    )
 
     assert (julgamento.classe, julgamento.veredito) == ("sucesso", "inviavel")
     assert julgamento.totais is not None and julgamento.totais["orcamento"] == 485000.0

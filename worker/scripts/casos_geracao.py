@@ -11,9 +11,11 @@ mão e o resultado que ela produz no sandbox. Cada caso é uma pasta em
   ``scripts.gravar_esperado`` e nunca escrito à mão.
 
 O código, de referência ou gerado, só roda no container, pelo mesmo caminho da fila:
-``executar_no_sandbox``, ``classificar`` e ``julgar``. Nada aqui o importa no processo do
-worker. Do que volta do container só se guarda a classe, o motivo, os totais e a quebra por
-elemento: nunca linha de dataset, stdout, stderr ou mensagem de erro.
+``executar_no_sandbox``, ``classificar`` e ``julgar``, com os elementos que a regra do caso exige,
+para a conferência de cobertura (T-241) valer também aqui. Nada aqui o importa no processo do
+worker. Do que volta do container só se guarda a classe, o motivo, os totais, a quebra por
+elemento e os elementos que reprovaram a cobertura: nunca linha de dataset, stdout, stderr ou
+mensagem de erro.
 """
 
 from __future__ import annotations
@@ -81,14 +83,23 @@ class Caso:
     def esperado(self) -> Path:
         return self.diretorio / ARQUIVO_ESPERADO
 
+    @property
+    def elementos_exigidos(self) -> list[str]:
+        """Os elementos que o comando executar-codigo exigiria para esta regra (T-240), montados
+        como o codegen os monta (T-242): ``nucleo.percentual`` quando o núcleo tem percentual, e
+        o ``ref`` de cada especificação, na ordem."""
+        exigidos = ["nucleo.percentual"] if "percentual" in self.representacao["nucleo"] else []
+        exigidos.extend(elemento["ref"] for elemento in self.representacao["especificacoes"])
+        return exigidos
+
 
 @dataclass(frozen=True)
 class Medicao:
     """O que se lê de uma execução para compará-la.
 
-    Em sucesso, os totais e a quebra por elemento; em falha, a classe, o motivo e, numa
-    exceção da regra, o nome do tipo dela. O tipo vindo de código gerado só é comparado,
-    nunca exibido.
+    Em sucesso, os totais e a quebra por elemento; em falha, a classe, o motivo, numa
+    exceção da regra o nome do tipo dela, e numa cobertura incompleta os elementos que a
+    reprovaram. O tipo vindo de código gerado só é comparado, nunca exibido.
     """
 
     classe: Classe
@@ -96,6 +107,8 @@ class Medicao:
     totais: Totais | None = None
     elemento: Mapping[str, float] | None = None
     tipo_erro: str | None = None
+    elementos_ausentes: tuple[str, ...] = ()
+    elementos_fora_da_regra: tuple[str, ...] = ()
 
 
 # A única falha que um caso pode esperar: a regra levanta NotImplementedError, como o contrato
@@ -259,8 +272,9 @@ def ler_esperado(caso: Caso) -> Medicao:
 def executar_caso(caso: Caso, fonte: str, *, imagem: str | None = None) -> Medicao:
     """Roda ``fonte`` no sandbox com o período do caso e mede o desfecho.
 
-    A sequência é a do consumidor: o mesmo isolamento, a mesma classificação e a mesma
-    conferência do baseline congelado, que reprova um código que adultera o baseline.
+    A sequência é a do consumidor: o mesmo isolamento, a mesma classificação, a mesma
+    conferência do baseline congelado, que reprova um código que adultera o baseline, e a mesma
+    conferência de cobertura, com os elementos que a regra do caso exige.
     """
     payload = PayloadContainer(
         job_id=uuid4(),
@@ -272,7 +286,11 @@ def executar_caso(caso: Caso, fonte: str, *, imagem: str | None = None) -> Medic
     saida = executar_no_sandbox(payload, imagem=imagem)
     desfecho = classificar(saida, payload, ORCAMENTO_SEM_VEREDITO)
     julgamento = julgar(
-        desfecho, list(caso.competencias), ORCAMENTO_SEM_VEREDITO, carregar_baselines()
+        desfecho,
+        list(caso.competencias),
+        ORCAMENTO_SEM_VEREDITO,
+        carregar_baselines(),
+        elementos_exigidos=caso.elementos_exigidos,
     )
     return medir(julgamento)
 
@@ -295,7 +313,14 @@ def medir(julgamento: Julgamento) -> Medicao:
     tipo_erro = None
     if julgamento.motivo == "excecao" and desfecho is not None and desfecho.erro is not None:
         tipo_erro = desfecho.erro["tipo"]
-    return Medicao(julgamento.classe, julgamento.motivo, tipo_erro=tipo_erro)
+    cobertura = julgamento.cobertura
+    return Medicao(
+        julgamento.classe,
+        julgamento.motivo,
+        tipo_erro=tipo_erro,
+        elementos_ausentes=cobertura.ausentes if cobertura is not None else (),
+        elementos_fora_da_regra=cobertura.fora_da_regra if cobertura is not None else (),
+    )
 
 
 # ---- a comparação ----

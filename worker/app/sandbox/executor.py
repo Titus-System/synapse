@@ -113,6 +113,7 @@ def processar(entrada: BinaryIO, saida: BinaryIO, *, raiz: Path = RAIZ_DADOS) ->
         status=status,
         assercoes=execucao.assercoes if execucao else [],
         resultado=execucao.resultado if execucao else None,
+        elementos_implementados=execucao.elementos_implementados if execucao else None,
         erro=falha,
     )
     saida.write(serializar(envelope).encode("utf-8") + b"\n")
@@ -124,13 +125,13 @@ def _rodar(
     fonte: str, dados: Entrada, competencias: list[str]
 ) -> tuple[Status, Execucao | None, Falha | None]:
     try:
-        tabelas = rodar_regra(fonte, dados, competencias)
+        saida_da_regra = rodar_regra(fonte, dados, competencias)
     # SystemExit não é Exception: uma regra que chama sys.exit() sairia do processo com
     # código 0 e sem envelope, e pareceria sucesso para quem só olha o código de saída.
     except (Exception, SystemExit) as erro:
         return "erro_codigo", None, _falha(erro)
     try:
-        execucao = agregar(tabelas, dados, competencias)
+        execucao = agregar(saida_da_regra, dados, competencias)
     except ResultadoInvalidoError as erro:
         # A saída do código gerado não sustenta o resultado. Qualquer OUTRA exceção
         # daqui é bug do harness: sobe para main e vira código 1, nunca culpa da regra.

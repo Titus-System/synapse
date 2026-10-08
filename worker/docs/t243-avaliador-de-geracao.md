@@ -98,7 +98,7 @@ generico-admissao: diverge
 | --- | --- | --- |
 | número | total e cada elemento dentro da tolerância | `bate` |
 | número | total ou algum elemento fora da tolerância | `diverge` |
-| número | qualquer falha | `falhou_sem_esperar` |
+| número | qualquer falha, inclusive `cobertura_incompleta` | `falhou_sem_esperar` |
 | falha | `erro_codigo`, `excecao`, `NotImplementedError` | `falhou_como_esperado` |
 | falha | um número | `diverge`: a regra foi simulada pela metade |
 | falha | qualquer outra falha (`KeyError`, timeout, saída fora do contrato) | `falhou_sem_esperar` |
@@ -143,10 +143,19 @@ dataset, stdout, stderr nem mensagem de erro do código gerado.
 O orçamento não importa, porque não há veredito: os scripts passam `0.0` a `classificar` e
 `julgar`, e o veredito que sai deles nunca é lido.
 
-## Para a T-241 e a T-245
+## A conferência de cobertura (T-241)
 
-- A T-241 vai passar os `elementos_exigidos` de cada caso pelo avaliador; o ponto de extensão é
-  `executar_caso`. As referências já declaram `elementos_implementados`.
+`executar_caso` passa a `julgar` os elementos que a regra de cada caso exige
+(`Caso.elementos_exigidos`, montados como o codegen monta o comando: `nucleo.percentual` quando o
+núcleo tem percentual, e o `ref` de cada especificação). Um código que não declara um elemento do
+caso, ou que atribui contribuição a um elemento que a regra não tem, termina em
+`erro_codigo/cobertura_incompleta`, como no worker, e o relatório aponta os elementos: as linhas
+`elementos não declarados` e `elementos fora da regra` no texto, e `elementos_ausentes` e
+`elementos_fora_da_regra` no JSON. As referências declaram `elementos_implementados` e passam na
+conferência.
+
+## Para a T-245
+
 - A T-245 acrescenta casos com o mesmo formato: uma pasta com `caso.json` e `referencia.py`, e o
   esperado gravado por `scripts.gravar_esperado --caso ID`. A premissa que muda o número e que o
   contrato não define vai em `leitura`.

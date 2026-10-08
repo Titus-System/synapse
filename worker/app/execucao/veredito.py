@@ -1,4 +1,5 @@
-"""Julgamento do resultado contra o baseline e o orçamento, fora do container (T-066).
+"""Julgamento do resultado contra o baseline, a cobertura e o orçamento, fora do container
+(T-066, T-241).
 
 O container produz números crus. O processo do worker, que o código gerado não alcança:
 
@@ -6,7 +7,9 @@ O container produz números crus. O processo do worker, que o código gerado nã
    que os totais fecham entre si;
 2. com isso, a diferença absoluta e a percentual do container passam a ser as do baseline do
    worker, e seguem como vieram, sem recomposição;
-3. aplica o orçamento e emite o veredito.
+3. quando o comando trouxe ``elementos_exigidos``, confere a cobertura: todo elemento exigido
+   está declarado pelo código, e toda contribuição da decomposição é de um elemento exigido;
+4. aplica o orçamento e emite o veredito.
 
 O orçamento é o único parâmetro que **julga** o resultado, e nunca entrou no container: código
 gerado que o enxergasse poderia mirar nele (ARCHITECTURE.md §3.4).
@@ -18,6 +21,7 @@ evento (T-067), o veredito de um desfecho que não é ``sucesso`` vai nulo, como
 ``simulacao-concluida.schema.json`` e ``resultados_simulacao.veredito``.
 """
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Literal, TypedDict
@@ -54,8 +58,20 @@ class ResultadoJulgado(TypedDict):
 
 
 @dataclass(frozen=True)
+class CoberturaIncompleta:
+    """O que reprovou a conferência de cobertura. Ao menos uma das duas listas tem item."""
+
+    # Exigidos pelo comando e não declarados pelo código, na ordem do comando. Vêm do codegen.
+    ausentes: tuple[str, ...]
+    # Com contribuição e não exigidos, na ordem da decomposição. Vêm do código gerado, já
+    # validados no espaço de elemento_ref pelo schema do resultado.
+    fora_da_regra: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Julgamento:
-    """O desfecho da T-065 julgado. ``classe`` e ``motivo`` só mudam quando o baseline diverge.
+    """O desfecho da T-065 julgado. ``classe`` e ``motivo`` só mudam quando o baseline diverge
+    ou a cobertura está incompleta.
 
     ``resultado`` e ``desfecho`` carregam conteúdo do container e ficam fora do ``repr``."""
 
@@ -65,6 +81,8 @@ class Julgamento:
     # Só em sucesso: o resultado do container com ``totais.orcamento`` acrescentado.
     resultado: ResultadoJulgado | None = field(default=None, repr=False)
     desfecho: DesfechoClassificado | None = field(default=None, repr=False)
+    # Só quando o motivo é cobertura_incompleta.
+    cobertura: CoberturaIncompleta | None = None
 
     @property
     def totais(self) -> TotaisJulgados | None:
@@ -86,12 +104,39 @@ def decidir_veredito(simulado: float, orcamento: float) -> Veredito:
     return "viavel" if Decimal(str(simulado)) <= Decimal(str(orcamento)) else "inviavel"
 
 
+def conferir_cobertura(
+    exigidos: Sequence[str],
+    implementados: Sequence[str] | None,
+    com_contribuicao: Iterable[str],
+) -> CoberturaIncompleta | None:
+    """None quando a cobertura está completa (``contracts/harness/README.md``, seção
+    "Conferência de cobertura").
+
+    São duas condições: todo elemento exigido está declarado, e todo elemento com contribuição é
+    exigido. Juntas, garantem que todo elemento com contribuição está declarado. Um elemento
+    declarado sem contribuição é aceito, porque exclusão, condição de limiar e elemento sem
+    ocorrência no período não geram valor próprio; declarar a mais também é. Sem declaração
+    (``implementados`` None), nenhum elemento exigido está declarado.
+    """
+    declarados = set(implementados or ())
+    ausentes = tuple(elemento for elemento in exigidos if elemento not in declarados)
+    da_regra = set(exigidos)
+    fora_da_regra = tuple(elemento for elemento in com_contribuicao if elemento not in da_regra)
+    if not ausentes and not fora_da_regra:
+        return None
+    return CoberturaIncompleta(ausentes=ausentes, fora_da_regra=fora_da_regra)
+
+
 def julgar(
     desfecho: DesfechoClassificado,
     competencias: list[str],
     orcamento: float,
     baselines: BaselinesCongelados,
+    *,
+    elementos_exigidos: Sequence[str] | None,
 ) -> Julgamento:
+    """``elementos_exigidos`` é o do comando, e None quando ele não o trouxe: aí a cobertura não
+    é conferida, e um comando publicado antes da T-241 segue julgado como antes."""
     if desfecho.classe != "sucesso" or desfecho.resultado is None:
         return Julgamento(desfecho.classe, desfecho.motivo, "indeterminado", desfecho=desfecho)
 
@@ -104,6 +149,22 @@ def julgar(
         return Julgamento("erro_codigo", "baseline_divergente", "indeterminado", desfecho=desfecho)
     if not _totais_conferem(totais, congelado):
         return Julgamento("erro_codigo", "baseline_divergente", "indeterminado", desfecho=desfecho)
+    if elementos_exigidos is not None:
+        # As chaves de decomposicao.elemento são os elemento_ref de contribuicoes: o harness
+        # cria uma para cada elemento a que o código atribuiu contribuição, mesmo que somem zero.
+        cobertura = conferir_cobertura(
+            elementos_exigidos,
+            desfecho.elementos_implementados,
+            desfecho.resultado["decomposicao"]["elemento"],
+        )
+        if cobertura is not None:
+            return Julgamento(
+                "erro_codigo",
+                "cobertura_incompleta",
+                "indeterminado",
+                desfecho=desfecho,
+                cobertura=cobertura,
+            )
 
     resultado = ResultadoJulgado(
         totais=TotaisJulgados(

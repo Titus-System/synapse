@@ -305,7 +305,7 @@ def _por_elemento(
 
     Elemento cujas contribuições se cancelam permanece com zero: ele teve efeito
     e o efeito foi nulo, o que é informação. Omiti-lo diria que ele não foi
-    implementado, que é outro caso (a conferência de cobertura é da T-056).
+    implementado, que é outro caso (a conferência de cobertura é da T-241).
     """
     baldes: dict[str, Decimal] = {}
     for chave, declaradas in contribuicoes.items():

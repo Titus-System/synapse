@@ -4,11 +4,13 @@ Uso na pasta worker:
     poetry run python -m scripts.avaliar_geracao --codigo PASTA [--caso ID ...] [--imagem TAG]
         [--json]
 
-Para cada caso, roda ``PASTA/<id>.py`` no sandbox, com o período do caso, e compara o total
-simulado e a quebra por elemento com o esperado gravado, com a tolerância do harness: um
-centavo por linha do período. O relatório dá um desfecho por caso: ``bate``, ``diverge``,
-``falhou_como_esperado`` ou ``falhou_sem_esperar``. Sai com 0 quando todos passam, 1 quando
-algum não passa e 2 em erro de uso ou de infraestrutura, sem avaliar nada.
+Para cada caso, roda ``PASTA/<id>.py`` no sandbox, com o período do caso e os elementos que a
+regra dele exige, e compara o total simulado e a quebra por elemento com o esperado gravado,
+com a tolerância do harness: um centavo por linha do período. Um código que não declara um
+elemento exigido falha a conferência de cobertura, como no worker. O relatório dá um desfecho
+por caso: ``bate``, ``diverge``, ``falhou_como_esperado`` ou ``falhou_sem_esperar``. Sai com 0
+quando todos passam, 1 quando algum não passa e 2 em erro de uso ou de infraestrutura, sem
+avaliar nada.
 
 É ferramenta de desenvolvimento: não publica evento, não grava em banco e não tem métrica. O
 relatório só tem classe, motivo, totais e referências de elemento; o stdout, o stderr e a
@@ -64,6 +66,10 @@ def relatorio_texto(avaliacoes: Sequence[Avaliacao]) -> str:
         elif esperado.classe != "sucesso":
             cabecalho += " (o caso espera a falha da regra, e o código devolveu um número)"
         linhas.append(cabecalho)
+        if obtido.elementos_ausentes:
+            linhas.append(f"  elementos não declarados: {', '.join(obtido.elementos_ausentes)}")
+        if obtido.elementos_fora_da_regra:
+            linhas.append(f"  elementos fora da regra: {', '.join(obtido.elementos_fora_da_regra)}")
         if obtido.totais is not None:
             simulado = f"obtido {obtido.totais['simulado']:.2f}"
             if esperado.totais is not None:
@@ -98,6 +104,8 @@ def relatorio_json(avaliacoes: Sequence[Avaliacao]) -> str:
                     avaliacao.obtido.totais["simulado"] if avaliacao.obtido.totais else None
                 ),
                 "tolerancia": float(avaliacao.tolerancia),
+                "elementos_ausentes": list(avaliacao.obtido.elementos_ausentes),
+                "elementos_fora_da_regra": list(avaliacao.obtido.elementos_fora_da_regra),
                 "diferencas": [
                     {"elemento": d.elemento, "esperado": d.esperado, "obtido": d.obtido}
                     for d in avaliacao.diferencas

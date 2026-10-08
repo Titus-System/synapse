@@ -33,6 +33,8 @@ Docker e a imagem do sandbox, que a fixture `imagem` constrói uma vez (ou reusa
 | asserção violada é categoria própria, sem veredito | `test_assercao_violada_e_categoria_propria_e_sem_veredito` |
 | erro da regra é `erro_codigo`, a exceção vai para o diagnóstico da linha e **nada da regra** (exceção, stdout, stderr, fonte) nem o orçamento chega ao log | `test_erro_do_codigo_e_erro_codigo_e_nada_da_regra_chega_ao_log` |
 | código que não termina é morto no prazo real de 60 s, o diagnóstico guarda só a causa `timeout` e o ciclo fecha | `test_codigo_que_nao_termina_e_morto_no_prazo_e_o_ciclo_fecha` |
+| elemento exigido e não declarado é `erro_codigo` com `cobertura_incompleta` e o elemento no diagnóstico, no log `execução julgada` e no contador de `/metrics`, que existe desde a subida (T-241) | `test_cobertura_incompleta_para_o_job_com_o_elemento_no_diagnostico_e_conta_em_metrics` |
+| cobertura completa é `sucesso` e não conta em `/metrics` | `test_cobertura_completa_e_sucesso_e_nao_conta_em_metrics` |
 | sem a imagem do sandbox: três tentativas, `erro_infra` gravado e publicado uma vez, comando na DLQ (DEC-094) | `test_infra_esgotada_grava_e_publica_erro_infra_e_so_entao_vai_a_dlq` |
 | comando inválido, código inexistente e par job/código incoerente vão à DLQ sem linha nem evento, e não travam a fila | `test_comando_ruim_vai_a_dlq_e_nao_trava_a_fila` |
 | todo log do processamento carrega o `job_id` | `test_todo_log_do_processamento_carrega_o_job_id` |
