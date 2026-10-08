@@ -4,5 +4,5 @@ build-sandbox-image:
 up:
 	docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 
-up-build:
+up-build: build-sandbox-image
 	docker compose -f deploy/docker-compose.yml --env-file deploy/.env up --build -d

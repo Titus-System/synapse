@@ -90,6 +90,10 @@ A coluna `competencias` é um array de texto com os meses a simular.
 
 O job cobre o período inteiro em uma simulação, com os meses agregados. Qualquer subconjunto das cinco competências canônicas de agosto a dezembro de 2025 é válido, contíguo ou não, e a lista nunca fica vazia. A forma canônica é ordem crescente sem repetição. Competência usa `AAAA-MM`; datas diárias de vendas existem somente na particularidade de novembro/Black Friday.
 
+Na entrada por texto ou voz definida pela T-277, o job nasce antes da extração, com todas as competências publicadas e com `orcamento` e `meta_venda` nulos. A API aplica depois os parâmetros extraídos: substitui o período quando o texto o diz e grava os valores monetários como foram ditos. Orçamento negativo, meta zero ou negativa e competência fora das publicadas ficam disponíveis para a validação apontar conflitos, antes da execução. Não há restrição numérica de faixa nessas duas colunas.
+
+`orcamento` é o orçamento de comissão do período; sem ele, a simulação não verifica orçamento. `meta_venda` é o total de vendas pretendido para o período; sem ela, a simulação usa as vendas históricas. A ausência de período preserva todas as competências publicadas. A migration e a aplicação dos parâmetros no job pertencem à T-279; a extração é da T-278 e a validação, da T-280. O DBML registra esse contrato, não a conclusão dessas implementações.
+
 A procedência é `submissao_id` ou `job_origem_id`, nunca as duas. É dela que se deduz o ponto de entrada no grafo, sem precisar de coluna dedicada.
 
 ### `rodadas_correcao`
@@ -163,7 +167,11 @@ O identificador não carrega o construto. `elem.faixa.1` duplicaria informação
 
 Uma versão já usada por um resultado nunca é alterada. Edição na confirmação, alternativa da adaptação e reprocessamento geram versão nova, com `versao` incrementado e `regra_origem_id` registrando de onde ela derivou.
 
-O que garante isso não é disciplina de código: nenhum usuário de banco tem `UPDATE` ou `DELETE` nesta tabela. O par `(job_id, hash)` é único, o que impede a mesma regra entrar duas vezes como versões diferentes.
+Nenhum usuário de banco tem `UPDATE` ou `DELETE` nesta tabela. A unicidade de `(job_id, hash)` deduplica a mesma versão lógica no job.
+
+Pela T-277, `regras.parametros` registra os parâmetros com que cada versão nascida do texto foi criada, conforme [`parametros-simulacao.schema.json`](../../contracts/domain/parametros-simulacao.schema.json). Fica fora de `nucleo` e `especificacoes`. Na extração, recebe `extracoes_regras.parametros`; na correção, recebe o conjunto completo de `correcao-proposta.parametros`. Se o evento omitir esse campo, a API preserva os parâmetros do job e registra na versão nova os da versão corrigida. O objeto `{}` registra que nenhum parâmetro foi dito; `NULL` identifica formulário, reprocessamento e versões anteriores à coluna.
+
+O hash SHA-256 cobre a serialização canônica da representação e, quando `parametros` não é `NULL`, também os parâmetros, inclusive `{}`. Com `NULL`, usa exatamente a serialização anterior. Assim, a correção que muda só os parâmetros gera uma versão nova com a mesma representação, e versões sem parâmetros preservam seus hashes.
 
 ### `job_transicoes`
 
@@ -232,6 +240,8 @@ A coluna `consumo_tokens` fica nula quando o provedor não devolve essa informa�
 ### `extracoes_regras`
 
 O artefato imutável produzido pelo codegen ao interpretar uma submissão. `representacao` guarda a regra completa conforme [`representacao-regra.schema.json`](../../contracts/domain/representacao-regra.schema.json); `rebaixamentos` guarda os diagnósticos por elemento conforme [`rebaixamentos-extracao.schema.json`](../../contracts/domain/rebaixamentos-extracao.schema.json). Não é uma versão de `regras`: a API cria essa versão ao consumir a referência do artefato (T-202).
+
+A coluna `parametros`, definida pela T-277, guarda orçamento, meta de venda e período num objeto separado, conforme [`parametros-simulacao.schema.json`](../../contracts/domain/parametros-simulacao.schema.json). É `jsonb` não nulo, com padrão `{}`, que mantém compatível o `INSERT` do produtor anterior à coluna. Não aplica padrões do job: campos não ditos ficam ausentes. Um valor inválido com lastro é preservado para a validação; um parâmetro sem lastro fica ausente e gera um diagnóstico em `rebaixamentos` com `parametros.<campo>`. Esses diagnósticos e os conflitos admitem as três referências de parâmetro; `elemento_ref` continua identificando somente partes da regra.
 
 `job_id` e `submissao_id` identificam a extração lógica, com unicidade do par. `resposta_id` aponta a resposta original, que aponta o prompt e seus metadados de modelo. Prompt, resposta e extração são inseridos na mesma transação; a chamada da LLM ocorre antes dela. Uma gravação concorrente perdedora reverte seus três artefatos e retorna a extração vencedora. O repositório não sobrescreve uma extração existente.
 
@@ -339,7 +349,7 @@ A coluna `payload` é o corpo do evento, carregando referências e nunca o conte
   "orcamento": 485000.00 }
 ```
 
-`origem` e `competencias` viajam como valor mesmo existindo no banco, porque nem codegen nem worker têm permissão em `jobs`: o `job_id` é chave de correlação e não ponteiro que o consumidor consiga seguir. O formato é definido pelo schema da mensagem em `contracts/events/`. `orcamento` é opcional no evento por compatibilidade aditiva e já é enviado pela API.
+`origem` e `competencias` viajam como valor mesmo existindo no banco, porque nem codegen nem worker têm permissão em `jobs`: o `job_id` é chave de correlação e não ponteiro que o consumidor consiga seguir. O formato é definido pelo schema da mensagem em `contracts/events/`. `orcamento` e `meta_venda` são opcionais em `regra-submetida`; os três campos de parâmetros referenciam as propriedades de `parametros-simulacao.schema.json`. No fluxo de texto e voz, a primeira publicação não leva orçamento nem meta. A republicação após extração leva os parâmetros do job, inclusive valores que a validação ainda deve apontar como conflito. A T-277 define o contrato; a publicação desses valores extraídos pertence à T-279.
 
 A transição para um estado terminal grava `job-encerrado` na mesma transação. O `evento_id` dele é o id da transição em `job_transicoes`, e `encerrado_em` é o `ocorrido_em` dela: uma republicação, ou o registro de um encerramento anterior ao evento, leva os mesmos valores.
 

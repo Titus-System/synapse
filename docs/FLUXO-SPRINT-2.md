@@ -19,14 +19,20 @@ Os épicos e as tarefas publicados no [projeto da Sprint 2](https://github.com/o
 
 A Sprint 2 cobre a regra inteira descrita pelo usuário, com núcleo e todas as particularidades suportadas pelos dados. Todos os construtos estão no escopo. A integração inicial usa núcleo mais `generico`; essa sequência não exclui os outros construtos da entrega.
 
-1. O usuário descreve a regra em texto ou áudio, com o orçamento e o período, e o frontend a envia por `POST /submissoes` com `finalidade = entrada_inicial`.
-2. A API registra a submissão original e cria o job que a processa. Quando houver áudio, chama o provedor de transcrição e persiste o texto.
-3. O codegen lê o texto persistido e extrai uma representação completa.
-4. A regra extraída passa por validação de domínio e de consistência.
+1. O usuário descreve a regra em texto ou áudio e pode dizer na mesma descrição o orçamento de comissão, a meta de venda e o período da simulação. O frontend envia a descrição por `POST /submissoes` com `finalidade = entrada_inicial`, sem campos de parâmetros na tela.
+2. A API registra a submissão original e cria o job sem orçamento, sem meta e com todas as competências publicadas. Quando houver áudio, chama o provedor de transcrição e persiste o texto.
+3. O codegen lê o texto persistido e extrai a representação completa e um objeto separado de parâmetros em `extracoes_regras.parametros`. Publica somente as referências em `regra-extraida`; a API grava os parâmetros no job e na versão, substituindo as competências quando o texto diz o período.
+4. A regra extraída e os parâmetros passam por validação de domínio e de consistência. Um parâmetro inválido é apontado como conflito para correção no chatbot.
 5. Sem problemas apontados, o fluxo segue automaticamente para geração de código e simulação.
 6. Havendo elementos incompletos, incoerentes ou não processáveis, o usuário é encaminhado ao chatbot para corrigir a regra.
 
 A submissão é um recurso próprio, do domínio `submissoes` da API, e substitui o formulário como porta de entrada da regra. `POST /submissoes` cria a submissão e o job juntos e devolve o job, que o frontend acompanha pelas rotas de `/jobs`. O texto vem em JSON e a voz em `multipart/form-data`, com a parte `audio` e a parte `parametros`. O job de texto nasce em `gerando_regra` com origem `texto`; o de voz nasce em `aguardando_transcricao` com origem `voz`. Nos dois casos o codegen lê a descrição em `submissoes.transcricao`. `POST /jobs` continua aceitando o formulário, que o frontend deixa de usar. O contrato está definido pela T-230.
+
+A T-277 define o formato dos parâmetros em `parametros-simulacao.schema.json`, compartilhado pelas colunas e pelos eventos. Os três são opcionais: sem orçamento, não se verifica orçamento; sem meta, usam-se as vendas históricas; sem período, simulam-se todas as competências publicadas. Período de simulação e vigência da regra são distintos. Os campos antigos `orcamento` e `competencias` na entrada inicial continuam aceitos, obsoletos e ignorados, inclusive quando têm forma inválida. Os valores efetivos vêm somente da descrição.
+
+Os parâmetros não entram na representação. Cada versão nascida do texto os registra em `regras.parametros`, e o hash canônico cobre representação e parâmetros quando estes existem. Uma correção por texto ou áudio pode mudar qualquer um dos três e gera versão nova mesmo quando mantém a representação. `correcao-proposta.parametros` é o conjunto completo depois da correção; ausente, os parâmetros do job permanecem. Os conflitos e rebaixamentos usam `parametros.orcamento`, `parametros.meta_venda` e `parametros.competencias`, sem ampliar `elemento_ref` para a execução.
+
+Extração, gravação e validação pertencem, respectivamente, às T-278, T-279 e T-280. A correção pertence às T-220/T-217, e a execução sem orçamento e com meta pertence à T-269. A definição do contrato não significa que esses comportamentos já estejam implementados.
 
 O chatbot é uma interface de correção orientada pelos problemas encontrados. Não é uma conversa aberta nem uma tela obrigatória de confirmação de toda regra.
 
@@ -57,7 +63,7 @@ A API recebe a correção e anuncia sua referência. O codegen propõe uma repre
 
 O restante do contrato do loop está definido pela [T-213](https://github.com/Titus-System/synapse/issues/217):
 
-- `parametros-confirmados` leva as competências e o orçamento do job, que o codegen não alcança em `jobs`, e `correcao-submetida` leva as competências.
+- `parametros-confirmados` e `correcao-submetida` levam as competências e, quando definidos, orçamento e meta de venda atuais do job, que o codegen não alcança em `jobs`. A T-277 amplia o contexto da T-213; a reextração recebe esses valores para preservar os parâmetros que a correção não mudou.
 - A pausa para correção é `etapa-alterada` com `etapa = confirmacao` e `status = aguardando_correcao`, que exige `regra_id`, a versão analisada, e `conflitos`. A API leva o job de `gerando_regra` para `aguardando_confirmacao_parametros` e abre uma rodada pendente.
 - A falha da reextração é `etapa-alterada` com `etapa = extracao_parametros` e `status = erro`. Com o job em `aguardando_confirmacao_parametros`, a API não encerra o job: fecha a rodada como `reextracao_falhou` e abre uma rodada pendente nova, encadeada e com os mesmos conflitos.
 - A rodada tem os estados `pendente`, `em_reextracao`, `reextracao_falhou`, `corrigida` e `abandonada`. O formato de `rodadas_correcao.conflitos` é `contracts/domain/conflitos-rodada.schema.json`, o mesmo do evento.
@@ -76,6 +82,8 @@ A tabela `submissoes` já contém `binario`, `formato`, `transcricao` e `transcr
 A entrada inicial e as correções por voz usam a mesma infraestrutura de captura, armazenamento e transcrição. Cada áudio de correção pertence à sua própria submissão, vinculada à rodada correspondente. A submissão inicial permanece identificável.
 
 O contrato da voz está definido pela T-230. As duas finalidades usam `POST /submissoes` em `multipart/form-data`. O áudio tem até 5 MB, no contêiner que o navegador grava (`webm`, `ogg`, `wav` ou `mp4`), e a duração de 3 minutos é limitada pelo frontend, porque a API não decodifica o áudio. A rodada de uma correção por voz fica em `em_transcricao` até o áudio ser transcrito e depois segue como a correção por texto. A falha da transcrição termina em `erro` o job da entrada inicial; na correção, fecha a rodada como `reextracao_falhou` e abre uma pendente nova. Enquanto a transcrição não está habilitada no ambiente, a API recusa a voz com `estado_invalido`, e o texto continua aceito. Nenhuma rota devolve o áudio nem o texto transcrito da entrada inicial.
+
+Na entrada inicial por voz, a parte JSON `parametros` do multipart precisa apenas de `finalidade` e `tipo`; orçamento, meta e período são ditos na gravação. `orcamento` e `competencias` nessa parte são aceitos e ignorados por compatibilidade com a T-230. A correção por voz leva `job_id` e pode alterar os mesmos três parâmetros por meio da fala. A transcrição segue para a mesma extração usada no texto, conforme a T-277.
 
 O estado `aguardando_transcricao` já existe no contrato HTTP e precisa ser incluído no enum e nas transições da API como parte de E4. O áudio é persistido antes da chamada ao provedor; a disponibilidade da transcrição é anunciada somente depois da gravação do texto. Uma chamada externa não deve manter aberta a transação que grava o job e seu evento.
 

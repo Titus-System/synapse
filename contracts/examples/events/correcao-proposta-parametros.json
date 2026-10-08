@@ -1,0 +1,19 @@
+{
+  "job_id": "6e8a0c2e-4f6b-4d8a-9c1e-3f5b7d9e1a46",
+  "regra_origem_id": "4a6c8e0b-2d4f-4b6d-8e0a-5c7e9a1b3d57",
+  "submissao_id": "7e1a3c5d-9f2b-4d6e-8a0c-1b3d5f7a9c24",
+  "representacao": {
+    "nucleo": {
+      "vigencia": {"inicio": "2025-08", "fim": "2025-09"},
+      "marca": ["10"],
+      "cargo": ["100"],
+      "percentual": 0.025
+    },
+    "especificacoes": []
+  },
+  "parametros": {
+    "orcamento": 485000.0,
+    "meta_venda": 9000000.0,
+    "competencias": ["2025-08", "2025-09"]
+  }
+}

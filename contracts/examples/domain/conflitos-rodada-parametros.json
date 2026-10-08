@@ -1,0 +1,20 @@
+[
+  {
+    "elementos": [
+      "parametros.orcamento"
+    ],
+    "motivo": "orçamento negativo"
+  },
+  {
+    "elementos": [
+      "parametros.meta_venda"
+    ],
+    "motivo": "meta de venda deve ser maior que zero"
+  },
+  {
+    "elementos": [
+      "parametros.competencias"
+    ],
+    "motivo": "competência sem dados publicados"
+  }
+]

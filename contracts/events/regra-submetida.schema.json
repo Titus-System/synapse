@@ -26,12 +26,8 @@
       "description": "Como o job nasceu, e é o que determina o ponto de entrada do grafo. A API resolve de submissoes.tipo, ou reprocessamento quando o job não veio de uma submissão e sim de outro job (US07, cenário 3). texto e voz são a descrição de uma regra nova, digitada ou falada, que passa pela extração."
     },
     "competencias": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "$ref": "../domain/comum.schema.json#/$defs/competencia"
-      },
-      "description": "Competências históricas a simular, vindas de jobs.competencias. O job cobre o período inteiro numa única simulação, com os meses agregados, e não existe uma simulação por competência. Nunca vazio, porque um job que não simula nada não é job. Não precisa ser contíguo.",
+      "$ref": "../domain/parametros-simulacao.schema.json#/properties/competencias",
+      "description": "Competências históricas a simular, vindas de jobs.competencias. O job cobre o período inteiro numa única simulação, com os meses agregados, e não existe uma simulação por competência. Nunca vazio, porque um job que não simula nada não é job. Não precisa ser contíguo. Nas origens texto e voz, a primeira publicação traz todas as competências publicadas, com que o job nasce; depois da extração, traz o período que o texto diz, quando diz, como foi dito, inclusive uma competência fora das publicadas, que a validação de domínio aponta como conflito.",
       "examples": [
         [
           "2025-08",
@@ -50,13 +46,12 @@
       "description": "Versão da regra em regras. Presente quando a regra já está formada na submissão, que é o caso do formulário, e quando o reprocessamento parte de uma versão existente. Nas origens texto e voz, ausente na primeira publicação, porque a regra só nasce da extração, e presente quando a API republica o evento depois de criar a versão a partir de regra-extraida."
     },
     "orcamento": {
-      "allOf": [
-        {
-          "$ref": "../domain/comum.schema.json#/$defs/brl"
-        }
-      ],
-      "minimum": 0,
-      "description": "Critério de orçamento do período, vindo de jobs.orcamento. Ausente quando o job ainda não tem orçamento definido; o codegen carrega o valor no estado do grafo sem usá-lo para decidir viabilidade, que é apuração do worker sobre dados reais."
+      "$ref": "../domain/parametros-simulacao.schema.json#/properties/orcamento",
+      "description": "Critério de orçamento do período, vindo de jobs.orcamento. Nas origens texto e voz, é o orçamento que o usuário disse, como foi dito: não há limite inferior, para que um valor negativo chegue à validação de domínio e seja apontado como conflito. Ausente quando o job não tem orçamento: na primeira publicação das origens texto e voz, que precede a extração, e quando o texto não diz orçamento, caso em que a simulação é feita sem a verificação de orçamento. O codegen carrega o valor no estado do grafo sem usá-lo para decidir viabilidade, que é apuração do worker sobre dados reais."
+    },
+    "meta_venda": {
+      "$ref": "../domain/parametros-simulacao.schema.json#/properties/meta_venda",
+      "description": "Meta de venda do período, vinda de jobs.meta_venda: o total de vendas sobre o qual a regra é simulada, como o usuário a disse no texto ou no áudio. Não há limite inferior, pelo mesmo motivo do orçamento. Ausente quando o job não tem meta, inclusive na primeira publicação das origens texto e voz, e então a simulação usa as vendas históricas."
     }
   },
   "allOf": [

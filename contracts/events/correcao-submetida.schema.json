@@ -26,11 +26,7 @@
       "description": "Linha de submissoes que guarda esta correção. É por ela que o codegen alcança o texto digitado ou a transcrição do áudio; o texto não viaja no evento. Na correção por voz, a API só publica depois de gravar a transcrição. Identifica a correção: uma reentrega traz o mesmo valor."
     },
     "competencias": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "$ref": "../domain/comum.schema.json#/$defs/competencia"
-      },
+      "$ref": "../domain/parametros-simulacao.schema.json#/properties/competencias",
       "description": "Competências históricas a simular, vindas de jobs.competencias, no mesmo formato de regra-submetida. O codegen não tem permissão em jobs, e o ciclo que reextrai a correção as carrega no estado, como o ciclo aberto por regra-submetida: é por elas que a reextração conhece o período em que a regra será simulada. Nunca vazio. Ausente só nas mensagens publicadas antes de o campo existir.",
       "examples": [
         [
@@ -38,6 +34,14 @@
           "2025-11"
         ]
       ]
+    },
+    "orcamento": {
+      "$ref": "../domain/parametros-simulacao.schema.json#/properties/orcamento",
+      "description": "Orçamento atual do job, vindo de jobs.orcamento, no mesmo formato de regra-submetida e como o usuário o disse, sem limite inferior. Com ele e com meta_venda e competencias, a reextração conhece os parâmetros atuais do job e devolve em correcao-proposta o conjunto completo depois da correção, inclusive os que a correção não mudou. Ausente quando o job não tem orçamento e nas mensagens publicadas antes de o campo existir."
+    },
+    "meta_venda": {
+      "$ref": "../domain/parametros-simulacao.schema.json#/properties/meta_venda",
+      "description": "Meta de venda atual do job, vinda de jobs.meta_venda, no mesmo formato de regra-submetida e como o usuário a disse, sem limite inferior. Ausente quando o job não tem meta e nas mensagens publicadas antes de o campo existir."
     }
   },
   "examples": [

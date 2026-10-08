@@ -162,7 +162,6 @@ interface JobBase {
   status: StatusJob
   origem: OrigemJob
   competencias: string[]
-  orcamento: number
   criado_em: string
   iniciado_em?: string | null
   finalizado_em?: string | null
@@ -172,10 +171,13 @@ interface JobBase {
 }
 
 export interface JobCriado extends JobBase {
+  orcamento: number
   regra: RegraVersionada
 }
 
 export interface Job extends JobBase {
+  orcamento?: number
+  meta_venda?: number
   regras: RegraVersionada[]
   simulacao?: Simulacao | null
   simulacoes?: Simulacao[]
@@ -185,7 +187,8 @@ export interface JobResumo {
   id: string
   status: StatusJob
   competencias: string[]
-  orcamento: number
+  orcamento?: number
+  meta_venda?: number
   criado_em: string
   veredito?: Veredito
   finalizado_em?: string

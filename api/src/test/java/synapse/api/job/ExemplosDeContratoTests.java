@@ -112,8 +112,8 @@ class ExemplosDeContratoTests {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "0", "485000.1234567890123456789" })
-	void schemaAceitaOrcamentoNaoNegativo(String valor) throws IOException {
+	@ValueSource(strings = { "-0.01", "0", "485000.1234567890123456789" })
+	void schemaAceitaOrcamentoComoFoiDito(String valor) throws IOException {
 		ObjectNode payload = (ObjectNode) this.objectMapper
 			.readTree(Files.readString(exemplo("events/regra-submetida.json")));
 		payload.put("orcamento", new BigDecimal(valor));
@@ -122,7 +122,7 @@ class ExemplosDeContratoTests {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "-0.01", "\"485000\"", "null", "true" })
+	@ValueSource(strings = { "\"485000\"", "null", "true" })
 	void schemaRecusaOrcamentoInvalido(String valor) throws IOException {
 		ObjectNode payload = (ObjectNode) this.objectMapper
 			.readTree(Files.readString(exemplo("events/regra-submetida.json")));

@@ -34,6 +34,7 @@ Os exemplos válidos estão em [`contracts/examples/domain/`](../examples/domain
 | [resultado-linhas.schema.json](resultado-linhas.schema.json) | `resultados_simulacao.linhas`, consultado pela rota de detalhamento |
 | [resultado-diagnostico.schema.json](resultado-diagnostico.schema.json) | `resultados_simulacao.diagnostico` |
 | [conflitos-rodada.schema.json](conflitos-rodada.schema.json) | `rodadas_correcao.conflitos`, também usado em `etapa-alterada` e na API HTTP |
+| [parametros-simulacao.schema.json](parametros-simulacao.schema.json) | `extracoes_regras.parametros` e `regras.parametros`, também usado em `correcao-proposta` |
 
 `outbox_events.payload` não está aqui: é corpo de mensagem, e seu lugar é `contracts/events/`.
 
@@ -57,6 +58,8 @@ Campos do núcleo e elementos de `especificacoes` compartilham um espaço único
 
 O espaço é único porque as mesmas listas citam os dois lado a lado: a declaração de cobertura do código gerado e a quebra por elemento em `resultado-decomposicao`. O identificador não carrega o construto, que já tem campo próprio e mudaria se o elemento fosse reclassificado.
 
+Os parâmetros da simulação (orçamento, meta de venda e período) não fazem parte da regra nem desse espaço. Um conflito ou um rebaixamento que os cita usa `parametros.orcamento`, `parametros.meta_venda` ou `parametros.competencias`. Essas referências são aceitas só em `conflitos-rodada.schema.json` e em `rebaixamentos-extracao.schema.json`, para que a cobertura declarada pelo código gerado e a quebra por elemento continuem restritas às partes da regra.
+
 ## Estado existente e evolução planejada
 
 Os schemas descrevem formatos compartilhados; sua existência não comprova que a extração ou a geração de todos os construtos já esteja implementada.
@@ -64,3 +67,25 @@ Os schemas descrevem formatos compartilhados; sua existência não comprova que 
 A decomposição exige cinco mapas de diferenças, que somam `totais.diferenca_abs`: `elemento`, `loja`, `marca`, `cargo` e `competencia`. Admite também três mapas absolutos opcionais, que somam `totais.simulado`: `matricula`, com o total de cada colaborador no período, `loja_absoluto` e `competencia_absoluto`. Os absolutos fazem parte do contrato, mas o harness do worker ainda não os produz. O cruzamento por competência e matrícula é definido separadamente em `resultado-linhas.schema.json`, com loja e marca da lotação no RH. A T-256 define esse contrato; sua produção, persistência e conferência são entregas do worker nas T-259 e T-262.
 
 Os conflitos do chatbot têm formato em `conflitos-rodada.schema.json`, mas a tabela de rodadas ainda não existe no esquema do banco; a migration acompanha a implementação do loop de correção. Os schemas atuais permanecem a autoridade até serem evoluídos e validados com seus consumidores. Ver [Fluxo e decisões da Sprint 2](../../docs/FLUXO-SPRINT-2.md).
+
+## Compatibilidade dos parâmetros da simulação (T-277)
+
+O formato único está em `parametros-simulacao.schema.json`. `correcao-proposta.parametros` referencia o objeto inteiro; `regra-submetida`, `parametros-confirmados` e `correcao-submetida` referenciam suas propriedades, mantendo os campos no nível atual do evento. Ausência e `null` são distintos: os campos conhecidos aceitam ausência, mas não `null`.
+
+| Campo ou contrato | Evolução e compatibilidade |
+| --- | --- |
+| `POST /submissoes` inicial: `orcamento` | Deixa de ser obrigatório, fica obsoleto e é ignorado. Qualquer valor JSON é aceito nesse campo, sem efeito, tanto no JSON de texto quanto na parte `parametros` do multipart. |
+| `POST /submissoes` inicial: `competencias` | Continua opcional, fica obsoleto e é ignorado sem validar sua forma. Requisições antigas continuam válidas; os valores efetivos vêm só da descrição. |
+| `parametros-simulacao.orcamento` e `meta_venda` | Números em reais, opcionais e sem `minimum`/`exclusiveMinimum`. Aceitam orçamento negativo e meta zero ou negativa para a validação apontar conflitos. |
+| `parametros-simulacao.competencias` | Lista opcional, não vazia, de `AAAA-MM`, sem enum dos meses publicados. Um mês fora das publicadas chega à validação. O schema não aplica o período padrão. |
+| `regra-submetida.orcamento` e `parametros-confirmados.orcamento` | Continuam opcionais; perde-se apenas `minimum: 0`. Números anteriormente válidos continuam válidos; strings, booleanos e `null` continuam recusados. |
+| `regra-submetida.meta_venda` e `parametros-confirmados.meta_venda` | Campos novos opcionais. `competencias` permanece obrigatória no primeiro evento e opcional no segundo, com o mesmo formato anterior. |
+| `correcao-submetida.orcamento` e `meta_venda` | Campos novos opcionais com os valores atuais do job; `competencias` permanece opcional. Mensagens anteriores continuam válidas. |
+| `correcao-proposta.parametros` | Objeto novo opcional com o conjunto completo após a correção. Ausente, preserva os parâmetros do job; `{}` remove orçamento/meta e restaura todas as competências publicadas. Campo omitido dentro do objeto significa parâmetro não definido após a correção. |
+| `JobResumo` e `JobDetalhado` | `orcamento` deixa de ser obrigatório; `meta_venda` é opcional. A ausência é omissão, não `null`. Clientes que presumiam orçamento presente precisam aceitar a omissão; o tipo `Job` do frontend acompanha essa mudança. |
+| `conflitos-rodada.elementos` e `rebaixamentos-extracao.ref` | Aceitam as três referências `parametros.<campo>` além das referências anteriores. Por decisão autorizada, `comum.elemento_ref` permanece restrito às partes da regra. |
+| `rebaixamentos-extracao.motivo` | Acrescenta `valor_sem_lastro`, `codigo_fora_do_vocabulario`, `termo_ambiguo` e `periodo_nao_resolvido`; os dois motivos anteriores continuam válidos. |
+| `jobs` no DBML | `orcamento` passa a nullable; `meta_venda` é nova e nullable. `competencias` mantém o período padrão até a extração. A migration é da T-279. |
+| `extracoes_regras.parametros` e `regras.parametros` | A primeira tem padrão `{}` para aceitar produtores anteriores; a segunda é nullable, preservando a serialização e o hash anteriores quando nula. Objetos presentes, inclusive `{}`, entram no hash da versão. |
+
+A ampliação do contrato não torna automaticamente um consumidor antigo compatível com valores novos. O codegen ainda exige orçamento não negativo nos DTOs e no estado; a T-280 precisa ajustar esses pontos antes de ativar na T-279 a republicação de valores inválidos. A extração é da T-278, e a correção, das T-220/T-217. `POST /jobs` e o schema de resposta `Job` mantêm o contrato anterior. A execução e os resultados sem orçamento, além da meta na execução, são tratados pela T-269, integrada depois desta tarefa.
