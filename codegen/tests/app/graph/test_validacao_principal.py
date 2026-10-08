@@ -243,6 +243,41 @@ async def test_reject_rule_lanca_falha_permanente_com_mensagem_fixa() -> None:
     assert str(erro.value) == "Rule rejected by domain validation"
 
 
+async def test_falha_do_job_dentro_do_no_propaga_sem_virar_transitoria(
+    ambiente: ConfirmacaoFalsa,
+    monkeypatch: pytest.MonkeyPatch,
+    cliente: AsyncClient,
+) -> None:
+    """Uma `FalhaDoJobError` levantada dentro do nó não pode ser mascarada como transitória,
+
+    senão a fronteira reentregaria para sempre uma falha permanente (AGENTS.md - `falhas.py`).
+    """
+    from app.graph.nodes.validate_domain import validate_domain
+
+    monkeypatch.setattr(
+        "app.nos.validacao_dominio.verificar",
+        lambda _: (_ for _ in ()).throw(RegraComConflitoError()),
+    )
+    payload = exemplo("parametros-confirmados")
+    estado = {
+        "job_id": payload["job_id"],
+        "regra_id": payload["regra_id"],
+        "representacao_regra": regra(False).para_contrato(),
+    }
+    antes = (await cliente.get("/metrics")).text
+
+    with pytest.raises(RegraComConflitoError) as erro:
+        await validate_domain(estado, {"configurable": {"producers": ambiente.producers}})
+
+    assert erro.value.etapa == "validacao_dominio"
+    depois = (await cliente.get("/metrics")).text
+    labels = {"job_name": "validate_domain"}
+    assert (
+        amostra(depois, "job_failures_total", labels) - amostra(antes, "job_failures_total", labels)
+        == 1
+    )
+
+
 @pytest.mark.parametrize("cancelamento", [False, True])
 async def test_erro_inesperado_ou_cancelamento_do_no_e_sanitizado_e_medido(
     ambiente: ConfirmacaoFalsa,

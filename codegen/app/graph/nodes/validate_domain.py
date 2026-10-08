@@ -14,12 +14,22 @@ from app.core.metrics.global_metrics import (
     job_runs,
     resultados_validacao_dominio,
 )
+from app.falhas import FalhaDoJobError
 from app.graph.core.state import AgentState, ConflitoDominio
 from app.nos import validacao_dominio
 from app.repositorio.artefatos import id_do_evento_de_trilha
 
 logger = get_logger("app.graph.nodes.validate_domain")
 ETAPA: NoGrafo = "validacao_dominio"
+
+
+def _classe_da_falha(erro: BaseException) -> str:
+    """Classify by type only: the exception text can carry rule values or broker details."""
+    if isinstance(erro, TimeoutError):
+        return "timeout"
+    if isinstance(erro, ConnectionError):
+        return "conexao"
+    return "falha_na_operacao"
 
 
 async def validate_domain(state: AgentState, config: RunnableConfig) -> AgentState:
@@ -66,10 +76,17 @@ async def validate_domain(state: AgentState, config: RunnableConfig) -> AgentSta
             return {"regra_liberada": validacao.liberado, "conflitos": conflitos}
     except (Exception, CancelledError) as erro:
         job_failures.labels(job_name="validate_domain").inc()
-        logger.error("domain validation failed")
-        # Provider/database exceptions can carry rule values; the boundary gets only a fixed error.
+        if isinstance(erro, FalhaDoJobError):
+            # A permanent failure keeps its type and etapa - never masked as transient.
+            logger.error("domain validation failed", extra={"classe": "falha_do_job"})
+            raise
         if isinstance(erro, CancelledError):
+            logger.error("domain validation failed", extra={"classe": "cancelamento"})
+            # Recreated with a fixed message: a cancellation can still carry arbitrary content.
             raise CancelledError("Domain validation cancelled") from None
+        classe = _classe_da_falha(erro)
+        logger.error("domain validation failed", extra={"classe": classe})
+        # Provider/database exceptions can carry rule values; the boundary gets only a fixed error.
         raise RuntimeError("Domain validation failed") from None
     finally:
         no_ctx.reset(token)
