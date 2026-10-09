@@ -9,6 +9,7 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import liquibase.Contexts;
 import liquibase.Liquibase;
 import liquibase.database.DatabaseFactory;
@@ -38,6 +39,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import synapse.api.core.logging.CorrelationContext;
+import synapse.api.core.metrics.AppMetrics;
 import synapse.api.core.outbox.Outbox;
 import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
@@ -286,7 +288,7 @@ class SugestaoAdaptacaoPersistenciaTests {
 		}).when(emissores).emitir(eq(jobId), any());
 		var sugestoes = new SugestaoAdaptacaoConsumidor(sugestaoService, emissores, new CorrelationContext());
 		var conclusoes = new SimulacaoConcluidaConsumidor(contexto.getBean(JobEventosService.class), emissores,
-				new CorrelationContext());
+				new CorrelationContext(), new AppMetrics(new SimpleMeterRegistry()));
 		var proposta = new SugestaoAdaptacaoPropostaDto(jobId, regraId, resultadoId, representacao("0.0099"));
 		var conclusao = new SimulacaoConcluidaDto(jobId, resultadoId, "sucesso", "inviavel", null, null, null, null);
 
@@ -409,7 +411,7 @@ class SugestaoAdaptacaoPersistenciaTests {
 			jdbc.update("UPDATE simulacoes SET resultado_id = NULL WHERE job_id = ?", jobId);
 		}
 		var consumidor = new SimulacaoConcluidaConsumidor(contexto.getBean(JobEventosService.class),
-				mock(EmissoresSse.class), new CorrelationContext());
+				mock(EmissoresSse.class), new CorrelationContext(), new AppMetrics(new SimpleMeterRegistry()));
 		try (var anterior = new CorrelationContext().abrir("contexto-anterior", null);
 				var captura = new CapturaDeLog("synapse.api.job.SimulacaoConcluidaService")) {
 			consumidor

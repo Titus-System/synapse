@@ -361,6 +361,29 @@ def test_o_container_nao_tem_como_conhecer_o_orcamento() -> None:
     )
 
 
+def test_sem_orcamento_o_sucesso_valido_continua_sucesso() -> None:
+    """Job sem orçamento (T-281): o resultado do container é validado como veio."""
+    desfecho = classificar(saida(envelope()), PAYLOAD, None)
+
+    assert (desfecho.classe, desfecho.motivo) == ("sucesso", "ok")
+    assert desfecho.resultado is not None
+    assert "orcamento" not in desfecho.resultado["totais"]
+
+
+def test_sem_orcamento_um_orcamento_fabricado_pelo_container_continua_reprovado() -> None:
+    """Sem orçamento no comando, um totais.orcamento na saída chegaria à linha como se fosse o
+    critério do job: continua erro do código."""
+    dados = envelope()
+    dados["resultado"]["totais"]["orcamento"] = 485000.0
+
+    desfecho = classificar(saida(dados), PAYLOAD, None)
+
+    assert (desfecho.classe, desfecho.motivo) == ("erro_codigo", "resultado_fora_do_schema")
+    assert desfecho.problemas == (
+        {"caminho": "$.totais.orcamento", "palavra_chave": "fornecido_pelo_container"},
+    )
+
+
 # ---- erro de infraestrutura e o que não vaza ----
 
 

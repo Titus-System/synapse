@@ -75,14 +75,15 @@ def carregar_contratos() -> None:
     validador(ESQUEMA_DIAGNOSTICO)
 
 
-def validar_resultado(resultado: Mapping[str, Any], orcamento: float) -> list[Problema]:
+def validar_resultado(resultado: Mapping[str, Any], orcamento: float | None) -> list[Problema]:
     """Erros do resultado contra ``resultado-simulacao.schema.json`` (vazio = válido).
 
-    O container não recebe o orçamento, então ``totais`` chega sem ``orcamento`` e o schema,
-    que o exige, reprovaria todo resultado. A validação vê uma **cópia** com o orçamento do
-    worker acrescentado; ``resultado`` não é alterado, e é ele que segue adiante. Um
-    ``totais.orcamento`` já presente na saída é reprovado: o harness não o produz, então
-    alguém o fabricou, e ele não pode chegar ao veredito parecendo dado do container.
+    O container não recebe o orçamento, então ``totais`` chega sem ``orcamento``. Com
+    orçamento, a validação vê uma **cópia** com o orçamento do worker acrescentado, a forma que
+    será gravada; sem ele (job sem orçamento), vê os totais como vieram. ``resultado`` não é
+    alterado, e é ele que segue adiante. Um ``totais.orcamento`` já presente na saída é
+    reprovado nos dois casos: o harness não o produz, então alguém o fabricou, e ele não pode
+    chegar ao veredito, nem à linha de um job sem orçamento, parecendo dado do container.
 
     Cada problema é o caminho e a palavra-chave do schema, nunca o valor nem a mensagem do
     validador: o conteúdo veio de código não confiável e não pode chegar a um log.
@@ -92,7 +93,9 @@ def validar_resultado(resultado: Mapping[str, Any], orcamento: float) -> list[Pr
     totais = candidato.get("totais")
     if isinstance(totais, Mapping):
         fabricado = "orcamento" in totais
-        candidato["totais"] = {**totais, "orcamento": orcamento}
+        candidato["totais"] = {k: v for k, v in totais.items() if k != "orcamento"}
+        if orcamento is not None:
+            candidato["totais"]["orcamento"] = orcamento
     erros = _erros(validador(ESQUEMA_RESULTADO), candidato)
     if fabricado:
         erros.insert(

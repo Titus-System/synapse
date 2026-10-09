@@ -210,6 +210,26 @@ class ExemplosDeContratoTests {
 	}
 
 	/**
+	 * O sucesso de um job sem orçamento não traz veredito, e por isso é lido sem
+	 * {@code FAIL_ON_MISSING_CREATOR_PROPERTIES}: é o par que a api reconhece como
+	 * resultado sem orçamento, e não como desfecho desconhecido.
+	 */
+	@Test
+	void oExemploDeSimulacaoConcluidaSemOrcamentoEUmDesfechoReconhecido() throws IOException {
+		String caminho = "events/simulacao-concluida-sem-orcamento.json";
+		SimulacaoConcluidaDto evento = this.objectMapper.readerFor(SimulacaoConcluidaDto.class)
+			.with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+			.readValue(Files.readString(exemplo(caminho)));
+
+		assertThat(evento.status()).isEqualTo("sucesso");
+		assertThat(evento.veredito()).isNull();
+		assertThat(DesfechoDaSimulacao.de(evento.status(), evento.veredito()))
+			.isEqualTo(DesfechoDaSimulacao.SEM_ORCAMENTO);
+
+		ContratoDeEvento.validar("simulacao-concluida", Files.readString(exemplo(caminho)));
+	}
+
+	/**
 	 * Ida e volta pelo mesmo {@code JsonMapper} padrão que o outbox usa: o instante sai
 	 * como texto ISO-8601, que é o que o schema exige, e não como número.
 	 */

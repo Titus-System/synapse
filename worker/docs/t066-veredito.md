@@ -9,10 +9,15 @@ fora do container, faz quatro coisas, nesta ordem:
    worker, e seguem como vieram, sem recomposição;
 3. quando o comando trouxe `elementos_exigidos`, **confere a cobertura** dos elementos da regra
    (T-241, `docs/t241-conferencia-de-cobertura.md`);
-4. **aplica o orçamento** e emite o veredito.
+4. **aplica o orçamento** e emite o veredito, quando o comando trouxe orçamento.
 
 O orçamento é o único parâmetro que **julga** o resultado, e nunca entrou no container: código
 gerado que o enxergasse poderia mirar nele.
+
+Um job sem orçamento (T-281) recebe `executar-codigo` sem o campo. As conferências 1 a 3 são as
+mesmas, e só a 4 não acontece: o `sucesso` sai sem veredito e sem `totais.orcamento`, porque não
+há critério que o julgue. Um baseline adulterado continua `baseline_divergente`, e uma cobertura
+incompleta continua `cobertura_incompleta`.
 
 ## Onde está
 
@@ -39,8 +44,8 @@ arredondar o orçamento.
 
 **`indeterminado`** é o veredito de todo desfecho que não é `sucesso`: asserção violada,
 `erro_codigo` (inclusive a divergência contra o baseline) e `erro_infra`. Sem número confiável
-não há julgamento, e falha de cálculo nunca é inviabilidade. Um `sucesso` sai sempre `viavel`
-ou `inviavel`.
+não há julgamento, e falha de cálculo nunca é inviabilidade. Um `sucesso` sai `viavel` ou
+`inviavel` quando há orçamento, e sem veredito (`None`) quando não há, nunca `indeterminado`.
 
 ### Correspondência com o contrato (para a T-067)
 
@@ -50,7 +55,11 @@ ausente/nulo quando o status não é `sucesso`, e o contrato **não** foi altera
 | `Julgamento.classe` | `veredito` interno | Na gravação e no evento |
 | --- | --- | --- |
 | `sucesso` | `viavel` ou `inviavel` | o mesmo |
+| `sucesso` de job sem orçamento | `None` | **nulo/ausente**, e `totais.orcamento` ausente |
 | `assercao_violada`, `erro_codigo`, `erro_infra` | `indeterminado` | **nulo/ausente** |
+
+A `api` lê `sucesso` sem veredito como o resultado de um job sem orçamento, que vai à decisão do
+usuário e pode ser liberado e salvo como uma regra viável (T-281).
 
 A `api` já trata esses status como `ERRO` pelo status, e lê `sucesso` + `indeterminado` como
 número confiável ainda sem julgamento (`AGUARDANDO_DECISAO_USUARIO`): por isso o worker nunca
@@ -68,8 +77,17 @@ emite essa combinação (um teste varre orçamentos e totais em torno da frontei
 As contas são as da T-035 (`resultado.montar_resultado`) sobre os mesmos centavos, então a
 igualdade é exata: uma divergência é adulteração ou descompasso, nunca arredondamento. Nenhum
 número é recalculado para **substituir** o do container: o worker confere e acrescenta
-`totais.orcamento`. `Julgamento.resultado` é o do container mais esse campo, e valida inteiro
-contra `resultado-simulacao.schema.json`; é o que a T-067 grava.
+`totais.orcamento`, quando há orçamento. `Julgamento.resultado` é o do container mais esse
+campo, e valida inteiro contra `resultado-simulacao.schema.json`; é o que a T-067 grava.
+
+## Observabilidade
+
+O log `execução julgada` leva classe, motivo, veredito e `desfecho`, e o `execução preparada`
+leva `com_orcamento` (se haverá veredito, nunca o valor). `worker_execucoes_julgadas_total`
+conta cada execução julgada pelo `desfecho`, de conjunto fechado: `viavel`, `inviavel`,
+`sem_orcamento`, `assercao_violada`, `erro_codigo` e `erro_infra`. Conta execuções, não jobs: a
+reentrega que republica um resultado já gravado não executa nem julga e não conta, e cada
+tentativa de um `erro_infra` conta uma vez.
 
 ### Por que a conferência existe, com um ataque real
 

@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import pytest
 
-from tests.app.esquemas import erros_do_dominio, erros_do_log
+from tests.app.esquemas import erros_do_dominio, erros_do_evento, erros_do_log
 from tests.e2e import regras
 from tests.e2e.apoio import Ambiente, Worker
 
@@ -60,6 +60,55 @@ async def test_sucesso_grava_a_linha_e_publica_o_evento_nas_duas_filas(
     assert da_api == do_codegen
     assert da_api["resultado_id"] == str(linha["id"])
     assert (da_api["status"], da_api["veredito"]) == ("sucesso", veredito)
+    await fechar_o_ciclo(ambiente, worker, semente)
+
+
+def _execucoes_julgadas(metricas: str, desfecho: str) -> float:
+    achado = re.search(
+        rf'^worker_execucoes_julgadas_total{{desfecho="{desfecho}"}} (\S+)$',
+        metricas,
+        flags=re.MULTILINE,
+    )
+    assert achado is not None, f"worker_execucoes_julgadas_total de {desfecho} fora de /metrics"
+    return float(achado.group(1))
+
+
+async def test_sem_orcamento_o_sucesso_e_gravado_e_publicado_sem_veredito(
+    ambiente: Ambiente,
+) -> None:
+    """Job sem orçamento (T-281): o comando chega sem o campo, o resultado é conferido contra o
+    baseline como sempre, e a linha e o evento saem sem veredito e sem `totais.orcamento`. O
+    processo real registra o desfecho no log e o conta em `/metrics` como uma execução normal."""
+    worker = await ambiente.iniciar_worker()
+    assert _execucoes_julgadas(await worker.metricas(), "sem_orcamento") == 0.0
+    semente = await ambiente.semear(regras.SUCESSO, orcamento=None)
+
+    await ambiente.corretor.publicar_comando(semente, None)
+    da_api = await ambiente.corretor.evento(ambiente.corretor.api)
+    do_codegen = await ambiente.corretor.evento(ambiente.corretor.codegen)
+
+    (linha,) = await ambiente.linhas(semente["job_id"])
+    assert (linha["status"], linha["veredito"], linha["diagnostico"]) == ("sucesso", None, None)
+    totais = json.loads(linha["totais"])
+    assert (totais["baseline"], totais["simulado"]) == (
+        regras.BASELINE_2025_11,
+        regras.SIMULADO_DO_EXEMPLO,
+    )
+    assert "orcamento" not in totais
+    assert erros_do_dominio("resultado-totais", totais) == []
+    assert da_api == do_codegen
+    assert da_api["resultado_id"] == str(linha["id"])
+    assert da_api["status"] == "sucesso" and "veredito" not in da_api
+    assert erros_do_evento("simulacao-concluida", da_api) == []
+    (preparada,) = worker.mensagens("execução preparada")
+    assert preparada["extra"]["com_orcamento"] is False
+    (julgada,) = worker.mensagens("execução julgada")
+    assert erros_do_log(julgada) == []
+    assert julgada["job_id"] == str(semente["job_id"])
+    assert (julgada["extra"]["veredito"], julgada["extra"]["desfecho"]) == (None, "sem_orcamento")
+    metricas = await worker.metricas()
+    assert _execucoes_julgadas(metricas, "sem_orcamento") == 1.0
+    assert _execucoes_julgadas(metricas, "viavel") == 0.0
     await fechar_o_ciclo(ambiente, worker, semente)
 
 

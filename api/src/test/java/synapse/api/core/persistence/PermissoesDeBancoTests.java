@@ -125,6 +125,28 @@ class PermissoesDeBancoTests {
 				""".formatted(JOB_ID, CODIGO_ID))).doesNotThrowAnyException();
 	}
 
+	/**
+	 * A meta e o propósito da execução entram no mesmo INSERT do resultado, pela
+	 * permissão de tabela do worker, e ficam tão imutáveis quanto ele; api e codegen só
+	 * os leem.
+	 */
+	@Test
+	void oWorkerGravaAMetaEOPropositoDaExecucaoSemPoderAlteraLos() {
+		String insere = """
+				INSERT INTO resultados_simulacao
+				    (job_id, codigo_gerado_id, status, assercoes, meta_venda, proposito, criado_em)
+				VALUES ('%s', '%s', 'sucesso', '[]'::jsonb, 12000000, 'busca_meta', now())
+				""".formatted(JOB_ID, CODIGO_ID);
+		assertThatCode(() -> executar(UsuariosDeBanco.WORKER, insere)).doesNotThrowAnyException();
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, "UPDATE resultados_simulacao SET proposito = 'simulacao'"))
+			.isEqualTo(PERMISSAO_NEGADA);
+		for (String usuario : new String[] { UsuariosDeBanco.API, UsuariosDeBanco.CODEGEN }) {
+			assertThatCode(() -> executar(usuario, "SELECT meta_venda, proposito FROM resultados_simulacao"))
+				.doesNotThrowAnyException();
+			assertThat(sqlStateAoFalhar(usuario, insere)).isEqualTo(PERMISSAO_NEGADA);
+		}
+	}
+
 	@Test
 	void oCodegenLeATranscricao() {
 		assertThatCode(() -> executar(UsuariosDeBanco.CODEGEN, "SELECT transcricao FROM submissoes"))

@@ -100,6 +100,21 @@ def test_sucesso_grava_o_resultado_inteiro(orcamento: float, veredito: str) -> N
     assert linha.decomposicao == julgamento.resultado["decomposicao"]
 
 
+def test_sucesso_sem_orcamento_grava_o_resultado_sem_veredito_e_sem_totais_orcamento() -> None:
+    """Job sem orçamento (T-281): a linha é a do resultado conferido, sem o critério que não
+    existe e sem o veredito que dependeria dele."""
+    julgamento = julgar_2025_11(sucesso(BASELINE_2025_11, "520000.00"), None)
+
+    linha = linha_do_julgamento(julgamento)
+
+    assert julgamento.resultado is not None
+    assert (linha.status, linha.veredito, linha.diagnostico) == ("sucesso", None, None)
+    assert linha.totais == julgamento.resultado["totais"]
+    assert linha.totais is not None and "orcamento" not in linha.totais
+    assert erros_do_dominio("resultado-totais", linha.totais) == []
+    assert linha.decomposicao == julgamento.resultado["decomposicao"]
+
+
 @pytest.mark.parametrize("julgamento", NAO_SUCESSOS, ids=IDS_DOS_NAO_SUCESSOS)
 def test_o_que_nao_e_sucesso_grava_so_o_status_e_as_assercoes(julgamento: Julgamento) -> None:
     linha = linha_do_julgamento(julgamento)
@@ -311,6 +326,19 @@ def test_evento_de_sucesso_leva_veredito_e_agregados(orcamento: float) -> None:
     assert corpo["total_baseline"] == 508382.32
     assert corpo["total_simulado"] == 520000.0
     assert corpo["diferenca_abs"] == 11617.68
+    assert erros_do_evento("simulacao-concluida", corpo) == []
+
+
+def test_evento_de_sucesso_sem_orcamento_leva_os_agregados_sem_veredito() -> None:
+    """O veredito fica ausente do evento, não `null`: é o que a api lê como resultado sem
+    orçamento (T-281)."""
+    gravado = gravado_de(julgar_2025_11(sucesso(BASELINE_2025_11, "520000.00"), None))
+
+    corpo = corpo_do_evento(gravado)
+
+    assert set(corpo) == CAMPOS_DO_EVENTO_DE_SUCESSO - {"veredito"}
+    assert corpo["status"] == "sucesso"
+    assert corpo["total_simulado"] == 520000.0
     assert erros_do_evento("simulacao-concluida", corpo) == []
 
 

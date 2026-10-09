@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.UUID;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
@@ -160,16 +161,24 @@ class SimulacaoConcluidaConsumidor {
 
 	private static final Logger log = LoggerFactory.getLogger(SimulacaoConcluidaConsumidor.class);
 
+	private static final String INVALIDA = "invalida";
+
+	private static final String DESFECHO_DESCONHECIDO = "desconhecido";
+
 	private final JobEventosService servico;
 
 	private final EmissoresSse emissores;
 
 	private final CorrelationContext correlacao;
 
-	SimulacaoConcluidaConsumidor(JobEventosService servico, EmissoresSse emissores, CorrelationContext correlacao) {
+	private final AppMetrics metricas;
+
+	SimulacaoConcluidaConsumidor(JobEventosService servico, EmissoresSse emissores, CorrelationContext correlacao,
+			AppMetrics metricas) {
 		this.servico = servico;
 		this.emissores = emissores;
 		this.correlacao = correlacao;
+		this.metricas = metricas;
 	}
 
 	@RabbitListener(queues = RabbitTopologyConfig.SIMULACAO_CONCLUIDA_API)
@@ -177,6 +186,7 @@ class SimulacaoConcluidaConsumidor {
 		UUID jobId = evento.job_id();
 		UUID resultadoId = evento.resultado_id();
 		if (jobId == null || resultadoId == null) {
+			contar(null, INVALIDA);
 			log.atWarn().log("simulacao-concluida sem job_id ou resultado_id; evento descartado");
 			return;
 		}
@@ -184,6 +194,7 @@ class SimulacaoConcluidaConsumidor {
 		try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
 			DesfechoDaSimulacao desfecho = DesfechoDaSimulacao.de(evento.status(), evento.veredito());
 			if (desfecho == null) {
+				contar(null, INVALIDA);
 				log.atWarn()
 					.addKeyValue("status", evento.status())
 					.log("simulacao-concluida com status ou veredito desconhecido; evento descartado");
@@ -195,19 +206,24 @@ class SimulacaoConcluidaConsumidor {
 				aplicado = this.servico.concluirSimulacao(jobId, resultadoId, desfecho);
 			}
 			catch (TransicaoDeStatusInvalidaException ex) {
+				contar(desfecho, "estado_incompativel");
 				log.atWarn()
 					.addKeyValue("resultado_id", resultadoId)
+					.addKeyValue("desfecho", desfecho.paraMetrica())
 					.setCause(ex)
 					.log("simulacao-concluida não aplicada; job fora do estado de origem esperado (reentrega ou evento fora de ordem)");
 				return;
 			}
 
 			if (aplicado == null) {
+				contar(desfecho, "versao_anterior");
 				log.atWarn()
 					.addKeyValue("resultado_id", resultadoId)
+					.addKeyValue("desfecho", desfecho.paraMetrica())
 					.log("resultado descartado: não pertence à versão atual do job");
 				return;
 			}
+			contar(desfecho, "aplicada");
 
 			if (aplicado.avancouDeGerandoRegra()) {
 				this.emissores.emitir(jobId, EventoSse.de("estado",
@@ -236,8 +252,17 @@ class SimulacaoConcluidaConsumidor {
 			EventoSse eventoSse = destino.terminal() ? EventoSse.ultimo("estado", eventoEstado)
 					: EventoSse.de("estado", eventoEstado);
 			this.emissores.emitir(jobId, eventoSse);
-			log.atDebug().addKeyValue("status", destino.paraColuna()).log("simulacao-concluida aplicada");
+			log.atInfo()
+				.addKeyValue("resultado_id", resultadoId)
+				.addKeyValue("desfecho", desfecho.paraMetrica())
+				.addKeyValue("status", destino.paraColuna())
+				.log("simulacao-concluida aplicada");
 		}
+	}
+
+	private void contar(@Nullable DesfechoDaSimulacao desfecho, String resultado) {
+		String rotulo = (desfecho != null) ? desfecho.paraMetrica() : DESFECHO_DESCONHECIDO;
+		this.metricas.simulacaoConcluidaConsumida(rotulo, resultado).increment();
 	}
 
 }

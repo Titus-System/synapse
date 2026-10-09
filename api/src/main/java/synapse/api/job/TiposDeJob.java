@@ -112,6 +112,11 @@ record ParametrosGravados(boolean orcamento, boolean metaVenda, boolean periodo)
 
 }
 
+/**
+ * {@code orcamento} fica ausente do JSON num resultado de job sem orçamento, porque o
+ * contrato recusa {@code null} explícito.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 record TotaisSimulacaoDto(
 
 		BigDecimal baseline,
@@ -122,7 +127,7 @@ record TotaisSimulacaoDto(
 
 		BigDecimal diferenca_pct,
 
-		BigDecimal orcamento) {
+		@Nullable BigDecimal orcamento) {
 }
 
 record ResultadoAssercaoDto(

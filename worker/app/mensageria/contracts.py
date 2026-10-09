@@ -22,10 +22,24 @@ class ExecutarCodigo(MensagemBase):
     job_id: UUID
     codigo_gerado_id: UUID
     competencias: list[str] = Field(min_length=1)
-    orcamento: float = Field(ge=0)
+    # Ausente quando o job não tem orçamento: a simulação é conferida como sempre e o sucesso
+    # sai sem veredito e sem totais.orcamento (T-281). Só a ausência significa isso.
+    orcamento: float | None = Field(default=None, ge=0)
     # Ausente num comando publicado antes da conferência de cobertura (T-241): o worker então
     # não a faz, e a execução segue como antes do campo existir.
     elementos_exigidos: list[ReferenciaDeElemento] | None = Field(default=None, min_length=1)
+
+    @field_validator("orcamento", mode="before")
+    @classmethod
+    def _nulo_nao_e_ausencia(cls, orcamento: object) -> object:
+        """O schema declara `orcamento` número, e `null` não é número. Lido como ausência, um
+        produtor com defeito faria o worker pular em silêncio a verificação de orçamento; o
+        validador só roda quando o campo vem no corpo, então a ausência segue valendo."""
+        if orcamento is None:
+            raise ValueError(
+                "orcamento presente não pode ser nulo; para um job sem orçamento, omita-o"
+            )
+        return orcamento
 
     @field_validator("elementos_exigidos")
     @classmethod

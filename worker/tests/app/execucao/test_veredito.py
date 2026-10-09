@@ -15,10 +15,16 @@ from typing import Any
 
 import pytest
 
+from app.core.metrics.global_metrics import DESFECHOS_DA_EXECUCAO
 from app.execucao.baseline import BaselinesCongelados, carregar_baselines
 from app.execucao.coleta import DesfechoClassificado, classificar, classificar_falha_de_infra
 from app.execucao.schema import validador
-from app.execucao.veredito import decidir_veredito, julgar
+from app.execucao.veredito import (
+    decidir_veredito,
+    desfecho_da_execucao,
+    julgamento_de_infra,
+    julgar,
+)
 from tests.app.execucao.envelopes import (
     ASSERCAO_OK,
     ASSERCAO_VIOLADA,
@@ -53,7 +59,7 @@ def sucesso(baseline: str, simulado: str, /, **mudancas: Any) -> DesfechoClassif
 
 def julgar_2025_11(
     desfecho: DesfechoClassificado,
-    orcamento: float = 600000.0,
+    orcamento: float | None = 600000.0,
     *,
     elementos_exigidos: Sequence[str] | None = None,
 ) -> Any:
@@ -443,3 +449,99 @@ def test_sucesso_nunca_sai_indeterminado_e_o_resto_sempre_sai(
     assert julgamento.classe == "sucesso"
     assert julgamento.veredito in {"viavel", "inviavel"}
     assert json.dumps(julgamento.totais)  # números finitos, serializáveis
+
+
+# ---- sem orçamento: as mesmas conferências, sem veredito (T-281) ----
+
+
+def test_sem_orcamento_o_sucesso_conferido_sai_sem_veredito_e_sem_totais_orcamento() -> None:
+    desfecho = sucesso(BASELINE_2025_11, "520000.00")
+    assert desfecho.resultado is not None
+
+    julgamento = julgar_2025_11(desfecho, None)
+
+    assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == ("sucesso", "ok", None)
+    assert julgamento.totais == {
+        "baseline": 508382.32,
+        "simulado": 520000.0,
+        "diferenca_abs": 11617.68,
+        "diferenca_pct": float(Decimal("11617.68") / Decimal("508382.32")),
+    }
+    assert julgamento.resultado is not None
+    assert julgamento.resultado["decomposicao"] is desfecho.resultado["decomposicao"]
+    assert list(validador().iter_errors(julgamento.resultado)) == []
+
+
+@pytest.mark.parametrize(
+    "desfecho",
+    [
+        pytest.param(sucesso("508382.33", "520000.00"), id="um centavo a mais no baseline"),
+        pytest.param(sucesso("698465.53", "720000.00"), id="baseline de outra competencia"),
+        pytest.param(sucesso(BASELINE_2025_11, "520000.00", diferenca_abs=11617.69), id="abs"),
+        pytest.param(sucesso(BASELINE_2025_11, "520000.00", simulado=520000.01), id="simulado"),
+    ],
+)
+def test_sem_orcamento_baseline_adulterado_continua_baseline_divergente(
+    desfecho: DesfechoClassificado,
+) -> None:
+    julgamento = julgar_2025_11(desfecho, None)
+
+    assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == (
+        "erro_codigo",
+        "baseline_divergente",
+        "indeterminado",
+    )
+    assert julgamento.resultado is None
+
+
+def test_sem_orcamento_a_cobertura_continua_conferida() -> None:
+    """O desfecho do teste não declara elemento nenhum: o exigido fica ausente."""
+    julgamento = julgar_2025_11(
+        sucesso(BASELINE_2025_11, "520000.00"), None, elementos_exigidos=["nucleo.percentual"]
+    )
+
+    assert (julgamento.classe, julgamento.motivo) == ("erro_codigo", "cobertura_incompleta")
+    assert julgamento.resultado is None
+
+
+def test_sem_orcamento_o_que_nao_e_sucesso_continua_indeterminado() -> None:
+    desfecho = DesfechoClassificado("assercao_violada", "assercao", [ASSERCAO_VIOLADA])
+
+    julgamento = julgar_2025_11(desfecho, None)
+
+    assert (julgamento.classe, julgamento.veredito) == ("assercao_violada", "indeterminado")
+
+
+# ---- o desfecho da execução na métrica ----
+
+
+@pytest.mark.parametrize(
+    ("orcamento", "esperado"),
+    [(600000.0, "viavel"), (485000.0, "inviavel"), (None, "sem_orcamento")],
+)
+def test_o_desfecho_de_um_sucesso_e_o_veredito_ou_sem_orcamento(
+    orcamento: float | None, esperado: str
+) -> None:
+    julgamento = julgar_2025_11(sucesso(BASELINE_2025_11, "520000.00"), orcamento)
+
+    assert desfecho_da_execucao(julgamento) == esperado
+
+
+def test_o_desfecho_do_que_nao_e_sucesso_e_a_classe() -> None:
+    divergente = julgar_2025_11(sucesso("508382.33", "520000.00"), None)
+    violada = julgar_2025_11(DesfechoClassificado("assercao_violada", "assercao", []), 1.0)
+
+    assert desfecho_da_execucao(divergente) == "erro_codigo"
+    assert desfecho_da_execucao(violada) == "assercao_violada"
+    assert desfecho_da_execucao(julgamento_de_infra()) == "erro_infra"
+
+
+def test_os_desfechos_da_metrica_sao_um_conjunto_fechado() -> None:
+    assert set(DESFECHOS_DA_EXECUCAO) == {
+        "viavel",
+        "inviavel",
+        "sem_orcamento",
+        "assercao_violada",
+        "erro_codigo",
+        "erro_infra",
+    }

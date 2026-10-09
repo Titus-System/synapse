@@ -12,7 +12,8 @@ import org.jspecify.annotations.Nullable;
  * As quatro ações de finalização do contrato HTTP ({@code AcaoJob}), no mesmo vocabulário
  * da coluna {@code job_acoes.acao}. {@code SALVAR} é sinônimo de
  * {@code CONFIRMAR_LIBERAR}: não existe estado "salvo" na máquina de estados, e as duas
- * levam a {@link JobStatus#LIBERADO} sob a mesma recusa quando a simulação é inviável.
+ * levam a {@link JobStatus#LIBERADO} sob a mesma recusa quando a simulação é inviável. Um
+ * resultado sem orçamento não tem veredito e não é recusado.
  */
 enum AcaoJob {
 
@@ -75,6 +76,11 @@ enum EtapaDoGrafo {
  * traduz esses dois vocabulários fechados.
  *
  * <p>
+ * {@code sucesso} sem veredito é o resultado de um job sem orçamento: a simulação foi
+ * feita sem a verificação de orçamento, o número vale e não há critério que o julgue. Vai
+ * à decisão do usuário como uma regra viável, e por isso pode ser liberado e salvo.
+ *
+ * <p>
  * {@code assercao_violada} leva a {@link JobStatus#ERRO}, não a
  * {@link JobStatus#SIMULACAO_INVIAVEL}: o código rodou e produziu números, mas uma
  * invariante foi violada e o número não vale. Inviabilidade é um veredito sobre um número
@@ -85,6 +91,8 @@ enum DesfechoDaSimulacao {
 	VIAVEL(JobStatus.AGUARDANDO_DECISAO_USUARIO, null),
 
 	INDETERMINADO(JobStatus.AGUARDANDO_DECISAO_USUARIO, null),
+
+	SEM_ORCAMENTO(JobStatus.AGUARDANDO_DECISAO_USUARIO, null),
 
 	INVIAVEL(JobStatus.SIMULACAO_INVIAVEL, "Orçamento do período não comporta a regra proposta."),
 
@@ -105,6 +113,11 @@ enum DesfechoDaSimulacao {
 
 	JobStatus destino() {
 		return this.destino;
+	}
+
+	/** O valor da tag {@code desfecho} da métrica de consumo, de conjunto fechado. */
+	String paraMetrica() {
+		return name().toLowerCase(Locale.ROOT);
 	}
 
 	/**
@@ -142,7 +155,7 @@ enum DesfechoDaSimulacao {
 
 	/**
 	 * {@code null} quando o par recebido não descreve um desfecho conhecido - status fora
-	 * do vocabulário, ou {@code sucesso} sem um veredito que o sustente. A ausência é o
+	 * do vocabulário, ou {@code sucesso} com veredito fora do vocabulário. A ausência é o
 	 * próprio sinal para quem chama: não há exceção aqui, porque lançar dentro de um
 	 * consumidor de fila viraria requeue infinito.
 	 */
@@ -151,7 +164,7 @@ enum DesfechoDaSimulacao {
 			return null;
 		}
 		return switch (status) {
-			case "sucesso" -> peloVeredito(veredito);
+			case "sucesso" -> (veredito == null) ? SEM_ORCAMENTO : peloVeredito(veredito);
 			case "assercao_violada" -> ASSERCAO_VIOLADA;
 			case "erro_codigo" -> ERRO_CODIGO;
 			case "erro_infra" -> ERRO_INFRA;
@@ -163,10 +176,7 @@ enum DesfechoDaSimulacao {
 	 * O veredito só é lido na origem {@code sucesso}: o schema o declara ausente nos
 	 * demais status, porque aí não há número que o sustente.
 	 */
-	private static @Nullable DesfechoDaSimulacao peloVeredito(@Nullable String veredito) {
-		if (veredito == null) {
-			return null;
-		}
+	private static @Nullable DesfechoDaSimulacao peloVeredito(String veredito) {
 		return switch (veredito) {
 			case "viavel" -> VIAVEL;
 			case "inviavel" -> INVIAVEL;

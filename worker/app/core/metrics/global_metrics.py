@@ -47,3 +47,24 @@ execucoes_com_cobertura_incompleta = prometheus.register_counter(
     "worker_cobertura_incompleta_total",
     "Execuções no sandbox reprovadas porque o código gerado não cobre os elementos exigidos",
 )
+
+# O desfecho de cada execução no sandbox julgada, o mesmo que vai para a linha e o evento:
+# o veredito de um sucesso, sem_orcamento num sucesso de job sem orçamento (T-281), e a classe
+# nos demais. Conta execuções, não jobs: a reentrega que encontra o resultado já gravado não
+# executa nem julga de novo e não conta, e cada tentativa de um erro_infra conta como uma.
+DESFECHOS_DA_EXECUCAO = (
+    "viavel",
+    "inviavel",
+    "sem_orcamento",
+    "assercao_violada",
+    "erro_codigo",
+    "erro_infra",
+)
+
+execucoes_julgadas = prometheus.register_counter(
+    "worker_execucoes_julgadas_total",
+    "Execuções no sandbox julgadas pelo worker, por desfecho",
+    ["desfecho"],
+)
+for _desfecho in DESFECHOS_DA_EXECUCAO:
+    execucoes_julgadas.labels(desfecho=_desfecho)

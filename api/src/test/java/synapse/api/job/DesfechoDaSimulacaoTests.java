@@ -1,5 +1,6 @@
 package synapse.api.job;
 
+import java.util.Arrays;
 import java.util.Objects;
 
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,20 @@ class DesfechoDaSimulacaoTests {
 
 		assertThat(desfecho.destino()).isEqualTo(JobStatus.AGUARDANDO_DECISAO_USUARIO);
 		assertThat(desfecho.motivoDaTrilha()).isNull();
+	}
+
+	/**
+	 * Um job sem orçamento é simulado sem a verificação de orçamento: o resultado vale e
+	 * vai à decisão do usuário como uma regra viável, sem motivo de parada.
+	 */
+	@Test
+	void sucessoSemVereditoDeJobSemOrcamentoLevaAAguardandoDecisaoUsuarioSemMotivo() {
+		DesfechoDaSimulacao desfecho = Objects.requireNonNull(DesfechoDaSimulacao.de("sucesso", null));
+
+		assertThat(desfecho).isEqualTo(DesfechoDaSimulacao.SEM_ORCAMENTO);
+		assertThat(desfecho.destino()).isEqualTo(JobStatus.AGUARDANDO_DECISAO_USUARIO);
+		assertThat(desfecho.motivoDaTrilha()).isNull();
+		assertThat(desfecho.razaoLocalizada()).isNull();
 	}
 
 	@Test
@@ -89,11 +104,6 @@ class DesfechoDaSimulacaoTests {
 	// ----------------------------------------------------------------
 
 	@Test
-	void sucessoSemVereditoReconhecivelNaoResolve() {
-		assertThat(DesfechoDaSimulacao.de("sucesso", null)).isNull();
-	}
-
-	@Test
 	void sucessoComVereditoForaDoVocabularioNaoResolve() {
 		assertThat(DesfechoDaSimulacao.de("sucesso", "quase_viavel")).isNull();
 	}
@@ -110,6 +120,15 @@ class DesfechoDaSimulacaoTests {
 		assertThat(DesfechoDaSimulacao.de(status, "viavel")).isNull();
 	}
 
+	// --- Tag da métrica ---------------------------------------------------------------
+
+	@Test
+	void aTagDaMetricaEOVocabularioFechadoDoDesfecho() {
+		assertThat(Arrays.stream(DesfechoDaSimulacao.values()).map(DesfechoDaSimulacao::paraMetrica)).containsExactly(
+				"viavel", "indeterminado", "sem_orcamento", "inviavel", "assercao_violada", "erro_codigo",
+				"erro_infra");
+	}
+
 	// --- Token da trilha --------------------------------------------------------------
 
 	@ParameterizedTest
@@ -121,7 +140,8 @@ class DesfechoDaSimulacaoTests {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "viavel", "indeterminado", "erro_geracao_codigo", "sugestao_adaptacao_proposta", "" })
+	@ValueSource(strings = { "viavel", "indeterminado", "sem_orcamento", "erro_geracao_codigo",
+			"sugestao_adaptacao_proposta", "" })
 	void tokenQueNaoEDeDesfechoNaoResolve(String token) {
 		assertThat(DesfechoDaSimulacao.peloMotivoDaTrilha(token)).isNull();
 	}
