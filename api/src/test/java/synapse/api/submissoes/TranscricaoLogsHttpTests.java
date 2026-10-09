@@ -3,6 +3,7 @@ package synapse.api.submissoes;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -43,7 +44,8 @@ class TranscricaoLogsHttpTests {
 		servidor.start();
 		try (var logs = new CapturaDeLog(org.slf4j.Logger.ROOT_LOGGER_NAME)) {
 			var cliente = new ClienteDeepgram(new AppProperties.Transcription(chave,
-					"http://127.0.0.1:" + servidor.getAddress().getPort(), 1000, 1000));
+					"http://127.0.0.1:" + servidor.getAddress().getPort(), 1000, 1000,
+					new AppProperties.Transcription.Processor(false, Duration.ofSeconds(1), Duration.ofHours(1))));
 			if (status == 200) {
 				assertThat(cliente.transcrever(audio.getBytes(StandardCharsets.UTF_8), "audio/wav")).isEqualTo(texto);
 			}

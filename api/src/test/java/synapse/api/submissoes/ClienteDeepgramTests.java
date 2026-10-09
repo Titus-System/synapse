@@ -121,7 +121,7 @@ class ClienteDeepgramTests {
 
 	private AppProperties.Transcription configuracao(String chave, int timeout) {
 		return new AppProperties.Transcription(chave, "http://127.0.0.1:" + this.servidor.getAddress().getPort(), 1000,
-				timeout);
+				timeout, new AppProperties.Transcription.Processor(false, Duration.ofSeconds(1), Duration.ofHours(1)));
 	}
 
 	private ClienteDeepgram cliente() {

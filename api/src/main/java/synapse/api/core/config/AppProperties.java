@@ -6,6 +6,7 @@ import java.time.Duration;
 import java.util.List;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
@@ -47,15 +48,40 @@ public record AppProperties(@NotBlank String environment, @NotNull @Valid Servic
 	 * @param connectTimeoutMs tempo limite de conexão, em milissegundos
 	 * @param readTimeoutMs tempo limite da resposta, em milissegundos; junto da conexão
 	 * deve ficar abaixo do prazo de reserva do processamento
+	 * @param processor processamento agendado dos trabalhos de transcrição
 	 */
 	public record Transcription(@DefaultValue("") @NotNull String apiKey,
 			@DefaultValue("https://api.eu.deepgram.com") @NotBlank String baseUrl,
-			@DefaultValue("5000") @Positive int connectTimeoutMs, @DefaultValue("60000") @Positive int readTimeoutMs) {
+			@DefaultValue("5000") @Positive int connectTimeoutMs, @DefaultValue("60000") @Positive int readTimeoutMs,
+			@DefaultValue @NotNull @Valid Processor processor) {
+
+		/**
+		 * Uma reserva que vence antes de a chamada esgotar seus tempos limite deixaria
+		 * outra instância chamar o provedor de novo com o mesmo áudio.
+		 */
+		@AssertTrue(message = "o prazo de reserva deve ser maior que connect-timeout-ms + read-timeout-ms")
+		public boolean isReservaMaiorQueAChamada() {
+			return this.processor.reservationTimeout()
+				.compareTo(Duration.ofMillis((long) this.connectTimeoutMs + this.readTimeoutMs)) > 0;
+		}
 
 		@Override
 		public String toString() {
 			return "Transcription[apiKey=REDACTED, connectTimeoutMs=" + this.connectTimeoutMs + ", readTimeoutMs="
-					+ this.readTimeoutMs + "]";
+					+ this.readTimeoutMs + ", processor=" + this.processor + "]";
+		}
+
+		/**
+		 * @param enabled liga o processador agendado; desligado, os trabalhos ficam
+		 * pendentes. Sem chave do provedor ele não roda mesmo ligado
+		 * @param pollInterval pausa entre o fim de um ciclo do processador e o início do
+		 * seguinte
+		 * @param reservationTimeout prazo de exclusividade de um trabalho reservado;
+		 * vencido, o trabalho volta a ser elegível
+		 */
+		public record Processor(@DefaultValue("true") boolean enabled,
+				@DefaultValue("1s") @NotNull Duration pollInterval,
+				@DefaultValue("5m") @NotNull Duration reservationTimeout) {
 		}
 
 	}
