@@ -48,7 +48,7 @@ class JobRepository {
 
 	List<JobResumoDto> listarJobs(UUID usuarioId, int tamanho, long deslocamento) {
 		return this.jdbc.query("""
-				SELECT j.id, j.status, j.competencias, j.orcamento, j.criado_em, j.finalizado_em,
+				SELECT j.id, j.status, j.competencias, j.orcamento, j.meta_venda, j.criado_em, j.finalizado_em,
 				       j.job_origem_id, rs.veredito
 				FROM jobs j
 				LEFT JOIN LATERAL (
@@ -67,7 +67,7 @@ class JobRepository {
 	private static JobResumoDto resumo(ResultSet linha) throws SQLException {
 		return new JobResumoDto(Objects.requireNonNull(linha.getObject("id", UUID.class)),
 				Objects.requireNonNull(linha.getString("status")), competencias(linha.getArray("competencias")),
-				Objects.requireNonNull(linha.getBigDecimal("orcamento")), linha.getString("veredito"),
+				linha.getBigDecimal("orcamento"), linha.getBigDecimal("meta_venda"), linha.getString("veredito"),
 				Objects.requireNonNull(instante(linha, "criado_em")), instante(linha, "finalizado_em"),
 				linha.getObject("job_origem_id", UUID.class));
 	}
@@ -98,6 +98,7 @@ class JobRepository {
 				    CASE WHEN j.job_origem_id IS NOT NULL THEN 'reprocessamento' ELSE s.tipo END AS origem,
 				    j.competencias,
 				    j.orcamento,
+				    j.meta_venda,
 				    j.criado_em,
 				    j.iniciado_em,
 				    j.finalizado_em,
@@ -136,6 +137,7 @@ class JobRepository {
 			String origem = rs.getString("origem");
 			List<String> competencias = List.of((String[]) rs.getArray("competencias").getArray());
 			BigDecimal orcamento = rs.getBigDecimal("orcamento");
+			BigDecimal metaVenda = rs.getBigDecimal("meta_venda");
 			Instant criadoEm = rs.getTimestamp("criado_em").toInstant();
 			Instant iniciadoEm = rs.getTimestamp("iniciado_em") != null ? rs.getTimestamp("iniciado_em").toInstant()
 					: null;
@@ -148,8 +150,8 @@ class JobRepository {
 
 			String regras = rs.getString("regras");
 
-			return new DadosConsulta(id, status, origem, competencias, orcamento, criadoEm, iniciadoEm, finalizadoEm,
-					submissaoId, jobOrigemId, motivo, regras);
+			return new DadosConsulta(id, status, origem, competencias, orcamento, metaVenda, criadoEm, iniciadoEm,
+					finalizadoEm, submissaoId, jobOrigemId, motivo, regras);
 		}, jobId);
 	}
 
@@ -266,14 +268,20 @@ class JobRepository {
 				jobId, hash);
 	}
 
+	/**
+	 * {@code parametrosJson} é o artefato bruto da versão de origem, carregado como veio
+	 * - {@code null} quando ela não tinha parâmetros, nunca reserializado a partir do
+	 * {@link ParametrosDaSimulacao} que produziu {@code hash}.
+	 */
 	UUID inserirVersaoRegra(UUID jobId, int novaVersao, String origem, @Nullable UUID origemId,
-			RepresentacaoRegraDto representacao, String hash, Timestamp timestamp) {
+			RepresentacaoRegraDto representacao, @Nullable String parametrosJson, String hash, Timestamp timestamp) {
 		return Objects.requireNonNull(this.jdbc.queryForObject("""
-				INSERT INTO regras (job_id, versao, origem, regra_origem_id, nucleo, especificacoes, hash, criada_em)
-				VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?) RETURNING id
+				INSERT INTO regras (job_id, versao, origem, regra_origem_id, nucleo, especificacoes, parametros, hash,
+				    criada_em)
+				VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?) RETURNING id
 				""", UUID.class, jobId, novaVersao, origem, origemId,
 				this.json.writeValueAsString(representacao.nucleo()),
-				this.json.writeValueAsString(representacao.especificacoes()), hash, timestamp));
+				this.json.writeValueAsString(representacao.especificacoes()), parametrosJson, hash, timestamp));
 	}
 
 	@Nullable Integer buscarMaiorVersao(UUID jobId) {
@@ -289,24 +297,20 @@ class JobRepository {
 				WHERE j.id = ?
 				""",
 				(rs, linha) -> new DadosDoJob(Objects.requireNonNull(rs.getString("origem")),
-						Objects.requireNonNull(rs.getBigDecimal("orcamento")),
-						Objects.requireNonNull(rs.getTimestamp("criado_em")).toInstant(),
+						rs.getBigDecimal("orcamento"), Objects.requireNonNull(rs.getTimestamp("criado_em")).toInstant(),
 						rs.getObject("submissao_id", UUID.class), rs.getObject("job_origem_id", UUID.class)),
 				jobId));
 	}
 
 	List<VersaoAnterior> buscarUltimaVersao(UUID jobId) {
-		return this.jdbc.query(
-				"""
-						SELECT id, versao, hash, nucleo, especificacoes FROM regras WHERE job_id = ? ORDER BY versao DESC LIMIT 1
-						""",
-				(rs, linha) -> new VersaoAnterior(Objects.requireNonNull(rs.getObject("id", UUID.class)),
-						rs.getInt("versao"), Objects.requireNonNull(rs.getString("hash")),
-						this.json.readValue(Objects.requireNonNull(rs.getString("nucleo")), NucleoRegraDto.class),
-						this.json.readTree(Objects.requireNonNull(rs.getString("especificacoes")))
-							.valueStream()
-							.toList()),
-				jobId);
+		return this.jdbc.query("""
+				SELECT id, versao, hash, nucleo, especificacoes, parametros::text AS parametros
+				FROM regras WHERE job_id = ? ORDER BY versao DESC LIMIT 1
+				""", (rs, linha) -> new VersaoAnterior(Objects.requireNonNull(rs.getObject("id", UUID.class)),
+				rs.getInt("versao"), Objects.requireNonNull(rs.getString("hash")),
+				this.json.readValue(Objects.requireNonNull(rs.getString("nucleo")), NucleoRegraDto.class),
+				this.json.readTree(Objects.requireNonNull(rs.getString("especificacoes"))).valueStream().toList(),
+				rs.getString("parametros")), jobId);
 	}
 
 	void atualizarOrcamento(UUID jobId, BigDecimal novo) {
@@ -338,7 +342,7 @@ class JobRepository {
 	}
 
 	UUID inserirJobReprocessado(String status, UUID usuarioId, UUID origemId, List<String> competencias,
-			BigDecimal orcamento, Timestamp timestamp) {
+			@Nullable BigDecimal orcamento, Timestamp timestamp) {
 		return Objects.requireNonNull(this.jdbc.queryForObject("""
 				INSERT INTO jobs (status, usuario_id, job_origem_id, competencias, orcamento, criado_em)
 				VALUES (?, ?, ?, ?, ?, ?) RETURNING id
@@ -346,10 +350,17 @@ class JobRepository {
 				orcamento, timestamp));
 	}
 
+	/**
+	 * {@code parametros} é copiado junto com {@code hash}, ambos pelo próprio banco: o
+	 * hash da versão de origem foi calculado cobrindo os parâmetros que ela tinha, e
+	 * copiar só um dos dois deixaria a versão nova com um hash que não corresponde ao seu
+	 * próprio conteúdo.
+	 */
 	RegraCriadaDto copiarRegra(UUID jobId, UUID regraId, Timestamp timestamp, Instant agora) {
 		return Objects.requireNonNull(this.jdbc.queryForObject("""
-				INSERT INTO regras (job_id, versao, origem, regra_origem_id, nucleo, especificacoes, hash, criada_em)
-				SELECT ?, 1, 'reprocessamento', id, nucleo, especificacoes, hash, ?
+				INSERT INTO regras (job_id, versao, origem, regra_origem_id, nucleo, especificacoes, parametros, hash,
+				    criada_em)
+				SELECT ?, 1, 'reprocessamento', id, nucleo, especificacoes, parametros, hash, ?
 				FROM regras WHERE id = ?
 				RETURNING id, nucleo, especificacoes
 				""", (rs, linha) -> new RegraCriadaDto(Objects.requireNonNull(rs.getObject("id", UUID.class)), 1,
@@ -368,8 +379,7 @@ class JobRepository {
 				""",
 				(rs, linha) -> new JobDeOrigem(JobStatus.deColuna(Objects.requireNonNull(rs.getString("status"))),
 						Objects.requireNonNull(rs.getObject("usuario_id", UUID.class)),
-						List.of((String[]) rs.getArray("competencias").getArray()),
-						Objects.requireNonNull(rs.getBigDecimal("orcamento"))),
+						List.of((String[]) rs.getArray("competencias").getArray()), rs.getBigDecimal("orcamento")),
 				jobId);
 	}
 
@@ -447,35 +457,60 @@ class JobRepository {
 
 	List<ContextoDoJob> buscarContextoComTrava(UUID jobId) {
 		return this.jdbc.query("""
-				SELECT j.status, j.competencias, j.orcamento, j.submissao_id,
+				SELECT j.status, j.competencias, j.orcamento, j.meta_venda, j.submissao_id,
 				       CASE WHEN j.job_origem_id IS NOT NULL THEN 'reprocessamento' ELSE s.tipo END AS origem
 				FROM jobs j LEFT JOIN submissoes s ON s.id = j.submissao_id
 				WHERE j.id = ? FOR UPDATE OF j
 				""",
 				(rs, numero) -> new ContextoDoJob(jobId, JobStatus.deColuna(rs.getString("status")),
 						rs.getString("origem"), List.of((String[]) rs.getArray("competencias").getArray()),
-						rs.getBigDecimal("orcamento"), rs.getObject("submissao_id", UUID.class)),
+						rs.getBigDecimal("orcamento"), rs.getBigDecimal("meta_venda"),
+						rs.getObject("submissao_id", UUID.class)),
 				jobId);
 	}
 
 	List<ExtracaoDaRegra> buscarExtracao(UUID extracaoId) {
 		return this.jdbc.query("""
-				SELECT job_id, submissao_id, representacao::text AS representacao
+				SELECT job_id, submissao_id, representacao::text AS representacao, parametros::text AS parametros
 				FROM extracoes_regras WHERE id = ?
 				""",
 				(rs, numero) -> new ExtracaoDaRegra(Objects.requireNonNull(rs.getObject("job_id", UUID.class)),
 						Objects.requireNonNull(rs.getObject("submissao_id", UUID.class)),
-						Objects.requireNonNull(rs.getString("representacao"))),
+						Objects.requireNonNull(rs.getString("representacao")),
+						Objects.requireNonNull(rs.getString("parametros"))),
 				extracaoId);
 	}
 
+	/**
+	 * A versão raiz e os parâmetros com que ela nasceu, copiados de
+	 * {@code extracoes_regras} pelo próprio banco: a api não reescreve o artefato do
+	 * codegen. {@code parametros} é {@code NOT NULL} na origem, com default {@code '{}'},
+	 * então a versão da extração nunca nasce com a coluna nula.
+	 */
 	UUID inserirVersaoDaExtracao(UUID jobId, int novaVersao, UUID extracaoId, String hash, Timestamp timestamp) {
 		return Objects.requireNonNull(this.jdbc.queryForObject("""
-				INSERT INTO regras (job_id, versao, origem, regra_origem_id, nucleo, especificacoes, hash, criada_em)
-				SELECT ?, ?, ?, NULL, e.representacao -> 'nucleo', e.representacao -> 'especificacoes', ?, ?
+				INSERT INTO regras
+					(job_id, versao, origem, regra_origem_id, nucleo, especificacoes, parametros, hash, criada_em)
+				SELECT ?, ?, ?, NULL, e.representacao -> 'nucleo', e.representacao -> 'especificacoes',
+				       e.parametros, ?, ?
 				FROM extracoes_regras e WHERE e.id = ?
 				RETURNING id
 				""", UUID.class, jobId, novaVersao, VersoesDaRegra.ORIGEM_EXTRACAO, hash, timestamp, extracaoId));
+	}
+
+	void atualizarMetaVenda(UUID jobId, BigDecimal nova) {
+		this.jdbc.update("UPDATE jobs SET meta_venda = ? WHERE id = ?", nova, jobId);
+	}
+
+	/**
+	 * Os parâmetros da versão {@code regraId}, como {@code jsonb::text} - vazio quando a
+	 * versão não existe, com um elemento {@code null} quando ela existe e a coluna é
+	 * nula. É o que permite ao chamador carregar os mesmos parâmetros para a versão nova
+	 * sem reescrevê-los, e calcular o hash com eles sem lançar numa referência que não
+	 * exista mais.
+	 */
+	List<String> buscarParametrosDaVersao(UUID regraId) {
+		return this.jdbc.queryForList("SELECT parametros::text FROM regras WHERE id = ?", String.class, regraId);
 	}
 
 	@Nullable Boolean sugestaoElegivel(UUID jobId, UUID regraOrigemId, UUID resultadoId, String hash, BigDecimal percentual,
@@ -504,19 +539,21 @@ class JobRepository {
 				(rs, numero) -> rs.getObject("id", UUID.class), jobId, resultadoId);
 	}
 
-	record DadosConsulta(UUID id, String status, String origem, List<String> competencias, BigDecimal orcamento,
-			Instant criadoEm, @Nullable Instant iniciadoEm, @Nullable Instant finalizadoEm, @Nullable UUID submissaoId,
+	record DadosConsulta(UUID id, String status, String origem, List<String> competencias,
+			@Nullable BigDecimal orcamento, @Nullable BigDecimal metaVenda, Instant criadoEm,
+			@Nullable Instant iniciadoEm, @Nullable Instant finalizadoEm, @Nullable UUID submissaoId,
 			@Nullable UUID jobOrigemId, @Nullable String motivoDaTrilha, String regrasJson) {
 	}
 
-	record DadosDoJob(String origem, BigDecimal orcamento, Instant criadoEm, @Nullable UUID submissaoId,
+	record DadosDoJob(String origem, @Nullable BigDecimal orcamento, Instant criadoEm, @Nullable UUID submissaoId,
 			@Nullable UUID jobOrigemId) {
 	}
 
-	record VersaoAnterior(UUID id, int versao, String hash, NucleoRegraDto nucleo, List<JsonNode> especificacoes) {
+	record VersaoAnterior(UUID id, int versao, String hash, NucleoRegraDto nucleo, List<JsonNode> especificacoes,
+			@Nullable String parametros) {
 	}
 
-	record JobDeOrigem(JobStatus status, UUID usuarioId, List<String> competencias, BigDecimal orcamento) {
+	record JobDeOrigem(JobStatus status, UUID usuarioId, List<String> competencias, @Nullable BigDecimal orcamento) {
 	}
 
 	/**
@@ -525,16 +562,32 @@ class JobRepository {
 	 * não corram com outra transição.
 	 */
 	record ContextoDoJob(UUID jobId, JobStatus status, String origem, List<String> competencias,
-			@Nullable BigDecimal orcamento, @Nullable UUID submissaoId) {
+			@Nullable BigDecimal orcamento, @Nullable BigDecimal metaVenda, @Nullable UUID submissaoId) {
 
 		RegraSubmetidaDto regraSubmetida(UUID regraId) {
-			return new RegraSubmetidaDto(this.jobId, this.origem, this.competencias, this.orcamento, this.submissaoId,
-					regraId);
+			return new RegraSubmetidaDto(this.jobId, this.origem, this.competencias, this.orcamento, this.metaVenda,
+					this.submissaoId, regraId);
+		}
+
+		/**
+		 * O contexto como o job fica depois de receber os parâmetros extraídos: o que a
+		 * extração trouxe substitui, e o que ela não trouxe permanece. É o que o
+		 * {@code regra-submetida} republicado precisa levar, porque ele repete os valores
+		 * do job, não os do evento anterior.
+		 */
+		ContextoDoJob com(ParametrosDaSimulacao parametros) {
+			List<String> periodo = parametros.periodoCanonico();
+			BigDecimal orcamentoDito = parametros.orcamento();
+			BigDecimal metaDita = parametros.meta_venda();
+			return new ContextoDoJob(this.jobId, this.status, this.origem,
+					(periodo != null) ? periodo : this.competencias,
+					(orcamentoDito != null) ? orcamentoDito : this.orcamento,
+					(metaDita != null) ? metaDita : this.metaVenda, this.submissaoId);
 		}
 
 	}
 
-	record ExtracaoDaRegra(UUID jobId, UUID submissaoId, String representacao) {
+	record ExtracaoDaRegra(UUID jobId, UUID submissaoId, String representacao, String parametros) {
 	}
 
 }

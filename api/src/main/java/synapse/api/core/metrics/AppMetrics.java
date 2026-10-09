@@ -80,4 +80,19 @@ public class AppMetrics {
 			.register(this.registry);
 	}
 
+	/**
+	 * Parâmetros da simulação extraídos do texto e gravados no job, um incremento por
+	 * parâmetro gravado. {@code parametro} vem de um conjunto limitado -
+	 * {@code orcamento}, {@code meta_venda}, {@code competencias} -, nunca o valor dito:
+	 * o que se mede é quantos jobs chegam com cada parâmetro, e a comparação com
+	 * {@code regra.extraida.consumo} por {@code resultado=persistida} dá a proporção.
+	 * Conta gravações, não entregas: a reentrega não regrava e não incrementa.
+	 */
+	public Counter parametroDaSimulacaoGravado(String parametro) {
+		return Counter.builder("job.parametros.gravados")
+			.description("Parâmetros da simulação extraídos do texto e gravados no job")
+			.tag("parametro", parametro)
+			.register(this.registry);
+	}
+
 }

@@ -91,8 +91,10 @@ class JobService {
 		this.maquina.registrarCriacao(jobId, JobStatus.GERANDO_REGRA, "usuario");
 		UUID regraId = this.repository.inserirRegraInicial(jobId, representacao, hash, timestamp);
 		RegraCriadaDto regra = new RegraCriadaDto(regraId, 1, "confirmacao_usuario", representacao, agora);
+		// O formulário tem campo de orçamento e nenhum de meta: a meta de venda só é dita
+		// na descrição de uma regra por texto ou voz, que nasce por outro caminho.
 		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, new RegraSubmetidaDto(jobId, requisicao.origem(),
-				requisicao.competencias(), requisicao.orcamento(), submissaoId, regraId));
+				requisicao.competencias(), requisicao.orcamento(), null, submissaoId, regraId));
 		return new JobCriadoDto(jobId, status, requisicao.origem(), requisicao.competencias(), requisicao.orcamento(),
 				agora, submissaoId, null, regra);
 	}
@@ -121,13 +123,13 @@ class JobService {
 			String motivo = motivo(dados.id(), JobStatus.deColuna(dados.status()), dados.motivoDaTrilha());
 			List<RegraCriadaDto> regras = this.repository.mapearRegras(dados.regrasJson());
 			JobDetalhadoDto job = new JobDetalhadoDto(dados.id(), dados.status(), dados.origem(), dados.competencias(),
-					dados.orcamento(), dados.criadoEm(), dados.iniciadoEm(), dados.finalizadoEm(), dados.submissaoId(),
-					dados.jobOrigemId(), motivo, regras, null, List.of());
+					dados.orcamento(), dados.metaVenda(), dados.criadoEm(), dados.iniciadoEm(), dados.finalizadoEm(),
+					dados.submissaoId(), dados.jobOrigemId(), motivo, regras, null, List.of());
 			List<SimulacaoDto> simulacoes = this.repository.listarSimulacoes(jobId);
 			SimulacaoDto simulacao = simulacoes.isEmpty() ? null : simulacoes.getLast();
 			return new JobDetalhadoDto(job.id(), job.status(), job.origem(), job.competencias(), job.orcamento(),
-					job.criado_em(), job.iniciado_em(), job.finalizado_em(), job.submissao_id(), job.job_origem_id(),
-					job.motivo(), job.regras(), simulacao, simulacoes);
+					job.meta_venda(), job.criado_em(), job.iniciado_em(), job.finalizado_em(), job.submissao_id(),
+					job.job_origem_id(), job.motivo(), job.regras(), simulacao, simulacoes);
 		}
 		catch (EmptyResultDataAccessException ex) {
 			throw new JobNaoEncontradoException(jobId);
@@ -186,12 +188,19 @@ class JobService {
 
 		VersaoAnterior anterior = ultimaVersao(jobId);
 		RepresentacaoRegraDto representacao = requisicao.representacao();
-		String hash = HashDaRegra.calcular(representacao);
+		// Esta confirmação não edita parâmetro algum (T-217): os da versão anterior
+		// passam para a nova como estavam, e o hash os cobre pelo mesmo motivo de
+		// cobrir o núcleo - sem isso, uma versão nascida de texto com parâmetros
+		// pareceria sempre editada, porque o hash sem eles nunca bateria com o da
+		// versão anterior.
+		String parametrosJson = (anterior != null) ? anterior.parametros() : null;
+		ParametrosDaSimulacao parametros = ParametrosExtraidos.deVersaoExistente(parametrosJson);
+		String hash = HashDaRegra.calcular(representacao, parametros);
 		boolean editado = anterior != null && !hash.equals(anterior.hash());
 
 		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		Timestamp timestamp = Timestamp.from(agora);
-		VersaoRegra versao = this.versoes.resolver(jobId, representacao, hash, "confirmacao_usuario",
+		VersaoRegra versao = this.versoes.resolver(jobId, representacao, parametrosJson, hash, "confirmacao_usuario",
 				(anterior != null) ? anterior.id() : null, timestamp, agora);
 
 		BigDecimal orcamento = resolverOrcamento(jobId, requisicao, dados.orcamento());
@@ -221,7 +230,8 @@ class JobService {
 		return versoes.isEmpty() ? null : versoes.getFirst();
 	}
 
-	private BigDecimal resolverOrcamento(UUID jobId, ConfirmarParametrosRequisicao requisicao, BigDecimal atual) {
+	private @Nullable BigDecimal resolverOrcamento(UUID jobId, ConfirmarParametrosRequisicao requisicao,
+			@Nullable BigDecimal atual) {
 		BigDecimal novo = requisicao.orcamento();
 		if (novo == null) {
 			return atual;
@@ -341,7 +351,7 @@ class JobService {
 		this.maquina.registrarCriacao(jobId, status, "usuario");
 		RegraCriadaDto regra = this.repository.copiarRegra(jobId, regras.getFirst(), timestamp, agora);
 		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA,
-				new RegraSubmetidaDto(jobId, "reprocessamento", competencias, orcamento, null, regra.id()));
+				new RegraSubmetidaDto(jobId, "reprocessamento", competencias, orcamento, null, null, regra.id()));
 		return new JobCriadoDto(jobId, status.paraColuna(), "reprocessamento", competencias, orcamento, agora, null,
 				origemId, regra);
 	}

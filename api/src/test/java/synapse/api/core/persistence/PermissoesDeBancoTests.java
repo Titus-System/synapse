@@ -282,8 +282,34 @@ class PermissoesDeBancoTests {
 	void oCodegenGravaExtracaoEAApiLePelaReferencia() {
 		assertThatCode(() -> {
 			executar(UsuariosDeBanco.CODEGEN, INSERE_EXTRACAO);
-			executar(UsuariosDeBanco.API, "SELECT representacao, rebaixamentos FROM extracoes_regras");
+			executar(UsuariosDeBanco.API, "SELECT representacao, rebaixamentos, parametros FROM extracoes_regras");
 		}).doesNotThrowAnyException();
+	}
+
+	/**
+	 * Os parâmetros da simulação: o codegen grava os seus na extração e na versão que
+	 * nasce dela, a api os lê e grava no job os do próprio job. Nenhum dos dois alcança o
+	 * que não é seu, e nenhuma coluna nova precisou de GRANT próprio.
+	 */
+	@Test
+	void osParametrosDaSimulacaoSeguemAPermissaoDaTabelaQueOsGuarda() {
+		assertThatCode(() -> {
+			executar(UsuariosDeBanco.CODEGEN, """
+					INSERT INTO regras (job_id, versao, origem, nucleo, especificacoes, parametros, hash, criada_em)
+					VALUES ('%s', 3, 'extracao', '{}'::jsonb, '[]'::jsonb,
+					        '{"meta_venda": 12000000.0}'::jsonb, repeat('c', 64), now())
+					""".formatted(JOB_ID));
+			executar(UsuariosDeBanco.API, "SELECT parametros FROM regras");
+			executar(UsuariosDeBanco.API,
+					"UPDATE jobs SET orcamento = NULL, meta_venda = 12000000.0 WHERE id = '%s'".formatted(JOB_ID));
+		}).doesNotThrowAnyException();
+
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.CODEGEN, "UPDATE jobs SET meta_venda = 1"))
+			.isEqualTo(PERMISSAO_NEGADA);
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, "SELECT parametros FROM extracoes_regras"))
+			.isEqualTo(PERMISSAO_NEGADA);
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.API, "UPDATE regras SET parametros = '{}'::jsonb"))
+			.isEqualTo(PERMISSAO_NEGADA);
 	}
 
 	@Test
@@ -385,10 +411,16 @@ class PermissoesDeBancoTests {
 
 	private static final String CODIGO_ID = "33333333-3333-4333-8333-333333333333";
 
+	/**
+	 * Com {@code parametros}, que é coluna acrescentada depois da tabela: a permissão do
+	 * codegen é de tabela, e por isso já a alcança sem GRANT próprio.
+	 */
 	private static final String INSERE_EXTRACAO = """
-			INSERT INTO extracoes_regras (job_id, submissao_id, resposta_id, representacao, rebaixamentos, criado_em)
+			INSERT INTO extracoes_regras
+			    (job_id, submissao_id, resposta_id, representacao, rebaixamentos, parametros, criado_em)
 			VALUES ('%s', '44444444-4444-4444-8444-444444444444', '77777777-7777-4777-8777-777777777777',
-			        '{"nucleo": {}, "especificacoes": []}'::jsonb, '[]'::jsonb, now())
+			        '{"nucleo": {}, "especificacoes": []}'::jsonb, '[]'::jsonb,
+			        '{"orcamento": 500000.0, "competencias": ["2025-09"]}'::jsonb, now())
 			""".formatted(JOB_ID);
 
 	private static final String INSERE_RESULTADO_COM_DIAGNOSTICO = """

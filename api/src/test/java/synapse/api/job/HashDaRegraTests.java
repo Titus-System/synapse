@@ -1,5 +1,8 @@
 package synapse.api.job;
 
+import java.math.BigDecimal;
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.json.JsonMapper;
@@ -70,6 +73,62 @@ class HashDaRegraTests {
 		assertThat(HashDaRegra.calcular(semPercentual)).hasSize(64)
 			.isEqualTo(HashDaRegra.calcular(semPercentual))
 			.isNotEqualTo(HashDaRegra.calcular(comPercentual));
+	}
+
+	/**
+	 * O hash de uma versão sem parâmetros é o de antes da coluna existir - o valor fixo
+	 * em {@link #ignoraOrdemDasPropriedadesEscalaDecimalEConteudoForaDaRegra} -, e um
+	 * objeto de parâmetros vazio já é outra coisa: a versão nascida de um texto que não
+	 * disse parâmetro algum tem {@code parametros = {}}, não nulo.
+	 */
+	@Test
+	void versaoSemParametrosConservaOHashEUmObjetoVazioJaDaOutro() {
+		RepresentacaoRegraDto regra = CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO).representacao();
+
+		assertThat(HashDaRegra.calcular(regra, null)).isEqualTo(HashDaRegra.calcular(regra))
+			.isEqualTo("a3e1ca57848e2dbecfac958034a64bb1106f24a345e3dd4181d77dc8b8de71bc");
+		assertThat(HashDaRegra.calcular(regra, ParametrosDaSimulacao.NENHUM)).hasSize(64)
+			.isEqualTo(HashDaRegra.calcular(regra, ParametrosDaSimulacao.NENHUM))
+			.isNotEqualTo(HashDaRegra.calcular(regra));
+	}
+
+	/**
+	 * Cada parâmetro muda o hash por conta própria, e dois valores monetários que só
+	 * diferem em zeros à direita são o mesmo valor. É o que faz uma correção que muda só
+	 * o orçamento gerar versão nova, e uma que repete o mesmo valor não gerar.
+	 */
+	@Test
+	void cadaParametroMudaOHashEEscalaDecimalNao() {
+		RepresentacaoRegraDto regra = CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO).representacao();
+		var completos = parametros("500000", "12000000", "2025-09", "2025-10");
+
+		assertThat(HashDaRegra.calcular(regra, completos))
+			.isEqualTo(HashDaRegra.calcular(regra, parametros("500000.00", "12000000.0", "2025-09", "2025-10")))
+			.isNotEqualTo(HashDaRegra.calcular(regra, parametros("600000", "12000000", "2025-09", "2025-10")))
+			.isNotEqualTo(HashDaRegra.calcular(regra, parametros("500000", "26000000", "2025-09", "2025-10")))
+			.isNotEqualTo(HashDaRegra.calcular(regra, parametros("500000", "12000000", "2025-09")))
+			.isNotEqualTo(HashDaRegra.calcular(regra,
+					new ParametrosDaSimulacao(new BigDecimal("500000"), null, List.of("2025-09", "2025-10"))));
+	}
+
+	private static ParametrosDaSimulacao parametros(String orcamento, String metaVenda, String... competencias) {
+		return new ParametrosDaSimulacao(new BigDecimal(orcamento), new BigDecimal(metaVenda), List.of(competencias));
+	}
+
+	/**
+	 * O período entra no hash pela forma canônica, como o orçamento e a meta: ordem e
+	 * repetição não mudam o hash, e um mês a mais ou a menos muda.
+	 */
+	@Test
+	void periodoEntraNoHashPelaFormaCanonica() {
+		RepresentacaoRegraDto regra = CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO).representacao();
+		var ordemCrescente = parametros("500000", "12000000", "2025-09", "2025-10");
+
+		assertThat(HashDaRegra.calcular(regra, ordemCrescente))
+			.isEqualTo(HashDaRegra.calcular(regra, parametros("500000", "12000000", "2025-10", "2025-09")))
+			.isEqualTo(HashDaRegra.calcular(regra, parametros("500000", "12000000", "2025-09", "2025-10", "2025-09")))
+			.isNotEqualTo(
+					HashDaRegra.calcular(regra, parametros("500000", "12000000", "2025-09", "2025-10", "2025-11")));
 	}
 
 	@Test

@@ -1,5 +1,6 @@
 package synapse.api.job;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -16,6 +17,7 @@ import liquibase.Liquibase;
 import liquibase.database.DatabaseFactory;
 import liquibase.database.jvm.JdbcConnection;
 import liquibase.resource.ClassLoaderResourceAccessor;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +28,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.MDC;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -87,7 +90,19 @@ class RegraExtraidaPersistenciaTests {
 			 "percentual":0.025000000000000000001},"especificacoes":[]}
 			""";
 
-	private static final JsonMapper JSON = new JsonMapper();
+	/** Os três parâmetros, com a precisão decimal que um valor monetário exige. */
+	private static final String PARAMETROS_COMPLETOS = """
+			{"orcamento":500000.1234567890123456789,"meta_venda":12000000.5,
+			 "competencias":["2025-09","2025-10"]}
+			""";
+
+	/**
+	 * Lê número como {@code BigDecimal}, como a api lê os artefatos: por {@code double},
+	 * uma afirmação sobre a precisão de um valor monetário passaria sem significar nada.
+	 */
+	private static final JsonMapper JSON = JsonMapper.builder()
+		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+		.build();
 
 	private static PostgreSQLContainer postgres;
 
@@ -200,8 +215,11 @@ class RegraExtraidaPersistenciaTests {
 		assertThat(linha.get("origem")).isEqualTo("extracao");
 		assertThat(linha.get("regra_origem_id")).isNull();
 		assertThat(linha.get("tem_percentual")).isEqualTo(false);
+		// A versão nascida de texto sempre tem parâmetros, ainda que vazios, e o hash os
+		// cobre: é o que faz uma correção que muda só o orçamento gerar versão nova.
 		assertThat(linha.get("hash")).isEqualTo(
-				HashDaRegra.calcular(Objects.requireNonNull(RepresentacaoExtraida.validada(REPRESENTACAO_PARCIAL))));
+				HashDaRegra.calcular(Objects.requireNonNull(RepresentacaoExtraida.validada(REPRESENTACAO_PARCIAL)),
+						ParametrosDaSimulacao.NENHUM));
 		assertThat(jdbc.queryForObject("""
 				SELECT r.nucleo = e.representacao -> 'nucleo' AND r.especificacoes = e.representacao -> 'especificacoes'
 				FROM regras r JOIN extracoes_regras e ON e.id = ? WHERE r.id = ?
@@ -246,6 +264,226 @@ class RegraExtraidaPersistenciaTests {
 				job.id()))
 			.isEqualTo("0.025000000000000000001");
 		assertThat(consultar(job.id()).path("regras").get(0).path("origem").asString()).isEqualTo("extracao");
+	}
+
+	// --- Parâmetros da simulação ------------------------------------------------------
+
+	@Test
+	void parametrosExtraidosVaoParaOJobParaAVersaoEParaOEventoRepublicado() throws Exception {
+		Job job = criarJob("texto", "gerando_regra", null);
+		UUID extracaoId = criarExtracao(job, REPRESENTACAO_PARCIAL, PARAMETROS_COMPLETOS);
+
+		this.consumidor.receber(new RegraExtraidaDto(job.id(), job.submissaoId(), extracaoId));
+
+		assertThat(valor(job.id(), "orcamento")).isEqualTo("500000.1234567890123456789");
+		assertThat(valor(job.id(), "meta_venda")).isEqualTo("12000000.5");
+		assertThat(competencias(job.id())).containsExactly("2025-09", "2025-10");
+
+		// A versão raiz leva os parâmetros como o codegen os gravou, sem a api
+		// reescrevê-los.
+		String parametros = parametrosDaVersao(job.id());
+		ContratoDeEvento.validarDominio("parametros-simulacao.schema.json", parametros);
+		assertThat(JSON.readTree(parametros)).isEqualTo(JSON.readTree(PARAMETROS_COMPLETOS));
+
+		String payload = unicoRegraSubmetida(job.id());
+		ContratoDeEvento.validar("regra-submetida", payload);
+		RegraSubmetidaDto evento = JSON.readValue(payload, RegraSubmetidaDto.class);
+		assertThat(evento.orcamento()).isEqualByComparingTo("500000.1234567890123456789");
+		assertThat(evento.meta_venda()).isEqualByComparingTo("12000000.5");
+		assertThat(evento.competencias()).containsExactly("2025-09", "2025-10");
+
+		JsonNode detalhe = consultar(job.id());
+		assertThat(detalhe.path("orcamento").decimalValue()).isEqualByComparingTo("500000.1234567890123456789");
+		assertThat(detalhe.path("meta_venda").decimalValue()).isEqualByComparingTo("12000000.5");
+		JsonNode resumo = resumoNaListagem(job.id());
+		assertThat(resumo.path("orcamento").decimalValue()).isEqualByComparingTo("500000.1234567890123456789");
+		assertThat(resumo.path("meta_venda").decimalValue()).isEqualByComparingTo("12000000.5");
+	}
+
+	/**
+	 * O texto que não disse parâmetro algum deixa o job como nasceu: sem orçamento, sem
+	 * meta e com todas as competências publicadas. A versão guarda o objeto vazio, que é
+	 * "nenhum parâmetro foi dito", e não nulo, que é "esta versão não nasceu de texto".
+	 */
+	@Test
+	void extracaoSemParametrosDeixaOJobComoNasceu() throws Exception {
+		Job job = criarJob("texto", "gerando_regra", null);
+		UUID extracaoId = criarExtracao(job, REPRESENTACAO_PARCIAL);
+
+		this.consumidor.receber(new RegraExtraidaDto(job.id(), job.submissaoId(), extracaoId));
+
+		assertThat(valor(job.id(), "orcamento")).isNull();
+		assertThat(valor(job.id(), "meta_venda")).isNull();
+		assertThat(competencias(job.id())).containsExactly("2025-08", "2025-11");
+		assertThat(parametrosDaVersao(job.id())).isEqualTo("{}");
+
+		String payload = unicoRegraSubmetida(job.id());
+		ContratoDeEvento.validar("regra-submetida", payload);
+		assertThat(JSON.readTree(payload).propertyNames()).containsExactlyInAnyOrder("job_id", "origem", "competencias",
+				"submissao_id", "regra_id");
+
+		JsonNode detalhe = consultar(job.id());
+		assertThat(detalhe.has("orcamento")).isFalse();
+		assertThat(detalhe.has("meta_venda")).isFalse();
+		assertThat(resumoNaListagem(job.id()).has("orcamento")).isFalse();
+	}
+
+	/**
+	 * O parâmetro que o texto não disse não é apagado nem recebe padrão: um job que já
+	 * tem orçamento o conserva quando a extração só traz a meta.
+	 */
+	@Test
+	void parametroAusenteNaExtracaoNaoApagaOQueOJobJaTem() throws Exception {
+		Job job = criarJob("texto", "gerando_regra");
+		UUID extracaoId = criarExtracao(job, REPRESENTACAO_PARCIAL, """
+				{"meta_venda": 26000000.0}
+				""");
+
+		this.consumidor.receber(new RegraExtraidaDto(job.id(), job.submissaoId(), extracaoId));
+
+		assertThat(valor(job.id(), "orcamento")).isEqualTo("485000.1234567890123456789");
+		assertThat(valor(job.id(), "meta_venda")).isEqualTo("26000000.0");
+		assertThat(competencias(job.id())).containsExactly("2025-08", "2025-11");
+		RegraSubmetidaDto evento = JSON.readValue(unicoRegraSubmetida(job.id()), RegraSubmetidaDto.class);
+		assertThat(evento.orcamento()).isEqualByComparingTo("485000.1234567890123456789");
+		assertThat(evento.meta_venda()).isEqualByComparingTo("26000000.0");
+	}
+
+	/**
+	 * Valor inválido é gravado como veio, e o evento republicado o leva: é a validação de
+	 * domínio do ciclo seguinte que o aponta como conflito, com a referência
+	 * {@code parametros.<campo>}. O banco não tem restrição de faixa justamente para
+	 * isso.
+	 */
+	@Test
+	void orcamentoNegativoEMetaZeradaSaoGravadosComoVieram() throws Exception {
+		Job job = criarJob("texto", "gerando_regra", null);
+		UUID extracaoId = criarExtracao(job, REPRESENTACAO_PARCIAL, """
+				{"orcamento": -1000.0, "meta_venda": 0}
+				""");
+
+		this.consumidor.receber(new RegraExtraidaDto(job.id(), job.submissaoId(), extracaoId));
+
+		assertThat(valor(job.id(), "orcamento")).isEqualTo("-1000.0");
+		assertThat(valor(job.id(), "meta_venda")).isEqualTo("0");
+		String payload = unicoRegraSubmetida(job.id());
+		ContratoDeEvento.validar("regra-submetida", payload);
+		RegraSubmetidaDto evento = JSON.readValue(payload, RegraSubmetidaDto.class);
+		assertThat(evento.orcamento()).isEqualByComparingTo("-1000.0");
+		assertThat(evento.meta_venda()).isEqualByComparingTo("0");
+		assertThat(contagem("persistida", "nenhum")).isEqualTo(1.0);
+	}
+
+	/**
+	 * Uma competência fora das publicadas também é gravada: o período é o que o texto
+	 * disse, e quem o recusa é a validação de domínio, não esta gravação.
+	 */
+	@Test
+	void periodoForaDasCompetenciasPublicadasEGravadoComoVeio() throws Exception {
+		Job job = criarJob("texto", "gerando_regra", null);
+		UUID extracaoId = criarExtracao(job, REPRESENTACAO_PARCIAL, """
+				{"competencias": ["2026-03"]}
+				""");
+
+		this.consumidor.receber(new RegraExtraidaDto(job.id(), job.submissaoId(), extracaoId));
+
+		assertThat(competencias(job.id())).containsExactly("2026-03");
+		String payload = unicoRegraSubmetida(job.id());
+		ContratoDeEvento.validar("regra-submetida", payload);
+		assertThat(JSON.readValue(payload, RegraSubmetidaDto.class).competencias()).containsExactly("2026-03");
+	}
+
+	/**
+	 * O artefato evolui de forma aditiva: um parâmetro que esta versão da api ainda não
+	 * conhece não derruba o consumo nem impede os que ela conhece de chegarem ao job. A
+	 * versão guarda o artefato inteiro, com o campo novo.
+	 */
+	@Test
+	void parametroQueAApiAindaNaoConheceNaoImpedeOConsumo() throws Exception {
+		Job job = criarJob("texto", "gerando_regra", null);
+		String comCampoNovo = """
+				{"orcamento":500000.0,"parametro_de_amanha":"qualquer coisa"}
+				""";
+		UUID extracaoId = criarExtracao(job, REPRESENTACAO_PARCIAL, comCampoNovo);
+
+		this.consumidor.receber(new RegraExtraidaDto(job.id(), job.submissaoId(), extracaoId));
+
+		assertThat(valor(job.id(), "orcamento")).isEqualTo("500000.0");
+		assertThat(JSON.readTree(parametrosDaVersao(job.id()))).isEqualTo(JSON.readTree(comCampoNovo));
+		assertThat(contagem("persistida", "nenhum")).isEqualTo(1.0);
+	}
+
+	/**
+	 * A coluna do job guarda o período na forma canônica que o modelo de dados declara -
+	 * ordem crescente, sem repetição -, e o artefato do codegen fica como ele o gravou. A
+	 * ordem é forma, não valor: os meses simulados são os mesmos.
+	 */
+	@Test
+	void periodoEntraNoJobNaFormaCanonicaSemMexerNoArtefato() throws Exception {
+		Job job = criarJob("texto", "gerando_regra", null);
+		String comoVeio = """
+				{"competencias":["2025-11","2025-09","2025-09"]}
+				""";
+		UUID extracaoId = criarExtracao(job, REPRESENTACAO_PARCIAL, comoVeio);
+
+		this.consumidor.receber(new RegraExtraidaDto(job.id(), job.submissaoId(), extracaoId));
+
+		assertThat(competencias(job.id())).containsExactly("2025-09", "2025-11");
+		assertThat(JSON.readValue(unicoRegraSubmetida(job.id()), RegraSubmetidaDto.class).competencias())
+			.containsExactly("2025-09", "2025-11");
+		assertThat(JSON.readTree(parametrosDaVersao(job.id()))).isEqualTo(JSON.readTree(comoVeio));
+	}
+
+	/**
+	 * A reentrega não regrava parâmetro: se regravasse, desfaria uma correção posterior
+	 * do usuário sobre o mesmo job.
+	 */
+	@Test
+	void reentregaNaoRegravaOsParametrosDoJob() throws Exception {
+		Job job = criarJob("texto", "gerando_regra", null);
+		UUID extracaoId = criarExtracao(job, REPRESENTACAO_PARCIAL, PARAMETROS_COMPLETOS);
+		var evento = new RegraExtraidaDto(job.id(), job.submissaoId(), extracaoId);
+		this.consumidor.receber(evento);
+		dono.update("UPDATE jobs SET orcamento = 600000, meta_venda = NULL WHERE id = ?", job.id());
+
+		this.consumidor.receber(evento);
+
+		assertThat(valor(job.id(), "orcamento")).isEqualTo("600000");
+		assertThat(valor(job.id(), "meta_venda")).isNull();
+		assertThat(versoes(job.id())).isEqualTo(1);
+		unicoRegraSubmetida(job.id());
+		assertThat(contagem("duplicada", "reentrega")).isEqualTo(1.0);
+	}
+
+	/**
+	 * Parâmetros fora do contrato são artefato inválido, não parâmetro inválido: a
+	 * reentrega os repetiria para sempre, então o descarte é definitivo e nada é gravado.
+	 */
+	@ParameterizedTest
+	@ValueSource(strings = { """
+			{"orcamento": "quinhentos mil"}
+			""", """
+			{"orcamento": null}
+			""", """
+			{"competencias": []}
+			""", """
+			{"competencias": ["2025-13"]}
+			""", """
+			{"competencias": "2025-09"}
+			""", """
+			[]
+			""" })
+	void parametrosForaDoContratoSaoDescartadosSemGravarNada(String parametros) throws Exception {
+		Job job = criarJob("texto", "gerando_regra", null);
+		UUID extracaoId = criarExtracao(job, REPRESENTACAO_PARCIAL, parametros);
+
+		this.consumidor.receber(new RegraExtraidaDto(job.id(), job.submissaoId(), extracaoId));
+
+		assertThat(versoes(job.id())).isZero();
+		assertThat(eventosNoOutbox(job.id())).isZero();
+		assertThat(valor(job.id(), "orcamento")).isNull();
+		assertThat(competencias(job.id())).containsExactly("2025-08", "2025-11");
+		assertThat(contagem("descartada", "parametros_invalidos")).isEqualTo(1.0);
 	}
 
 	// --- Reentrega --------------------------------------------------------------------
@@ -421,6 +659,14 @@ class RegraExtraidaPersistenciaTests {
 	 * Como a api grava a entrada por texto ou voz: submissão sem conteúdo, job sem regra.
 	 */
 	private static Job criarJob(String tipo, String statusDoJob) {
+		return criarJob(tipo, statusDoJob, new BigDecimal("485000.1234567890123456789"));
+	}
+
+	/**
+	 * O job de texto ou voz nasce sem orçamento (T-231) e só o recebe se a extração o
+	 * trouxer; {@code orcamento} nulo é esse job.
+	 */
+	private static Job criarJob(String tipo, String statusDoJob, @Nullable BigDecimal orcamento) {
 		UUID submissaoId = Objects.requireNonNull(jdbc.queryForObject("""
 				INSERT INTO submissoes (usuario_id, tipo, transcricao, criado_em)
 				VALUES (?, ?, 'dobrar a comissão dos vendedores da marca 10 no aniversário da loja', now())
@@ -428,9 +674,9 @@ class RegraExtraidaPersistenciaTests {
 				""", UUID.class, USUARIO, tipo));
 		UUID jobId = Objects.requireNonNull(jdbc.queryForObject("""
 				INSERT INTO jobs (status, usuario_id, submissao_id, competencias, orcamento, criado_em)
-				VALUES ('gerando_regra', ?, ?, ?, 485000.1234567890123456789, now()) RETURNING id
+				VALUES ('gerando_regra', ?, ?, ?, ?, now()) RETURNING id
 				""", UUID.class, USUARIO, submissaoId,
-				new SqlArrayValue("text", List.of("2025-08", "2025-11").toArray())));
+				new SqlArrayValue("text", List.of("2025-08", "2025-11").toArray()), orcamento));
 		maquina.registrarCriacao(jobId, JobStatus.GERANDO_REGRA, "usuario");
 		if (!"gerando_regra".equals(statusDoJob)) {
 			dono.update("UPDATE jobs SET status = ? WHERE id = ?", statusDoJob, jobId);
@@ -443,6 +689,10 @@ class RegraExtraidaPersistenciaTests {
 	 * ela.
 	 */
 	private static UUID criarExtracao(Job job, String representacao) {
+		return criarExtracao(job, representacao, "{}");
+	}
+
+	private static UUID criarExtracao(Job job, String representacao, String parametros) {
 		UUID prompt = Objects.requireNonNull(dono.queryForObject("""
 				INSERT INTO prompts (job_id, no, conteudo, modelo, criado_em)
 				VALUES (?, 'extracao_parametros', 'fixture', '{}'::jsonb, now()) RETURNING id
@@ -451,12 +701,11 @@ class RegraExtraidaPersistenciaTests {
 				INSERT INTO respostas_modelo (job_id, prompt_id, conteudo, criado_em)
 				VALUES (?, ?, 'fixture', now()) RETURNING id
 				""", UUID.class, job.id(), prompt));
-		return Objects.requireNonNull(dono.queryForObject(
-				"""
-						INSERT INTO extracoes_regras (job_id, submissao_id, resposta_id, representacao, rebaixamentos, criado_em)
-						VALUES (?, ?, ?, ?::jsonb, '[]'::jsonb, now()) RETURNING id
-						""",
-				UUID.class, job.id(), job.submissaoId(), resposta, representacao));
+		return Objects.requireNonNull(dono.queryForObject("""
+				INSERT INTO extracoes_regras
+					(job_id, submissao_id, resposta_id, representacao, rebaixamentos, parametros, criado_em)
+				VALUES (?, ?, ?, ?::jsonb, '[]'::jsonb, ?::jsonb, now()) RETURNING id
+				""", UUID.class, job.id(), job.submissaoId(), resposta, representacao, parametros));
 	}
 
 	/** Consulta pelo HTTP e confere o corpo contra {@code JobDetalhado}. */
@@ -503,6 +752,36 @@ class RegraExtraidaPersistenciaTests {
 
 	private static String statusAtual(UUID jobId) {
 		return Objects.requireNonNull(jdbc.queryForObject("SELECT status FROM jobs WHERE id = ?", String.class, jobId));
+	}
+
+	/**
+	 * O valor de uma coluna numérica do job como o banco o guarda, em texto: comparar
+	 * {@code numeric} por texto é o que mostra a escala preservada, que um {@code double}
+	 * perderia.
+	 */
+	private static @Nullable String valor(UUID jobId, String coluna) {
+		return jdbc.queryForObject("SELECT %s::text FROM jobs WHERE id = ?".formatted(coluna), String.class, jobId);
+	}
+
+	private static List<String> competencias(UUID jobId) {
+		return jdbc.queryForList("SELECT unnest(competencias) FROM jobs WHERE id = ?", String.class, jobId);
+	}
+
+	private static String parametrosDaVersao(UUID jobId) {
+		return Objects.requireNonNull(
+				jdbc.queryForObject("SELECT parametros::text FROM regras WHERE job_id = ?", String.class, jobId));
+	}
+
+	/** O item deste job na listagem, conferido contra {@code JobResumo}. */
+	private static JsonNode resumoNaListagem(UUID jobId) throws Exception {
+		JsonNode itens = JSON.readTree(listar()).path("itens");
+		for (JsonNode item : itens) {
+			if (jobId.toString().equals(item.path("id").asString())) {
+				ContratoDeEvento.validarRespostaHttp("JobResumo", item.toString());
+				return item;
+			}
+		}
+		throw new AssertionError("job %s não apareceu na listagem".formatted(jobId));
 	}
 
 	private double contagem(String resultado, String motivo) {

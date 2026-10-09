@@ -63,8 +63,8 @@ class RegraExtraidaConsumidorTests {
 
 	@Test
 	void extracaoPersistidaContaUmaVezELogaInicioEResultadoComReferencias() throws Exception {
-		given(this.servico.aplicarRegraExtraida(JOB_ID, SUBMISSAO_ID, EXTRACAO_ID))
-			.willReturn(new ExtracaoAplicada(DesfechoDaExtracao.PERSISTIDA, REGRA_ID));
+		given(this.servico.aplicarRegraExtraida(JOB_ID, SUBMISSAO_ID, EXTRACAO_ID)).willReturn(new ExtracaoAplicada(
+				DesfechoDaExtracao.PERSISTIDA, REGRA_ID, new ParametrosGravados(true, true, true)));
 		MDC.put("job_id", "contexto-anterior");
 
 		try (CapturaDeLog captura = new CapturaDeLog(RegraExtraidaConsumidor.class)) {
@@ -86,18 +86,64 @@ class RegraExtraidaConsumidorTests {
 			assertThat(resultado.path("extra").path("resultado").asString()).isEqualTo("persistida");
 			assertThat(resultado.path("extra").path("motivo").asString()).isEqualTo("nenhum");
 			assertThat(resultado.path("extra").path("regra_id").asString()).isEqualTo(REGRA_ID.toString());
+			assertThat(resultado.path("extra").path("orcamento_extraido").asBoolean()).isTrue();
+			assertThat(resultado.path("extra").path("meta_venda_extraida").asBoolean()).isTrue();
+			assertThat(resultado.path("extra").path("periodo_extraido").asBoolean()).isTrue();
 		}
 
 		assertThat(contagem("persistida", "nenhum")).isEqualTo(1.0);
 		assertThat(this.registry.get("regra.extraida.consumo").counters()).hasSize(1);
 		assertThat(duracao("persistida").count()).isEqualTo(1);
+		assertThat(parametrosGravados("orcamento")).isEqualTo(1.0);
+		assertThat(parametrosGravados("meta_venda")).isEqualTo(1.0);
+		assertThat(parametrosGravados("competencias")).isEqualTo(1.0);
+	}
+
+	/**
+	 * O texto que não disse parâmetro algum: o log diz que nenhum veio, em vez de omitir
+	 * a informação, e a métrica por parâmetro não registra nada.
+	 */
+	@Test
+	void extracaoSemParametrosLogaAsTresAusenciasESemContarParametro() throws Exception {
+		given(this.servico.aplicarRegraExtraida(JOB_ID, SUBMISSAO_ID, EXTRACAO_ID))
+			.willReturn(new ExtracaoAplicada(DesfechoDaExtracao.PERSISTIDA, REGRA_ID, ParametrosGravados.NENHUM));
+
+		try (CapturaDeLog captura = new CapturaDeLog(RegraExtraidaConsumidor.class)) {
+			this.consumidor.receber(new RegraExtraidaDto(JOB_ID, SUBMISSAO_ID, EXTRACAO_ID));
+
+			JsonNode resultado = linhas(captura).getLast();
+			assertThat(resultado.path("extra").path("orcamento_extraido").asBoolean()).isFalse();
+			assertThat(resultado.path("extra").path("meta_venda_extraida").asBoolean()).isFalse();
+			assertThat(resultado.path("extra").path("periodo_extraido").asBoolean()).isFalse();
+		}
+
+		assertThat(contagem("persistida", "nenhum")).isEqualTo(1.0);
+		assertThat(this.registry.find("job.parametros.gravados").counters()).isEmpty();
+	}
+
+	/**
+	 * Um parâmetro extraído conta uma vez por gravação, e a reentrega não regrava: sem
+	 * isto, a métrica diria que dois jobs receberam orçamento onde um recebeu.
+	 */
+	@Test
+	void reentregaNaoContaParametroDeNovo() throws Exception {
+		given(this.servico.aplicarRegraExtraida(JOB_ID, SUBMISSAO_ID, EXTRACAO_ID))
+			.willReturn(new ExtracaoAplicada(DesfechoDaExtracao.PERSISTIDA, REGRA_ID,
+					new ParametrosGravados(true, false, false)))
+			.willReturn(new ExtracaoAplicada(DesfechoDaExtracao.REENTREGA, REGRA_ID, ParametrosGravados.NENHUM));
+
+		this.consumidor.receber(new RegraExtraidaDto(JOB_ID, SUBMISSAO_ID, EXTRACAO_ID));
+		this.consumidor.receber(new RegraExtraidaDto(JOB_ID, SUBMISSAO_ID, EXTRACAO_ID));
+
+		assertThat(parametrosGravados("orcamento")).isEqualTo(1.0);
+		assertThat(this.registry.find("job.parametros.gravados").counters()).hasSize(1);
 	}
 
 	@Test
 	void reentregaContaComoDuplicadaENuncaComoOutraPersistida() throws Exception {
 		given(this.servico.aplicarRegraExtraida(JOB_ID, SUBMISSAO_ID, EXTRACAO_ID))
-			.willReturn(new ExtracaoAplicada(DesfechoDaExtracao.PERSISTIDA, REGRA_ID))
-			.willReturn(new ExtracaoAplicada(DesfechoDaExtracao.REENTREGA, REGRA_ID));
+			.willReturn(new ExtracaoAplicada(DesfechoDaExtracao.PERSISTIDA, REGRA_ID, ParametrosGravados.NENHUM))
+			.willReturn(new ExtracaoAplicada(DesfechoDaExtracao.REENTREGA, REGRA_ID, ParametrosGravados.NENHUM));
 
 		try (CapturaDeLog captura = new CapturaDeLog(RegraExtraidaConsumidor.class)) {
 			this.consumidor.receber(new RegraExtraidaDto(JOB_ID, SUBMISSAO_ID, EXTRACAO_ID));
@@ -205,6 +251,11 @@ class RegraExtraidaConsumidorTests {
 
 	private Timer duracao(String resultado) {
 		return this.registry.get("regra.extraida.consumo.duracao").tag("resultado", resultado).timer();
+	}
+
+	private double parametrosGravados(String parametro) {
+		Counter contador = this.registry.find("job.parametros.gravados").tag("parametro", parametro).counter();
+		return (contador != null) ? contador.count() : 0;
 	}
 
 }

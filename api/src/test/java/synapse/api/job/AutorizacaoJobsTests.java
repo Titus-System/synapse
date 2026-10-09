@@ -212,7 +212,7 @@ class AutorizacaoJobsTests {
 		JobCriadoDto criado = new JobCriadoDto(JOB, "gerando_regra", "formulario", List.of("2025-11"), BigDecimal.TEN,
 				Instant.now(), UUID.randomUUID(), null, regra);
 		JobDetalhadoDto detalhe = new JobDetalhadoDto(JOB, "gerando_regra", "formulario", List.of("2025-11"),
-				BigDecimal.TEN, Instant.now(), null, null, UUID.randomUUID(), null, null, List.of(regra), null,
+				BigDecimal.TEN, null, Instant.now(), null, null, UUID.randomUUID(), null, null, List.of(regra), null,
 				List.of());
 		when(this.service.criar(any(), any())).thenReturn(criado);
 		when(this.service.listar(any(), any())).thenReturn(new PaginaJobsDto(List.of(), 0, 20, 0));

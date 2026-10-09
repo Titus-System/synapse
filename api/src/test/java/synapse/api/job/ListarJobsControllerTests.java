@@ -84,11 +84,12 @@ class ListarJobsControllerTests {
 	}
 
 	@Test
-	void umItemCompletoTemOsOitoCamposDoContrato() throws Exception {
+	void umItemCompletoTemOsNoveCamposDoContrato() throws Exception {
 		UUID id = UUID.randomUUID();
 		UUID jobOrigemId = UUID.randomUUID();
-		JobResumoDto item = new JobResumoDto(id, "liberado", List.of("2025-11"), new BigDecimal("485000.0"), "viavel",
-				Instant.parse("2026-09-16T15:00:00Z"), Instant.parse("2026-09-16T15:05:00Z"), jobOrigemId);
+		JobResumoDto item = new JobResumoDto(id, "liberado", List.of("2025-11"), new BigDecimal("485000.0"),
+				new BigDecimal("12000000.0"), "viavel", Instant.parse("2026-09-16T15:00:00Z"),
+				Instant.parse("2026-09-16T15:05:00Z"), jobOrigemId);
 		when(this.service.listar(any(), any())).thenReturn(new PaginaJobsDto(List.of(item), 0, 20, 1));
 
 		String resposta = this.mvc.perform(get("/jobs"))
@@ -99,18 +100,20 @@ class ListarJobsControllerTests {
 			.getContentAsString();
 		var no = new JsonMapper().readTree(resposta).path("itens").path(0);
 		assertThat(no.propertyNames()).containsExactlyInAnyOrder("id", "status", "competencias", "orcamento",
-				"veredito", "criado_em", "finalizado_em", "job_origem_id");
+				"meta_venda", "veredito", "criado_em", "finalizado_em", "job_origem_id");
 		assertThat(UUID.fromString(no.path("id").asString())).isEqualTo(id);
 		assertThat(UUID.fromString(no.path("job_origem_id").asString())).isEqualTo(jobOrigemId);
 		assertThat(Instant.parse(no.path("criado_em").asString())).isEqualTo(item.criado_em());
 		assertThat(no.path("orcamento").decimalValue()).isEqualByComparingTo("485000.0");
+		assertThat(no.path("meta_venda").decimalValue()).isEqualByComparingTo("12000000.0");
 		assertThat(no.path("competencias").path(0).asString()).isEqualTo("2025-11");
 	}
 
 	@Test
 	void umItemMinimoOmiteOsCamposAusentesSemNull() throws Exception {
-		JobResumoDto item = new JobResumoDto(UUID.randomUUID(), "aguardando_confirmacao_parametros", List.of("2025-11"),
-				new BigDecimal("485000.0"), null, Instant.parse("2026-09-16T15:00:00Z"), null, null);
+		// Um job de texto antes da extração: sem orçamento, sem meta e sem veredito.
+		JobResumoDto item = new JobResumoDto(UUID.randomUUID(), "gerando_regra", List.of("2025-11"), null, null, null,
+				Instant.parse("2026-09-16T15:00:00Z"), null, null);
 		when(this.service.listar(any(), any())).thenReturn(new PaginaJobsDto(List.of(item), 0, 20, 1));
 
 		String resposta = this.mvc.perform(get("/jobs"))
@@ -119,8 +122,7 @@ class ListarJobsControllerTests {
 			.getResponse()
 			.getContentAsString();
 		var no = new JsonMapper().readTree(resposta).path("itens").path(0);
-		assertThat(no.propertyNames()).containsExactlyInAnyOrder("id", "status", "competencias", "orcamento",
-				"criado_em");
+		assertThat(no.propertyNames()).containsExactlyInAnyOrder("id", "status", "competencias", "criado_em");
 	}
 
 	@ParameterizedTest

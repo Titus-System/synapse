@@ -7,6 +7,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,7 +49,9 @@ class MigrationTests {
 			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras",
 			"rodadas_correcao");
 
-	private static final int CHANGESETS = 23;
+	private static final int CHANGESETS = 24;
+
+	private static final int CHANGESETS_ANTES_DOS_PARAMETROS = 23;
 
 	private static final int CHANGESETS_ANTES_DAS_RODADAS = 22;
 
@@ -147,7 +150,8 @@ class MigrationTests {
 				assertThat(rs.getString("is_nullable")).isEqualTo("NO");
 			}
 			assertThat(colunas).containsExactly("id:uuid", "job_id:uuid", "submissao_id:uuid", "resposta_id:uuid",
-					"representacao:jsonb", "rebaixamentos:jsonb", "criado_em:timestamp with time zone");
+					"representacao:jsonb", "rebaixamentos:jsonb", "criado_em:timestamp with time zone",
+					"parametros:jsonb");
 		}
 		assertThat(definicaoDoIndice("uq_extracoes_regras_job_id_submissao_id")).contains("UNIQUE",
 				"(job_id, submissao_id)");
@@ -237,6 +241,70 @@ class MigrationTests {
 		assertThat(colunasDeResultados()).doesNotContain("linhas").contains("diagnostico", "decomposicao");
 		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
 			assertThat(linhaSemDiagnostico(statement, anterior)).isEqualTo(linhaAntes);
+		}
+	}
+
+	/**
+	 * As quatro mudanças dos parâmetros da simulação: o orçamento deixa de ser
+	 * obrigatório, porque o job de texto nasce sem ele; a meta de venda nasce nulável
+	 * como ele; a extração recebe os parâmetros como coluna obrigatória com default, para
+	 * o INSERT de uma versão do codegen anterior a ela continuar válido; e a versão da
+	 * regra os recebe nulável, porque só as nascidas de texto os têm.
+	 */
+	@Test
+	void criaOsParametrosDaSimulacaoEDispensaOOrcamentoObrigatorio() throws Exception {
+		atualizar();
+
+		assertThat(nulidadeDasColunas("jobs")).containsEntry("orcamento", "YES").containsEntry("meta_venda", "YES");
+		assertThat(coluna("jobs", "meta_venda")).containsExactly("numeric", "YES", null);
+		assertThat(coluna("regras", "parametros")).containsExactly("jsonb", "YES", null);
+		assertThat(coluna("extracoes_regras", "parametros")).containsExactly("jsonb", "NO", "'{}'::jsonb");
+	}
+
+	/**
+	 * O banco já em uso recebe as colunas sem perder nada: o job e a extração gravados
+	 * antes ficam como estavam, a extração ganha os parâmetros vazios, e o INSERT do
+	 * codegen que ainda não conhece a coluna continua funcionando depois dela.
+	 */
+	@Test
+	void jobEExtracaoGravadosAntesDosParametrosChegamIntactosEComEleVazio() throws Exception {
+		atualizar(CHANGESETS_ANTES_DOS_PARAMETROS);
+		UUID job = UUID.randomUUID();
+		String linhaAntes;
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearUsuario(statement);
+			semearJobComTrilha(statement, job, "gerando_regra");
+			semearExtracao(statement, job);
+			linhaAntes = linhaDoJob(statement, job);
+		}
+
+		atualizar();
+
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearExtracao(statement, job);
+			assertThat(linhaDoJob(statement, job)).isEqualTo(linhaAntes);
+			try (ResultSet rs = statement
+				.executeQuery("SELECT meta_venda, orcamento::text FROM jobs WHERE id = '%s'".formatted(job))) {
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getString("meta_venda")).isNull();
+				assertThat(rs.getString("orcamento")).isEqualTo("1000");
+			}
+			try (ResultSet rs = statement.executeQuery("SELECT parametros::text FROM extracoes_regras")) {
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getString(1)).isEqualTo("{}");
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getString(1)).isEqualTo("{}");
+				assertThat(rs.next()).isFalse();
+			}
+		}
+
+		reverter(1);
+
+		assertThat(nulidadeDasColunas("jobs")).containsEntry("orcamento", "NO").doesNotContainKey("meta_venda");
+		assertThat(nulidadeDasColunas("extracoes_regras")).doesNotContainKey("parametros");
+		assertThat(nulidadeDasColunas("regras")).doesNotContainKey("parametros");
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			assertThat(linhaDoJob(statement, job)).isEqualTo(linhaAntes);
 		}
 	}
 
@@ -602,7 +670,9 @@ class MigrationTests {
 		Map<String, String> dadosAntes = dadosAnterioresAsRodadas();
 		List<String> permissoesAntes = permissoesAnterioresAsRodadas();
 
-		reverter(1);
+		// Dois: o changeset dos parâmetros vem depois do das rodadas e sai junto para
+		// chegar a ele.
+		reverter(CHANGESETS - CHANGESETS_ANTES_DAS_RODADAS);
 
 		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DAS_RODADAS);
 		assertThat(tabelasExistentes())
@@ -648,14 +718,19 @@ class MigrationTests {
 		}
 	}
 
+	/**
+	 * As linhas de todas as tabelas menos a das rodadas, sem as colunas que o changeset
+	 * dos parâmetros acrescenta: é o que permite comparar a mesma linha antes e depois de
+	 * um upgrade ou rollback que atravessa os dois changesets.
+	 */
 	private static Map<String, String> dadosAnterioresAsRodadas() throws Exception {
 		Map<String, String> dados = new HashMap<>();
 		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
 			for (String tabela : TABELAS) {
 				if (!tabela.equals("rodadas_correcao")) {
-					try (ResultSet rs = statement.executeQuery(
-							"SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM "
-									+ tabela + " t")) {
+					try (ResultSet rs = statement
+						.executeQuery("SELECT COALESCE(jsonb_agg(to_jsonb(t) - 'meta_venda' - 'parametros' "
+								+ "ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM " + tabela + " t")) {
 						assertThat(rs.next()).isTrue();
 						dados.put(tabela, rs.getString(1));
 					}
@@ -760,9 +835,66 @@ class MigrationTests {
 				""");
 	}
 
+	/** O tipo, a nulidade e o default de uma coluna, na ordem. */
+	private static List<@Nullable String> coluna(String tabela, String coluna) throws Exception {
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("""
+						SELECT data_type, is_nullable, column_default FROM information_schema.columns
+						WHERE table_schema = 'public' AND table_name = '%s' AND column_name = '%s'
+						""".formatted(tabela, coluna))) {
+			assertThat(rs.next()).as("coluna %s.%s não existe", tabela, coluna).isTrue();
+			return Arrays.asList(rs.getString("data_type"), rs.getString("is_nullable"),
+					rs.getString("column_default"));
+		}
+	}
+
+	/**
+	 * O job sem a coluna de meta de venda, para comparar a mesma linha antes e depois do
+	 * changeset que a acrescenta.
+	 */
+	private static String linhaDoJob(Statement statement, UUID id) throws Exception {
+		try (ResultSet rs = statement.executeQuery("""
+				SELECT (to_jsonb(jobs) - 'meta_venda')::text FROM jobs WHERE id = '%s'
+				""".formatted(id))) {
+			assertThat(rs.next()).as("job %s não existe", id).isTrue();
+			return rs.getString(1);
+		}
+	}
+
+	/**
+	 * O que o codegen grava ao extrair, como o INSERT de uma versão que não conhece a
+	 * coluna de parâmetros. Cada chamada usa uma submissão nova, porque
+	 * {@code uq_extracoes_regras_job_id_submissao_id} admite uma extração por job e
+	 * submissão.
+	 */
+	private static void semearExtracao(Statement statement, UUID jobId) throws Exception {
+		UUID submissao = UUID.randomUUID();
+		UUID prompt = UUID.randomUUID();
+		UUID resposta = UUID.randomUUID();
+		statement.execute("""
+				INSERT INTO submissoes (id, usuario_id, tipo, transcricao, criado_em)
+				VALUES ('%s', '22222222-2222-4222-8222-222222222222', 'texto', 'pague 5%%', now())
+				""".formatted(submissao));
+		statement.execute("""
+				INSERT INTO prompts (id, job_id, no, conteudo, modelo, criado_em)
+				VALUES ('%s', '%s', 'extracao_parametros', 'texto', '{}'::jsonb, now())
+				""".formatted(prompt, jobId));
+		statement.execute("""
+				INSERT INTO respostas_modelo (id, job_id, prompt_id, conteudo, criado_em)
+				VALUES ('%s', '%s', '%s', 'resposta', now())
+				""".formatted(resposta, jobId, prompt));
+		statement.execute(
+				"""
+						INSERT INTO extracoes_regras (job_id, submissao_id, resposta_id, representacao, rebaixamentos, criado_em)
+						VALUES ('%s', '%s', '%s', '{"nucleo": {}, "especificacoes": []}'::jsonb, '[]'::jsonb, now())
+						"""
+					.formatted(jobId, submissao, resposta));
+	}
+
 	private static String linhaDoJobSemNome(Statement statement, UUID id) throws Exception {
 		try (ResultSet rs = statement.executeQuery("""
-				SELECT (to_jsonb(jobs) - 'nome')::text FROM jobs WHERE id = '%s'
+				SELECT (to_jsonb(jobs) - 'nome' - 'meta_venda')::text FROM jobs WHERE id = '%s'
 				""".formatted(id))) {
 			assertThat(rs.next()).as("job %s não existe", id).isTrue();
 			return rs.getString(1);
