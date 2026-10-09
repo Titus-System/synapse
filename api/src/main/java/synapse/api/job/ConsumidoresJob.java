@@ -377,11 +377,17 @@ class RegraExtraidaConsumidor {
 	private void registrar(ExtracaoAplicada aplicada) {
 		DesfechoDaExtracao desfecho = aplicada.desfecho();
 		this.metricas.regraExtraidaConsumida(desfecho.resultado(), desfecho.motivo()).increment();
+		contarParametros(aplicada.parametros());
 		switch (desfecho) {
 			case PERSISTIDA -> log.atInfo()
 				.addKeyValue("resultado", desfecho.resultado())
 				.addKeyValue("motivo", desfecho.motivo())
 				.addKeyValue("regra_id", aplicada.regraId())
+				// Quais parâmetros o job recebeu, nunca os valores: orçamento e meta de
+				// venda são dado do usuário (`api/AGENTS.md`).
+				.addKeyValue("orcamento_extraido", aplicada.parametros().orcamento())
+				.addKeyValue("meta_venda_extraida", aplicada.parametros().metaVenda())
+				.addKeyValue("periodo_extraido", aplicada.parametros().periodo())
 				.log("regra-extraida persistida; ciclo do codegen reaberto");
 			case REENTREGA -> log.atInfo()
 				.addKeyValue("resultado", desfecho.resultado())
@@ -392,6 +398,18 @@ class RegraExtraidaConsumidor {
 				.addKeyValue("resultado", desfecho.resultado())
 				.addKeyValue("motivo", desfecho.motivo())
 				.log("regra-extraida descartada; job sem nova versão");
+		}
+	}
+
+	private void contarParametros(ParametrosGravados parametros) {
+		if (parametros.orcamento()) {
+			this.metricas.parametroDaSimulacaoGravado("orcamento").increment();
+		}
+		if (parametros.metaVenda()) {
+			this.metricas.parametroDaSimulacaoGravado("meta_venda").increment();
+		}
+		if (parametros.periodo()) {
+			this.metricas.parametroDaSimulacaoGravado("competencias").increment();
 		}
 	}
 
