@@ -209,17 +209,19 @@ class Corretor:
     async def publicar_comando(
         self,
         semente: dict[str, Any],
-        orcamento: float,
+        orcamento: float | None,
         *,
         elementos_exigidos: list[str] | None = None,
     ) -> None:
-        """Sem `elementos_exigidos`, o comando é o de antes da conferência de cobertura (T-241)."""
+        """Sem `elementos_exigidos`, o comando é o de antes da conferência de cobertura (T-241).
+        `orcamento` None é o comando de um job sem orçamento, que chega sem o campo (T-281)."""
         corpo: dict[str, Any] = {
             "job_id": str(semente["job_id"]),
             "codigo_gerado_id": str(semente["id"]),
             "competencias": COMPETENCIAS,
-            "orcamento": orcamento,
         }
+        if orcamento is not None:
+            corpo["orcamento"] = orcamento
         if elementos_exigidos is not None:
             corpo["elementos_exigidos"] = elementos_exigidos
         await self.publicar(json.dumps(corpo).encode("utf-8"))
@@ -294,7 +296,7 @@ class Ambiente:
         self,
         fonte: str,
         *,
-        orcamento: float = ORCAMENTO_PADRAO,
+        orcamento: float | None = ORCAMENTO_PADRAO,
         competencias: list[str] | None = None,
     ) -> dict[str, Any]:
         semente = await semear_codigo(

@@ -139,6 +139,23 @@ public class AppMetrics {
 	}
 
 	/**
+	 * Entregas de {@code simulacao-concluida} consumidas, por desfecho e resultado do
+	 * consumo. Conta entregas, não jobs: a reentrega de um desfecho já aplicado sai como
+	 * {@code estado_incompativel}, nunca como outra {@code aplicada}. {@code desfecho} é
+	 * {@code viavel}, {@code inviavel}, {@code indeterminado}, {@code sem_orcamento},
+	 * {@code assercao_violada}, {@code erro_codigo}, {@code erro_infra} ou
+	 * {@code desconhecido}; {@code resultado} é {@code aplicada},
+	 * {@code estado_incompativel}, {@code versao_anterior} ou {@code invalida}.
+	 */
+	public Counter simulacaoConcluidaConsumida(String desfecho, String resultado) {
+		return Counter.builder("simulacao.concluida.consumo")
+			.description("Mensagens de simulacao-concluida por desfecho e resultado do consumo")
+			.tag("desfecho", desfecho)
+			.tag("resultado", resultado)
+			.register(this.registry);
+	}
+
+	/**
 	 * Parâmetros da simulação extraídos do texto e gravados no job, um incremento por
 	 * parâmetro gravado. {@code parametro} vem de um conjunto limitado -
 	 * {@code orcamento}, {@code meta_venda}, {@code competencias} -, nunca o valor dito:

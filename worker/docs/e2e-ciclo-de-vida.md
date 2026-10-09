@@ -30,6 +30,7 @@ Docker e a imagem do sandbox, que a fixture `imagem` constrói uma vez (ou reusa
 | Garantia | Teste |
 | --- | --- |
 | `sucesso` grava **uma** linha e publica o mesmo evento nas duas filas, com o veredito pelo orçamento do comando | `test_desfechos::test_sucesso_grava_a_linha_e_publica_o_evento_nas_duas_filas` |
+| comando sem orçamento: o resultado conferido grava e publica `sucesso` sem veredito e sem `totais.orcamento`, com o desfecho `sem_orcamento` no log `execução julgada` e em `worker_execucoes_julgadas_total` (T-281) | `test_sem_orcamento_o_sucesso_e_gravado_e_publicado_sem_veredito` |
 | asserção violada é categoria própria, sem veredito | `test_assercao_violada_e_categoria_propria_e_sem_veredito` |
 | erro da regra é `erro_codigo`, a exceção vai para o diagnóstico da linha e **nada da regra** (exceção, stdout, stderr, fonte) nem o orçamento chega ao log | `test_erro_do_codigo_e_erro_codigo_e_nada_da_regra_chega_ao_log` |
 | código que não termina é morto no prazo real de 60 s, o diagnóstico guarda só a causa `timeout` e o ciclo fecha | `test_codigo_que_nao_termina_e_morto_no_prazo_e_o_ciclo_fecha` |

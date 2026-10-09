@@ -2,7 +2,8 @@
 
 Lê o código pela referência do comando, prepara o payload, o executa no container efêmero
 (`app.execucao.container`), classifica o desfecho (`app.execucao.coleta`), o julga contra o
-baseline congelado e o orçamento do comando (`app.execucao.veredito`), **grava** a linha em
+baseline congelado e o orçamento do comando, quando ele o traz (`app.execucao.veredito`), **grava**
+a linha em
 `resultados_simulacao` e **só depois** publica `simulacao-concluida` (T-067): um evento que
 referencia uma linha inexistente é pior que um evento perdido. O `ack` vem por último.
 
@@ -26,7 +27,10 @@ from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from app.core.logger import get_logger, job_id_ctx
-from app.core.metrics.global_metrics import execucoes_com_cobertura_incompleta
+from app.core.metrics.global_metrics import (
+    execucoes_com_cobertura_incompleta,
+    execucoes_julgadas,
+)
 from app.db.engine import get_sessionmaker
 from app.execucao.baseline import carregar_baselines
 from app.execucao.coleta import classificar
@@ -38,7 +42,12 @@ from app.execucao.registro import (
     linha_do_julgamento,
 )
 from app.execucao.schema import Problema
-from app.execucao.veredito import Julgamento, julgamento_de_infra, julgar
+from app.execucao.veredito import (
+    Julgamento,
+    desfecho_da_execucao,
+    julgamento_de_infra,
+    julgar,
+)
 from app.mensageria.broker import ConexaoBroker
 from app.mensageria.contracts import ExecutarCodigo
 from app.mensageria.publicador import PublicacaoError, publicar_simulacao_concluida
@@ -96,11 +105,15 @@ def _registrar_julgamento(julgamento: Julgamento) -> None:
     nunca stdout, stderr nem a mensagem de erro da regra, que são texto não confiável, e nem os
     números do resultado, que são artefato e vivem no Postgres (T-067).
 
-    A cobertura incompleta também é contada, uma vez por execução julgada (T-241)."""
+    Toda execução julgada é contada pelo desfecho, e a cobertura incompleta também, uma vez por
+    execução julgada (T-241). Um sucesso de job sem orçamento sai com veredito nulo e desfecho
+    `sem_orcamento` (T-281)."""
+    desfecho_da_metrica = desfecho_da_execucao(julgamento)
     extra: dict[str, object] = {
         "classe": julgamento.classe,
         "motivo": julgamento.motivo,
         "veredito": julgamento.veredito,
+        "desfecho": desfecho_da_metrica,
     }
     desfecho = julgamento.desfecho
     if desfecho is not None and desfecho.saida is not None:
@@ -114,6 +127,7 @@ def _registrar_julgamento(julgamento: Julgamento) -> None:
         extra["elementos_ausentes"] = list(julgamento.cobertura.ausentes)
         extra["quantidade_fora_da_regra"] = len(julgamento.cobertura.fora_da_regra)
         execucoes_com_cobertura_incompleta.inc()
+    execucoes_julgadas.labels(desfecho=desfecho_da_metrica).inc()
     registrar = logger.warning if julgamento.classe == "erro_infra" else logger.info
     registrar("execução julgada", extra=extra)
 
@@ -225,6 +239,8 @@ async def _processar(mensagem: AbstractIncomingMessage, broker: ConexaoBroker) -
                         "competencias": execucao.payload.competencias,
                         # Nulo quando o comando não os trouxe e a cobertura não será conferida.
                         "elementos_exigidos": execucao.elementos_exigidos,
+                        # Se haverá veredito, nunca o valor do orçamento.
+                        "com_orcamento": execucao.orcamento is not None,
                     },
                 )
                 saida = await _executar_no_container(execucao.payload)

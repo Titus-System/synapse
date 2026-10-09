@@ -169,7 +169,7 @@ def test_regra_que_forja_o_envelope_de_sucesso_nao_e_sucesso(imagem: str) -> Non
 # ---- o julgamento (T-066) com o harness real ----
 
 
-def julgar_2025_11(desfecho: DesfechoClassificado, orcamento: float) -> Any:
+def julgar_2025_11(desfecho: DesfechoClassificado, orcamento: float | None) -> Any:
     return julgar(desfecho, ["2025-11"], orcamento, carregar_baselines(), elementos_exigidos=None)
 
 
@@ -246,7 +246,12 @@ def aplicar_regra(bases, apuracao_base, competencias):
 """
 
 
-def test_regra_que_infla_o_baseline_do_harness_e_denunciada_pelo_worker(imagem: str) -> None:
+@pytest.mark.parametrize("orcamento", [999999999.0, None], ids=["com orcamento", "sem orcamento"])
+def test_regra_que_infla_o_baseline_do_harness_e_denunciada_pelo_worker(
+    imagem: str, orcamento: float | None
+) -> None:
+    """Sem orçamento (T-281) a conferência é a mesma: só o veredito deixa de existir, nunca a
+    comparação com o baseline que o worker leu por conta própria."""
     _, desfecho = executar_e_classificar(REGRA_QUE_INFLA_O_BASELINE_DO_HARNESS, imagem)
 
     # Controle: para o harness e para a classificação isto é um sucesso. Sem a conferência do
@@ -258,7 +263,7 @@ def test_regra_que_infla_o_baseline_do_harness_e_denunciada_pelo_worker(imagem: 
     assert desfecho.resultado["totais"]["baseline"] > BASELINE_2025_11
     assert desfecho.resultado["totais"]["diferenca_abs"] < 0
 
-    julgamento = julgar_2025_11(desfecho, 999999999.0)
+    julgamento = julgar_2025_11(desfecho, orcamento)
 
     assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == (
         "erro_codigo",
@@ -266,6 +271,17 @@ def test_regra_que_infla_o_baseline_do_harness_e_denunciada_pelo_worker(imagem: 
         "indeterminado",
     )
     assert julgamento.resultado is None
+
+
+def test_sem_orcamento_o_total_real_sai_conferido_e_sem_veredito(imagem: str) -> None:
+    _, desfecho = executar_e_classificar(EXEMPLO, imagem)
+
+    julgamento = julgar_2025_11(desfecho, None)
+
+    assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == ("sucesso", "ok", None)
+    assert julgamento.totais is not None
+    assert julgamento.totais["baseline"] == BASELINE_2025_11
+    assert "orcamento" not in julgamento.totais
 
 
 # ---- o container não recebe o orçamento, em forma nenhuma ----

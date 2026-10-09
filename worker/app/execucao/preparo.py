@@ -25,7 +25,8 @@ class ExecucaoPreparada:
     código não confiável."""
 
     payload: PayloadContainer
-    orcamento: float
+    # None quando o job não tem orçamento: o resultado sai sem veredito (T-281).
+    orcamento: float | None
     # None quando o comando não os trouxe: a conferência de cobertura não roda (T-241).
     elementos_exigidos: list[str] | None
 

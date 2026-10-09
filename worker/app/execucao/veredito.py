@@ -1,5 +1,5 @@
 """Julgamento do resultado contra o baseline, a cobertura e o orçamento, fora do container
-(T-066, T-241).
+(T-066, T-241, T-281).
 
 O container produz números crus. O processo do worker, que o código gerado não alcança:
 
@@ -9,14 +9,18 @@ O container produz números crus. O processo do worker, que o código gerado nã
    worker, e seguem como vieram, sem recomposição;
 3. quando o comando trouxe ``elementos_exigidos``, confere a cobertura: todo elemento exigido
    está declarado pelo código, e toda contribuição da decomposição é de um elemento exigido;
-4. aplica o orçamento e emite o veredito.
+4. aplica o orçamento e emite o veredito, quando o comando trouxe orçamento.
+
+Sem orçamento, as conferências 1 a 3 são as mesmas, e só a 4 não acontece: o resultado conferido
+segue sem ``totais.orcamento`` e sem veredito, porque não há critério que o julgue (T-281).
 
 O orçamento é o único parâmetro que **julga** o resultado, e nunca entrou no container: código
 gerado que o enxergasse poderia mirar nele (ARCHITECTURE.md §3.4).
 
 ``indeterminado`` é o veredito de todo desfecho que não é ``sucesso``: sem número confiável não
-há julgamento. Um ``sucesso`` sai sempre ``viavel`` ou ``inviavel``, porque a api lê
-``sucesso`` + ``indeterminado`` como número confiável ainda sem julgamento. Na gravação e no
+há julgamento. Um ``sucesso`` sai ``viavel`` ou ``inviavel`` quando há orçamento, e sem veredito
+(``None``) quando não há, nunca ``indeterminado``, porque a api lê ``sucesso`` +
+``indeterminado`` como número confiável ainda sem julgamento. Na gravação e no
 evento (T-067), o veredito de um desfecho que não é ``sucesso`` vai nulo, como mandam
 ``simulacao-concluida.schema.json`` e ``resultados_simulacao.veredito``.
 """
@@ -24,7 +28,7 @@ evento (T-067), o veredito de um desfecho que não é ``sucesso`` vai nulo, como
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from app.execucao.baseline import BaselinesCongelados, CompetenciaSemBaselineError
 from app.execucao.coleta import (
@@ -40,13 +44,14 @@ type Veredito = Literal["viavel", "inviavel", "indeterminado"]
 
 
 class TotaisJulgados(TypedDict):
-    """``resultado-totais.schema.json``: os totais do container mais o orçamento aplicado."""
+    """``resultado-totais.schema.json``: os totais do container mais o orçamento aplicado, que
+    falta quando o comando não trouxe orçamento."""
 
     baseline: float
     simulado: float
     diferenca_abs: float
     diferenca_pct: float
-    orcamento: float
+    orcamento: NotRequired[float]
 
 
 class ResultadoJulgado(TypedDict):
@@ -77,8 +82,10 @@ class Julgamento:
 
     classe: Classe
     motivo: Motivo
-    veredito: Veredito
-    # Só em sucesso: o resultado do container com ``totais.orcamento`` acrescentado.
+    # None só num sucesso sem orçamento: o número vale, mas não há critério que o julgue.
+    veredito: Veredito | None
+    # Só em sucesso: o resultado do container, com ``totais.orcamento`` acrescentado quando há
+    # orçamento.
     resultado: ResultadoJulgado | None = field(default=None, repr=False)
     desfecho: DesfechoClassificado | None = field(default=None, repr=False)
     # Só quando o motivo é cobertura_incompleta.
@@ -87,6 +94,15 @@ class Julgamento:
     @property
     def totais(self) -> TotaisJulgados | None:
         return self.resultado["totais"] if self.resultado is not None else None
+
+
+def desfecho_da_execucao(julgamento: Julgamento) -> str:
+    """O desfecho da execução julgada como rótulo de métrica, de conjunto fechado
+    (``DESFECHOS_DA_EXECUCAO``): o veredito de um sucesso, ``sem_orcamento`` num sucesso sem
+    veredito, e a classe nos demais."""
+    if julgamento.classe != "sucesso":
+        return julgamento.classe
+    return julgamento.veredito or "sem_orcamento"
 
 
 def julgamento_de_infra() -> Julgamento:
@@ -130,13 +146,16 @@ def conferir_cobertura(
 def julgar(
     desfecho: DesfechoClassificado,
     competencias: list[str],
-    orcamento: float,
+    orcamento: float | None,
     baselines: BaselinesCongelados,
     *,
     elementos_exigidos: Sequence[str] | None,
 ) -> Julgamento:
     """``elementos_exigidos`` é o do comando, e None quando ele não o trouxe: aí a cobertura não
-    é conferida, e um comando publicado antes da T-241 segue julgado como antes."""
+    é conferida, e um comando publicado antes da T-241 segue julgado como antes.
+
+    ``orcamento`` None é o job sem orçamento: o sucesso sai sem veredito e sem
+    ``totais.orcamento``, depois das mesmas conferências."""
     if desfecho.classe != "sucesso" or desfecho.resultado is None:
         return Julgamento(desfecho.classe, desfecho.motivo, "indeterminado", desfecho=desfecho)
 
@@ -166,18 +185,21 @@ def julgar(
                 cobertura=cobertura,
             )
 
+    totais_julgados = TotaisJulgados(
+        baseline=totais["baseline"],
+        simulado=totais["simulado"],
+        diferenca_abs=totais["diferenca_abs"],
+        diferenca_pct=totais["diferenca_pct"],
+    )
+    veredito: Veredito | None = None
+    if orcamento is not None:
+        totais_julgados["orcamento"] = orcamento
+        veredito = decidir_veredito(totais["simulado"], orcamento)
     resultado = ResultadoJulgado(
-        totais=TotaisJulgados(
-            baseline=totais["baseline"],
-            simulado=totais["simulado"],
-            diferenca_abs=totais["diferenca_abs"],
-            diferenca_pct=totais["diferenca_pct"],
-            orcamento=orcamento,
-        ),
+        totais=totais_julgados,
         assercoes=desfecho.resultado["assercoes"],
         decomposicao=desfecho.resultado["decomposicao"],
     )
-    veredito = decidir_veredito(totais["simulado"], orcamento)
     return Julgamento("sucesso", "ok", veredito, resultado=resultado, desfecho=desfecho)
 
 

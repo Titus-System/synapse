@@ -48,3 +48,18 @@ def test_payload_carrega_fonte_e_competencias_do_codigo_e_do_comando() -> None:
     assert execucao.payload.competencias == ["2025-01"]
     assert execucao.payload.codigo_gerado_id == codigo.id
     assert execucao.payload.job_id == comando.job_id
+
+
+def test_comando_sem_orcamento_prepara_a_execucao_sem_ele() -> None:
+    """Job sem orçamento (T-281): nada muda no que entra no container, e o julgamento recebe a
+    ausência para não emitir veredito."""
+    codigo = _codigo()
+    comando = ExecutarCodigo.model_validate(
+        {"job_id": uuid4(), "codigo_gerado_id": codigo.id, "competencias": ["2025-08"]}
+    )
+
+    execucao = preparar_execucao(comando, codigo)
+
+    assert execucao.orcamento is None
+    assert not hasattr(execucao.payload, "orcamento")
+    assert execucao.payload.competencias == ["2025-08"]

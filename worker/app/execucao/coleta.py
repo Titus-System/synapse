@@ -84,7 +84,7 @@ def classificar_falha_de_infra() -> DesfechoClassificado:
 
 
 def classificar(
-    saida: SaidaBruta, payload: PayloadContainer, orcamento: float
+    saida: SaidaBruta, payload: PayloadContainer, orcamento: float | None
 ) -> DesfechoClassificado:
     """Decide a classe de uma execução que chegou ao fim. A primeira regra que casa vence."""
     if saida.estourou_timeout:

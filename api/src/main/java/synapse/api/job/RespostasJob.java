@@ -14,10 +14,10 @@ import org.jspecify.annotations.Nullable;
  * reprocessamento.
  * <p>
  * {@code orcamento} é nulável porque {@code jobs.orcamento} passou a ser, embora o
- * contrato ainda o declare obrigatório aqui: as três origens que respondem este corpo -
- * formulário, confirmação e reprocessamento - sempre têm um. Um job sem orçamento só
- * nasce por texto ou voz, que não passa por nenhuma delas; o que o contrato faz quando
- * passar é decisão da T-281.
+ * contrato ainda o declare obrigatório aqui. Formulário e confirmação de um job com
+ * orçamento sempre têm um. O reprocessamento de um job sem orçamento, que a T-281 leva
+ * até o arquivamento, também responde sem ele, e o contrato ainda o exige: o que fazer é
+ * decisão pendente sobre o contrato, e não deste corpo.
  */
 record JobCriadoDto(UUID id, String status, String origem, List<String> competencias,
 		@JsonInclude(JsonInclude.Include.NON_NULL) @Nullable BigDecimal orcamento, Instant criado_em,

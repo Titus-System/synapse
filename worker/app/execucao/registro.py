@@ -87,8 +87,9 @@ def diagnostico_do_julgamento(julgamento: Julgamento) -> Diagnostico | None:
 
 
 def linha_do_julgamento(julgamento: Julgamento) -> LinhaDoResultado:
-    """`sucesso` grava o resultado inteiro, com `totais.orcamento`; qualquer outro desfecho grava
-    só o status e as asserções, e o resto nulo (`assercoes` é `[]` em `erro_infra`), com exceção do
+    """`sucesso` grava o resultado inteiro, com `totais.orcamento` e o veredito quando o comando
+    trouxe orçamento, e sem os dois quando não trouxe (T-281); qualquer outro desfecho grava só o
+    status e as asserções, e o resto nulo (`assercoes` é `[]` em `erro_infra`), com exceção do
     diagnóstico de um `erro_codigo`.
 
     O `indeterminado` interno **nunca** é gravado: `resultados_simulacao.veredito` e o evento o
@@ -108,7 +109,9 @@ def linha_do_julgamento(julgamento: Julgamento) -> LinhaDoResultado:
 
     resultado = julgamento.resultado
     if resultado is None or julgamento.veredito == "indeterminado":
-        raise ValueError("um sucesso precisa de resultado e de veredito viavel ou inviavel")
+        raise ValueError(
+            "um sucesso precisa de resultado e de veredito viavel, inviavel ou ausente"
+        )
     return LinhaDoResultado(
         status="sucesso",
         veredito=julgamento.veredito,
@@ -120,7 +123,8 @@ def linha_do_julgamento(julgamento: Julgamento) -> LinhaDoResultado:
 
 
 def evento_de(gravado: ResultadoGravado) -> SimulacaoConcluida:
-    """O evento do schema: referência, status e, só em `sucesso`, o veredito e os agregados.
+    """O evento do schema: referência, status e, só em `sucesso`, o veredito e os agregados. O
+    veredito nulo de um sucesso sem orçamento sai ausente do evento, não `null`.
 
     Claim-check: a decomposição e o desfecho das asserções ficam na linha, não no evento.
     """

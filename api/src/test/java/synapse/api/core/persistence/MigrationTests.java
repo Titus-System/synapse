@@ -49,7 +49,9 @@ class MigrationTests {
 			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras",
 			"rodadas_correcao", "trabalhos_transcricao");
 
-	private static final int CHANGESETS = 25;
+	private static final int CHANGESETS = 26;
+
+	private static final int CHANGESETS_ANTES_DA_META_NO_RESULTADO = 25;
 
 	private static final int CHANGESETS_ANTES_DOS_TRABALHOS = 24;
 
@@ -386,6 +388,63 @@ class MigrationTests {
 			assertThat(linhaSemDiagnostico(statement, anterior)).isEqualTo(linhaAntes);
 			assertThat(diagnostico(statement, anterior)).isNull();
 			assertThat(diagnostico(statement, posterior)).isNull();
+		}
+	}
+
+	/**
+	 * A meta da execução nasce nulável e sem default, porque a simulação sobre as vendas
+	 * históricas não tem meta; o propósito nasce obrigatório com o default que o comando
+	 * sem o campo significa.
+	 */
+	@Test
+	void criaAMetaEOPropositoDoResultado() throws Exception {
+		atualizar();
+
+		assertThat(coluna("resultados_simulacao", "meta_venda")).containsExactly("numeric", "YES", null);
+		assertThat(coluna("resultados_simulacao", "proposito")).containsExactly("text", "NO", "'simulacao'::text");
+	}
+
+	/**
+	 * O banco já em uso recebe as duas colunas sem perder nada: o resultado gravado antes
+	 * fica como estava e passa a ser uma simulação do job sem meta, o INSERT do worker
+	 * que ainda não conhece as colunas continua funcionando, e o rollback remove só as
+	 * duas.
+	 */
+	@Test
+	void resultadoGravadoAntesDaMetaViraSimulacaoSemMetaEORollbackRemoveSoAsColunas() throws Exception {
+		atualizar(CHANGESETS_ANTES_DA_META_NO_RESULTADO);
+		String anterior;
+		String linhaAntes;
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearCodigoGerado(statement);
+			anterior = inserirComoOWorker(statement);
+			linhaAntes = linhaSemDiagnostico(statement, anterior);
+		}
+
+		atualizar();
+
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			String posterior = inserirComoOWorker(statement);
+			assertThat(linhaSemDiagnostico(statement, anterior)).isEqualTo(linhaAntes);
+			try (ResultSet rs = statement
+				.executeQuery("SELECT meta_venda, proposito FROM resultados_simulacao WHERE id IN ('%s', '%s')"
+					.formatted(anterior, posterior))) {
+				for (int linha = 0; linha < 2; linha++) {
+					assertThat(rs.next()).isTrue();
+					assertThat(rs.getString("meta_venda")).isNull();
+					assertThat(rs.getString("proposito")).isEqualTo("simulacao");
+				}
+				assertThat(rs.next()).isFalse();
+			}
+		}
+
+		reverter(1);
+
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DA_META_NO_RESULTADO);
+		assertThat(colunasDeResultados()).doesNotContain("meta_venda", "proposito")
+			.contains("diagnostico", "linhas", "decomposicao");
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			assertThat(linhaSemDiagnostico(statement, anterior)).isEqualTo(linhaAntes);
 		}
 	}
 
@@ -773,7 +832,7 @@ class MigrationTests {
 			statement.execute(insereTrabalho(JOB_ID, SUBMISSAO_ID.toString()));
 		}
 		assertThat(dadosAntesDosTrabalhos()).isEqualTo(antes);
-		reverter(1);
+		reverter(CHANGESETS - CHANGESETS_ANTES_DOS_TRABALHOS);
 		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DOS_TRABALHOS);
 		assertThat(tabelasExistentes()).containsExactlyInAnyOrderElementsOf(
 				TABELAS.stream().filter(t -> !t.equals("trabalhos_transcricao")).toList());
