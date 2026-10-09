@@ -248,6 +248,35 @@ class ReprocessarJobPersistenciaTests {
 			.isEqualTo(JSON.readTree(mudaOrcamento ? "[\"2025-11\"]" : "[\"2025-08\"]"));
 	}
 
+	/**
+	 * A versão de origem com parâmetros - o caso de um job de texto arquivado - tem o
+	 * hash cobrindo-os. Copiar só o hash e não os parâmetros deixaria a versão nova com
+	 * um hash que não corresponde ao que ela guarda, e a confirmação seguinte trataria
+	 * qualquer confirmação sem edição como se tivesse editado.
+	 */
+	@Test
+	void copiaOsParametrosDaVersaoDeOrigemJuntoComOHash() throws Exception {
+		UUID origem = criarOrigem(false);
+		RepresentacaoRegraDto representacao = ConfirmarParametrosRequisicao
+			.deJson(ConfirmarParametrosControllerTests.CONFIRMAR)
+			.representacao();
+		ParametrosDaSimulacao params = new ParametrosDaSimulacao(new BigDecimal("500000"), null, List.of("2025-11"));
+		dono.update("UPDATE regras SET hash = ?, parametros = ?::jsonb WHERE job_id = ? AND versao = 7",
+				HashDaRegra.calcular(representacao, params), "{\"orcamento\":500000,\"competencias\":[\"2025-11\"]}",
+				origem);
+		String hashDaOrigem = Objects.requireNonNull(
+				jdbc.queryForObject("SELECT hash FROM regras WHERE job_id = ? AND versao = 7", String.class, origem));
+
+		JsonNode novo = reprocessar(origem, "");
+		UUID novoId = UUID.fromString(novo.path("id").asString());
+
+		Map<String, Object> regra = jdbc.queryForMap(
+				"SELECT hash, parametros::text AS parametros FROM regras " + "WHERE job_id = ? AND versao = 1", novoId);
+		assertThat(regra.get("hash")).isEqualTo(hashDaOrigem);
+		assertThat(JSON.readTree((String) regra.get("parametros")))
+			.isEqualTo(JSON.readTree("{\"orcamento\":500000,\"competencias\":[\"2025-11\"]}"));
+	}
+
 	@ParameterizedTest
 	@EnumSource(value = JobStatus.class, names = "ARQUIVADO", mode = EnumSource.Mode.EXCLUDE)
 	void recusaTodosOsDemaisEstadosSemEfeitos(JobStatus estado) throws Exception {

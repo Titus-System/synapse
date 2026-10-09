@@ -7,8 +7,7 @@
   "required": [
     "job_id",
     "codigo_gerado_id",
-    "competencias",
-    "orcamento"
+    "competencias"
   ],
   "properties": {
     "job_id": {
@@ -42,7 +41,27 @@
         }
       ],
       "minimum": 0,
-      "description": "Critério de orçamento do período, vindo de jobs.orcamento. Viaja como escalar porque o Worker não tem permissão em jobs, e é gravado junto do resultado para que o insumo do veredito não possa mudar depois."
+      "description": "Critério de orçamento do período, vindo de jobs.orcamento. Viaja como escalar porque o Worker não tem permissão em jobs, e é gravado junto do resultado para que o insumo do veredito não possa mudar depois. Ausente quando o job não tem orçamento: a simulação é feita sem a verificação de orçamento, totais.orcamento fica ausente e o resultado de sucesso sai sem veredito. Um comando sem orçamento só é publicado depois de o Worker aceitá-lo (T-281)."
+    },
+    "meta_venda": {
+      "allOf": [
+        {
+          "$ref": "../domain/comum.schema.json#/$defs/brl"
+        }
+      ],
+      "exclusiveMinimum": 0,
+      "description": "Meta de venda do período: o total de vendas das competências do job sobre o qual a regra é simulada. Na simulação do job, vem de jobs.meta_venda; na execução candidata da busca da meta maior, é a meta candidata. Com ela, o sandbox multiplica o vlr_venda de todas as vendas das competências por um fator único, meta_venda / total histórico de vendas do período, preservando a proporção entre lojas, marcas, cargos e pessoas, e reapura o baseline sobre as vendas escaladas antes de chamar o código gerado (contracts/harness/README.md, seção \"O payload do container\"). Diferente do orçamento, a meta não julga o resultado: muda a entrada da apuração, e por isso entra no container. Ausente, a simulação usa as vendas históricas, como antes do campo existir.",
+      "examples": [
+        12000000.0
+      ]
+    },
+    "proposito": {
+      "type": "string",
+      "enum": [
+        "simulacao",
+        "busca_meta"
+      ],
+      "description": "Para que serve a execução. simulacao é a simulação do job, o valor quando o campo falta. busca_meta é a execução candidata da busca da meta maior: o mesmo codigo_gerado_id simulado numa meta candidata, sem chamar a LLM, que não é desfecho do job. O Worker não muda a execução por causa dele: grava o valor em resultados_simulacao.proposito e o devolve em simulacao-concluida, para a API não tratar a candidata como resultado do job."
     },
     "elementos_exigidos": {
       "type": "array",

@@ -19,6 +19,7 @@ Um resultado `erro_codigo` é gravado com o diagnóstico da falha na coluna `res
 | `erro_codigo` por timeout, memória, saída truncada, sem envelope, envelope inválido ou de outra execução, código de saída divergente | só a `causa` |
 | `erro_codigo` por resultado fora do schema | `causa` e `problemas`: caminho e palavra-chave de cada erro, sem o valor rejeitado |
 | `erro_codigo` por baseline divergente | só a `causa`, que vem do julgamento e não da coleta |
+| `erro_codigo` por cobertura incompleta (T-241) | `causa` e `elementos_ausentes` e/ou `elementos_fora_da_regra`, cada lista só quando tem item |
 | `sucesso`, `assercao_violada`, `erro_infra` | nulo |
 
 A `causa` é o `motivo` da classificação. Nenhuma falha é inventada para uma causa sem exceção capturada, e o schema recusa um diagnóstico que tente.
@@ -35,7 +36,7 @@ Como o diagnóstico está no mesmo INSERT, valem as garantias da T-067. A transa
 
 A mensagem e o traceback da regra vão só para a linha. O log `resultado gravado` ganhou `com_diagnostico`, que diz se a linha foi gravada com diagnóstico sem mostrar o conteúdo. O evento continua com `job_id`, `resultado_id` e `status`.
 
-Esta tarefa não acrescenta métricas. O worker ainda não emite métricas de domínio em nenhuma etapa da execução (`job_runs`, `job_failures` e `job_duration` estão declaradas em `app/core/metrics/global_metrics.py`, mas nenhum caminho as usa), e instrumentar a execução é trabalho próprio, que cobre execução, falha e duração e não só o diagnóstico.
+Esta tarefa não acrescenta métricas. A única métrica de domínio do worker é o contador de cobertura incompleta da T-241 (`worker_cobertura_incompleta_total`); `job_runs`, `job_failures` e `job_duration` estão declaradas em `app/core/metrics/global_metrics.py`, mas nenhum caminho as usa, e instrumentar a execução é trabalho próprio, que cobre execução, falha e duração e não só o diagnóstico.
 
 ## Implantação
 

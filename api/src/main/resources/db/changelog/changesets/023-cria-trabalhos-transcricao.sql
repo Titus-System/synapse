@@ -1,6 +1,6 @@
 -- liquibase formatted sql
 
--- changeset synapse:022-cria-trabalhos-transcricao
+-- changeset synapse:023-cria-trabalhos-transcricao
 CREATE TABLE trabalhos_transcricao (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     job_id uuid NOT NULL,

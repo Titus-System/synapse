@@ -1,7 +1,6 @@
 {
   "job_id": "a2c4e6f8-0b1d-4e3f-8a5c-7e9b1d3f5a70",
   "origem": "texto",
-  "competencias": ["2025-11"],
-  "submissao_id": "e1f3a5c7-9b2d-4f6e-8a0c-2d4f6a8c0e19",
-  "orcamento": 485000.0
+  "competencias": ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"],
+  "submissao_id": "e1f3a5c7-9b2d-4f6e-8a0c-2d4f6a8c0e19"
 }

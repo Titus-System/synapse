@@ -53,6 +53,9 @@ RESULTADO: dict[str, Any] = {
     },
 }
 
+# O que um código que segue o contrato declara para RESULTADO: os elementos da decomposição.
+ELEMENTOS_DO_RESULTADO = ["nucleo.percentual", "elem.1"]
+
 FALHA = {
     "tipo": "KeyError",
     "mensagem": "'cod_loja'",
@@ -85,12 +88,22 @@ def envelope(status: str = "sucesso", **mudancas: Any) -> dict[str, Any]:
         "status": status,
         "assercoes": [ASSERCAO_OK],
         "resultado": copy.deepcopy(RESULTADO),
+        "elementos_implementados": list(ELEMENTOS_DO_RESULTADO),
         "erro": None,
     }
     if status == "assercao_violada":
-        base |= {"assercoes": [ASSERCAO_VIOLADA], "resultado": None}
+        base |= {
+            "assercoes": [ASSERCAO_VIOLADA],
+            "resultado": None,
+            "elementos_implementados": None,
+        }
     if status == "erro_codigo":
-        base |= {"assercoes": [], "resultado": None, "erro": dict(FALHA)}
+        base |= {
+            "assercoes": [],
+            "resultado": None,
+            "elementos_implementados": None,
+            "erro": dict(FALHA),
+        }
     return base | mudancas
 
 

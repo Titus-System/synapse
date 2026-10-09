@@ -39,3 +39,11 @@ job_duration = prometheus.register_histogram(
     "Execution duration of jobs in seconds",
     ["job_name"],
 )
+
+# Uma por execução no sandbox julgada com cobertura incompleta (T-241), e não por job: a
+# reentrega que encontra o resultado já gravado não executa nem julga de novo e não conta, e a
+# execução repetida porque a gravação falhou é outra execução e conta de novo.
+execucoes_com_cobertura_incompleta = prometheus.register_counter(
+    "worker_cobertura_incompleta_total",
+    "Execuções no sandbox reprovadas porque o código gerado não cobre os elementos exigidos",
+)

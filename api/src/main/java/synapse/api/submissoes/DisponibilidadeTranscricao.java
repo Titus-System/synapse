@@ -2,12 +2,17 @@ package synapse.api.submissoes;
 
 import org.springframework.stereotype.Component;
 
-/** A T-235 liga esta consulta à configuração do cliente concreto de transcrição. */
 @Component
 class DisponibilidadeTranscricao {
 
+	private final ClienteDeepgram cliente;
+
+	DisponibilidadeTranscricao(ClienteDeepgram cliente) {
+		this.cliente = cliente;
+	}
+
 	boolean disponivel() {
-		return false;
+		return this.cliente.configurado();
 	}
 
 }

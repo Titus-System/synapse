@@ -20,11 +20,14 @@ class PayloadContainer:
 
 @dataclass(frozen=True)
 class ExecucaoPreparada:
-    """`orcamento` fica fora de `payload`: o veredito é decidido pelo processo do
-    worker, nunca dentro do container que roda o código não confiável."""
+    """`orcamento` e `elementos_exigidos` ficam fora de `payload`: o veredito e a conferência
+    de cobertura são decididos pelo processo do worker, nunca dentro do container que roda o
+    código não confiável."""
 
     payload: PayloadContainer
     orcamento: float
+    # None quando o comando não os trouxe: a conferência de cobertura não roda (T-241).
+    elementos_exigidos: list[str] | None
 
 
 def preparar_execucao(comando: ExecutarCodigo, codigo: CodigoGerado) -> ExecucaoPreparada:
@@ -35,4 +38,8 @@ def preparar_execucao(comando: ExecutarCodigo, codigo: CodigoGerado) -> Execucao
         fonte=codigo.fonte,
         competencias=comando.competencias,
     )
-    return ExecucaoPreparada(payload=payload, orcamento=comando.orcamento)
+    return ExecucaoPreparada(
+        payload=payload,
+        orcamento=comando.orcamento,
+        elementos_exigidos=comando.elementos_exigidos,
+    )

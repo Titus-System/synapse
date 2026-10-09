@@ -31,7 +31,7 @@ class SubmissoesService {
 	SubmissaoCriada texto(EntradaSubmissao entrada, AcessoDoUsuario acesso) {
 		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		UUID id = this.repository.inserirTexto(acesso.usuarioId(), entrada.texto(), agora);
-		var job = this.jobs.criar(id, TipoEntrada.TEXTO, entrada.parametros(), acesso, agora);
+		var job = this.jobs.criar(id, TipoEntrada.TEXTO, acesso, agora);
 		return new SubmissaoCriada(id, "texto", "entrada_inicial", agora, job);
 	}
 
@@ -39,7 +39,7 @@ class SubmissoesService {
 	SubmissaoCriada voz(EntradaSubmissao entrada, AudioSubmissao audio, AcessoDoUsuario acesso) {
 		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		UUID id = this.repository.inserirVoz(acesso.usuarioId(), audio, agora);
-		var job = this.jobs.criar(id, TipoEntrada.VOZ, entrada.parametros(), acesso, agora);
+		var job = this.jobs.criar(id, TipoEntrada.VOZ, acesso, agora);
 		if (!this.transcricao.disponivel()) {
 			throw new SubmissaoException(HttpStatus.CONFLICT, "estado_invalido",
 					"O envio por voz não está disponível no momento. Envie o texto.");

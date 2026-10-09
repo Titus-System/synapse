@@ -90,6 +90,10 @@ A coluna `competencias` é um array de texto com os meses a simular.
 
 O job cobre o período inteiro em uma simulação, com os meses agregados. Qualquer subconjunto das cinco competências canônicas de agosto a dezembro de 2025 é válido, contíguo ou não, e a lista nunca fica vazia. A forma canônica é ordem crescente sem repetição. Competência usa `AAAA-MM`; datas diárias de vendas existem somente na particularidade de novembro/Black Friday.
 
+Na entrada por texto ou voz definida pela T-277, o job nasce antes da extração, com todas as competências publicadas e com `orcamento` e `meta_venda` nulos. A API aplica depois os parâmetros extraídos: substitui o período quando o texto o diz e grava os valores monetários como foram ditos. Orçamento negativo, meta zero ou negativa e competência fora das publicadas ficam disponíveis para a validação apontar conflitos, antes da execução. Não há restrição numérica de faixa nessas duas colunas.
+
+`orcamento` é o orçamento de comissão do período; sem ele, a simulação não verifica orçamento. `meta_venda` é o total de vendas pretendido para o período; sem ela, a simulação usa as vendas históricas. A ausência de período preserva todas as competências publicadas. A migration e a aplicação dos parâmetros no job pertencem à T-279; a extração é da T-278 e a validação, da T-280. O DBML registra esse contrato, não a conclusão dessas implementações.
+
 A procedência é `submissao_id` ou `job_origem_id`, nunca as duas. É dela que se deduz o ponto de entrada no grafo, sem precisar de coluna dedicada.
 
 ### `trabalhos_transcricao`
@@ -98,15 +102,17 @@ Controle de processamento da API, criado pela T-231. Cada submissão tem no máx
 
 `finalidade` documenta `entrada_inicial | correcao`; `estado`, `pendente | em_andamento | concluido | falhou | descartado`. São colunas `text`, sem enum nativo ou `CHECK`. `tentativas` começa em zero; `reservado_ate` indica o prazo da reserva e `proxima_tentativa_em` agenda uma nova tentativa, ambos nulos na criação. `criado_em` e `atualizado_em` são obrigatórios e recebem o mesmo instante inicial.
 
+Texto e voz trazem os parâmetros na descrição. `POST /submissoes` aceita e ignora os campos obsoletos `orcamento` e `competencias`, sem validá-los. O job nasce com todas as competências publicadas, pela mesma fonte de `POST /jobs`, e com orçamento e meta nulos. A T-279 aplica os parâmetros extraídos depois.
+
 A T-231 grava submissão, job em `aguardando_transcricao`, transição inicial e trabalho pendente na mesma transação, sem `regra-submetida`. O áudio permanece em `submissoes.binario`, com seu formato canônico em `formato`. A T-232 preencherá `submissoes.transcricao` e `transcrito_em` e concluirá o trabalho junto com a transição e o outbox. O processador, a reserva, as novas tentativas e a correção por voz não são implementados pela T-231.
 
-A disponibilidade é consultada por `DisponibilidadeTranscricao`, package-private em `submissoes`, que retorna falso sem o cliente. Os testes habilitam apenas essa consulta; não há provedor falso em produção. A T-235 pode implementar o método consultando a configuração do cliente concreto, sem Strategy de provedor nem mudança na porta do job. Enquanto isso, a API inicia normalmente e recusa voz com `409 estado_invalido`.
+A disponibilidade é consultada por `DisponibilidadeTranscricao`, package-private em `submissoes`, que delega a `ClienteDeepgram.configurado()`. Essa consulta verifica a configuração, sem chamar a transcrição. Sem chave configurada, a API inicia normalmente e recusa voz com `409 estado_invalido`. Os testes podem substituir a disponibilidade sem fazer chamadas externas.
 
-Texto inicial grava a descrição verbatim em `submissoes.transcricao`, cria o job em `gerando_regra` e registra `regra-submetida` sem `regra_id`, sem criar versão de regra. A porta `JobsDeSubmissoes` exige transação existente, centraliza a autorização de criação e reaproveita `ParametrosIniciaisJob` com `POST /jobs`. As operações de concluir/falhar transcrição conferem job, submissão, origem e estado sob trava; a T-232 será responsável por chamá-las na transação final que grava o texto e atualiza o trabalho.
+Texto inicial grava a descrição verbatim em `submissoes.transcricao`, cria o job em `gerando_regra` e registra `regra-submetida` sem `regra_id`, orçamento ou meta, sem criar versão de regra. A porta `JobsDeSubmissoes` exige transação existente, centraliza a autorização de criação e compartilha somente `CompetenciasPublicadas` com `POST /jobs`, que preserva suas próprias validações. As operações de concluir/falhar transcrição conferem job, submissão, origem e estado sob trava; a T-232 será responsável por chamá-las na transação final que grava o texto e atualiza o trabalho.
 
 O multipart admite arquivo de até 5 MiB (`5MB` no Spring) e requisição de até 6 MiB para acomodar JSON e cabeçalhos. O Tomcat drena o corpo recusado (`max-swallow-size: -1`) para entregar o JSON 413 sem interromper a conexão; isso não amplia o limite de aceitação. Formatos são conferidos por Content-Type e assinatura do contêiner, sem decodificação. O contador `submissoes_criacao_total`, exposto em `/metrics`, registra criações confirmadas e recusas HTTP por `tipo` e `resultado`; rollback não conta como `aceita`. Duração HTTP usa a instrumentação existente. Logs registram resultado, tipo, referências e, para voz validada, formato e faixa de tamanho; não contêm descrição, binário ou filename.
 
-A porta de transcrição emite `transcricao_transicao_seconds` (contagem e duração) até o término da transação do chamador, por `operacao` (`concluir` ou `falhar`) e `resultado` (`aplicada`, `descartada` ou `rollback`). Conta chamadas, não jobs únicos: uma repetição descartada não conta como transição aplicada. Logs de transição preservam `job_id` também nos callbacks após commit e limpam o contexto ao terminar. Esses instrumentos não medem espera na fila nem chamada ao provedor, que ainda não existem.
+A porta de transcrição emite `transcricao_transicao_seconds` (contagem e duração) até o término da transação do chamador, por `operacao` (`concluir` ou `falhar`) e `resultado` (`aplicada`, `descartada` ou `rollback`). Conta chamadas, não jobs únicos: uma repetição descartada não conta como transição aplicada. Logs de transição preservam `job_id` também nos callbacks após commit e limpam o contexto ao terminar. Esses instrumentos medem apenas a transição, sem incluir espera na fila ou chamada ao provedor.
 
 Os conversores MVC e o vinculador de parâmetros JDBC têm nível mínimo `INFO` mesmo quando o restante da aplicação usa `DEBUG`/`TRACE`: seus logs de diagnóstico podem imprimir o corpo HTTP ou os parâmetros SQL. O teste HTTP captura também os logs do framework, além dos eventos de domínio, para verificar a ausência do texto, dos bytes, do filename e do token.
 
@@ -181,7 +187,11 @@ O identificador não carrega o construto. `elem.faixa.1` duplicaria informação
 
 Uma versão já usada por um resultado nunca é alterada. Edição na confirmação, alternativa da adaptação e reprocessamento geram versão nova, com `versao` incrementado e `regra_origem_id` registrando de onde ela derivou.
 
-O que garante isso não é disciplina de código: nenhum usuário de banco tem `UPDATE` ou `DELETE` nesta tabela. O par `(job_id, hash)` é único, o que impede a mesma regra entrar duas vezes como versões diferentes.
+Nenhum usuário de banco tem `UPDATE` ou `DELETE` nesta tabela. A unicidade de `(job_id, hash)` deduplica a mesma versão lógica no job.
+
+Pela T-277, `regras.parametros` registra os parâmetros com que cada versão nascida do texto foi criada, conforme [`parametros-simulacao.schema.json`](../../contracts/domain/parametros-simulacao.schema.json). Fica fora de `nucleo` e `especificacoes`. Na extração, recebe `extracoes_regras.parametros`; na correção, recebe o conjunto completo de `correcao-proposta.parametros`. Se o evento omitir esse campo, a API preserva os parâmetros do job e registra na versão nova os da versão corrigida. O objeto `{}` registra que nenhum parâmetro foi dito; `NULL` identifica formulário, reprocessamento e versões anteriores à coluna.
+
+O hash SHA-256 cobre a serialização canônica da representação e, quando `parametros` não é `NULL`, também os parâmetros, inclusive `{}`. Com `NULL`, usa exatamente a serialização anterior. Assim, a correção que muda só os parâmetros gera uma versão nova com a mesma representação, e versões sem parâmetros preservam seus hashes.
 
 ### `job_transicoes`
 
@@ -189,7 +199,7 @@ Uma linha por mudança de status do job. É a trilha da máquina de estados da A
 
 ### `job_acoes`
 
-As ações de finalização que o usuário dispara sobre um job. Junto com `jobs`, é o que sustenta a tela de histórico, e por isso não existe tabela de histórico separada.
+As ações de finalização que o usuário dispara sobre um job. Junto com `jobs`, é o que sustenta a tela de histórico, e por isso não existe tabela de histórico separada. `aceitar_meta` não finaliza o job: registra que o usuário aceitou a meta de venda sugerida, cuja simulação passa a ser a vigente, e ele segue para as ações de fechamento.
 
 ### `simulacoes`
 
@@ -251,6 +261,8 @@ A coluna `consumo_tokens` fica nula quando o provedor não devolve essa informa�
 
 O artefato imutável produzido pelo codegen ao interpretar uma submissão. `representacao` guarda a regra completa conforme [`representacao-regra.schema.json`](../../contracts/domain/representacao-regra.schema.json); `rebaixamentos` guarda os diagnósticos por elemento conforme [`rebaixamentos-extracao.schema.json`](../../contracts/domain/rebaixamentos-extracao.schema.json). Não é uma versão de `regras`: a API cria essa versão ao consumir a referência do artefato (T-202).
 
+A coluna `parametros`, definida pela T-277, guarda orçamento, meta de venda e período num objeto separado, conforme [`parametros-simulacao.schema.json`](../../contracts/domain/parametros-simulacao.schema.json). É `jsonb` não nulo, com padrão `{}`, que mantém compatível o `INSERT` do produtor anterior à coluna. Não aplica padrões do job: campos não ditos ficam ausentes. Um valor inválido com lastro é preservado para a validação; um parâmetro sem lastro fica ausente e gera um diagnóstico em `rebaixamentos` com `parametros.<campo>`. Esses diagnósticos e os conflitos admitem as três referências de parâmetro; `elemento_ref` continua identificando somente partes da regra.
+
 `job_id` e `submissao_id` identificam a extração lógica, com unicidade do par. `resposta_id` aponta a resposta original, que aponta o prompt e seus metadados de modelo. Prompt, resposta e extração são inseridos na mesma transação; a chamada da LLM ocorre antes dela. Uma gravação concorrente perdedora reverte seus três artefatos e retorna a extração vencedora. O repositório não sobrescreve uma extração existente.
 
 O evento `regra-extraida` leva somente `job_id`, `submissao_id` e `extracao_id`. A publicação pertence à T-204: consultar o artefato antes de chamar a LLM, fazer commit antes de publicar e confirmar a entrada somente após a confirmação do broker. Uma reentrega reutiliza o artefato persistido e republica sua referência. O codegen não escreve no outbox da API. Na T-202, a API deve conferir a associação das três referências antes de criar a versão e seu evento no próprio outbox, atomicamente.
@@ -278,6 +290,18 @@ A coluna `totais` traz os agregados do período inteiro, somando todas as compet
 ```
 
 Os valores são em reais, com exceção de `diferenca_pct`, que é fração. O orçamento aparece aqui embora também exista em `jobs.orcamento`: como esta tabela só aceita `INSERT`, guardar o critério junto do veredito impede que o parâmetro que produziu aquele julgamento seja alterado depois.
+
+Definido pela T-269, o job sem orçamento é simulado sem a verificação de orçamento: `totais.orcamento` fica ausente e `veredito` fica nulo num `sucesso`, porque o número vale e não há critério que o julgue. `totais.vendas_historicas` é o total de vendas das competências do job antes de qualquer escalonamento, acrescentado pelo worker fora do container.
+
+```json
+{ "baseline": 529520.00, "simulado": 541900.00,
+  "diferenca_abs": 12380.00, "diferenca_pct": 0.0234,
+  "orcamento": 600000.00, "vendas_historicas": 23583194.87 }
+```
+
+`meta_venda` é a meta em que a execução foi simulada, nula quando ela usou as vendas históricas. Com meta, o sandbox escala todas as vendas do período pelo fator `meta_venda / vendas_historicas` e reapura o baseline antes de chamar o código gerado, e por isso `baseline` e `simulado` são os da meta. A coluna repete o valor do comando pelo mesmo motivo do orçamento: a entrada que produziu o número fica junto dele.
+
+`proposito` separa a simulação do job (`simulacao`) da execução candidata da busca da meta maior (`busca_meta`). A busca roda o mesmo código gerado em várias metas candidatas, e cada candidata é gravada aqui como qualquer resultado. Nenhuma delas é desfecho do job: a API não muda o estado por elas nem as liga a `simulacoes` pelo `codigo_gerado_id`. Só a candidata que fecha a busca é referenciada, por `meta-venda-sugerida`, e passa a ser a simulação vigente se o usuário aceita a meta. O padrão `simulacao` cobre as linhas anteriores à coluna. A migration das colunas é da T-281; o registro da meta sugerida e da aceitação é da T-274.
 
 A coluna `assercoes` tem o desfecho de cada invariante verificada dentro do sandbox, e fica vazia quando o erro foi de infraestrutura e nada chegou a rodar.
 
@@ -357,7 +381,7 @@ A coluna `payload` é o corpo do evento, carregando referências e nunca o conte
   "orcamento": 485000.00 }
 ```
 
-`origem` e `competencias` viajam como valor mesmo existindo no banco, porque nem codegen nem worker têm permissão em `jobs`: o `job_id` é chave de correlação e não ponteiro que o consumidor consiga seguir. O formato é definido pelo schema da mensagem em `contracts/events/`. `orcamento` é opcional no evento por compatibilidade aditiva e já é enviado pela API.
+`origem` e `competencias` viajam como valor mesmo existindo no banco, porque nem codegen nem worker têm permissão em `jobs`: o `job_id` é chave de correlação e não ponteiro que o consumidor consiga seguir. O formato é definido pelo schema da mensagem em `contracts/events/`. `orcamento` e `meta_venda` são opcionais em `regra-submetida`; os três campos de parâmetros referenciam as propriedades de `parametros-simulacao.schema.json`. No fluxo de texto e voz, a primeira publicação não leva orçamento nem meta. A republicação após extração leva os parâmetros do job, inclusive valores que a validação ainda deve apontar como conflito. A T-277 define o contrato; a publicação desses valores extraídos pertence à T-279.
 
 A transição para um estado terminal grava `job-encerrado` na mesma transação. O `evento_id` dele é o id da transição em `job_transicoes`, e `encerrado_em` é o `ocorrido_em` dela: uma republicação, ou o registro de um encerramento anterior ao evento, leva os mesmos valores.
 

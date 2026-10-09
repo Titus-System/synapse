@@ -22,10 +22,12 @@ info:
     * Job é a entidade que envelopa todo o fluxo de trabalho, desde a validação da regra até o resultado da simulação.
 
     1. `POST /submissoes`, com `finalidade = entrada_inicial`, recebe a descrição
-       da regra, em texto ou em áudio, com o orçamento e as competências, e cria a
-       submissão e o job que a processa. O job de texto nasce em `gerando_regra`,
-       porque a descrição já está pronta para a extração; o de voz nasce em
-       `aguardando_transcricao`. `POST /jobs` continua recebendo o formulário de
+       da regra, em texto ou em áudio, e cria a submissão e o job que a processa.
+       O orçamento, a meta de venda e o período da simulação são ditos na própria
+       descrição, e a extração os tira dela junto com a regra. O job de texto
+       nasce em `gerando_regra`, porque a descrição já está pronta para a
+       extração; o de voz nasce em `aguardando_transcricao`. `POST /jobs`
+       continua recebendo o formulário de
        campos fixos da Sprint 1, cuja regra já nasce estruturada e cujo job entra
        direto em `gerando_regra`.
     2. O cliente abre conexão SSE `GET /jobs/{id}/events` logo em seguida. O primeiro
@@ -255,13 +257,11 @@ paths:
                       - id: "a2c4e6f8-0b1d-4e3f-8a5c-7e9b1d3f5a70"
                         nome: Comissão de 2,5% para vendedores da loja 13
                         status: gerando_regra
-                        competencias: ["2025-11"]
-                        orcamento: 485000.0
+                        competencias: ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
                         criado_em: "2025-11-24T15:10:00Z"
                       - id: "c3d5e7f9-1a2b-4c6d-8e0f-2a4b6c8d0e12"
                         status: aguardando_transcricao
-                        competencias: ["2025-11"]
-                        orcamento: 485000.0
+                        competencias: ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
                         criado_em: "2025-11-24T15:00:00Z"
                       - id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
                         nome: Comissão de novembro
@@ -290,7 +290,8 @@ paths:
         Estado corrente do job e tudo que já existe dele. `regras` contém todas as
         versões formadas para o job, em ordem crescente de versão. Os demais campos
         opcionais aparecem conforme o job avança: `simulacao` depois que a execução
-        termina, `motivo` quando o job parou.
+        termina, `meta_sugerida` quando a busca da meta maior termina e a meta ainda
+        não foi aceita, `motivo` quando o job parou.
 
         É a fonte dos números exibidos. Nenhum valor aqui deve ser recalculado ou
         derivado pelo cliente: a aritmética é determinística, roda sobre os dados
@@ -399,19 +400,156 @@ paths:
                     nome: Comissão de 2,5% para vendedores da loja 13
                     status: gerando_regra
                     origem: texto
-                    competencias: ["2025-11"]
-                    orcamento: 485000.0
+                    competencias: ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
                     criado_em: "2025-11-24T15:10:00Z"
                     submissao_id: "e1f3a5c7-9b2d-4f6e-8a0c-2d4f6a8c0e19"
                     regras: []
+                descricaoComParametros:
+                  summary: Descrição em texto com o orçamento, a meta e o período extraídos
+                  description: |
+                    A submissão inicial contém "Comissão de 2,5% para o cargo 100 da
+                    marca 10 de setembro a novembro de 2025. Simular esse período com
+                    orçamento de R$ 500 mil e meta de vender R$ 12 milhões." Os
+                    parâmetros estão no job, e não na representação da regra.
+                  value:
+                    id: "b7d9f1a3-5c6e-4b8d-9f0a-6c8e0a2b4d68"
+                    nome: Comissão de 2,5% para o cargo 100 da marca 10 de s
+                    status: gerando_regra
+                    origem: texto
+                    competencias: ["2025-09", "2025-10", "2025-11"]
+                    orcamento: 500000.0
+                    meta_venda: 12000000.0
+                    criado_em: "2025-11-24T15:20:00Z"
+                    submissao_id: "c2e4a6b8-0d1f-4a3c-8e5b-7d9f1b3d5e79"
+                    regras:
+                      - id: "5b8e2f14-7c3a-4d9e-a1f6-0e2d4c6b8a13"
+                        versao: 1
+                        origem: extracao
+                        representacao:
+                          nucleo:
+                            vigencia: { inicio: "2025-09", fim: "2025-11" }
+                            marca: ["10"]
+                            cargo: ["100"]
+                            percentual: 0.025
+                          especificacoes: []
+                        criada_em: "2025-11-24T15:20:20Z"
+                simulacaoNaMetaComMetaSugerida:
+                  summary: Simulação na meta de venda, abaixo do orçamento, com a meta maior sugerida
+                  description: |
+                    O usuário disse orçamento de R$ 600 mil e meta de R$ 26 milhões. A
+                    simulação na meta coube com margem, e a busca encontrou a maior meta
+                    que o orçamento comporta, ainda não aceita. As vendas históricas do
+                    período ficam ao lado da meta, em `totais.vendas_historicas`.
+                  value:
+                    id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                    nome: Comissão de 2% para o cargo 100 da loja 13
+                    status: aguardando_decisao_usuario
+                    origem: texto
+                    competencias: ["2025-08", "2025-11"]
+                    orcamento: 600000.0
+                    meta_venda: 26000000.0
+                    criado_em: "2025-11-24T16:00:00Z"
+                    iniciado_em: "2025-11-24T16:00:40Z"
+                    submissao_id: "d1e2f3a4-b5c6-4d7e-8f90-a1b2c3d4e5f6"
+                    regras:
+                      - id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                        versao: 1
+                        origem: extracao
+                        representacao:
+                          nucleo:
+                            vigencia: { inicio: "2025-08", fim: "2025-11" }
+                            loja: ["13"]
+                            cargo: ["100"]
+                            percentual: 0.02
+                          especificacoes: []
+                        criada_em: "2025-11-24T16:00:30Z"
+                    simulacao:
+                      id: "e5f6a7b8-c9d0-4e1f-8a2b-3c4d5e6f7a8b"
+                      regra_id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                      criado_em: "2025-11-24T16:03:12Z"
+                      status: sucesso
+                      veredito: viavel
+                      meta_venda: 26000000.0
+                      flag_baixa_rastreabilidade: false
+                      resultado:
+                        totais:
+                          baseline: 529520.0
+                          simulado: 541900.0
+                          diferenca_abs: 12380.0
+                          diferenca_pct: 0.0234
+                          orcamento: 600000.0
+                          vendas_historicas: 23583194.87
+                        assercoes:
+                          - nome: sem_comissao_negativa
+                            resultado: ok
+                            detalhe: null
+                        decomposicao:
+                          elemento: { "nucleo.percentual": 12380.0 }
+                          loja: { "13": 12380.0 }
+                          marca: { "10": 7480.0, "20": 4900.0 }
+                          cargo: { "100": 12380.0 }
+                          competencia: { "2025-08": 4980.0, "2025-11": 7400.0 }
+                    meta_sugerida:
+                      meta_venda: 28500000.0
+                      total_simulado: 594000.0
+                      orcamento: 600000.0
+                simulacaoSemOrcamento:
+                  summary: Simulação de um job sem orçamento, só com o valor da comissão
+                  description: |
+                    O texto não disse orçamento. A simulação foi feita sem a verificação
+                    de orçamento: o resultado vale e não tem veredito, `totais.orcamento`
+                    fica ausente e não há meta sugerida.
+                  value:
+                    id: "4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d"
+                    status: aguardando_decisao_usuario
+                    origem: texto
+                    competencias: ["2025-08", "2025-11"]
+                    criado_em: "2025-11-24T17:00:00Z"
+                    iniciado_em: "2025-11-24T17:00:35Z"
+                    submissao_id: "f6a7b8c9-d0e1-4f2a-8b3c-4d5e6f7a8b9c"
+                    regras:
+                      - id: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e"
+                        versao: 1
+                        origem: extracao
+                        representacao:
+                          nucleo:
+                            vigencia: { inicio: "2025-11", fim: "2025-11" }
+                            loja: ["13"]
+                            marca: ["10"]
+                            cargo: ["100"]
+                            percentual: 0.025
+                          especificacoes: []
+                        criada_em: "2025-11-24T17:00:30Z"
+                    simulacao:
+                      id: "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f"
+                      regra_id: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e"
+                      criado_em: "2025-11-24T17:02:50Z"
+                      status: sucesso
+                      flag_baixa_rastreabilidade: false
+                      resultado:
+                        totais:
+                          baseline: 480312.0
+                          simulado: 492100.0
+                          diferenca_abs: 11788.0
+                          diferenca_pct: 0.0245
+                          vendas_historicas: 23583194.87
+                        assercoes:
+                          - nome: sem_comissao_negativa
+                            resultado: ok
+                            detalhe: null
+                        decomposicao:
+                          elemento: { "nucleo.percentual": 11788.0 }
+                          loja: { "13": 11788.0 }
+                          marca: { "10": 11788.0 }
+                          cargo: { "100": 11788.0 }
+                          competencia: { "2025-08": 0, "2025-11": 11788.0 }
                 vozSemNome:
                   summary: Voz ainda sem transcrição e sem nome definido pelo usuário
                   value:
                     id: "c3d5e7f9-1a2b-4c6d-8e0f-2a4b6c8d0e12"
                     status: aguardando_transcricao
                     origem: voz
-                    competencias: ["2025-11"]
-                    orcamento: 485000.0
+                    competencias: ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
                     criado_em: "2025-11-24T15:00:00Z"
                     submissao_id: "f2a4b6c8-0d1e-4f3a-8b5c-7d9e1f3a5b70"
                     regras: []
@@ -782,8 +920,7 @@ paths:
                     nome: Comissão de novembro
                     status: cancelado
                     origem: texto
-                    competencias: ["2025-11"]
-                    orcamento: 485000.0
+                    competencias: ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
                     criado_em: "2025-11-24T15:10:00Z"
                     finalizado_em: "2025-11-24T15:11:00Z"
                     submissao_id: "e1f3a5c7-9b2d-4f6e-8a0c-2d4f6a8c0e19"
@@ -812,11 +949,12 @@ paths:
     post:
       tags: [jobs]
       operationId: executarAcao
-      summary: Executa uma ação de finalização sobre o job.
+      summary: Executa uma ação sobre o job.
       description: |
         As quatro ações de fechamento: **confirmar e liberar, cancelar, salvar e
         arquivar**. A `api` aplica a transição de estado, de que é dona, e registra a
-        ação na trilha.
+        ação na trilha. `aceitar_meta`, a quinta ação, não fecha o job e está
+        descrita mais abaixo.
 
         **A liberação é recusada quando a simulação é inviável.** O bloqueio é da
         `api`, não da tela: o alerta visual do frontend é apresentação, e a garantia
@@ -826,6 +964,18 @@ paths:
 
         A recusa é `409` e não `403` porque o bloqueio é do estado do job e não do
         papel de quem pede: vale para todos, sem override (DEC-087).
+
+        **Uma simulação sem orçamento pode ser liberada e salva.** O job sem
+        orçamento é simulado sem a verificação de orçamento, e o resultado de
+        sucesso sem veredito é válido: não há critério que o reprove.
+
+        **`aceitar_meta` aceita a meta de venda sugerida** e não fecha o job. Só vale
+        quando `meta_sugerida` traz uma meta pendente; fora disso, a recusa é `409`
+        com `estado_invalido`. Aceita, a simulação da meta sugerida passa a ser a
+        `simulacao` vigente do job, sem gerar versão nova da regra nem simulação
+        nova, `meta_sugerida` deixa de vir na resposta e o usuário segue com as
+        ações de fechamento. Recusar a meta sugerida não exige ação: o usuário segue
+        com a simulação na meta que informou.
       requestBody:
         required: true
         content:
@@ -901,7 +1051,8 @@ paths:
             A ação não é permitida no estado atual. `simulacao_inviavel` é a recusa de
             liberação e tem código próprio, distinto de
             `estado_invalido`, para que a tela possa oferecer o caminho de adaptação
-            em vez de repetir a tentativa.
+            em vez de repetir a tentativa. `aceitar_meta` sem meta sugerida pendente é
+            recusada com `estado_invalido`.
           content:
             application/json:
               schema:
@@ -1127,9 +1278,8 @@ paths:
         instrução.
 
         **Entrada inicial** (`finalidade = entrada_inicial`). Recebe a descrição de
-        uma regra nova, com o orçamento e, opcionalmente, as competências, e cria a
-        submissão e o job que vai processá-la, na mesma transação que grava o evento
-        de outbox. O `tipo` determina a `origem` do job e o estado em que ele nasce:
+        uma regra nova e cria a submissão e o job que vai processá-la, na mesma
+        transação que grava o evento de outbox. O `tipo` determina a `origem` do job e o estado em que ele nasce:
         `texto` nasce em `gerando_regra`, porque a descrição já está pronta para a
         extração, e `voz` nasce em `aguardando_transcricao`, porque o áudio precisa
         ser transcrito antes. Toda regra nova passa pela extração, e a versão raiz
@@ -1137,6 +1287,19 @@ paths:
         acompanha o job pelo `job.id` da resposta, em `GET /jobs/{id}/events` e
         `GET /jobs/{id}`. A falha da transcrição termina o job em `erro`, com o
         motivo em `GET /jobs/{id}`.
+
+        **Os parâmetros da simulação vêm da descrição.** O orçamento de comissão, a
+        meta de venda e o período da simulação são ditos no texto ou no áudio, e
+        não em campos. Os três são opcionais. O job nasce sem orçamento e sem meta,
+        com todas as competências publicadas, e depois da extração a `api` grava
+        nele os parâmetros ditos, que `GET /jobs/{id}` mostra. Sem orçamento, a
+        simulação é feita sem a verificação de orçamento; sem meta, usa as vendas
+        históricas; sem período, cobre todas as competências publicadas. Um
+        parâmetro inválido, como um orçamento negativo, não recusa a submissão: a
+        validação o aponta como conflito, e o chatbot pede a correção, que pode
+        mudar qualquer um dos três. `orcamento` e `competencias` no corpo são
+        obsoletos e sem efeito: a `api` aceita a requisição que ainda os mande, sem
+        ler nem validar os dois campos.
 
         **Correção** (`finalidade = correcao`). Recebe a correção para os conflitos
         da rodada pendente do job; o cliente não escolhe a rodada. A `api` grava a
@@ -1169,7 +1332,17 @@ paths:
                   correcao: "#/components/schemas/SubmeterCorrecaoRequisicao"
             examples:
               entradaPorTexto:
-                summary: Descrição de uma regra nova, digitada
+                summary: Descrição de uma regra nova, digitada, com os parâmetros da simulação no texto
+                value:
+                  finalidade: entrada_inicial
+                  tipo: texto
+                  texto: >-
+                    Comissão de 2,5% sobre as vendas para os cargos 100 e 300 das
+                    marcas 10 e 20 em novembro de 2025, exceto na loja 58. No dia do
+                    aniversário da loja, a comissão dobra. Simular novembro de 2025,
+                    com orçamento de R$ 485 mil e meta de vender R$ 9 milhões.
+              entradaPorTextoComCamposObsoletos:
+                summary: Cliente anterior, com orcamento e competencias, que são ignorados
                 value:
                   finalidade: entrada_inicial
                   tipo: texto
@@ -1197,6 +1370,18 @@ paths:
             examples:
               entradaPorVoz:
                 summary: Descrição de uma regra nova, falada
+                description: |
+                  `audio` representa os bytes da gravação, enviados na parte com o
+                  `Content-Type` do formato gravado, como `audio/webm;codecs=opus`.
+                  O orçamento, a meta de venda e o período, quando ditos, estão na
+                  gravação.
+                value:
+                  audio: "<bytes da gravação>"
+                  parametros:
+                    finalidade: entrada_inicial
+                    tipo: voz
+              entradaPorVozComCamposObsoletos:
+                summary: Cliente anterior, com orcamento e competencias, que são ignorados
                 description: |
                   `audio` representa os bytes da gravação, enviados na parte com o
                   `Content-Type` do formato gravado, como `audio/webm;codecs=opus`.
@@ -1309,8 +1494,7 @@ paths:
 
             - o texto vazio, só com espaços ou acima do limite: 8000 caracteres na
               entrada inicial e 4000 na correção;
-            - a submissão de texto sem `texto`, e a entrada inicial sem `orcamento`
-              ou com competência inválida;
+            - a submissão de texto sem `texto`;
             - o corpo multipart sem a parte `audio` ou sem a parte `parametros`, ou
               com `parametros` fora da forma esperada.
           content:
@@ -1569,9 +1753,12 @@ components:
 
     AcaoJob:
       type: string
-      title: Ação de finalização
-      description: Ações de fechamento, no mesmo vocabulário da coluna `job_acoes.acao`.
-      enum: [confirmar_liberar, cancelar, salvar, arquivar]
+      title: Ação sobre o job
+      description: |
+        Ações do usuário sobre o job, no mesmo vocabulário da coluna `job_acoes.acao`:
+        as quatro de fechamento e `aceitar_meta`, que aceita a meta de venda sugerida
+        e não fecha o job.
+      enum: [confirmar_liberar, cancelar, salvar, arquivar, aceitar_meta]
 
     FinalidadeSubmissao:
       type: string
@@ -1599,7 +1786,8 @@ components:
       description: |
         Viabilidade orçamentária, apurada pelo worker fora do container a partir do
         total simulado e do orçamento aplicado. Ausente quando a execução não produziu
-        número que o sustente.
+        número que o sustente, e quando o job não tem orçamento: o número vale, mas
+        não há critério que o julgue.
       enum: [viavel, inviavel, indeterminado]
 
     StatusResultado:
@@ -1736,7 +1924,7 @@ components:
 
     ExecutarAcaoRequisicao:
       type: object
-      title: Ação de finalização
+      title: Ação sobre o job
       description: Corpo de `POST /jobs/{id}/actions`.
       required: [acao]
       properties:
@@ -1744,6 +1932,7 @@ components:
           $ref: "#/components/schemas/AcaoJob"
       examples:
         - acao: confirmar_liberar
+        - acao: aceitar_meta
 
     ReprocessarRequisicao:
       type: object
@@ -1805,9 +1994,9 @@ components:
       title: Descrição de uma regra nova, por texto
       description: |
         Corpo JSON de `POST /submissoes` para a entrada inicial por texto. Cria a
-        submissão e o job de origem `texto`. `orcamento` e `competencias` seguem as
-        mesmas regras de `POST /jobs`.
-      required: [finalidade, tipo, texto, orcamento]
+        submissão e o job de origem `texto`. O orçamento, a meta de venda e o
+        período da simulação são ditos no texto, e não em campos.
+      required: [finalidade, tipo, texto]
       properties:
         finalidade:
           type: string
@@ -1823,24 +2012,30 @@ components:
           maxLength: 8000
           pattern: '\S'
           description: |
-            A descrição da regra como o usuário a escreveu. Não vazia, nem só com
-            espaços, e com no máximo 8000 caracteres. É conteúdo não confiável - dado
-            a extrair, nunca instrução.
+            A descrição da regra como o usuário a escreveu, com o orçamento, a meta
+            de venda e o período da simulação, quando ele os diz. Não vazia, nem só
+            com espaços, e com no máximo 8000 caracteres. É conteúdo não confiável -
+            dado a extrair, nunca instrução.
         orcamento:
-          $ref: "../domain/comum.schema.json#/$defs/brl"
+          deprecated: true
+          examples: [485000.0]
           description: |
-            Orçamento de comissionamento do período, informado pelo usuário. É do
-            período, não mensal.
+            Obsoleto e sem efeito. Mantido para que a requisição de um cliente
+            anterior continue aceita: a `api` não lê nem valida o campo. O
+            orçamento vem do que o usuário diz no texto.
         competencias:
-          $ref: "#/components/schemas/Competencias"
+          deprecated: true
+          examples: [["2025-11"]]
           description: |
-            Competências a simular. Ausente, a `api` preenche com todas as
-            competências do dataset - o período inteiro.
+            Obsoleto e sem efeito. Mantido para que a requisição de um cliente
+            anterior continue aceita: a `api` não lê nem valida o campo. O
+            período da simulação vem do que o usuário diz no texto.
       examples:
         - finalidade: entrada_inicial
           tipo: texto
-          texto: Comissão de 2,5% sobre as vendas para o cargo 100 da marca 10 em novembro de 2025.
-          orcamento: 485000.0
+          texto: >-
+            Comissão de 2,5% sobre as vendas para o cargo 100 da marca 10 em novembro
+            de 2025, com orçamento de R$ 485 mil.
 
     SubmeterPorVozRequisicao:
       type: object
@@ -1864,7 +2059,7 @@ components:
         Content-Disposition: form-data; name="parametros"
         Content-Type: application/json
 
-        {"finalidade":"entrada_inicial","tipo":"voz","orcamento":485000.0}
+        {"finalidade":"entrada_inicial","tipo":"voz"}
         --limite--
         ```
 
@@ -1896,17 +2091,18 @@ components:
               correcao: "#/components/schemas/ParametrosCorrecaoPorVoz"
           description: |
             Objeto JSON, na parte com `Content-Type: application/json`. A
-            `finalidade` decide os demais campos: a entrada inicial leva `orcamento`
-            e, opcionalmente, `competencias`; a correção leva `job_id`.
+            `finalidade` decide os demais campos: a entrada inicial não leva
+            nenhum, porque o orçamento, a meta de venda e o período são ditos no
+            áudio; a correção leva `job_id`.
 
     ParametrosEntradaPorVoz:
       type: object
       title: Parâmetros da descrição de uma regra nova, por voz
       description: |
         Parte `parametros` de `POST /submissoes` para a entrada inicial por voz. Cria
-        a submissão e o job de origem `voz`. `orcamento` e `competencias` seguem as
-        mesmas regras de `POST /jobs`.
-      required: [finalidade, tipo, orcamento]
+        a submissão e o job de origem `voz`. O orçamento, a meta de venda e o
+        período da simulação são ditos no áudio, e não em campos.
+      required: [finalidade, tipo]
       properties:
         finalidade:
           type: string
@@ -1917,20 +2113,22 @@ components:
           const: voz
           description: Sempre `voz` nestes parâmetros, um valor de `TipoSubmissao`.
         orcamento:
-          $ref: "../domain/comum.schema.json#/$defs/brl"
+          deprecated: true
+          examples: [485000.0]
           description: |
-            Orçamento de comissionamento do período, informado pelo usuário. É do
-            período, não mensal.
+            Obsoleto e sem efeito. Mantido para que a requisição de um cliente
+            anterior continue aceita: a `api` não lê nem valida o campo. O
+            orçamento vem do que o usuário diz no áudio.
         competencias:
-          $ref: "#/components/schemas/Competencias"
+          deprecated: true
+          examples: [["2025-11"]]
           description: |
-            Competências a simular. Ausente, a `api` preenche com todas as
-            competências do dataset - o período inteiro.
+            Obsoleto e sem efeito. Mantido para que a requisição de um cliente
+            anterior continue aceita: a `api` não lê nem valida o campo. O
+            período da simulação vem do que o usuário diz no áudio.
       examples:
         - finalidade: entrada_inicial
           tipo: voz
-          orcamento: 485000.0
-          competencias: ["2025-11"]
 
     ParametrosCorrecaoPorVoz:
       type: object
@@ -2072,10 +2270,15 @@ components:
       title: Job detalhado
       description: |
         Estado corrente do job com todas as versões de regra já formadas. `regras` é
-        ordenado por `versao`; `simulacao`, quando existe, representa a execução mais
-        recente do job. `simulacoes` preserva as execuções anteriores e permite
+        ordenado por `versao`; `simulacao`, quando existe, representa a simulação
+        vigente do job. `simulacoes` preserva as execuções anteriores e permite
         associar cada resultado à sua versão pelo campo `regra_id`.
-      required: [id, status, origem, competencias, orcamento, criado_em, regras]
+
+        As execuções candidatas da busca da meta maior não são simulações do job e
+        não aparecem em `simulacao` nem em `simulacoes`. A exceção é a candidata da
+        meta sugerida depois de `aceitar_meta`, que passa a ser a `simulacao`
+        vigente.
+      required: [id, status, origem, competencias, criado_em, regras]
       properties:
         id:
           type: string
@@ -2117,8 +2320,22 @@ components:
         competencias:
           $ref: "#/components/schemas/Competencias"
         orcamento:
-          $ref: "../domain/comum.schema.json#/$defs/brl"
-          description: Orçamento do período aplicado a este job.
+          $ref: "../domain/parametros-simulacao.schema.json#/properties/orcamento"
+          description: |
+            Orçamento de comissão do período aplicado a este job. Nas origens
+            `texto` e `voz`, é o que o usuário disse na descrição ou numa correção,
+            como foi dito, mesmo quando a validação o aponta como conflito. Ausente
+            quando o job não tem orçamento: antes da extração e quando o usuário não
+            disse um. Sem orçamento, a simulação é feita sem a verificação de
+            orçamento.
+        meta_venda:
+          $ref: "../domain/parametros-simulacao.schema.json#/properties/meta_venda"
+          description: |
+            Meta de venda do período, dita pelo usuário na descrição ou numa
+            correção: o total de vendas sobre o qual a regra é simulada. É o valor
+            como foi dito, mesmo quando a validação o aponta como conflito. Ausente
+            quando o usuário não disse uma, e então a simulação usa as vendas
+            históricas.
         criado_em:
           type: string
           format: date-time
@@ -2159,12 +2376,22 @@ components:
             $ref: "#/components/schemas/RegraVersionada"
         simulacao:
           $ref: "#/components/schemas/Simulacao"
-          description: Simulação mais recente do job. Ausente enquanto nenhuma execução existir.
+          description: |
+            Simulação vigente do job: a mais recente, ou a da meta sugerida depois
+            de `aceitar_meta`. Ausente enquanto nenhuma execução existir.
         simulacoes:
           type: array
-          description: Execuções do job em ordem de criação, vinculadas às versões por regra_id. Opcional para compatibilidade com respostas anteriores.
+          description: Execuções do job em ordem de criação, vinculadas às versões por regra_id, sem as execuções candidatas da busca da meta que não foram aceitas. Opcional para compatibilidade com respostas anteriores.
           items:
             $ref: "#/components/schemas/Simulacao"
+        meta_sugerida:
+          $ref: "#/components/schemas/MetaSugerida"
+          description: |
+            Desfecho da busca da meta maior para a versão da simulação vigente,
+            enquanto a meta não foi aceita. Ausente quando não houve busca: job sem
+            orçamento, regra com especificações ou simulação que não coube com
+            margem. Ausente também enquanto a busca está em curso e depois de
+            `aceitar_meta`.
 
     RegraVersionada:
       type: object
@@ -2325,7 +2552,20 @@ components:
           $ref: "#/components/schemas/StatusResultado"
         veredito:
           $ref: "#/components/schemas/Veredito"
-          description: Ausente quando o status não é sucesso.
+          description: |
+            Ausente quando o status não é sucesso, e num sucesso de job sem
+            orçamento, em que a simulação foi feita sem a verificação de orçamento.
+        meta_venda:
+          allOf:
+            - $ref: "../domain/comum.schema.json#/$defs/brl"
+          exclusiveMinimum: 0
+          description: |
+            Meta de venda em que esta simulação foi feita, de
+            `resultados_simulacao.meta_venda`: as vendas de todas as lojas, marcas e
+            cargos do período foram escaladas até ela, e `resultado` descreve o
+            período nessa meta. Depois de `aceitar_meta`, é a meta sugerida. Ausente
+            quando a simulação usou as vendas históricas, que estão em
+            `resultado.totais.vendas_historicas`.
         flag_baixa_rastreabilidade:
           type: boolean
           description: |
@@ -2339,6 +2579,55 @@ components:
             Totais, desfecho das asserções e decomposição da diferença. Ausente quando
             o status não é sucesso, porque aí não há número. É a fonte dos valores
             exibidos: o frontend apresenta, não calcula.
+
+    MetaSugerida:
+      type: object
+      title: Meta de venda sugerida
+      description: |
+        Desfecho da busca da meta maior: a maior meta de venda em que a comissão
+        simulada ainda cabe no orçamento, com a regra mantida, ou a busca sem
+        solução. A busca só existe para regra só de núcleo, em job com orçamento,
+        cuja simulação coube com margem. Cada meta candidata é uma simulação real,
+        com as vendas do período escaladas até ela, e os valores daqui vêm da
+        candidata que fechou a busca. O frontend apresenta, não calcula.
+
+        Exatamente uma das duas formas: `meta_venda`, com `total_simulado` e
+        `orcamento`, ou `sem_solucao`.
+      properties:
+        meta_venda:
+          allOf:
+            - $ref: "../domain/comum.schema.json#/$defs/brl"
+          exclusiveMinimum: 0
+          description: A meta sugerida, total de vendas do período.
+        total_simulado:
+          $ref: "../domain/comum.schema.json#/$defs/brl"
+          description: Comissão simulada na meta sugerida, `totais.simulado` da simulação dela.
+        orcamento:
+          $ref: "../domain/comum.schema.json#/$defs/brl"
+          description: Orçamento com que a comissão na meta sugerida foi comparada.
+        sem_solucao:
+          type: object
+          required: [motivo]
+          description: A busca terminou sem meta para sugerir.
+          properties:
+            motivo:
+              type: string
+              enum: [nao_monotonica, intervalo_esgotado, falha_execucao]
+              description: |
+                Código do motivo, que a tela traduz para a mensagem exibida, no mesmo
+                vocabulário de `meta-venda-sugerida`. `nao_monotonica`: a comissão
+                não subiu junto com a meta, e a busca não encontrou um limite
+                confiável. `intervalo_esgotado`: o orçamento comportou todas as metas
+                testadas. `falha_execucao`: uma das simulações da busca falhou.
+      oneOf:
+        - required: [meta_venda, total_simulado, orcamento]
+        - required: [sem_solucao]
+      examples:
+        - meta_venda: 28500000.0
+          total_simulado: 594000.0
+          orcamento: 600000.0
+        - sem_solucao:
+            motivo: intervalo_esgotado
 
     DetalhamentoSimulacao:
       type: object
@@ -2370,7 +2659,14 @@ components:
           competencias: ["2025-11"]
           orcamento: 485000.0
           criado_em: "2025-11-24T14:02:00Z"
-      required: [id, status, competencias, orcamento, criado_em]
+        - id: "b7d9f1a3-5c6e-4b8d-9f0a-6c8e0a2b4d68"
+          nome: Comissão de 2,5% para o cargo 100 da marca 10 de s
+          status: gerando_regra
+          competencias: ["2025-09", "2025-10", "2025-11"]
+          orcamento: 500000.0
+          meta_venda: 12000000.0
+          criado_em: "2025-11-24T15:20:00Z"
+      required: [id, status, competencias, criado_em]
       properties:
         id:
           type: string
@@ -2409,10 +2705,20 @@ components:
         competencias:
           $ref: "#/components/schemas/Competencias"
         orcamento:
-          $ref: "../domain/comum.schema.json#/$defs/brl"
+          $ref: "../domain/parametros-simulacao.schema.json#/properties/orcamento"
+          description: |
+            Orçamento de comissão do período, como em `JobDetalhado`. Ausente quando
+            o job não tem orçamento.
+        meta_venda:
+          $ref: "../domain/parametros-simulacao.schema.json#/properties/meta_venda"
+          description: |
+            Meta de venda do período, como em `JobDetalhado`. Ausente quando o job
+            não tem meta.
         veredito:
           $ref: "#/components/schemas/Veredito"
-          description: Ausente enquanto o job não tem simulação concluída com sucesso.
+          description: |
+            Ausente enquanto o job não tem simulação concluída com sucesso, e quando o
+            job não tem orçamento.
         criado_em:
           type: string
           format: date-time
@@ -2495,8 +2801,16 @@ components:
             é reaberta numa rodada `pendente` nova, consultável em
             `GET /jobs/{id}/rodadas`. `aguardando_correcao` na etapa `confirmacao`
             anuncia que a validação apontou os `conflitos` deste evento, e é seguido de
-            um evento `estado` para `aguardando_confirmacao_parametros`. O vocabulário
-            ainda não está fechado.
+            um evento `estado` para `aguardando_confirmacao_parametros`.
+
+            Na etapa `sugestao_adaptacao`, três valores anunciam o fim de uma
+            sugestão, e a tela busca `GET /jobs/{id}` de novo para ler o desfecho:
+            `sem_alternativa` encerra as tentativas de taxa nova sem uma taxa que
+            caiba no orçamento; `meta_sugerida` anuncia que a busca da meta maior
+            encontrou uma meta, exposta em `meta_sugerida`; e `sem_solucao` anuncia
+            que a busca terminou sem meta para sugerir. Os dois últimos são emitidos
+            pela `api` ao registrar o evento `meta-venda-sugerida`, e não repassados
+            do codegen. O vocabulário ainda não está fechado.
         conflitos:
           $ref: "../domain/conflitos-rodada.schema.json"
           description: |
@@ -2517,6 +2831,9 @@ components:
               motivo: percentual ausente
             - elementos: [nucleo.loja, elem.2]
               motivo: loja 13 no núcleo e na exclusão
+        - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          etapa: sugestao_adaptacao
+          status: meta_sugerida
 
     EventoEstado:
       type: object
@@ -2552,6 +2869,8 @@ components:
         Anuncia que a simulação terminou. Carrega a referência e o desfecho, não os
         números: a tela busca `GET /jobs/{id}` e lê os valores de um lugar só, para
         que resultado e stream não tenham duas formas do mesmo dado para divergir.
+        Não é emitido para as execuções candidatas da busca da meta maior, que não
+        são simulações do job.
       required: [job_id, simulacao_id, status]
       properties:
         job_id:
@@ -2564,7 +2883,9 @@ components:
           $ref: "#/components/schemas/StatusResultado"
         veredito:
           $ref: "#/components/schemas/Veredito"
-          description: Ausente quando o status não é sucesso.
+          description: |
+            Ausente quando o status não é sucesso, e num sucesso de job sem
+            orçamento.
       examples:
         - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
           simulacao_id: "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"

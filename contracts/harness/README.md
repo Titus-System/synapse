@@ -313,11 +313,39 @@ converte para string.
 de referência de leitura, embora essa lógica não seja reaproveitada pelo código
 gerado).
 
+## O payload do container
+
+O worker entrega a execução ao container num JSON de uma linha pelo stdin. O executor recusa campo desconhecido ou faltante, em vez de ignorá-lo: um payload divergente falha alto e não roda com uma entrada que o harness não entende. Por isso o worker e a imagem do sandbox mudam juntos sempre que o payload muda.
+
+| Campo | Obrigatório | Conteúdo |
+| --- | --- | --- |
+| `job_id` | sim | Identificador do job, vindo de [`executar-codigo`](../events/executar-codigo.schema.json). |
+| `codigo_gerado_id` | sim | Linha de `codigos_gerados` executada. |
+| `linguagem` | sim | `python`, a única aceita. |
+| `fonte` | sim | O código gerado, lido pelo worker de `codigos_gerados.fonte`. O código viaja por referência no comando e só aqui vai por conteúdo. |
+| `competencias` | sim | Lista não vazia com as competências do comando, cada uma `AAAA-MM`. |
+| `meta_venda` | não | Meta de venda do comando, em reais e estritamente positiva. Ausente, a execução usa as vendas históricas. |
+
+O orçamento, `elementos_exigidos` e `proposito` não entram no payload. O orçamento julga o resultado, e quem produz o número não alcança o critério que vai julgá-lo (seção "Regras da entrada"). A conferência de cobertura é do worker, fora do container, e o propósito não muda a execução.
+
+### A execução na meta de venda
+
+Com `meta_venda`, o harness escala as vendas antes de chamar a função gerada, e o resultado inteiro passa a descrever o período como se as vendas tivessem atingido a meta:
+
+1. Soma o `vlr_venda` de todas as vendas das competências do job, em todas as lojas, marcas e cargos. Esse é o total histórico de vendas do período.
+2. Multiplica o `vlr_venda` de cada uma dessas vendas pelo mesmo fator, `meta_venda / total histórico`. A proporção entre lojas, marcas, cargos, pessoas e competências se mantém: com total histórico de R$ 10 milhões e meta de R$ 11 milhões, uma venda de R$ 100 passa a R$ 110. `rh`, `comissoes` e `eventos_rh` não mudam.
+3. Reapura o baseline sobre as vendas escaladas, com a mesma função e as mesmas entradas que produziram o baseline congelado. Com fator 1, a reapuração reproduz o baseline congelado.
+4. Chama a função gerada com `bases["vendas"]` e `apuracao_base` já escalados, no mesmo formato e com os mesmos tipos de sempre.
+
+A função gerada não muda e não sabe da meta: recebe as vendas e o baseline da meta no lugar dos históricos, e `totais.baseline` e `totais.simulado` saem apurados na meta. O escalonamento é aplicado à entrada, e não aos totais depois da execução, porque a apuração não é linear nas vendas: o piso de afastamento das regras base e o arredondamento por linha fazem o resultado variar fora da proporção das vendas. Sem `meta_venda`, nada disso acontece, e a execução é a mesma de antes de o campo existir.
+
+Na meta não há total congelado contra o qual conferir o baseline devolvido. O worker confere o baseline escalado por um caminho que o código gerado não alcança, como faz com o congelado (T-270).
+
 ## O que o harness faz antes e depois
 
 Antes de chamar: carrega as bases e o baseline com tipos explícitos, recorta pelas
 competências do job (exceto `eventos_rh` - histórico completo) e passa cópias à
-função gerada.
+função gerada. Com `meta_venda` no payload, escala as vendas e reapura o baseline antes de passar as cópias (seção "O payload do container").
 
 Depois de chamar:
 1. Agrega `apuracao_simulada` e `apuracao_base` em `totais`, somando o período inteiro.
@@ -338,7 +366,7 @@ O artefato final é o `resultado-simulacao`, descrito por
 confere. Um total sozinho não basta: sem a decomposição não dá para dizer de onde veio
 a diferença nem quanto dela cabe a cada elemento.
 
-Fronteira container e worker: o que sai do container não inclui o orçamento nem o veredito. O harness produz `baseline`, `simulado`, `diferenca_abs`, `diferenca_pct`, a `decomposicao` e as `assercoes`. É o worker, fora do container, que adiciona o orçamento a `totais` e calcula o veredito (T-066), e que confere a cobertura (seção "Conferência de cobertura"). O artefato validado neste diretório já traz o orçamento só para servir de exemplo completo.
+Fronteira container e worker: o que sai do container não inclui o orçamento, o total histórico de vendas nem o veredito. O harness produz `baseline`, `simulado`, `diferenca_abs`, `diferenca_pct`, a `decomposicao` e as `assercoes`. É o worker, fora do container, que adiciona a `totais` o orçamento, quando o comando o traz, e `vendas_historicas`, o total de vendas das competências antes de qualquer escalonamento, lido de uma fonte que o código gerado não alcança (T-270). É também o worker que calcula o veredito (T-066) e confere a cobertura (seção "Conferência de cobertura"). Sem orçamento no comando, `totais.orcamento` fica ausente e o resultado de sucesso sai sem veredito (T-281). O artefato validado neste diretório já traz o orçamento só para servir de exemplo completo.
 
 ## Como o código declara o elemento que implementa
 
@@ -444,6 +472,6 @@ Na CI, esses passos rodam no workflow `Validar contratos`
 - `docs/ARCHITECTURE.md` §1.4, §1.5, §3.4.
 - `docs/adrs/ADR-002.md`: contratos na raiz, evolução aditiva.
 - `../domain/resultado-simulacao.schema.json`, `../domain/representacao-regra.schema.json`.
-- `../events/executar-codigo.schema.json`: origem de `competencias` como array e de `elementos_exigidos`.
+- `../events/executar-codigo.schema.json`: origem de `competencias` como array, de `elementos_exigidos` e de `meta_venda`.
 - `../domain/resultado-diagnostico.schema.json`: a causa `cobertura_incompleta`.
 - `docs/decisoes/dec-092.md`.

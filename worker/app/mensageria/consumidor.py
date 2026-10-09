@@ -26,6 +26,7 @@ from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from app.core.logger import get_logger, job_id_ctx
+from app.core.metrics.global_metrics import execucoes_com_cobertura_incompleta
 from app.db.engine import get_sessionmaker
 from app.execucao.baseline import carregar_baselines
 from app.execucao.coleta import classificar
@@ -91,9 +92,11 @@ def _problemas_no_log(problemas: Iterable[Problema]) -> list[str]:
 
 
 def _registrar_julgamento(julgamento: Julgamento) -> None:
-    """Só a classe, o motivo, o veredito e onde o schema falhou: nunca stdout, stderr nem a
-    mensagem de erro da regra, que são texto não confiável, e nem os números do resultado, que
-    são artefato e vivem no Postgres (T-067)."""
+    """Só a classe, o motivo, o veredito, onde o schema falhou e o que reprovou a cobertura:
+    nunca stdout, stderr nem a mensagem de erro da regra, que são texto não confiável, e nem os
+    números do resultado, que são artefato e vivem no Postgres (T-067).
+
+    A cobertura incompleta também é contada, uma vez por execução julgada (T-241)."""
     extra: dict[str, object] = {
         "classe": julgamento.classe,
         "motivo": julgamento.motivo,
@@ -104,6 +107,13 @@ def _registrar_julgamento(julgamento: Julgamento) -> None:
         extra["codigo_saida"] = desfecho.saida.codigo_saida
     if desfecho is not None and desfecho.problemas:
         extra["problemas"] = _problemas_no_log(desfecho.problemas)
+    if julgamento.cobertura is not None:
+        # As ausentes vêm do comando. As fora da regra vêm do código gerado: o schema do resultado
+        # as restringe ao padrão de elemento_ref, mas não em tamanho nem em quantidade, então o
+        # log leva só quantas são, e a lista fica no diagnóstico da linha.
+        extra["elementos_ausentes"] = list(julgamento.cobertura.ausentes)
+        extra["quantidade_fora_da_regra"] = len(julgamento.cobertura.fora_da_regra)
+        execucoes_com_cobertura_incompleta.inc()
     registrar = logger.warning if julgamento.classe == "erro_infra" else logger.info
     registrar("execução julgada", extra=extra)
 
@@ -213,16 +223,20 @@ async def _processar(mensagem: AbstractIncomingMessage, broker: ConexaoBroker) -
                     extra={
                         "codigo_gerado_id": str(execucao.payload.codigo_gerado_id),
                         "competencias": execucao.payload.competencias,
+                        # Nulo quando o comando não os trouxe e a cobertura não será conferida.
+                        "elementos_exigidos": execucao.elementos_exigidos,
                     },
                 )
                 saida = await _executar_no_container(execucao.payload)
                 desfecho = classificar(saida, execucao.payload, execucao.orcamento)
-                # Aqui, no processo do worker: o orçamento nunca entrou no container.
+                # Aqui, no processo do worker: nem o orçamento nem os elementos exigidos entraram
+                # no container.
                 julgamento = julgar(
                     desfecho,
                     execucao.payload.competencias,
                     execucao.orcamento,
                     carregar_baselines(),
+                    elementos_exigidos=execucao.elementos_exigidos,
                 )
                 _registrar_julgamento(julgamento)
                 gravado = await _gravar(comando, julgamento)

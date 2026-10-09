@@ -12,6 +12,8 @@ graph TD;
 	__start__([<p>__start__</p>]):::first
 	load_rule(load_rule)
 	extract_rule(extract_rule)
+	validate_domain(validate_domain)
+	reject_rule(reject_rule)
 	code_generation(code_generation)
 	persist_response(persist_response)
 	extract_code(extract_code)
@@ -28,9 +30,12 @@ graph TD;
 	decision -.-> suggest_adaptation;
 	dispatch_execution --> await_execution;
 	extract_code --> dispatch_execution;
-	load_rule --> code_generation;
+	load_rule --> validate_domain;
 	persist_response --> extract_code;
+	validate_domain -.-> code_generation;
+	validate_domain -.-> reject_rule;
 	extract_rule --> __end__;
+	reject_rule --> __end__;
 	suggest_adaptation --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0

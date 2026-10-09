@@ -2,17 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://synapse.local/contracts/domain/resultado-totais.schema.json",
   "title": "Totais da simulação",
-  "description": "Coluna resultados_simulacao.totais. Agregados do período inteiro, somando todas as competências do job; não existe um total por competência. Nula quando resultados_simulacao.status não é sucesso.",
+  "description": "Coluna resultados_simulacao.totais. Agregados do período inteiro, somando todas as competências do job; não existe um total por competência. Nula quando resultados_simulacao.status não é sucesso. Quando o comando de execução traz meta de venda, baseline e simulado são apurados sobre as vendas escaladas até a meta, e a meta da execução fica em resultados_simulacao.meta_venda.",
   "type": "object",
-  "required": ["baseline", "simulado", "diferenca_abs", "diferenca_pct", "orcamento"],
+  "required": ["baseline", "simulado", "diferenca_abs", "diferenca_pct"],
   "properties": {
     "baseline": {
       "$ref": "comum.schema.json#/$defs/brl",
-      "description": "Comissionamento apurado pelas regras vigentes, somado no período."
+      "description": "Comissionamento apurado pelas regras vigentes, somado no período. Com meta de venda, é o baseline reapurado sobre as vendas escaladas até a meta, e não o congelado."
     },
     "simulado": {
       "$ref": "comum.schema.json#/$defs/brl",
-      "description": "Comissionamento apurado pela regra proposta, somado no período."
+      "description": "Comissionamento apurado pela regra proposta, somado no período. Com meta de venda, é apurado sobre as vendas escaladas até a meta."
     },
     "diferenca_abs": {
       "$ref": "comum.schema.json#/$defs/brl",
@@ -24,7 +24,11 @@
     },
     "orcamento": {
       "$ref": "comum.schema.json#/$defs/brl",
-      "description": "Critério efetivamente aplicado ao período, recebido no comando de execução. Aparece aqui, e não só em jobs.orcamento, porque esta tabela só aceita INSERT: o insumo do veredito acompanha o veredito e não pode ser alterado depois."
+      "description": "Critério efetivamente aplicado ao período, recebido no comando de execução. Aparece aqui, e não só em jobs.orcamento, porque esta tabela só aceita INSERT: o insumo do veredito acompanha o veredito e não pode ser alterado depois. Ausente quando o comando de execução não trouxe orçamento: a simulação foi feita sem a verificação de orçamento, e o resultado não tem veredito."
+    },
+    "vendas_historicas": {
+      "$ref": "comum.schema.json#/$defs/brl",
+      "description": "Total de vlr_venda das competências do job no dataset, antes de qualquer escalonamento pela meta. É o divisor do fator de escalonamento, o ponto de partida da busca da meta maior quando o job não tem meta e o valor que a tela mostra ao lado da meta. O codegen não tem acesso às vendas, e por isso o valor vem do worker, que o acrescenta fora do container, de uma fonte que o código gerado não alcança, como faz com o orçamento. Ausente nos resultados gravados antes de o campo existir."
     }
   },
   "examples": [

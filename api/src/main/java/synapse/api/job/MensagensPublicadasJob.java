@@ -16,14 +16,16 @@ import org.jspecify.annotations.Nullable;
  * de {@code origem} (ausente na {@code voz} para {@code regra_id}, sempre presente na
  * {@code formulario}).
  * <p>
- * {@code orcamento} vem de {@code jobs.orcamento} e viaja como escalar porque o codegen
- * não tem permissão nessa tabela. Também é opcional e omitido quando nulo; ausência não
- * significa zero. É {@code BigDecimal} de ponta a ponta - passar por {@code double}
- * perderia precisão de um valor monetário.
+ * {@code orcamento} e {@code meta_venda} vêm de {@code jobs.orcamento} e
+ * {@code jobs.meta_venda} e viajam como escalar porque o codegen não tem permissão nessa
+ * tabela. Os dois são opcionais e omitidos quando nulos; ausência não significa zero, e
+ * sim que o job não tem o parâmetro - antes da extração, ou porque o usuário não o disse.
+ * São {@code BigDecimal} de ponta a ponta - passar por {@code double} perderia precisão
+ * de um valor monetário.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 record RegraSubmetidaDto(UUID job_id, String origem, List<String> competencias, @Nullable BigDecimal orcamento,
-		@Nullable UUID submissao_id, @Nullable UUID regra_id) {
+		@Nullable BigDecimal meta_venda, @Nullable UUID submissao_id, @Nullable UUID regra_id) {
 }
 
 record ParametrosConfirmadosDto(UUID job_id, UUID regra_id) {

@@ -64,6 +64,11 @@ class RegraExtraidaFimAFimTests {
 			 "especificacoes":[{"ref":"elem.1","construto":"generico","descricao":"dobrar no aniversário da loja"}]}
 			""";
 
+	/** Os parâmetros que o texto disse, extraídos junto com a regra. */
+	private static final String PARAMETROS = """
+			{"orcamento":500000.0,"meta_venda":12000000.0,"competencias":["2025-09","2025-10","2025-11"]}
+			""";
+
 	private static final HttpClient HTTP = HttpClient.newHttpClient();
 
 	private static final JsonMapper JSON = new JsonMapper();
@@ -158,7 +163,18 @@ class RegraExtraidaFimAFimTests {
 		assertThat(corpo.path("origem").asString()).isEqualTo("texto");
 		assertThat(corpo.path("regra_id").asString()).isEqualTo(regraId.toString());
 		assertThat(corpo.path("submissao_id").asString()).isEqualTo(submissaoId.toString());
+		assertThat(corpo.path("orcamento").decimalValue()).isEqualByComparingTo("500000.0");
+		assertThat(corpo.path("meta_venda").decimalValue()).isEqualByComparingTo("12000000.0");
+		assertThat(corpo.path("competencias").valueStream().map(JsonNode::asString).toList()).containsExactly("2025-09",
+				"2025-10", "2025-11");
 		assertThat(submetida.getMessageProperties().getCorrelationId()).isEqualTo(jobId.toString());
+
+		// O job recebeu o que o texto disse, e é dele que o evento repetiu os valores.
+		assertThat(dono.queryForMap("SELECT orcamento::text AS o, meta_venda::text AS m FROM jobs WHERE id = ?", jobId))
+			.containsEntry("o", "500000.0")
+			.containsEntry("m", "12000000.0");
+		assertThat(dono.queryForList("SELECT unnest(competencias) FROM jobs WHERE id = ?", String.class, jobId))
+			.containsExactly("2025-09", "2025-10", "2025-11");
 
 		assertThat(logs).extracting(ILoggingEvent::getFormattedMessage)
 			.containsSubsequence("consumo de regra-extraida iniciado",
@@ -167,7 +183,9 @@ class RegraExtraidaFimAFimTests {
 			String linha = CapturaDeLog.emJson(registro);
 			ContratoDeEvento.validarLog(linha);
 			assertThat(JSON.readTree(linha).path("job_id").asString()).isEqualTo(jobId.toString());
-			assertThat(linha).doesNotContain("aniversário", "dobrar", "elem.1", "\"marca\"", "nucleo");
+			assertThat(linha).doesNotContain("aniversário", "dobrar", "elem.1", "\"marca\"", "nucleo")
+				.as("nenhum log leva o valor de um parâmetro")
+				.doesNotContain("500000", "12000000", "2025-09");
 		}
 		assertThat(CapturaDeLog.emJson(logs.getLast())).contains("\"regra_id\":\"" + regraId + "\"");
 
@@ -183,7 +201,10 @@ class RegraExtraidaFimAFimTests {
 				.containsPattern("regra_extraida_consumo_total\\{motivo=\"reentrega\",resultado=\"duplicada\"\\} 1\\.0")
 				.containsPattern(
 						"regra_extraida_consumo_total\\{motivo=\"evento_invalido\",resultado=\"descartada\"\\} 1\\.0")
-				.containsPattern("regra_extraida_consumo_duracao_seconds_count\\{resultado=\"persistida\"\\} 1");
+				.containsPattern("regra_extraida_consumo_duracao_seconds_count\\{resultado=\"persistida\"\\} 1")
+				.containsPattern("job_parametros_gravados_total\\{parametro=\"orcamento\"\\} 1\\.0")
+				.containsPattern("job_parametros_gravados_total\\{parametro=\"meta_venda\"\\} 1\\.0")
+				.containsPattern("job_parametros_gravados_total\\{parametro=\"competencias\"\\} 1\\.0");
 			assertThat(filaRegraExtraida().getMessageCount()).isZero();
 		});
 
@@ -207,10 +228,13 @@ class RegraExtraidaFimAFimTests {
 				INSERT INTO submissoes (usuario_id, tipo, transcricao, criado_em)
 				VALUES (?, 'texto', ?, now()) RETURNING id
 				""", UUID.class, USUARIO_ID, TEXTO_DA_REGRA));
+		// Sem orçamento e com todas as competências publicadas, como o job de texto
+		// nasce.
 		UUID jobId = Objects.requireNonNull(dono.queryForObject("""
 				INSERT INTO jobs (status, usuario_id, submissao_id, competencias, orcamento, criado_em)
-				VALUES ('gerando_regra', ?, ?, ?, 485000, now()) RETURNING id
-				""", UUID.class, USUARIO_ID, submissaoId, new SqlArrayValue("text", List.of("2025-11").toArray())));
+				VALUES ('gerando_regra', ?, ?, ?, NULL, now()) RETURNING id
+				""", UUID.class, USUARIO_ID, submissaoId,
+				new SqlArrayValue("text", List.of("2025-08", "2025-09", "2025-10", "2025-11", "2025-12").toArray())));
 		return new Job(jobId, submissaoId);
 	}
 
@@ -224,12 +248,11 @@ class RegraExtraidaFimAFimTests {
 				INSERT INTO respostas_modelo (job_id, prompt_id, conteudo, criado_em)
 				VALUES (?, ?, 'fixture', now()) RETURNING id
 				""", UUID.class, jobId, prompt));
-		return Objects.requireNonNull(dono.queryForObject(
-				"""
-						INSERT INTO extracoes_regras (job_id, submissao_id, resposta_id, representacao, rebaixamentos, criado_em)
-						VALUES (?, ?, ?, ?::jsonb, '[]'::jsonb, now()) RETURNING id
-						""",
-				UUID.class, jobId, submissaoId, resposta, REPRESENTACAO));
+		return Objects.requireNonNull(dono.queryForObject("""
+				INSERT INTO extracoes_regras
+					(job_id, submissao_id, resposta_id, representacao, rebaixamentos, parametros, criado_em)
+				VALUES (?, ?, ?, ?::jsonb, '[]'::jsonb, ?::jsonb, now()) RETURNING id
+				""", UUID.class, jobId, submissaoId, resposta, REPRESENTACAO, PARAMETROS));
 	}
 
 	private static void publicar(String corpo) {

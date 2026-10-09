@@ -55,6 +55,18 @@ job_duration = prometheus.register_histogram(
     buckets=(*Histogram.DEFAULT_BUCKETS[:-1], 15, 30, 45, 60, 90, 120, 180, 240, 300, float("inf")),
 )
 
+# Conta execuções do nó; reentregas sem avanço do checkpoint não passam por ele.
+job_runs.labels(job_name="validate_domain")
+job_failures.labels(job_name="validate_domain")
+job_duration.labels(job_name="validate_domain")
+resultados_validacao_dominio = prometheus.register_counter(
+    "codegen_validacao_dominio_resultados_total",
+    "Validações de domínio concluídas por resultado",
+    ["resultado"],
+)
+for _resultado in ("liberada", "barrada"):
+    resultados_validacao_dominio.labels(resultado=_resultado)
+
 CONSTRUTOS_DA_EXTRACAO = (
     "nucleo",
     "generico",

@@ -99,6 +99,11 @@ app:
     enabled: ${KEYCLOAK_ENABLED:false}
     issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/synapse}
     jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8081/realms/synapse/protocol/openid-connect/certs}
+  transcription:
+    api-key: ${DEEPGRAM_API_KEY:}
+    base-url: ${TRANSCRIPTION_BASE_URL:https://api.eu.deepgram.com}
+    connect-timeout-ms: ${TRANSCRIPTION_CONNECT_TIMEOUT_MS:5000}
+    read-timeout-ms: ${TRANSCRIPTION_READ_TIMEOUT_MS:60000}
 
 logging:
   level:
@@ -106,6 +111,8 @@ logging:
     # Conversores MVC em DEBUG imprimem corpos; JDBC em TRACE imprime parâmetros.
     org.springframework.web.servlet.mvc.method.annotation: INFO
     org.springframework.jdbc.core.StatementCreatorUtils: INFO
+    # O transporte HTTP do JDK inclui Authorization nos logs de diagnóstico.
+    sun.net.www.protocol.http.HttpURLConnection: 'OFF'
 
 management:
   endpoints:

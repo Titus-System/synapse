@@ -23,10 +23,15 @@ import pandas
 from app.sandbox.assercoes import Desfecho, numero_finito
 from app.sandbox.carga import Entrada
 from app.sandbox.regras_base import Registro
-from app.sandbox.resultado import ResultadoSimulacao, montar_resultado
+from app.sandbox.resultado import PADRAO_ELEMENTO_REF, ResultadoSimulacao, montar_resultado
 
 NOME_ARQUIVO = "regra.py"
 NOME_MODULO = "regra"
+
+# A lista em que o código gerado declara os elementos da regra que implementa (contrato T-034,
+# seção "Como o código declara o elemento que implementa"). Não entra na agregação: segue no
+# envelope para a conferência de cobertura, que é do worker, fora do container (T-241).
+CHAVE_ELEMENTOS_IMPLEMENTADOS = "elementos_implementados"
 
 # O mesmo nome que a T-031 usa em finalizar_apuracao; um teste confere.
 NOME_SEM_COMISSAO_NEGATIVA = "sem_comissao_negativa"
@@ -56,7 +61,7 @@ COLUNAS_EXIGIDAS: Mapping[str, tuple[str, ...]] = {
 
 type RegraFn = Callable[
     [dict[str, pandas.DataFrame], pandas.DataFrame, list[str]],
-    dict[str, pandas.DataFrame],
+    dict[str, pandas.DataFrame | list[str]],
 ]
 
 
@@ -68,10 +73,22 @@ class SaidaForaDoContratoError(ValueError):
     """O retorno da função gerada não é o que o contrato da T-034 define."""
 
 
+class SaidaDaRegra(NamedTuple):
+    """O retorno de ``aplicar_regra`` conferido: as duas tabelas e a declaração."""
+
+    tabelas: dict[str, pandas.DataFrame]
+    # None quando o retorno não tem a chave: código gerado antes de o contrato pedir a
+    # declaração. Se isso basta, quem decide é a conferência de cobertura, fora do container.
+    elementos_implementados: list[str] | None
+
+
 class Execucao(NamedTuple):
     assercoes: list[Desfecho]
     # Só quando nenhuma asserção foi violada: número inválido não vira resultado.
     resultado: ResultadoSimulacao | None
+    # Só com o resultado: a declaração serve à conferência de cobertura, e só um resultado
+    # chega a ela.
+    elementos_implementados: list[str] | None = None
 
 
 def carregar_regra(fonte: str, *, nome_arquivo: str = NOME_ARQUIVO) -> RegraFn:
@@ -114,7 +131,7 @@ def chamar(
     bases: Mapping[str, pandas.DataFrame],
     apuracao_base: pandas.DataFrame,
     competencias: Sequence[str],
-) -> dict[str, pandas.DataFrame]:
+) -> dict[str, pandas.DataFrame | list[str]]:
     """Chama a regra com cópias de tudo. É a única linha que executa código gerado.
 
     A lista de competências também é copiada: ela chega "como veio", mas uma regra que
@@ -141,12 +158,35 @@ def conferir_saida(saida: object) -> dict[str, pandas.DataFrame]:
     return cast(dict[str, pandas.DataFrame], saida)
 
 
-def rodar_regra(
-    fonte: str, entrada: Entrada, competencias: Sequence[str]
-) -> dict[str, pandas.DataFrame]:
+def conferir_declaracao(saida: Mapping[str, object]) -> list[str] | None:
+    """A lista de elementos que o código declara implementar, ou None se ele não declarou.
+
+    O harness não julga a declaração: só confere que ela é uma lista de identificadores no
+    espaço de ``elemento_ref``. Fora disso a saída está fora do contrato, como uma tabela sem
+    as colunas exigidas. Segue uma cópia da lista, na ordem e com as repetições do código
+    gerado.
+    """
+    if CHAVE_ELEMENTOS_IMPLEMENTADOS not in saida:
+        return None
+    declarados = saida[CHAVE_ELEMENTOS_IMPLEMENTADOS]
+    if not isinstance(declarados, list):
+        raise SaidaForaDoContratoError(
+            f"{CHAVE_ELEMENTOS_IMPLEMENTADOS} deve ser uma lista, não {type(declarados).__name__}"
+        )
+    for elemento in declarados:
+        if not isinstance(elemento, str) or not PADRAO_ELEMENTO_REF.fullmatch(elemento):
+            raise SaidaForaDoContratoError(
+                f"{CHAVE_ELEMENTOS_IMPLEMENTADOS} traz {elemento!r}, fora do espaço de "
+                "identificadores da representação (nucleo.<campo> ou elem.<n>)"
+            )
+    return list(declarados)
+
+
+def rodar_regra(fonte: str, entrada: Entrada, competencias: Sequence[str]) -> SaidaDaRegra:
     """Tudo que executa ou confere a função gerada. Qualquer falha aqui é do código gerado."""
     regra = carregar_regra(fonte)
-    return conferir_saida(chamar(regra, entrada.bases, entrada.apuracao_base, competencias))
+    saida = chamar(regra, entrada.bases, entrada.apuracao_base, competencias)
+    return SaidaDaRegra(conferir_saida(saida), conferir_declaracao(saida))
 
 
 def comissao_nao_negativa(linhas: Sequence[Registro]) -> Desfecho:
@@ -178,9 +218,7 @@ def comissao_nao_negativa(linhas: Sequence[Registro]) -> Desfecho:
     return {"nome": NOME_SEM_COMISSAO_NEGATIVA, "resultado": "violada", "detalhe": detalhe}
 
 
-def agregar(
-    saida: Mapping[str, pandas.DataFrame], entrada: Entrada, competencias: Sequence[str]
-) -> Execucao:
+def agregar(saida: SaidaDaRegra, entrada: Entrada, competencias: Sequence[str]) -> Execucao:
     """Confere a asserção e agrega o resultado.
 
     O baseline que vai para a agregação é ``entrada.registros_base``, que o harness
@@ -188,18 +226,23 @@ def agregar(
     que rebaixasse o baseline recebido produziria economia inventada com tudo
     reconciliando: nenhuma exceção, nenhuma asserção violada, número errado com
     aparência de certo.
+
+    A declaração não é agregada nem conferida aqui: acompanha o resultado até o worker.
     """
-    simulada = _registros(saida["apuracao_simulada"])
+    simulada = _registros(saida.tabelas["apuracao_simulada"])
     desfecho = comissao_nao_negativa(simulada)
     if desfecho["resultado"] == "violada":
         return Execucao([desfecho], None)
     resultado = montar_resultado(
-        {"apuracao_simulada": simulada, "contribuicoes": _registros(saida["contribuicoes"])},
+        {
+            "apuracao_simulada": simulada,
+            "contribuicoes": _registros(saida.tabelas["contribuicoes"]),
+        },
         entrada.registros_base,
         competencias,
         assercoes=[desfecho],
     )
-    return Execucao([desfecho], resultado)
+    return Execucao([desfecho], resultado, saida.elementos_implementados)
 
 
 def _registros(tabela: pandas.DataFrame) -> list[dict[str, object]]:

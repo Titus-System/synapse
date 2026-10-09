@@ -87,7 +87,10 @@ falha ao rodar a própria regra viram `erro_codigo`; qualquer outra exceção na
 como bug do harness.
 
 `resultado` só existe em `sucesso` e, com `totais.orcamento` acrescentado pelo worker (T-066),
-valida contra `resultado-simulacao.schema.json`. `erro` carrega tipo, mensagem (1000
+valida contra `resultado-simulacao.schema.json`. `elementos_implementados` também só existe em
+`sucesso`: é a lista que a regra declarou no retorno de `aplicar_regra`, conferida pelo harness
+como lista de identificadores de `elemento_ref`, ou nulo quando a regra não declarou nada. O
+worker a usa na conferência de cobertura (T-241), e desde ela o envelope está na versão 2. `erro` carrega tipo, mensagem (1000
 caracteres) e os quadros do traceback que são da própria regra (8000 caracteres). **Esse
 conteúdo é dado não confiável**: quem o consome o trata como texto, nunca como instrução, e
 não o registra em log.

@@ -5,7 +5,7 @@ import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-record EntradaSubmissao(JsonNode parametros, String texto) {
+record EntradaSubmissao(String texto) {
 
 	private static final JsonMapper JSON = JsonMapper.builder()
 		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS, DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
@@ -36,6 +36,6 @@ record EntradaSubmissao(JsonNode parametros, String texto) {
 				throw SubmissaoException.requisicao("A descrição da regra pode ter no máximo 8000 caracteres.");
 			}
 		}
-		return new EntradaSubmissao(raiz, texto);
+		return new EntradaSubmissao(texto);
 	}
 }

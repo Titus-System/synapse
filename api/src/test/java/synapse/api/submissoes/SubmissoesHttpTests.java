@@ -53,6 +53,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import synapse.api.ApiApplication;
+import synapse.api.core.config.AppProperties;
 import synapse.api.job.CapturaDeLog;
 import synapse.api.job.ContratoDeEvento;
 import synapse.api.job.JobsDeSubmissoes;
@@ -69,7 +70,7 @@ class SubmissoesHttpTests {
 
 	private static final String TEXTO = "  Descrição privada da regra\ncom acentuação e comissão.  ";
 
-	private static final String PARAMETROS = "{\"finalidade\":\"entrada_inicial\",\"tipo\":\"voz\",\"orcamento\":485000.1234567890123456789}";
+	private static final String PARAMETROS = "{\"finalidade\":\"entrada_inicial\",\"tipo\":\"voz\"}";
 
 	private static final String ISSUER = "https://emissor-de-teste.invalid/realms/synapse";
 
@@ -136,8 +137,8 @@ class SubmissoesHttpTests {
 
 		@Bean
 		@Primary
-		DisponibilidadeTranscricao capacidade() {
-			return new DisponibilidadeTranscricao() {
+		DisponibilidadeTranscricao capacidade(ClienteDeepgram cliente) {
+			return new DisponibilidadeTranscricao(cliente) {
 				@Override
 				boolean disponivel() {
 					return VOZ.get();
@@ -170,7 +171,7 @@ class SubmissoesHttpTests {
 	}
 
 	@Test
-	void textoCriaJobSemRegraEEventoValidoComPrecisaoEIdentidade() throws Exception {
+	void textoSemParametrosCriaJobSemRegraEEventoValidoComIdentidade() throws Exception {
 		dono.update(
 				"INSERT INTO usuarios (id, login, nome, papel, keycloak_sub, criado_em) VALUES (?, 'outro', 'Outro', 'profissional_rh', 'subject-outro', now())",
 				UUID.fromString("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"));
@@ -198,13 +199,45 @@ class SubmissoesHttpTests {
 		assertThat(evento.has("regra_id")).as("a publicação inicial precede a extração").isFalse();
 		assertThat(evento.path("submissao_id").asString()).isEqualTo(id.toString());
 		assertThat(evento.path("origem").asString()).isEqualTo("texto");
-		assertThat(evento.path("competencias").toString()).isEqualTo("[\"2025-08\",\"2025-11\"]");
-		assertThat(evento.path("orcamento").decimalValue()).isEqualByComparingTo("485000.1234567890123456789");
-		assertThat(dono.queryForObject("SELECT orcamento FROM jobs WHERE id = ?", java.math.BigDecimal.class, job))
-			.isEqualByComparingTo("485000.1234567890123456789");
+		assertThat(evento.path("competencias").toString())
+			.isEqualTo("[\"2025-08\",\"2025-09\",\"2025-10\",\"2025-11\",\"2025-12\"]");
+		assertThat(evento.has("orcamento")).isFalse();
+		assertThat(evento.has("meta_venda")).isFalse();
+		defaultsDoJob(job);
 		assertThat(contar("regras")).isZero();
 		assertThat(contar("trabalhos_transcricao")).isZero();
 		consultarSemRegra(job, "gerando_regra");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "texto", "voz" })
+	void ignoraCamposObsoletosMesmoInvalidos(String tipo) throws Exception {
+		for (String campos : List.of("\"orcamento\":-1,\"competencias\":[\"1900-01\",\"2025-11\",\"2025-11\"]",
+				"\"orcamento\":\"ignorado\",\"competencias\":{}", "\"orcamento\":null,\"competencias\":null")) {
+			String original = tipo.equals("texto") ? corpoTexto(TEXTO) : PARAMETROS;
+			String corpo = original.substring(0, original.length() - 1) + "," + campos + ",\"meta_venda\":-100}";
+			var resposta = tipo.equals("texto") ? texto(corpo, rh) : voz("audio/ogg", ogg(4), corpo, rh);
+			var criada = criada(resposta, tipo, tipo.equals("texto") ? "gerando_regra" : "aguardando_transcricao");
+			UUID job = UUID.fromString(criada.path("job").path("id").asString());
+			defaultsDoJob(job);
+			if (tipo.equals("texto")) {
+				String payload = Objects.requireNonNull(dono
+					.queryForObject("SELECT payload::text FROM outbox_events WHERE job_id = ?", String.class, job));
+				ContratoDeEvento.validar("regra-submetida", payload);
+				var evento = JSON.readTree(payload);
+				assertThat(evento.has("orcamento")).isFalse();
+				assertThat(evento.has("meta_venda")).isFalse();
+				assertThat(evento.has("regra_id")).isFalse();
+			}
+		}
+	}
+
+	private static void defaultsDoJob(UUID job) {
+		assertThat(dono.queryForMap("SELECT orcamento, meta_venda FROM jobs WHERE id = ?", job))
+			.containsEntry("orcamento", null)
+			.containsEntry("meta_venda", null);
+		assertThat(dono.queryForObject("SELECT competencias::text FROM jobs WHERE id = ?", String.class, job))
+			.isEqualTo("{2025-08,2025-09,2025-10,2025-11,2025-12}");
 	}
 
 	static Stream<Arguments> formatos() {
@@ -235,8 +268,7 @@ class SubmissoesHttpTests {
 			.containsEntry("submissao_id", id)
 			.containsEntry("iniciado_em", null)
 			.containsEntry("finalizado_em", null);
-		assertThat(dono.queryForObject("SELECT competencias::text FROM jobs WHERE id = ?", String.class, job))
-			.isEqualTo("{2025-08,2025-09,2025-10,2025-11,2025-12}");
+		defaultsDoJob(job);
 		assertThat(contar("trabalhos_transcricao")).isEqualTo(1);
 		var trabalho = dono.queryForMap("SELECT * FROM trabalhos_transcricao WHERE job_id = ?", job);
 		assertThat(trabalho).containsEntry("submissao_id", id)
@@ -255,16 +287,9 @@ class SubmissoesHttpTests {
 	static Stream<String> textosInvalidos() {
 		String valido = corpoTexto("regra");
 		return Stream.of("{", "[]", valido + " {}", valido.replace("entrada_inicial", "correcao"),
-				valido.replace("\"tipo\":\"texto\"", "\"tipo\":\"voz\""), valido.replace("\"texto\":\"regra\",", ""),
+				valido.replace("\"tipo\":\"texto\"", "\"tipo\":\"voz\""), valido.replace(",\"texto\":\"regra\"", ""),
 				valido.replace("\"texto\":\"regra\"", "\"texto\":123"), corpoTexto(""), corpoTexto(" \t\n"),
-				corpoTexto("\u00a0"), corpoTexto("x".repeat(8001)),
-				valido.replace("485000.1234567890123456789", "null"),
-				valido.replace("485000.1234567890123456789", "\"20\""),
-				valido.replace("485000.1234567890123456789", "-1"),
-				valido.replace("\"orcamento\":485000.1234567890123456789,", ""),
-				valido.replace("[\"2025-11\",\"2025-08\"]", "[]"), valido.replace("2025-08", "2025-07"),
-				valido.replace("2025-08", "2025-11"), valido.replace("[\"2025-11\",\"2025-08\"]", "null"),
-				valido.replace("[\"2025-11\",\"2025-08\"]", "[1]"));
+				corpoTexto("\u00a0"), corpoTexto("x".repeat(8001)));
 	}
 
 	@ParameterizedTest
@@ -274,15 +299,12 @@ class SubmissoesHttpTests {
 	}
 
 	@Test
-	void aceitaLimiteDeTextoEmPontosUnicodeEOrcamentoZero() throws Exception {
-		criada(texto(corpoTexto("😀".repeat(8000)).replace("485000.1234567890123456789", "0"), rh), "texto",
-				"gerando_regra");
+	void aceitaLimiteDeTextoEmPontosUnicode() throws Exception {
+		criada(texto(corpoTexto("😀".repeat(8000)), rh), "texto", "gerando_regra");
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "{}", "{", "[]", "{\"finalidade\":\"entrada_inicial\",\"tipo\":\"texto\"}",
-			"{\"finalidade\":\"entrada_inicial\",\"tipo\":\"voz\"}",
-			"{\"finalidade\":\"entrada_inicial\",\"tipo\":\"voz\",\"orcamento\":-1}" })
+	@ValueSource(strings = { "{}", "{", "[]", "{\"finalidade\":\"entrada_inicial\",\"tipo\":\"texto\"}" })
 	void recusaParametrosDaVoz(String parametros) throws Exception {
 		recusa(voz("audio/ogg", ogg(4), parametros, rh), 400, "requisicao_invalida");
 	}
@@ -325,9 +347,24 @@ class SubmissoesHttpTests {
 
 	@Test
 	void vozDesabilitadaNaoPersiste() throws Exception {
-		assertThat(new DisponibilidadeTranscricao().disponivel()).isFalse();
 		VOZ.set(false);
 		recusa(voz("audio/ogg", ogg(4), PARAMETROS, rh), 409, "estado_invalido");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "", " ", "chave-ficticia-sem-chamada-externa" })
+	void disponibilidadeUsaConfiguracaoRealDoDeepgram(String chaveConfigurada) throws Exception {
+		var cliente = new ClienteDeepgram(
+				new AppProperties.Transcription(chaveConfigurada, "http://127.0.0.1:1", 100, 100));
+		VOZ.set(new DisponibilidadeTranscricao(cliente).disponivel());
+		var resposta = voz("audio/ogg", ogg(4), PARAMETROS, rh);
+		if (chaveConfigurada.isBlank()) {
+			recusa(resposta, 409, "estado_invalido");
+		}
+		else {
+			var criada = criada(resposta, "voz", "aguardando_transcricao");
+			defaultsDoJob(UUID.fromString(criada.path("job").path("id").asString()));
+		}
 	}
 
 	@Test
@@ -480,6 +517,8 @@ class SubmissoesHttpTests {
 		ContratoDeEvento.validar("regra-submetida", payload);
 		assertThat(JSON.readTree(payload).path("origem").asString()).isEqualTo("voz");
 		assertThat(JSON.readTree(payload).has("regra_id")).isFalse();
+		assertThat(JSON.readTree(payload).has("orcamento")).isFalse();
+		assertThat(JSON.readTree(payload).has("meta_venda")).isFalse();
 		assertThat(MDC.get("job_id")).isNull();
 		assertThat(MDC.get("user_id")).isNull();
 	}
@@ -607,7 +646,7 @@ class SubmissoesHttpTests {
 
 	private static String corpoTexto(String texto) {
 		return "{\"finalidade\":\"entrada_inicial\",\"tipo\":\"texto\",\"texto\":" + JSON.writeValueAsString(texto)
-				+ ",\"orcamento\":485000.1234567890123456789,\"competencias\":[\"2025-11\",\"2025-08\"]}";
+				+ "}";
 	}
 
 	private static byte[] ogg(int tamanho) {

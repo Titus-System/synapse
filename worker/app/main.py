@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.core.logger import get_logger, stop_logger
+from app.core.metrics import global_metrics as global_metrics
 from app.core.metrics.prometheus import prometheus
 from app.execucao.baseline import carregar_baselines
 from app.execucao.schema import carregar_contratos

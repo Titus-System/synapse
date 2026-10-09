@@ -1,5 +1,6 @@
 package synapse.api.job;
 
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -145,7 +146,18 @@ class JobEventosService {
 			.contains(contexto.status())) {
 			return null;
 		}
-		String hash = HashDaRegra.calcular(representacao);
+		// A sugestão só ajusta nucleo.percentual; os parâmetros da versão de origem
+		// passam para a nova como estavam, e o hash os cobre pelo mesmo motivo do
+		// núcleo - sem isso, uma origem nascida de texto com parâmetros nunca bateria
+		// hash com a sugestão que ela mesma originou. Lista vazia é regraOrigemId
+		// inexistente: sugestaoElegivel também diria não, mas sem lançar antes dela.
+		List<String> parametrosDaOrigem = this.repository.buscarParametrosDaVersao(regraOrigemId);
+		if (parametrosDaOrigem.isEmpty()) {
+			return null;
+		}
+		String parametrosJson = parametrosDaOrigem.getFirst();
+		ParametrosDaSimulacao parametros = ParametrosExtraidos.deVersaoExistente(parametrosJson);
+		String hash = HashDaRegra.calcular(representacao, parametros);
 		Boolean valida = this.repository.sugestaoElegivel(jobId, regraOrigemId, resultadoId, hash, percentual,
 				representacao);
 		if (!Boolean.TRUE.equals(valida)) {
@@ -171,8 +183,8 @@ class JobEventosService {
 		JobStatus origem = this.maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "evento",
 				"sugestao_adaptacao_proposta");
 		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
-		VersaoRegra versao = this.versoes.resolver(jobId, representacao, hash, "sugestao_adaptacao", regraOrigemId,
-				Timestamp.from(agora), agora);
+		VersaoRegra versao = this.versoes.resolver(jobId, representacao, parametrosJson, hash, "sugestao_adaptacao",
+				regraOrigemId, Timestamp.from(agora), agora);
 		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, contexto.regraSubmetida(versao.id()));
 		return new SugestaoAplicada(origem, versao, desfechoOriginal);
 	}
@@ -181,10 +193,11 @@ class JobEventosService {
 	}
 
 	/**
-	 * Grava a versão raiz de um job de texto ou voz a partir da extração do codegen e
-	 * registra o {@code regra-submetida} que reabre o ciclo, na mesma transação. Não move
-	 * o job: ele segue em {@code gerando_regra}. A trava do job serializa duas entregas
-	 * da mesma extração, e a segunda encontra a versão já gravada.
+	 * Grava a versão raiz de um job de texto ou voz a partir da extração do codegen, leva
+	 * para o job os parâmetros que o texto disse e registra o {@code regra-submetida} que
+	 * reabre o ciclo - tudo na mesma transação. Não move o job: ele segue em
+	 * {@code gerando_regra}. A trava do job serializa duas entregas da mesma extração, e
+	 * a segunda encontra a versão já gravada, sem regravar parâmetro nem republicar.
 	 */
 	@Transactional
 	ExtracaoAplicada aplicarRegraExtraida(UUID jobId, UUID submissaoId, UUID extracaoId) {
@@ -208,11 +221,16 @@ class JobEventosService {
 		if (representacao == null) {
 			return ExtracaoAplicada.descartada(DesfechoDaExtracao.REPRESENTACAO_INVALIDA);
 		}
+		ParametrosDaSimulacao parametros = ParametrosExtraidos.validados(extracao.parametros());
+		if (parametros == null) {
+			return ExtracaoAplicada.descartada(DesfechoDaExtracao.PARAMETROS_INVALIDOS);
+		}
 
-		String hash = HashDaRegra.calcular(representacao);
+		String hash = HashDaRegra.calcular(representacao, parametros);
 		List<VersaoRegra> jaGravada = this.repository.buscarRegraPorHash(jobId, hash);
 		if (!jaGravada.isEmpty() && VersoesDaRegra.ORIGEM_EXTRACAO.equals(jaGravada.getFirst().origem())) {
-			return new ExtracaoAplicada(DesfechoDaExtracao.REENTREGA, jaGravada.getFirst().id());
+			return new ExtracaoAplicada(DesfechoDaExtracao.REENTREGA, jaGravada.getFirst().id(),
+					ParametrosGravados.NENHUM);
 		}
 		if (contexto.status() != JobStatus.GERANDO_REGRA) {
 			return ExtracaoAplicada.descartada(DesfechoDaExtracao.ESTADO_INCOMPATIVEL);
@@ -223,18 +241,45 @@ class JobEventosService {
 		}
 
 		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		gravarParametrosNoJob(jobId, parametros);
 		VersaoRegra versao = this.versoes.resolverExtracao(jobId, extracaoId, hash, Timestamp.from(agora), agora);
-		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, contexto.regraSubmetida(versao.id()));
-		return new ExtracaoAplicada(DesfechoDaExtracao.PERSISTIDA, versao.id());
+		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA,
+				contexto.com(parametros).regraSubmetida(versao.id()));
+		return new ExtracaoAplicada(DesfechoDaExtracao.PERSISTIDA, versao.id(), ParametrosGravados.de(parametros));
+	}
+
+	/**
+	 * Grava no job o que a extração trouxe, e só isso: um parâmetro que o texto não disse
+	 * não é apagado nem recebe padrão aqui. Sem período dito, o job segue com as
+	 * competências com que nasceu, que são todas as publicadas. O valor vai como veio,
+	 * inclusive inválido - um orçamento negativo é gravado, e quem o aponta é a validação
+	 * de domínio do ciclo que este evento reabre.
+	 */
+	private void gravarParametrosNoJob(UUID jobId, ParametrosDaSimulacao parametros) {
+		BigDecimal orcamento = parametros.orcamento();
+		if (orcamento != null) {
+			this.repository.atualizarOrcamento(jobId, orcamento);
+		}
+		BigDecimal metaVenda = parametros.meta_venda();
+		if (metaVenda != null) {
+			this.repository.atualizarMetaVenda(jobId, metaVenda);
+		}
+		List<String> periodo = parametros.periodoCanonico();
+		if (periodo != null) {
+			this.repository.atualizarCompetencias(jobId, periodo);
+		}
 	}
 
 	/**
 	 * {@code regraId} existe quando há versão da extração: gravada agora ou reentregue.
+	 * {@code parametros} diz quais o job recebeu agora, sem os valores, e é
+	 * {@link ParametrosGravados#NENHUM} em todo desfecho que não gravou - inclusive na
+	 * reentrega, que não regrava os que a primeira entrega já levou.
 	 */
-	record ExtracaoAplicada(DesfechoDaExtracao desfecho, @Nullable UUID regraId) {
+	record ExtracaoAplicada(DesfechoDaExtracao desfecho, @Nullable UUID regraId, ParametrosGravados parametros) {
 
 		static ExtracaoAplicada descartada(DesfechoDaExtracao desfecho) {
-			return new ExtracaoAplicada(desfecho, null);
+			return new ExtracaoAplicada(desfecho, null, ParametrosGravados.NENHUM);
 		}
 
 	}
@@ -261,6 +306,8 @@ class JobEventosService {
 		EXTRACAO_DIVERGENTE("descartada", "extracao_divergente"),
 
 		REPRESENTACAO_INVALIDA("descartada", "representacao_invalida"),
+
+		PARAMETROS_INVALIDOS("descartada", "parametros_invalidos"),
 
 		ESTADO_INCOMPATIVEL("descartada", "estado_incompativel"),
 

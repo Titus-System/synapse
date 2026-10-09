@@ -17,7 +17,7 @@ por prompt injection vindo do texto da regra. A hipótese de trabalho não é "o
 | Imagem (T-033) | o que **existe dentro**: dados, motor, bibliotecas, usuário não-root | `sandbox/Dockerfile`, `app/sandbox/*` |
 | Execução (T-064) | **como** o container roda: rede, sistema de arquivos, limites, prazo, remoção | `app/execucao/container.py` |
 | Coleta (T-065) | classificar a saída em `sucesso`, `assercao_violada`, `erro_codigo` ou `erro_infra`, e validar o resultado pelo schema | `app/execucao/coleta.py`, `app/execucao/schema.py` |
-| Veredito (T-066) | conferir o total contra o baseline do worker, acrescentar o orçamento e julgar, fora do container | `app/execucao/veredito.py`, `app/execucao/baseline.py` |
+| Veredito (T-066, T-241) | conferir o total contra o baseline do worker, conferir a cobertura dos elementos exigidos, acrescentar o orçamento e julgar, fora do container | `app/execucao/veredito.py`, `app/execucao/baseline.py` |
 | Gravação e publicação (T-067) | persistir `resultados_simulacao` e publicar `simulacao-concluida` | `app/repositorio/resultados.py`, `app/execucao/registro.py`, `app/mensageria/publicador.py` |
 
 Mudar o contrato exige autorização explícita: ele está congelado e o `codegen` gera código
@@ -62,6 +62,11 @@ orçamento em `ExecucaoPreparada` e só o `payload` viaja; o executor recusa o c
 aparecer; e um teste varre a imagem atrás de qualquer valor de orçamento. O veredito é
 calculado pelo worker, fora do container (T-066). Não "simplifique" isso passando o
 orçamento adiante.
+
+Os `elementos_exigidos` do comando seguem a mesma regra: ficam em `ExecucaoPreparada`, fora do
+payload, e só o julgamento os lê. Dentro do container o harness apenas lê e valida a declaração
+`elementos_implementados`, que vai no envelope (versão 2) só ao lado de um resultado; a
+conferência de cobertura (T-241) é do worker, depois da conferência do baseline.
 
 O veredito (`app/execucao/veredito.py`) é a única coisa que lê o orçamento: `viavel` até o
 orçamento, **igualdade incluída** (DEC-093), `inviavel` acima, sobre o total absoluto simulado, e

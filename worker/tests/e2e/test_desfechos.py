@@ -7,6 +7,7 @@ no log. É o ciclo fechado: todo comando termina, e termina de um jeito que dá 
 """
 
 import json
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -230,6 +231,69 @@ async def test_comando_ruim_vai_a_dlq_e_nao_trava_a_fila(ambiente: Ambiente) -> 
     assert await ambiente.linhas(de_outro_job["job_id"]) == []
     await fechar_o_ciclo(ambiente, worker, semente, na_dlq=len(ruins))
     assert await ambiente.corretor.esperar(ambiente.corretor.api, prazo=2) is None
+
+
+def _contagem_de_cobertura(metricas: str) -> float:
+    """A amostra do contador da T-241 no texto de `/metrics`. Ela existe desde a subida: o coletor
+    é carregado na composição da aplicação, e não no primeiro incremento."""
+    achado = re.search(r"^worker_cobertura_incompleta_total (\S+)$", metricas, flags=re.MULTILINE)
+    assert achado is not None, "worker_cobertura_incompleta_total não aparece em /metrics"
+    return float(achado.group(1))
+
+
+async def test_cobertura_incompleta_para_o_job_com_o_elemento_no_diagnostico_e_conta_em_metrics(
+    ambiente: Ambiente,
+) -> None:
+    """O exemplo do contrato declara só nucleo.percentual, e o comando exige também elem.1 (T-241).
+    O processo real grava o elemento no diagnóstico, registra a falha com o job e a referência, e a
+    conta no `/metrics` que expõe."""
+    worker = await ambiente.iniciar_worker()
+    assert _contagem_de_cobertura(await worker.metricas()) == 0.0
+    semente = await ambiente.semear(regras.SUCESSO)
+
+    await ambiente.corretor.publicar_comando(
+        semente, 485000.0, elementos_exigidos=["nucleo.percentual", "elem.1"]
+    )
+    evento = await ambiente.corretor.evento(ambiente.corretor.api)
+
+    (linha,) = await ambiente.linhas(semente["job_id"])
+    assert (linha["status"], linha["veredito"], linha["totais"]) == ("erro_codigo", None, None)
+    assert set(evento) == CAMPOS_DO_EVENTO_DE_ERRO and evento["status"] == "erro_codigo"
+    diagnostico = json.loads(linha["diagnostico"])
+    assert diagnostico == {"causa": "cobertura_incompleta", "elementos_ausentes": ["elem.1"]}
+    assert erros_do_dominio("resultado-diagnostico", diagnostico) == []
+    (julgada,) = worker.mensagens("execução julgada")
+    assert erros_do_log(julgada) == []
+    assert julgada["job_id"] == str(semente["job_id"])
+    assert (julgada["extra"]["motivo"], julgada["extra"]["elementos_ausentes"]) == (
+        "cobertura_incompleta",
+        ["elem.1"],
+    )
+    assert _contagem_de_cobertura(await worker.metricas()) == 1.0
+    # A fonte do exemplo do contrato: o código gerado não vai ao log.
+    assert "_MARCA_ALVO" in regras.SUCESSO
+    assert "_MARCA_ALVO" not in worker.texto_do_log()
+    await fechar_o_ciclo(ambiente, worker, semente)
+
+
+async def test_cobertura_completa_e_sucesso_e_nao_conta_em_metrics(ambiente: Ambiente) -> None:
+    worker = await ambiente.iniciar_worker()
+    semente = await ambiente.semear(regras.SUCESSO)
+
+    await ambiente.corretor.publicar_comando(
+        semente, 485000.0, elementos_exigidos=["nucleo.percentual"]
+    )
+    evento = await ambiente.corretor.evento(ambiente.corretor.api)
+
+    (linha,) = await ambiente.linhas(semente["job_id"])
+    assert (linha["status"], linha["veredito"], linha["diagnostico"]) == (
+        "sucesso",
+        "inviavel",
+        None,
+    )
+    assert evento["total_simulado"] == regras.SIMULADO_DO_EXEMPLO
+    assert _contagem_de_cobertura(await worker.metricas()) == 0.0
+    await fechar_o_ciclo(ambiente, worker, semente)
 
 
 async def test_os_logs_do_processo_seguem_o_schema_de_log_do_monorepo(ambiente: Ambiente) -> None:

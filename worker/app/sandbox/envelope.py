@@ -19,7 +19,8 @@ from typing import Literal, TypedDict
 from app.sandbox.assercoes import Desfecho
 from app.sandbox.resultado import ResultadoSimulacao
 
-VERSAO = 1
+# 2: o envelope passou a levar ``elementos_implementados`` (T-241).
+VERSAO = 2
 
 # O payload que o worker escreve no stdin: exatamente os campos de PayloadContainer
 # (app/execucao/preparo.py). Nunca ``orcamento``: quem produz o número não alcança o
@@ -74,6 +75,9 @@ class Envelope(TypedDict):
     # Só em sucesso. Válido contra resultado-simulacao.schema.json quando o worker
     # acrescenta totais.orcamento.
     resultado: ResultadoSimulacao | None
+    # Só em sucesso, e nulo também quando o código gerado não declarou nada: a lista que ele
+    # devolveu em aplicar_regra, para a conferência de cobertura do worker (T-241).
+    elementos_implementados: list[str] | None
     # Só em erro_codigo.
     erro: Falha | None
 

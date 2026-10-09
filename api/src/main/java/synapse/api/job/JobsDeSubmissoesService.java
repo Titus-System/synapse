@@ -7,7 +7,6 @@ import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import tools.jackson.databind.JsonNode;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -50,18 +49,16 @@ class JobsDeSubmissoesService implements JobsDeSubmissoes {
 	}
 
 	@Override
-	public JobCriado criar(UUID submissaoId, TipoEntrada tipo, JsonNode parametros, AcessoDoUsuario acesso,
-			Instant criadoEm) {
+	public JobCriado criar(UUID submissaoId, TipoEntrada tipo, AcessoDoUsuario acesso, Instant criadoEm) {
 		this.autorizador.exigir(OperacaoJob.CRIAR, null, acesso);
-		ParametrosIniciaisJob entrada = ParametrosIniciaisJob.deJson(parametros);
 		JobStatus status = tipo == TipoEntrada.TEXTO ? JobStatus.GERANDO_REGRA : JobStatus.AGUARDANDO_TRANSCRICAO;
 		UUID id = this.repository.inserirJob(status.paraColuna(), acesso.usuarioId(), submissaoId,
-				entrada.competencias(), entrada.orcamento(), Timestamp.from(criadoEm));
+				CompetenciasPublicadas.TODAS, null, Timestamp.from(criadoEm));
 		try (var escopo = this.correlacao.abrir(id.toString(), acesso.usuarioId().toString())) {
 			this.maquina.registrarCriacao(id, status, "usuario");
 			if (tipo == TipoEntrada.TEXTO) {
 				this.outbox.registrar(id, EventoOutbox.REGRA_SUBMETIDA, new RegraSubmetidaDto(id, "texto",
-						entrada.competencias(), entrada.orcamento(), submissaoId, null));
+						CompetenciasPublicadas.TODAS, null, null, submissaoId, null));
 			}
 		}
 		return new JobCriado(id, status.paraColuna());
@@ -95,8 +92,8 @@ class JobsDeSubmissoesService implements JobsDeSubmissoes {
 			this.maquina.transicionar(jobId, sucesso ? JobStatus.GERANDO_REGRA : JobStatus.ERRO, "sistema",
 					sucesso ? null : "erro_transcricao");
 			if (sucesso) {
-				this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA,
-						new RegraSubmetidaDto(jobId, "voz", job.competencias(), job.orcamento(), submissaoId, null));
+				this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, new RegraSubmetidaDto(jobId, "voz",
+						job.competencias(), job.orcamento(), job.metaVenda(), submissaoId, null));
 			}
 			observacao.resultado = "aplicada";
 			return true;

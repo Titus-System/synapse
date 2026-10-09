@@ -28,12 +28,13 @@ record CriarJobRequisicao(String origem, List<String> competencias, BigDecimal o
 		if (!"formulario".equals(origem)) {
 			throw CriarJobException.requisicao("O campo origem deve ser formulario.");
 		}
-		try {
-			competencias = new ParametrosIniciaisJob(orcamento, competencias).competencias();
+		if (competencias.isEmpty() || !CompetenciasPublicadas.TODAS.containsAll(competencias)) {
+			throw CriarJobException.requisicao("Informe competências entre 2025-08 e 2025-12, em uma lista não vazia.");
 		}
-		catch (JobsDeSubmissoes.ParametrosInvalidos ex) {
-			throw CriarJobException.requisicao(ex.getMessage());
+		if (new HashSet<>(competencias).size() != competencias.size()) {
+			throw CriarJobException.requisicao("O campo competencias não permite meses repetidos.");
 		}
+		competencias = competencias.stream().sorted().toList();
 		validarConteudo(conteudo);
 		conteudo = conteudo.deepCopy();
 	}
@@ -52,14 +53,26 @@ record CriarJobRequisicao(String origem, List<String> competencias, BigDecimal o
 		if (!raiz.path("origem").isString()) {
 			throw CriarJobException.requisicao("O campo origem deve ser formulario.");
 		}
-		try {
-			ParametrosIniciaisJob parametros = ParametrosIniciaisJob.deJson(raiz);
-			return new CriarJobRequisicao(raiz.path("origem").asString(), parametros.competencias(),
-					parametros.orcamento(), raiz.path("conteudo"));
+		JsonNode orcamento = raiz.path("orcamento");
+		if (!orcamento.isNumber()) {
+			throw CriarJobException.requisicao("O campo orcamento é obrigatório e precisa ser um número.");
 		}
-		catch (JobsDeSubmissoes.ParametrosInvalidos ex) {
-			throw CriarJobException.requisicao(ex.getMessage());
+		List<String> competencias = CompetenciasPublicadas.TODAS;
+		if (raiz.has("competencias")) {
+			JsonNode meses = raiz.path("competencias");
+			if (!meses.isArray()) {
+				throw CriarJobException.requisicao("O campo competencias precisa ser uma lista de meses.");
+			}
+			competencias = new ArrayList<>();
+			for (JsonNode mes : meses) {
+				if (!mes.isString()) {
+					throw CriarJobException.requisicao("Cada competência precisa ser um mês entre 2025-08 e 2025-12.");
+				}
+				competencias.add(mes.asString());
+			}
 		}
+		return new CriarJobRequisicao(raiz.path("origem").asString(), competencias, orcamento.decimalValue(),
+				raiz.path("conteudo"));
 	}
 
 	RepresentacaoRegraDto representacao() {

@@ -10,6 +10,9 @@ Como todo `contracts/`, isto é insumo de build e nunca dependência de runtime.
 | [domain/representacao-regra-elementos.json](domain/representacao-regra-elementos.json) | `domain/representacao-regra.schema.json` | Faixa de valor, janela de datas e exclusão, sem alteração do schema |
 | [domain/representacao-regra-generico.json](domain/representacao-regra-generico.json) | `domain/representacao-regra.schema.json` | Elemento que não corresponde a nenhum construto reconhecido |
 | [domain/conflitos-rodada.json](domain/conflitos-rodada.json) | `domain/conflitos-rodada.schema.json` | Conflitos de uma rodada de correção: um campo ausente e um conflito entre núcleo e exclusão |
+| [domain/conflitos-rodada-parametros.json](domain/conflitos-rodada-parametros.json) | `domain/conflitos-rodada.schema.json` | Conflitos sobre os parâmetros da simulação: orçamento negativo, meta zero e competência sem dados publicados, sem o valor dito no motivo |
+| [domain/parametros-simulacao.json](domain/parametros-simulacao.json) | `domain/parametros-simulacao.schema.json` | Orçamento, meta de venda e período ditos no texto |
+| [domain/parametros-simulacao-vazio.json](domain/parametros-simulacao-vazio.json) | `domain/parametros-simulacao.schema.json` | Texto que não diz nenhum parâmetro |
 | [domain/resultado-simulacao.json](domain/resultado-simulacao.json) | `domain/resultado-simulacao.schema.json` | Totais, asserções e as cinco quebras da decomposição |
 | [domain/resultado-linhas.json](domain/resultado-linhas.json) | `domain/resultado-linhas.schema.json` | Apuração por competência e matrícula, na lotação do RH: linha sem alteração, aumento percentual e bônus individual |
 | [domain/resultado-diagnostico-resultado-incoerente.json](domain/resultado-diagnostico-resultado-incoerente.json) | `domain/resultado-diagnostico.schema.json` | Detalhamento que não fecha com totais ou quebras, recusado fora do container, sem exceção capturada |
@@ -19,15 +22,35 @@ Como todo `contracts/`, isto é insumo de build e nunca dependência de runtime.
 | [domain/resultado-diagnostico-cobertura-incompleta.json](domain/resultado-diagnostico-cobertura-incompleta.json) | `domain/resultado-diagnostico.schema.json` | Cobertura incompleta: a causa e o elemento exigido que o código não declarou, sem falha nem problemas |
 | [events/executar-codigo-cobertura.json](events/executar-codigo-cobertura.json) | `events/executar-codigo.schema.json` | Comando com os elementos que a regra exige, para o worker conferir a cobertura; `executar-codigo.json` é o mesmo comando sem o campo, que segue executado sem a conferência |
 | [events/parametros-confirmados.json](events/parametros-confirmados.json) | `events/parametros-confirmados.schema.json` | Versão pronta para abrir o ciclo do codegen, com as competências e o orçamento do job |
+| [events/parametros-confirmados-meta-venda.json](events/parametros-confirmados-meta-venda.json) | `events/parametros-confirmados.schema.json` | Versão gravada a partir de uma correção, com a meta de venda do job |
+| [events/regra-submetida-texto.json](events/regra-submetida-texto.json) | `events/regra-submetida.schema.json` | Primeira publicação da origem texto, antes da extração: sem orçamento, sem meta e com todas as competências publicadas |
+| [events/regra-submetida-voz.json](events/regra-submetida-voz.json) | `events/regra-submetida.schema.json` | Primeira publicação da origem voz, sem orçamento/meta e com todas as competências publicadas |
+| [events/regra-submetida-parametros.json](events/regra-submetida-parametros.json) | `events/regra-submetida.schema.json` | Origem texto republicada com a versão extraída e com o orçamento, a meta e o período que o texto disse |
 | [events/etapa-alterada.json](events/etapa-alterada.json) | `events/etapa-alterada.schema.json` | Progresso sem conflitos: o campo `conflitos` ausente |
 | [events/etapa-alterada-conflitos.json](events/etapa-alterada-conflitos.json) | `events/etapa-alterada.schema.json` | Pausa para correção: a versão analisada e os conflitos que o chatbot mostra ao usuário, com os elementos envolvidos e o motivo |
 | [events/etapa-alterada-falha-reextracao.json](events/etapa-alterada-falha-reextracao.json) | `events/etapa-alterada.schema.json` | Falha da reextração de uma correção, que reabre a rodada em vez de encerrar o job |
 | [events/correcao-submetida.json](events/correcao-submetida.json) | `events/correcao-submetida.schema.json` | Correção enviada pelo chatbot, por referência à submissão, com as competências do job |
-| [events/correcao-proposta.json](events/correcao-proposta.json) | `events/correcao-proposta.schema.json` | Regra reextraída da correção, no corpo, ainda sem linha em `regras` |
+| [events/correcao-submetida-parametros.json](events/correcao-submetida-parametros.json) | `events/correcao-submetida.schema.json` | Correção com os parâmetros atuais do job, entre eles uma competência fora das publicadas |
+| [events/etapa-alterada-conflitos-parametros.json](events/etapa-alterada-conflitos-parametros.json) | `events/etapa-alterada.schema.json` | Pausa para correção de orçamento, meta e período, validada pela referência ao schema de conflitos |
+| [events/correcao-proposta.json](events/correcao-proposta.json) | `events/correcao-proposta.schema.json` | Regra reextraída da correção, no corpo, ainda sem linha em `regras`; sem `parametros`, os do job não mudam |
+| [events/correcao-proposta-parametros.json](events/correcao-proposta-parametros.json) | `events/correcao-proposta.schema.json` | Correção do período, com o conjunto completo de parâmetros depois dela |
 | [events/job-encerrado.json](events/job-encerrado.json) | `events/job-encerrado.schema.json` | Encerramento por decisão do usuário (`liberado`) |
 | [events/job-encerrado-erro.json](events/job-encerrado-erro.json) | `events/job-encerrado.schema.json` | Encerramento por falha (`erro`) |
 | [events/regra-extraida.json](events/regra-extraida.json) | `events/regra-extraida.schema.json` | Referências ao job, à submissão e ao artefato em `extracoes_regras`, sem representação no corpo |
 | [domain/rebaixamentos-extracao.json](domain/rebaixamentos-extracao.json) | `domain/rebaixamentos-extracao.schema.json` | Motivos de conversão de elementos para genérico, armazenados fora da representação |
+| [domain/rebaixamentos-extracao-parametros.json](domain/rebaixamentos-extracao-parametros.json) | `domain/rebaixamentos-extracao.schema.json` | Códigos fora do vocabulário ou ambíguos, e parâmetros da simulação sem lastro ou com período não resolvido |
+| [events/executar-codigo-meta-venda.json](events/executar-codigo-meta-venda.json) | `events/executar-codigo.schema.json` | Simulação do job na meta de venda, com orçamento: o sandbox escala as vendas até a meta |
+| [events/executar-codigo-busca-meta.json](events/executar-codigo-busca-meta.json) | `events/executar-codigo.schema.json` | Execução candidata da busca da meta maior: o mesmo código numa meta candidata, com `proposito = busca_meta` |
+| [events/executar-codigo-sem-orcamento.json](events/executar-codigo-sem-orcamento.json) | `events/executar-codigo.schema.json` | Job sem orçamento: simulação sem a verificação de orçamento |
+| [domain/resultado-totais-meta-venda.json](domain/resultado-totais-meta-venda.json) | `domain/resultado-totais.schema.json` | Totais apurados na meta, com o orçamento e o total histórico de vendas do período |
+| [domain/resultado-totais-sem-orcamento.json](domain/resultado-totais-sem-orcamento.json) | `domain/resultado-totais.schema.json` | Totais de um job sem orçamento: sem `orcamento`, com o total histórico de vendas |
+| [events/simulacao-concluida-meta-venda.json](events/simulacao-concluida-meta-venda.json) | `events/simulacao-concluida.schema.json` | Simulação do job na meta de venda, viável |
+| [events/simulacao-concluida-busca-meta.json](events/simulacao-concluida-busca-meta.json) | `events/simulacao-concluida.schema.json` | Execução candidata da busca, que a API não trata como desfecho do job |
+| [events/simulacao-concluida-sem-orcamento.json](events/simulacao-concluida-sem-orcamento.json) | `events/simulacao-concluida.schema.json` | Sucesso sem veredito, de um job sem orçamento |
+| [events/meta-venda-sugerida.json](events/meta-venda-sugerida.json) | `events/meta-venda-sugerida.schema.json` | Meta maior encontrada, com a referência da execução candidata que fecha a busca |
+| [events/meta-venda-sugerida-sem-solucao.json](events/meta-venda-sugerida-sem-solucao.json) | `events/meta-venda-sugerida.schema.json` | Busca sem meta para sugerir, com o motivo |
+| [events/sugestao-adaptacao-proposta-tentativa.json](events/sugestao-adaptacao-proposta-tentativa.json) | `events/sugestao-adaptacao-proposta.schema.json` | Segunda tentativa de taxa nova, derivada da alternativa anterior que não coube |
+| [events/etapa-alterada-sem-alternativa.json](events/etapa-alterada-sem-alternativa.json) | `events/etapa-alterada.schema.json` | Fim das tentativas de taxa nova sem uma taxa que caiba no orçamento |
 
 Schema alterado mantém pelo menos um exemplo válido atualizado na mesma mudança.
 

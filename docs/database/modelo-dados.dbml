@@ -89,12 +89,27 @@ em resultados_simulacao.decomposicao, na quebra competencia.
 ["2025-08" ... "2025-12"] = periodo canonico publicado. Subconjuntos podem ser nao contiguos, como ["2025-08", "2025-11"].
 DEFAULT = periodo inteiro: nao informado na requisicao, a API preenche com todas as
 competencias do dataset. Nunca vazio - array vazio seria um job que nao simula nada.
+Job de texto ou voz: nasce com todas as competencias publicadas e, depois da extracao,
+recebe o periodo dito, quando o texto o diz, como foi dito. Uma competencia fora das
+publicadas fica gravada, e a validacao de dominio a aponta como conflito.
 Forma canonica: ordem crescente, sem repeticao.
 AAAA-MM e nao data: o dataset so tem Date_Ref com granularidade mensal (DEC-084).
 Excecao: o construto janela_datas usa dia, porque a base de vendas de novembro carrega
 data real (Black Friday) - ver regras.especificacoes.
 ''']
-  orcamento numeric [not null, note: 'parametro da simulacao (US01), informado pelo usuario junto com as competencias (ARCHITECTURE.md §1.3)']
+  orcamento numeric [note: '''
+Orcamento de comissao do periodo, parametro da simulacao (US01). NULL quando o job nao tem
+orcamento, e entao a simulacao e feita sem a verificacao de orcamento.
+Formulario: informado no campo da requisicao. Texto ou voz: NULL ate a extracao e quando
+o texto nao diz orcamento; quando diz, o valor como foi dito. Sem restricao de faixa no
+banco: um orcamento negativo e gravado e a validacao de dominio o aponta como conflito.
+''']
+  meta_venda numeric [note: '''
+Meta de venda do periodo, dita no texto ou no audio: o total de vendas sobre o qual a regra
+e simulada. NULL quando nao dita, e entao a simulacao usa as vendas historicas.
+Valor como foi dito, sem restricao de faixa no banco: meta zero ou negativa e gravada e a
+validacao de dominio a aponta como conflito.
+''']
   job_origem_id uuid [ref: > jobs.id, note: 'NULL no job original. Self; reprocessamento (US07 c3). Exatamente uma das duas procedencias e preenchida: submissao_id (nasceu de gente) ou job_origem_id (nasceu de outro job)']
   criado_em timestamptz [not null]
   iniciado_em timestamptz [note: 'null ate o processamento comecar']
@@ -165,7 +180,7 @@ Table job_transicoes {
 Table job_acoes {
   id uuid [pk, default: `uuidv7()`]
   job_id uuid [not null, ref: > jobs.id]
-  acao text [not null, note: 'confirmar_liberar | cancelar | salvar | arquivar']
+  acao text [not null, note: 'confirmar_liberar | cancelar | salvar | arquivar | aceitar_meta. aceitar_meta torna vigente a simulacao da meta sugerida (meta-venda-sugerida)']
   executado_em timestamptz [not null]
 
   indexes {
@@ -178,7 +193,7 @@ Table simulacoes {
   criado_em timestamptz [not null, note: 'timestamp (US04)']
   regra_id uuid [not null, ref: > regras.id, note: 'versao exata (US04) - ON DELETE RESTRICT']
   job_id uuid [not null, ref: > jobs.id, note: 'competencias e orcamento vivem em jobs. Uma simulacao cobre TODAS as competencias de jobs.competencias de uma vez']
-  codigo_gerado_id uuid [not null, ref: - codigos_gerados.id, note: 'codigo executado. Escrito no INSERT; e por ele que a API acha a simulacao ao consumir simulacao-concluida']
+  codigo_gerado_id uuid [not null, ref: - codigos_gerados.id, note: 'codigo executado. Escrito no INSERT; e por ele que a API acha a simulacao ao consumir simulacao-concluida. As execucoes candidatas da busca da meta (resultados_simulacao.proposito = busca_meta) usam o mesmo codigo e nao sao ligadas a esta tabela por esse caminho']
   resultado_id uuid [ref: - resultados_simulacao.id, note: 'null ate concluir; o veredito vive em resultados_simulacao.veredito']
   flag_baixa_rastreabilidade bool [not null, default: false, note: 'US05 c2']
 
@@ -244,7 +259,23 @@ Identificacao: o ref de cada item (elem.1, elem.2, sequencial) e os campos do nu
 lado - a cobertura declarada pelo codigo gerado e a quebra por elemento em
 resultados_simulacao.decomposicao.
 ''']
-  hash char64 [not null, note: 'sha-256 da serializacao canonica']
+  parametros jsonb [note: '''
+Formato: contracts/domain/parametros-simulacao.schema.json
+Parametros da simulacao com que a versao nasceu: orcamento, meta de venda e periodo ditos
+no texto ou na correcao. Nao fazem parte da regra e nao entram em nucleo nem em
+especificacoes.
+Preenchida nas versoes nascidas do texto: na de origem extracao, com
+extracoes_regras.parametros; na de origem correcao, com correcao-proposta.parametros, ou
+com os da versao corrigida quando o evento nao os traz. {} quando nenhum foi dito.
+NULL nas demais origens e nas versoes anteriores a coluna.
+''']
+  hash char64 [not null, note: '''
+sha-256 da serializacao canonica da representacao (nucleo e especificacoes) e, quando
+parametros nao e NULL, tambem dos parametros. Com parametros NULL, a serializacao e a de
+antes da coluna, e o hash das versoes de formulario, de reprocessamento e anteriores nao
+muda. Uma correcao que muda so os parametros gera hash novo e, por isso, versao nova com a
+mesma representacao, sem violar (job_id, hash).
+''']
   criada_em timestamptz [not null]
 
   indexes {
@@ -295,7 +326,17 @@ Table extracoes_regras {
   submissao_id uuid [not null, ref: > submissoes.id]
   resposta_id uuid [not null, ref: > respostas_modelo.id, note: 'Resposta bruta que originou esta proposta; prompt e modelo sao alcancados pela resposta']
   representacao jsonb [not null, note: 'Formato: contracts/domain/representacao-regra.schema.json. Proposta montada deterministicamente, com nucleo e especificacoes; a API cria a versao em regras']
-  rebaixamentos jsonb [not null, note: 'Formato: contracts/domain/rebaixamentos-extracao.schema.json. Diagnosticos separados da representacao, nunca no evento']
+  rebaixamentos jsonb [not null, note: 'Formato: contracts/domain/rebaixamentos-extracao.schema.json. Diagnosticos separados da representacao e dos parametros, nunca no evento']
+  parametros jsonb [not null, default: `'{}'::jsonb`, note: '''
+Formato: contracts/domain/parametros-simulacao.schema.json
+Orcamento, meta de venda e periodo que o texto diz, extraidos junto com a regra e fora da
+representacao. {} quando o texto nao diz nenhum. O valor e o que foi dito, inclusive um
+invalido, que a validacao de dominio aponta como conflito; um parametro dito sem lastro nao
+entra aqui e aparece em rebaixamentos com a referencia parametros.<campo>.
+A API le esta coluna ao consumir regra-extraida e grava os valores no job. O evento continua
+levando so referencias. O default mantem valido o INSERT de uma versao do codegen anterior
+a coluna.
+''']
   criado_em timestamptz [not null]
 
   indexes {
@@ -346,9 +387,35 @@ veredito para o conjunto. A contribuicao de cada mes esta na quebra competencia 
 decomposicao.
 orcamento e duplicado de jobs.orcamento de proposito: o worker nao tem permissao em jobs
 e esta tabela e INSERT-only, entao o insumo do veredito acompanha o veredito e nao pode
-ser alterado depois.
+ser alterado depois. Ausente quando o comando executar-codigo nao trouxe orcamento.
+Com meta_venda, baseline e simulado sao apurados sobre as vendas escaladas ate a meta.
+vendas_historicas e o total de vendas das competencias antes do escalonamento, acrescentado
+pelo worker fora do container; ausente nas linhas gravadas antes do campo.
 ''']
-  veredito text [note: 'null quando status <> sucesso. viavel | inviavel | indeterminado - derivado de totais.simulado vs totais.orcamento']
+  veredito text [note: '''
+null quando status <> sucesso, e tambem num sucesso sem orcamento (totais.orcamento
+ausente): o numero vale, mas nao ha criterio que o julgue. viavel | inviavel |
+indeterminado - derivado de totais.simulado vs totais.orcamento.
+''']
+  meta_venda numeric [note: '''
+Meta de venda em que a execucao foi simulada, recebida em executar-codigo.meta_venda: na
+simulacao do job, a meta do job; na execucao candidata da busca da meta maior, a meta
+candidata. NULL quando a execucao usou as vendas historicas, inclusive nas linhas gravadas
+antes da coluna. Gravada aqui, e nao lida de jobs.meta_venda, pelo mesmo motivo de
+totais.orcamento: o worker nao tem permissao em jobs, e a entrada que produziu o numero
+acompanha o numero.
+Escrita pelo worker no mesmo INSERT do resultado. Estritamente positiva quando presente.
+''']
+  proposito text [not null, default: 'simulacao', note: '''
+simulacao | busca_meta, recebido em executar-codigo.proposito (ausente = simulacao).
+E o que distingue a simulacao do job da execucao candidata da busca da meta maior. A
+candidata roda o mesmo codigo_gerado_id numa meta candidata e e gravada aqui como qualquer
+resultado, mas nao e desfecho do job: a API nao muda o estado, nao anuncia o resultado e nao
+a liga a uma linha de simulacoes ao consumir simulacao-concluida. So a candidata que fecha a
+busca e referenciada, por meta-venda-sugerida.resultado_id; se o usuario aceita a meta,
+ela passa a ser a simulacao vigente do job (a forma de registrar a aceitacao e da T-274).
+Linhas anteriores a coluna sao simulacoes do job, e o default as cobre sem backfill.
+''']
   assercoes jsonb [not null, note: '''
 Formato: contracts/domain/resultado-assercoes.schema.json
 Desfecho das assercoes invariantes (ARCHITECTURE.md §1.4); [] em erro_infra.

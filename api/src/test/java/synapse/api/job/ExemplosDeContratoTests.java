@@ -64,18 +64,46 @@ class ExemplosDeContratoTests {
 		assertThat(evento.status()).isEqualTo("iniciada");
 	}
 
+	/**
+	 * O exemplo do formulário não tem meta de venda - ela só é dita na descrição de uma
+	 * regra por texto ou voz -, e {@code FAIL_ON_MISSING_CREATOR_PROPERTIES} dispara para
+	 * qualquer componente ausente (ver a origem {@code voz}, abaixo), por isso este
+	 * cenário lê sem essa feature. Quem prova que o DTO cobre o contrato inteiro é
+	 * {@link #desserializaOEventoDeRegraSubmetidaComOsParametrosDoTexto}.
+	 */
 	@Test
 	void desserializaOEventoDeRegraSubmetida() throws IOException {
-		RegraSubmetidaDto evento = desserializar("events/regra-submetida.json", RegraSubmetidaDto.class);
+		RegraSubmetidaDto evento = this.objectMapper.readerFor(RegraSubmetidaDto.class)
+			.with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+			.readValue(Files.readString(exemplo("events/regra-submetida.json")));
 
 		assertThat(evento.job_id()).isEqualTo(UUID.fromString("3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"));
 		assertThat(evento.origem()).isEqualTo("formulario");
 		assertThat(evento.competencias()).containsExactly("2025-08", "2025-11");
 		assertThat(evento.orcamento()).isEqualByComparingTo("485000.0");
+		assertThat(evento.meta_venda()).isNull();
 		assertThat(evento.submissao_id()).isEqualTo(UUID.fromString("b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"));
 		assertThat(evento.regra_id()).isEqualTo(UUID.fromString("9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"));
 
 		ContratoDeEvento.validar("regra-submetida", Files.readString(exemplo("events/regra-submetida.json")));
+	}
+
+	/**
+	 * A republicação depois da extração, que é o exemplo com todos os campos do contrato:
+	 * o orçamento, a meta de venda e o período que o texto disse, lidos do job.
+	 */
+	@Test
+	void desserializaOEventoDeRegraSubmetidaComOsParametrosDoTexto() throws IOException {
+		RegraSubmetidaDto evento = desserializar("events/regra-submetida-parametros.json", RegraSubmetidaDto.class);
+
+		assertThat(evento.origem()).isEqualTo("texto");
+		assertThat(evento.competencias()).containsExactly("2025-09", "2025-10", "2025-11");
+		assertThat(evento.orcamento()).isEqualByComparingTo("500000.0");
+		assertThat(evento.meta_venda()).isEqualByComparingTo("12000000.0");
+		assertThat(evento.regra_id()).isEqualTo(UUID.fromString("5b8e2f14-7c3a-4d9e-a1f6-0e2d4c6b8a13"));
+
+		ContratoDeEvento.validar("regra-submetida",
+				Files.readString(exemplo("events/regra-submetida-parametros.json")));
 	}
 
 	/**
@@ -112,8 +140,8 @@ class ExemplosDeContratoTests {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "0", "485000.1234567890123456789" })
-	void schemaAceitaOrcamentoNaoNegativo(String valor) throws IOException {
+	@ValueSource(strings = { "-0.01", "0", "485000.1234567890123456789" })
+	void schemaAceitaOrcamentoComoFoiDito(String valor) throws IOException {
 		ObjectNode payload = (ObjectNode) this.objectMapper
 			.readTree(Files.readString(exemplo("events/regra-submetida.json")));
 		payload.put("orcamento", new BigDecimal(valor));
@@ -122,7 +150,7 @@ class ExemplosDeContratoTests {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "-0.01", "\"485000\"", "null", "true" })
+	@ValueSource(strings = { "\"485000\"", "null", "true" })
 	void schemaRecusaOrcamentoInvalido(String valor) throws IOException {
 		ObjectNode payload = (ObjectNode) this.objectMapper
 			.readTree(Files.readString(exemplo("events/regra-submetida.json")));
@@ -135,18 +163,21 @@ class ExemplosDeContratoTests {
 
 	/**
 	 * O schema recusa {@code null} explícito, então o campo ausente tem de continuar
-	 * ausente na ida e na volta - é o que {@code @JsonInclude(NON_NULL)} garante.
+	 * ausente na ida e na volta - é o que {@code @JsonInclude(NON_NULL)} garante. Vale
+	 * para o orçamento e para a meta: o job que não tem o parâmetro republica o evento
+	 * sem ele, nunca com {@code null}.
 	 */
-	@Test
-	void orcamentoAusentePermaneceAusenteAoSerializar() throws IOException {
+	@ParameterizedTest
+	@ValueSource(strings = { "orcamento", "meta_venda" })
+	void parametroAusentePermaneceAusenteAoSerializar(String campo) throws IOException {
 		ObjectNode payload = (ObjectNode) this.objectMapper
-			.readTree(Files.readString(exemplo("events/regra-submetida.json")));
-		payload.remove("orcamento");
+			.readTree(Files.readString(exemplo("events/regra-submetida-parametros.json")));
+		payload.remove(campo);
 		RegraSubmetidaDto evento = this.objectMapper.readValue(payload.toString(), RegraSubmetidaDto.class);
 
 		String serializado = this.objectMapper.writeValueAsString(evento);
 
-		assertThat(this.objectMapper.readTree(serializado).has("orcamento")).isFalse();
+		assertThat(this.objectMapper.readTree(serializado).has(campo)).isFalse();
 		ContratoDeEvento.validar("regra-submetida", serializado);
 	}
 

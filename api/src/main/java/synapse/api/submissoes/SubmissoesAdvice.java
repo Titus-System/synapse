@@ -12,8 +12,6 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
-import synapse.api.job.JobsDeSubmissoes;
-
 @RestControllerAdvice(assignableTypes = SubmissoesController.class)
 @Order(-1)
 class SubmissoesAdvice {
@@ -23,8 +21,7 @@ class SubmissoesAdvice {
 		return ResponseEntity.status(ex.status()).body(new ErroSubmissao(ex.codigo(), ex.getMessage()));
 	}
 
-	@ExceptionHandler({ JobsDeSubmissoes.ParametrosInvalidos.class, HttpMessageNotReadableException.class,
-			MissingServletRequestPartException.class })
+	@ExceptionHandler({ HttpMessageNotReadableException.class, MissingServletRequestPartException.class })
 	ResponseEntity<ErroSubmissao> requisicaoInvalida() {
 		return recusa(SubmissaoException.requisicao("Informe os campos e as partes obrigatórios com valores válidos."));
 	}

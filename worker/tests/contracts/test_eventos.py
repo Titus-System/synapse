@@ -20,6 +20,14 @@ def test_desserializa_exemplo_executar_codigo() -> None:
     assert str(mensagem.job_id) == "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
     assert mensagem.competencias == ["2025-08", "2025-11"]
     assert mensagem.orcamento == 485000.0
+    # O comando de antes da conferência de cobertura (T-241): o worker não a faz.
+    assert mensagem.elementos_exigidos is None
+
+
+def test_desserializa_exemplo_executar_codigo_com_elementos_exigidos() -> None:
+    mensagem = ExecutarCodigo.model_validate(carregar_exemplo("executar-codigo-cobertura.json"))
+
+    assert mensagem.elementos_exigidos == ["nucleo.percentual", "elem.1"]
 
 
 def test_desserializa_exemplo_simulacao_concluida() -> None:

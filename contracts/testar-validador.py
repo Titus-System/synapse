@@ -137,6 +137,69 @@ class TestarOpenApi(unittest.TestCase):
 
         self.assertEqual(resultado.returncode, 0, resultado.stderr)
 
+    def test_resumo_aceita_job_sem_orcamento_e_sem_meta(self) -> None:
+        def alterar(documento: Any) -> None:
+            resumo = documento["components"]["schemas"]["JobResumo"]["examples"][1]
+            del resumo["orcamento"]
+            del resumo["meta_venda"]
+
+        resultado = validar_openapi_com_alteracao(alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_entrada_inicial_aceita_campos_obsoletos_e_rejeita_texto_ausente(self) -> None:
+        for requisicao, valido in (
+            ({"finalidade": "entrada_inicial", "tipo": "texto", "texto": "Comissão de 2%."}, True),
+            (
+                {
+                    "finalidade": "entrada_inicial",
+                    "tipo": "texto",
+                    "texto": "Comissão de 2%.",
+                    "orcamento": 485000.0,
+                    "competencias": ["2025-11"],
+                },
+                True,
+            ),
+            ({"finalidade": "entrada_inicial", "tipo": "texto"}, False),
+        ):
+            with self.subTest(requisicao=requisicao):
+                def alterar(documento: Any) -> None:
+                    conteudo = documento["paths"]["/submissoes"]["post"]["requestBody"]
+                    conteudo["content"]["application/json"]["examples"] = {
+                        "caso": {"value": requisicao}
+                    }
+
+                resultado = validar_openapi_com_alteracao(alterar)
+                if valido:
+                    self.assertEqual(resultado.returncode, 0, resultado.stderr)
+                else:
+                    self.assertNotEqual(resultado.returncode, 0)
+                    self.assertIn("exemplo caso", resultado.stderr)
+
+    def test_ignora_campos_obsoletos_em_json_e_multipart(self) -> None:
+        for valor in ("inválido", None, -1, [], {"qualquer": True}):
+            with self.subTest(valor=valor):
+                def alterar(documento: Any) -> None:
+                    conteudo = documento["paths"]["/submissoes"]["post"]["requestBody"]["content"]
+                    campos = {"orcamento": valor, "competencias": valor}
+                    conteudo["application/json"]["examples"] = {
+                        "obsoletos": {"value": {
+                            "finalidade": "entrada_inicial", "tipo": "texto",
+                            "texto": "Comissão de 2%.", **campos,
+                        }}
+                    }
+                    conteudo["multipart/form-data"]["examples"] = {
+                        "obsoletos": {"value": {
+                            "audio": "<bytes>",
+                            "parametros": {
+                                "finalidade": "entrada_inicial", "tipo": "voz", **campos,
+                            },
+                        }}
+                    }
+
+                resultado = validar_openapi_com_alteracao(alterar)
+                self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
     def test_rejeita_estrutura_openapi_invalida(self) -> None:
         def alterar(documento: Any) -> None:
             del documento["paths"]["/jobs/{id}/nome"]["put"]["responses"]["200"]["description"]
@@ -489,6 +552,132 @@ class TestarConflitosDaRodada(unittest.TestCase):
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn("campo $[1].motivo", resultado.stderr)
 
+    def test_aceita_parametro_ao_lado_de_parte_da_regra(self) -> None:
+        def alterar(conflitos: Any) -> None:
+            conflitos[0]["elementos"] = ["parametros.meta_venda", "nucleo.vigencia"]
+
+        resultado = validar_com_alteracao("domain/conflitos-rodada-parametros.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_parametro_fora_do_vocabulario(self) -> None:
+        def alterar(conflitos: Any) -> None:
+            conflitos[0]["elementos"] = ["parametros.prazo"]
+
+        resultado = validar_com_alteracao("domain/conflitos-rodada-parametros.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $[0].elementos[0]", resultado.stderr)
+
+
+class TestarParametrosSimulacao(unittest.TestCase):
+    def test_eventos_e_http_validam_pela_referencia_unica(self) -> None:
+        # Alterar a fonte deve afetar todos os usos, inclusive as propriedades escalares.
+        def alterar(schema: Any) -> None:
+            schema["properties"]["meta_venda"]["const"] = 1
+
+        resultado = validar_com_alteracao("../domain/parametros-simulacao.schema.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        for exemplo in (
+            "events/regra-submetida-parametros.json: campo $.meta_venda",
+            "events/parametros-confirmados-meta-venda.json: campo $.meta_venda",
+            "events/correcao-submetida-parametros.json: campo $.meta_venda",
+            "events/correcao-proposta-parametros.json: campo $.parametros.meta_venda",
+            "exemplo descricaoComParametros, campo $.meta_venda",
+            "JobResumo: exemplo 1, campo $.meta_venda",
+        ):
+            self.assertIn(exemplo, resultado.stderr)
+
+    def test_parametros_nao_entram_na_cobertura_de_execucao(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["elementos_exigidos"] = ["parametros.orcamento"]
+
+        resultado = validar_com_alteracao("events/executar-codigo-cobertura.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.elementos_exigidos[0]", resultado.stderr)
+
+    def test_aceita_cada_campo_isolado(self) -> None:
+        for campo in ("orcamento", "meta_venda", "competencias"):
+            with self.subTest(campo=campo):
+                def alterar(parametros: Any) -> None:
+                    for outro in [c for c in list(parametros) if c != campo]:
+                        del parametros[outro]
+
+                resultado = validar_com_alteracao("domain/parametros-simulacao.json", alterar)
+
+                self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_aceita_valores_como_foram_ditos(self) -> None:
+        # Orçamento negativo, meta zero e competência fora das publicadas são conflitos da
+        # validação de domínio, não erros de formato.
+        def alterar(parametros: Any) -> None:
+            parametros["orcamento"] = -1
+            parametros["meta_venda"] = 0
+            parametros["competencias"] = ["2025-07"]
+
+        resultado = validar_com_alteracao("domain/parametros-simulacao.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_competencias_vazia(self) -> None:
+        def alterar(parametros: Any) -> None:
+            parametros["competencias"] = []
+
+        resultado = validar_com_alteracao("domain/parametros-simulacao.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("domain/parametros-simulacao.json: campo $.competencias", resultado.stderr)
+
+    def test_rejeita_competencia_fora_de_aaaa_mm(self) -> None:
+        def alterar(parametros: Any) -> None:
+            parametros["competencias"] = ["setembro"]
+
+        resultado = validar_com_alteracao("domain/parametros-simulacao.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.competencias[0]", resultado.stderr)
+
+    def test_rejeita_orcamento_que_nao_e_numero(self) -> None:
+        def alterar(parametros: Any) -> None:
+            parametros["orcamento"] = "R$ 500 mil"
+
+        resultado = validar_com_alteracao("domain/parametros-simulacao.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.orcamento", resultado.stderr)
+
+
+class TestarRebaixamentos(unittest.TestCase):
+    def test_rejeita_motivo_fora_do_vocabulario(self) -> None:
+        def alterar(rebaixamentos: Any) -> None:
+            rebaixamentos[2]["motivo"] = "valor_suspeito"
+
+        resultado = validar_com_alteracao("domain/rebaixamentos-extracao-parametros.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $[2].motivo", resultado.stderr)
+
+    def test_rejeita_parametro_fora_do_vocabulario(self) -> None:
+        def alterar(rebaixamentos: Any) -> None:
+            rebaixamentos[2]["ref"] = "parametros.prazo"
+
+        resultado = validar_com_alteracao("domain/rebaixamentos-extracao-parametros.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $[2].ref", resultado.stderr)
+
+    def test_rejeita_campo_do_nucleo(self) -> None:
+        # Um campo do núcleo sem lastro fica ausente da representação; não é rebaixado.
+        def alterar(rebaixamentos: Any) -> None:
+            rebaixamentos[0]["ref"] = "nucleo.percentual"
+
+        resultado = validar_com_alteracao("domain/rebaixamentos-extracao-parametros.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $[0].ref", resultado.stderr)
+
 
 class TestarRegraSubmetida(unittest.TestCase):
     def test_rejeita_origem_texto_sem_submissao(self) -> None:
@@ -509,6 +698,28 @@ class TestarRegraSubmetida(unittest.TestCase):
         resultado = validar_com_alteracao("events/regra-submetida-texto.json", alterar)
 
         self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_aceita_parametros_como_foram_ditos(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["orcamento"] = -500000
+            evento["meta_venda"] = -1
+            evento["competencias"] = ["2024-11"]
+
+        resultado = validar_com_alteracao("events/regra-submetida-parametros.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_meta_venda_nula(self) -> None:
+        # Sem meta, o campo fica ausente; null não é ausência.
+        def alterar(evento: Any) -> None:
+            evento["meta_venda"] = None
+
+        resultado = validar_com_alteracao("events/regra-submetida-parametros.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn(
+            "events/regra-submetida-parametros.json: campo $.meta_venda", resultado.stderr
+        )
 
 
 class TestarParametrosConfirmados(unittest.TestCase):
@@ -540,14 +751,27 @@ class TestarParametrosConfirmados(unittest.TestCase):
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn("campo $.competencias[0]", resultado.stderr)
 
-    def test_rejeita_orcamento_negativo(self) -> None:
+    def test_aceita_parametros_como_foram_ditos(self) -> None:
+        # O valor inválido chega ao codegen para a validação de domínio apontar o conflito.
         def alterar(evento: Any) -> None:
             evento["orcamento"] = -0.01
+            evento["meta_venda"] = 0
+            evento["competencias"] = ["2025-07"]
 
-        resultado = validar_com_alteracao("events/parametros-confirmados.json", alterar)
+        resultado = validar_com_alteracao("events/parametros-confirmados-meta-venda.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_meta_venda_que_nao_e_numero(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["meta_venda"] = "12000000"
+
+        resultado = validar_com_alteracao("events/parametros-confirmados-meta-venda.json", alterar)
 
         self.assertNotEqual(resultado.returncode, 0)
-        self.assertIn("events/parametros-confirmados.json: campo $.orcamento", resultado.stderr)
+        self.assertIn(
+            "events/parametros-confirmados-meta-venda.json: campo $.meta_venda", resultado.stderr
+        )
 
 
 class TestarCorrecao(unittest.TestCase):
@@ -596,6 +820,46 @@ class TestarCorrecao(unittest.TestCase):
 
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn("campo $.representacao", resultado.stderr)
+
+    def test_aceita_valores_invalidos_para_reextracao_e_revalidacao(self) -> None:
+        parametros = {"orcamento": -1, "meta_venda": 0, "competencias": ["2025-07"]}
+        for exemplo in ("correcao-submetida-parametros", "correcao-proposta-parametros"):
+            with self.subTest(exemplo=exemplo):
+                def alterar(evento: Any) -> None:
+                    if exemplo.startswith("correcao-proposta"):
+                        evento["parametros"] = parametros
+                    else:
+                        evento.update(parametros)
+
+                resultado = validar_com_alteracao(f"events/{exemplo}.json", alterar)
+                self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_aceita_correcao_submetida_sem_orcamento_e_sem_meta(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["orcamento"]
+            del evento["meta_venda"]
+
+        resultado = validar_com_alteracao("events/correcao-submetida-parametros.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_aceita_correcao_proposta_com_parametros_vazios(self) -> None:
+        # Conjunto completo sem parâmetros: sem orçamento, sem meta e com o período padrão.
+        def alterar(evento: Any) -> None:
+            evento["parametros"] = {}
+
+        resultado = validar_com_alteracao("events/correcao-proposta-parametros.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_correcao_proposta_com_parametros_fora_do_formato(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["parametros"]["competencias"] = []
+
+        resultado = validar_com_alteracao("events/correcao-proposta-parametros.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.parametros.competencias", resultado.stderr)
 
 
 class TestarRegraExtraida(unittest.TestCase):
@@ -745,6 +1009,247 @@ class TestarResultadoLinhas(unittest.TestCase):
         resultado = validar_com_alteracao("domain/resultado-linhas.json", alterar)
 
         self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+
+class TestarSimulacaoNaMeta(unittest.TestCase):
+    def test_execucao_sem_os_campos_novos_continua_valida(self) -> None:
+        # Os campos são aditivos: comando e evento publicados antes deles continuam válidos.
+        for exemplo in (
+            "events/executar-codigo-busca-meta.json",
+            "events/simulacao-concluida-busca-meta.json",
+        ):
+            with self.subTest(exemplo=exemplo):
+
+                def alterar(mensagem: Any) -> None:
+                    del mensagem["meta_venda"]
+                    del mensagem["proposito"]
+
+                resultado = validar_com_alteracao(exemplo, alterar)
+
+                self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_meta_venda_zero_ou_negativa(self) -> None:
+        for exemplo in (
+            "events/executar-codigo-meta-venda.json",
+            "events/simulacao-concluida-meta-venda.json",
+        ):
+            for valor in (0, -1):
+                with self.subTest(exemplo=exemplo, valor=valor):
+
+                    def alterar(mensagem: Any, valor: int = valor) -> None:
+                        mensagem["meta_venda"] = valor
+
+                    resultado = validar_com_alteracao(exemplo, alterar)
+
+                    self.assertNotEqual(resultado.returncode, 0)
+                    self.assertIn(f"{exemplo}: campo $.meta_venda", resultado.stderr)
+
+    def test_rejeita_proposito_fora_do_vocabulario(self) -> None:
+        def alterar(comando: Any) -> None:
+            comando["proposito"] = "candidata"
+
+        resultado = validar_com_alteracao("events/executar-codigo-busca-meta.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.proposito", resultado.stderr)
+
+    def test_eventos_usam_a_definicao_do_comando(self) -> None:
+        # Alterar o comando deve afetar o resultado e a sugestão, que o referenciam.
+        def alterar(schema: Any) -> None:
+            schema["properties"]["meta_venda"]["const"] = 1
+            schema["properties"]["proposito"]["const"] = "simulacao"
+
+        resultado = validar_com_alteracao("../events/executar-codigo.schema.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        for erro in (
+            "events/simulacao-concluida-meta-venda.json: campo $.meta_venda",
+            "events/simulacao-concluida-busca-meta.json: campo $.proposito",
+            "events/meta-venda-sugerida.json: campo $.meta_venda",
+        ):
+            self.assertIn(erro, resultado.stderr)
+
+
+class TestarSemOrcamento(unittest.TestCase):
+    def test_aceita_comando_sem_orcamento(self) -> None:
+        def alterar(comando: Any) -> None:
+            del comando["orcamento"]
+
+        resultado = validar_com_alteracao("events/executar-codigo.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_aceita_sucesso_sem_veredito(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["veredito"]
+
+        resultado = validar_com_alteracao("events/simulacao-concluida.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_aceita_totais_sem_orcamento(self) -> None:
+        def alterar(totais: Any) -> None:
+            del totais["orcamento"]
+
+        resultado = validar_com_alteracao("domain/resultado-totais.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_totais_continuam_exigindo_os_numeros_apurados(self) -> None:
+        for campo in ("baseline", "simulado", "diferenca_abs", "diferenca_pct"):
+            with self.subTest(campo=campo):
+
+                def alterar(totais: Any, campo: str = campo) -> None:
+                    del totais[campo]
+
+                resultado = validar_com_alteracao(
+                    "domain/resultado-totais-sem-orcamento.json", alterar
+                )
+
+                self.assertNotEqual(resultado.returncode, 0)
+                self.assertIn(f"'{campo}' is a required property", resultado.stderr)
+
+
+class TestarMetaVendaSugerida(unittest.TestCase):
+    def test_rejeita_evento_sem_meta_e_sem_solucao(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["meta_venda"]
+            del evento["resultado_id"]
+
+        resultado = validar_com_alteracao("events/meta-venda-sugerida.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("events/meta-venda-sugerida.json: campo $:", resultado.stderr)
+
+    def test_rejeita_as_duas_formas_juntas(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["sem_solucao"] = {"motivo": "intervalo_esgotado"}
+
+        resultado = validar_com_alteracao("events/meta-venda-sugerida.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("events/meta-venda-sugerida.json: campo $:", resultado.stderr)
+
+    def test_rejeita_meta_sem_a_execucao_que_a_simulou(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["resultado_id"]
+
+        resultado = validar_com_alteracao("events/meta-venda-sugerida.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("events/meta-venda-sugerida.json: campo $:", resultado.stderr)
+
+    def test_rejeita_execucao_na_forma_sem_solucao(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["resultado_id"] = "0192d4a3-1b7f-7c42-8e6d-2a3b4c5d6e7f"
+
+        resultado = validar_com_alteracao("events/meta-venda-sugerida-sem-solucao.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("events/meta-venda-sugerida-sem-solucao.json: campo $:", resultado.stderr)
+
+    def test_rejeita_motivo_ausente_ou_fora_do_vocabulario(self) -> None:
+        for sem_solucao in ({}, {"motivo": "orcamento_insuficiente"}):
+            with self.subTest(sem_solucao=sem_solucao):
+
+                def alterar(evento: Any, sem_solucao: dict[str, str] = sem_solucao) -> None:
+                    evento["sem_solucao"] = sem_solucao
+
+                resultado = validar_com_alteracao(
+                    "events/meta-venda-sugerida-sem-solucao.json", alterar
+                )
+
+                self.assertNotEqual(resultado.returncode, 0)
+                self.assertIn("events/meta-venda-sugerida-sem-solucao.json", resultado.stderr)
+
+    def test_rejeita_meta_sugerida_zero(self) -> None:
+        def alterar(evento: Any) -> None:
+            evento["meta_venda"] = 0
+
+        resultado = validar_com_alteracao("events/meta-venda-sugerida.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("events/meta-venda-sugerida.json: campo $.meta_venda", resultado.stderr)
+
+
+class TestarTentativaDaTaxa(unittest.TestCase):
+    def test_aceita_proposta_sem_tentativa(self) -> None:
+        def alterar(evento: Any) -> None:
+            del evento["tentativa"]
+
+        resultado = validar_com_alteracao(
+            "events/sugestao-adaptacao-proposta-tentativa.json", alterar
+        )
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_tentativa_fora_de_1_a_3(self) -> None:
+        for tentativa in (0, 4):
+            with self.subTest(tentativa=tentativa):
+
+                def alterar(evento: Any, tentativa: int = tentativa) -> None:
+                    evento["tentativa"] = tentativa
+
+                resultado = validar_com_alteracao(
+                    "events/sugestao-adaptacao-proposta-tentativa.json", alterar
+                )
+
+                self.assertNotEqual(resultado.returncode, 0)
+                self.assertIn("campo $.tentativa", resultado.stderr)
+
+
+class TestarMetaSugeridaHttp(unittest.TestCase):
+    @staticmethod
+    def exemplo_do_job(documento: Any) -> Any:
+        resposta = documento["paths"]["/jobs/{id}"]["get"]["responses"]["200"]
+        exemplos = resposta["content"]["application/json"]["examples"]
+        return exemplos["simulacaoNaMetaComMetaSugerida"]["value"]
+
+    def test_aceita_a_forma_sem_solucao(self) -> None:
+        def alterar(documento: Any) -> None:
+            self.exemplo_do_job(documento)["meta_sugerida"] = {
+                "sem_solucao": {"motivo": "nao_monotonica"}
+            }
+
+        resultado = validar_openapi_com_alteracao(alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_meta_sem_os_valores_que_a_tela_mostra_ou_com_as_duas_formas(self) -> None:
+        for alteracao in (
+            {"total_simulado": None},
+            {"orcamento": None},
+            {"sem_solucao": {"motivo": "intervalo_esgotado"}},
+        ):
+            with self.subTest(alteracao=alteracao):
+
+                def alterar(documento: Any, alteracao: dict[str, Any] = alteracao) -> None:
+                    meta = self.exemplo_do_job(documento)["meta_sugerida"]
+                    for campo, valor in alteracao.items():
+                        if valor is None:
+                            del meta[campo]
+                        else:
+                            meta[campo] = valor
+
+                resultado = validar_openapi_com_alteracao(alterar)
+
+                self.assertNotEqual(resultado.returncode, 0)
+                self.assertIn(
+                    "exemplo simulacaoNaMetaComMetaSugerida, campo $.meta_sugerida",
+                    resultado.stderr,
+                )
+
+    def test_rejeita_meta_da_simulacao_que_nao_e_positiva(self) -> None:
+        def alterar(documento: Any) -> None:
+            self.exemplo_do_job(documento)["simulacao"]["meta_venda"] = 0
+
+        resultado = validar_openapi_com_alteracao(alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn(
+            "exemplo simulacaoNaMetaComMetaSugerida, campo $.simulacao.meta_venda",
+            resultado.stderr,
+        )
 
 
 if __name__ == "__main__":

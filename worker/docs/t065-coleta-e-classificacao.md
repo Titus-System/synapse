@@ -51,13 +51,17 @@ sem valores.
 ### A forma e a coerência (regra 5)
 
 O harness sempre produz um envelope de forma fixa, e um que a contradiz não foi escrito por
-ele. Reprovam: chave a mais ou a menos; `versao` diferente de 1; tipos errados; `assercoes`
-fora do schema `resultado-assercoes`; e as incoerências:
+ele. Reprovam: chave a mais ou a menos; `versao` diferente de 2 (a 1 é a de antes de
+`elementos_implementados`, T-241); tipos errados; `assercoes` fora do schema
+`resultado-assercoes`; e as incoerências:
 
-- `sucesso` sem `resultado`, com `erro`, com alguma asserção `violada`, ou cuja lista de
-  asserções difere da de `resultado.assercoes`;
-- `assercao_violada` com `resultado`, com `erro`, ou **sem** nenhuma asserção violada;
-- `erro_codigo` sem `erro`, ou com `erro` fora de `tipo`, `mensagem` e `traceback` em texto.
+- `sucesso` sem `resultado`, com `erro`, com alguma asserção `violada`, cuja lista de
+  asserções difere da de `resultado.assercoes`, ou com `elementos_implementados` que não seja
+  nulo nem uma lista de identificadores de `elemento_ref`;
+- `assercao_violada` com `resultado`, com `erro`, com `elementos_implementados`, ou **sem**
+  nenhuma asserção violada;
+- `erro_codigo` sem `erro`, com `elementos_implementados`, ou com `erro` fora de `tipo`,
+  `mensagem` e `traceback` em texto.
 
 ## As decisões
 

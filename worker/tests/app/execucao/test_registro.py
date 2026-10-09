@@ -18,7 +18,7 @@ from app.execucao.registro import (
     evento_de,
     linha_do_julgamento,
 )
-from app.execucao.veredito import Julgamento, julgamento_de_infra
+from app.execucao.veredito import CoberturaIncompleta, Julgamento, julgamento_de_infra
 from app.repositorio.resultados import ResultadoGravado
 from tests.app.esquemas import erros_do_dominio, erros_do_evento
 from tests.app.execucao.envelopes import ASSERCAO_OK, ASSERCAO_VIOLADA, FALHA
@@ -184,6 +184,54 @@ def test_resultado_fora_do_schema_guarda_os_problemas() -> None:
     assert linha.diagnostico == {"causa": "resultado_fora_do_schema", "problemas": list(PROBLEMAS)}
 
 
+def cobertura_incompleta(
+    ausentes: tuple[str, ...] = (), fora_da_regra: tuple[str, ...] = ()
+) -> Julgamento:
+    """Como `julgar` o devolve: o desfecho do container era `sucesso`, e a causa é do julgamento."""
+    return Julgamento(
+        "erro_codigo",
+        "cobertura_incompleta",
+        "indeterminado",
+        desfecho=DesfechoClassificado("sucesso", "ok", [ASSERCAO_OK]),
+        cobertura=CoberturaIncompleta(ausentes=ausentes, fora_da_regra=fora_da_regra),
+    )
+
+
+@pytest.mark.parametrize(
+    ("julgamento", "diagnostico"),
+    [
+        (
+            cobertura_incompleta(ausentes=("nucleo.percentual", "elem.2")),
+            {
+                "causa": "cobertura_incompleta",
+                "elementos_ausentes": ["nucleo.percentual", "elem.2"],
+            },
+        ),
+        (
+            cobertura_incompleta(fora_da_regra=("elem.9",)),
+            {"causa": "cobertura_incompleta", "elementos_fora_da_regra": ["elem.9"]},
+        ),
+        (
+            cobertura_incompleta(ausentes=("elem.1",), fora_da_regra=("elem.9",)),
+            {
+                "causa": "cobertura_incompleta",
+                "elementos_ausentes": ["elem.1"],
+                "elementos_fora_da_regra": ["elem.9"],
+            },
+        ),
+    ],
+    ids=["ausentes", "fora da regra", "os dois"],
+)
+def test_cobertura_incompleta_guarda_os_elementos_que_a_reprovaram(
+    julgamento: Julgamento, diagnostico: dict[str, object]
+) -> None:
+    """A lista vazia fica de fora: o contrato só a admite com item."""
+    linha = linha_do_julgamento(julgamento)
+
+    assert linha.diagnostico == diagnostico
+    assert erros_do_dominio("resultado-diagnostico", linha.diagnostico) == []
+
+
 @pytest.mark.parametrize(
     "julgamento",
     [NAO_SUCESSOS[0], julgamento_de_infra(), julgamento_de_sucesso(600000.0)],
@@ -219,8 +267,14 @@ def test_todo_diagnostico_gravado_valida_contra_o_contrato(julgamento: Julgament
             erro_codigo("excecao", erro={**FALHA, "traceback": None}),
             {"caminho": "$.falha.traceback", "palavra_chave": "type"},
         ),
+        (cobertura_incompleta(), {"caminho": "$", "palavra_chave": "anyOf"}),
     ],
-    ids=["excecao sem falha", "falha fora de excecao", "falha mal formada"],
+    ids=[
+        "excecao sem falha",
+        "falha fora de excecao",
+        "falha mal formada",
+        "cobertura sem elemento",
+    ],
 )
 def test_diagnostico_incoerente_e_erro_do_worker_e_nao_e_gravado(
     julgamento: Julgamento, problema: dict[str, str]

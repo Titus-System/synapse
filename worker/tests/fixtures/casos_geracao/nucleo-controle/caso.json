@@ -1,0 +1,14 @@
+{
+  "id": "nucleo-controle",
+  "descricao": "Controle só de núcleo, com a regra do exemplo do harness. O período tem dois meses não seguidos, que um job pode pedir.",
+  "leitura": "A comissão de quem é da marca 10 no cargo 100 passa a ser 2,5% das vendas do mês, em todas as competências do período. As demais pessoas mantêm a comissão do baseline. Toda a diferença é do elemento nucleo.percentual.",
+  "representacao": {
+    "nucleo": {
+      "marca": ["10"],
+      "cargo": ["100"],
+      "percentual": 0.025
+    },
+    "especificacoes": []
+  },
+  "competencias": ["2025-08", "2025-11"]
+}
