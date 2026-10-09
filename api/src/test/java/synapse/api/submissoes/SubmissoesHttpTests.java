@@ -7,6 +7,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Date;
@@ -15,6 +16,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import com.nimbusds.jose.JWSAlgorithm;
@@ -44,6 +47,8 @@ import tools.jackson.databind.json.JsonMapper;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.tomcat.TomcatWebServer;
+import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -59,6 +64,7 @@ import synapse.api.job.ContratoDeEvento;
 import synapse.api.job.JobsDeSubmissoes;
 import synapse.api.job.JobStatus;
 import synapse.api.job.MaquinaDeEstadosDoJob;
+import synapse.api.job.StreamCliente;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -75,6 +81,8 @@ class SubmissoesHttpTests {
 	private static final String ISSUER = "https://emissor-de-teste.invalid/realms/synapse";
 
 	private static final String FILENAME = "segredo-nao-logar.exe";
+
+	private static final String MOTIVO_TRANSCRICAO = "Não foi possível transcrever a gravação. Envie a regra de novo, por texto ou por voz.";
 
 	private static final JsonMapper JSON = JsonMapper.builder()
 		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
@@ -346,6 +354,13 @@ class SubmissoesHttpTests {
 	}
 
 	@Test
+	void drenagemDoCorpoRecusadoTemTetoNoServidorReal() {
+		var servidor = (TomcatWebServer) Objects
+			.requireNonNull(((WebServerApplicationContext) contexto).getWebServer());
+		assertThat(servidor.getTomcat().getConnector().getProperty("maxSwallowSize")).isEqualTo(10 * 1024 * 1024);
+	}
+
+	@Test
 	void vozDesabilitadaNaoPersiste() throws Exception {
 		VOZ.set(false);
 		recusa(voz("audio/ogg", ogg(4), PARAMETROS, rh), 409, "estado_invalido");
@@ -585,6 +600,62 @@ class SubmissoesHttpTests {
 			.isNotNull();
 		assertThat(get("/metrics", "").body()).contains("transcricao_transicao_seconds_count",
 				"resultado=\"" + resultado + "\"");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "concluir", "falhar" })
+	void portaAnunciaATransicaoNoStreamSoDepoisDoCommitEAConsultaMostraOMotivo(String operacao) throws Exception {
+		var criada = criada(voz("audio/ogg", ogg(4), PARAMETROS, rh), "voz", "aguardando_transcricao");
+		UUID job = UUID.fromString(criada.path("job").path("id").asString());
+		UUID id = UUID.fromString(criada.path("id").asString());
+		var porta = contexto.getBean(JobsDeSubmissoes.class);
+		var tx = new TransactionTemplate(contexto.getBean(PlatformTransactionManager.class));
+		boolean concluir = operacao.equals("concluir");
+		String destino = concluir ? "gerando_regra" : "erro";
+		String desfeito = concluir ? "erro" : "gerando_regra";
+		var stream = new StreamCliente(HTTP.send(
+				requisicao("/jobs/" + job + "/events", rh).header("Accept", "text/event-stream").GET().build(),
+				HttpResponse.BodyHandlers.ofInputStream()));
+		try {
+			stream.aguardarBloco("\"status\":\"aguardando_transcricao\"", Duration.ofSeconds(10));
+			tx.executeWithoutResult(s -> {
+				assertThat(concluir ? porta.falharTranscricao(job, id) : porta.concluirTranscricao(job, id)).isTrue();
+				s.setRollbackOnly();
+			});
+			assertThat(tx.<Boolean>execute(
+					s -> concluir ? porta.concluirTranscricao(job, id) : porta.falharTranscricao(job, id)))
+				.isTrue();
+
+			JsonNode estado = estadoDoStream(
+					stream.aguardarBloco("\"status\":\"" + destino + "\"", Duration.ofSeconds(10)));
+			assertThat(estado.path("job_id").asString()).isEqualTo(job.toString());
+			assertThat(estado.path("status_anterior").asString()).isEqualTo("aguardando_transcricao");
+			assertThat(stream.conteudo()).doesNotContain("\"status\":\"" + desfeito + "\"");
+			var detalhe = get("/jobs/" + job, rh);
+			ContratoDeEvento.validarRespostaHttp("JobDetalhado", detalhe.body());
+			JsonNode consulta = JSON.readTree(detalhe.body());
+			assertThat(consulta.path("status").asString()).isEqualTo(destino);
+			if (concluir) {
+				assertThat(estado.has("motivo")).isFalse();
+				assertThat(consulta.has("motivo")).isFalse();
+			}
+			else {
+				assertThat(estado.path("motivo").asString()).isEqualTo(MOTIVO_TRANSCRICAO);
+				assertThat(consulta.path("motivo").asString()).isEqualTo(MOTIVO_TRANSCRICAO);
+				stream.aguardarFimDoStream(Duration.ofSeconds(10));
+			}
+		}
+		finally {
+			stream.fechar();
+		}
+	}
+
+	private static JsonNode estadoDoStream(String bloco) throws Exception {
+		assertThat(bloco).contains("event:estado");
+		Matcher dados = Pattern.compile("(?m)^data:(.*)$").matcher(bloco);
+		assertThat(dados.find()).as("bloco sem linha data: %s", bloco).isTrue();
+		ContratoDeEvento.validarEventoDoStream("estado", dados.group(1));
+		return JSON.readTree(dados.group(1));
 	}
 
 	private static JsonNode criada(HttpResponse<String> resposta, String tipo, String status) throws Exception {

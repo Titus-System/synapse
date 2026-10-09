@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,6 +20,8 @@ import synapse.api.core.metrics.AppMetrics;
 import synapse.api.core.outbox.EventoOutbox;
 import synapse.api.core.outbox.Outbox;
 import synapse.api.core.security.AcessoDoUsuario;
+import synapse.api.core.sse.EmissoresSse;
+import synapse.api.core.sse.EventoSse;
 
 @Service
 @Transactional(propagation = Propagation.MANDATORY)
@@ -38,14 +41,17 @@ class JobsDeSubmissoesService implements JobsDeSubmissoes {
 
 	private final AppMetrics metrics;
 
+	private final EmissoresSse emissores;
+
 	JobsDeSubmissoesService(JobRepository repository, MaquinaDeEstadosDoJob maquina, AutorizadorDeJob autorizador,
-			Outbox outbox, CorrelationContext correlacao, AppMetrics metrics) {
+			Outbox outbox, CorrelationContext correlacao, AppMetrics metrics, EmissoresSse emissores) {
 		this.repository = repository;
 		this.maquina = maquina;
 		this.autorizador = autorizador;
 		this.outbox = outbox;
 		this.correlacao = correlacao;
 		this.metrics = metrics;
+		this.emissores = emissores;
 	}
 
 	@Override
@@ -89,18 +95,26 @@ class JobsDeSubmissoesService implements JobsDeSubmissoes {
 				observacao.resultado = "descartada";
 				return false;
 			}
-			this.maquina.transicionar(jobId, sucesso ? JobStatus.GERANDO_REGRA : JobStatus.ERRO, "sistema",
-					sucesso ? null : "erro_transcricao");
+			JobStatus destino = sucesso ? JobStatus.GERANDO_REGRA : JobStatus.ERRO;
+			String motivo = sucesso ? null : MotivoDaParada.FALHA_NA_TRANSCRICAO;
+			JobStatus origem = this.maquina.transicionar(jobId, destino, "sistema", motivo);
 			if (sucesso) {
 				this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, new RegraSubmetidaDto(jobId, "voz",
 						job.competencias(), job.orcamento(), job.metaVenda(), submissaoId, null));
 			}
+			var estado = EventoEstadoDto.transicao(jobId, origem, destino,
+					MotivoDaParada.razaoLocalizada(destino, motivo));
+			observacao.anuncio = destino.terminal() ? EventoSse.ultimo("estado", estado)
+					: EventoSse.de("estado", estado);
 			observacao.resultado = "aplicada";
 			return true;
 		}
 	}
 
-	/** Mede a chamada até o desfecho da transação que a contém, inclusive rollback. */
+	/**
+	 * Mede a chamada até o desfecho da transação que a contém, inclusive rollback, e só
+	 * depois do commit anuncia a transição no stream SSE.
+	 */
 	private final class ObservacaoTranscricao implements TransactionSynchronization {
 
 		private final UUID jobId;
@@ -110,6 +124,8 @@ class JobsDeSubmissoesService implements JobsDeSubmissoes {
 		private final long inicio = System.nanoTime();
 
 		private String resultado = "rollback";
+
+		private @Nullable EventoSse anuncio;
 
 		private ObservacaoTranscricao(UUID jobId, String operacao) {
 			this.jobId = jobId;
@@ -126,6 +142,10 @@ class JobsDeSubmissoesService implements JobsDeSubmissoes {
 					.addKeyValue("operacao", this.operacao)
 					.addKeyValue("resultado", desfecho)
 					.log("transição após transcrição finalizada");
+				EventoSse anunciar = this.anuncio;
+				if (status == STATUS_COMMITTED && anunciar != null) {
+					emissores.emitir(this.jobId, anunciar);
+				}
 			}
 		}
 

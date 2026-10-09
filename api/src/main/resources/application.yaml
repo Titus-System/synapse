@@ -1,8 +1,10 @@
 server:
   tomcat:
     # Drena o upload recusado para entregar o JSON 413 antes de fechar a conexão.
-    # Os limites de aceitação continuam em spring.servlet.multipart.
-    max-swallow-size: -1
+    # Vale para toda rota, então tem teto: sem ele, qualquer cliente prenderia uma
+    # thread enviando um corpo sem fim. Os limites de aceitação ficam em
+    # spring.servlet.multipart.
+    max-swallow-size: 10MB
 
 spring:
   servlet:

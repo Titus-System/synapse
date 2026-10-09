@@ -33,6 +33,19 @@ class MotivoDaParadaTests {
 	}
 
 	@Test
+	void falhaNaTranscricaoTemRazaoPropriaSomenteEmErro() {
+		assertThat(MotivoDaParada.razaoLocalizada(JobStatus.ERRO, MotivoDaParada.FALHA_NA_TRANSCRICAO))
+			.isEqualTo(MotivoDaParada.TRANSCRICAO_FALHOU)
+			.isNotEqualTo(MotivoDaParada.FALHA_ANTES_DA_SIMULACAO);
+		for (JobStatus status : JobStatus.values()) {
+			if (status != JobStatus.ERRO) {
+				assertThat(MotivoDaParada.razaoLocalizada(status, MotivoDaParada.FALHA_NA_TRANSCRICAO)).as("%s", status)
+					.isNull();
+			}
+		}
+	}
+
+	@Test
 	void ausenciaDeTokenNaoDaMotivo() {
 		for (JobStatus status : JobStatus.values()) {
 			assertThat(MotivoDaParada.razaoLocalizada(status, null)).isNull();
