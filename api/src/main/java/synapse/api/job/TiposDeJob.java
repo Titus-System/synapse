@@ -134,6 +134,11 @@ record ResultadoAssercaoDto(
 		@Nullable String detalhe) {
 }
 
+/**
+ * As quebras absolutas são opcionais no contrato, que recusa {@code null} explícito: um
+ * resultado gravado sem elas sai sem elas.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 record DecomposicaoResultadoDto(
 
 		Map<String, BigDecimal> elemento,
@@ -144,7 +149,13 @@ record DecomposicaoResultadoDto(
 
 		Map<String, BigDecimal> cargo,
 
-		Map<String, BigDecimal> competencia) {
+		Map<String, BigDecimal> competencia,
+
+		@Nullable Map<String, BigDecimal> matricula,
+
+		@Nullable Map<String, BigDecimal> loja_absoluto,
+
+		@Nullable Map<String, BigDecimal> competencia_absoluto) {
 }
 
 record ResultadoSimulacaoDto(

@@ -222,6 +222,41 @@ class BuscarJobPersistenciaTests {
 		assertThat(resposta.path("simulacoes")).hasSize(1);
 	}
 
+	@Test
+	void decomposicaoTrazAsQuebrasAbsolutasGravadasENaoTrazODetalhamento() throws Exception {
+		UUID jobId = criarJobEmProcessamento();
+		UUID regra = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
+		UUID codigo = criarExecucaoPendente(jobId, regra);
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		UUID resultado = criarResultadoComDetalhamento(jobId, codigo);
+		eventos.concluirSimulacao(jobId, resultado, DesfechoDaSimulacao.VIAVEL);
+
+		JsonNode resposta = consultar(jobId);
+
+		JsonNode decomposicao = resposta.path("simulacao").path("resultado").path("decomposicao");
+		assertThat(decomposicao.path("matricula").path("MATRIC-422").decimalValue()).isEqualByComparingTo("484226.40");
+		assertThat(decomposicao.path("loja_absoluto").path("13").decimalValue()).isEqualByComparingTo("484226.40");
+		assertThat(decomposicao.path("competencia_absoluto").path("2025-11").decimalValue())
+			.isEqualByComparingTo("484226.40");
+		assertThat(resposta.toString()).doesNotContain("\"linhas\"", "comissao_baseline", "contribuicoes");
+	}
+
+	@Test
+	void decomposicaoSemQuebrasAbsolutasAsOmite() throws Exception {
+		UUID jobId = criarJobEmProcessamento();
+		UUID regra = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
+		UUID codigo = criarExecucaoPendente(jobId, regra);
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		UUID resultado = criarResultado(jobId, codigo, "sucesso", "viavel", true);
+		eventos.concluirSimulacao(jobId, resultado, DesfechoDaSimulacao.VIAVEL);
+
+		JsonNode resposta = consultar(jobId);
+
+		JsonNode decomposicao = resposta.path("simulacao").path("resultado").path("decomposicao");
+		assertThat(decomposicao.propertyNames()).containsExactlyInAnyOrder("elemento", "loja", "marca", "cargo",
+				"competencia");
+	}
+
 	@ParameterizedTest
 	@EnumSource(value = DesfechoDaSimulacao.class, names = { "ERRO_CODIGO", "ERRO_INFRA", "ASSERCAO_VIOLADA" })
 	void falhaDeExecucaoTrazAMesmaRazaoDoSseESimulacaoSemResultado(DesfechoDaSimulacao desfecho) throws Exception {
@@ -477,6 +512,29 @@ class BuscarJobPersistenciaTests {
 				VALUES (?, ?, ?, ?::jsonb, ?, ?::jsonb, ?::jsonb, now()) RETURNING id
 				""", UUID.class, jobId, codigoGeradoId, status, totais, veredito,
 				"[{\"nome\":\"sem_comissao_negativa\",\"resultado\":\"ok\",\"detalhe\":null}]", decomposicao));
+	}
+
+	/** O sucesso com as quebras absolutas e o detalhamento, gravados no mesmo INSERT. */
+	private static UUID criarResultadoComDetalhamento(UUID jobId, UUID codigoGeradoId) {
+		String totais = """
+				{"baseline":480000.00,"simulado":484226.40,"diferenca_abs":4226.40,"diferenca_pct":0.0088,"orcamento":485000.00}
+				""";
+		String decomposicao = """
+				{"elemento":{"nucleo.percentual":4226.40},"loja":{"13":4226.40},"marca":{"10":4226.40},
+				 "cargo":{"100":4226.40},"competencia":{"2025-11":4226.40},"matricula":{"MATRIC-422":484226.40},
+				 "loja_absoluto":{"13":484226.40},"competencia_absoluto":{"2025-11":484226.40}}
+				""";
+		String linhas = """
+				{"2025-11":{"MATRIC-422":{"cod_loja":"13","cod_marca":"10","cod_cargo":"100",
+				 "comissao_baseline":480000.00,"comissao_simulada":484226.40,"diferenca":4226.40,
+				 "contribuicoes":{"nucleo.percentual":4226.40}}}}
+				""";
+		return Objects.requireNonNull(dono.queryForObject("""
+				INSERT INTO resultados_simulacao (job_id, codigo_gerado_id, status, totais, veredito, assercoes,
+				                                  decomposicao, linhas, criado_em)
+				VALUES (?, ?, 'sucesso', ?::jsonb, 'viavel', ?::jsonb, ?::jsonb, ?::jsonb, now()) RETURNING id
+				""", UUID.class, jobId, codigoGeradoId, totais,
+				"[{\"nome\":\"sem_comissao_negativa\",\"resultado\":\"ok\",\"detalhe\":null}]", decomposicao, linhas));
 	}
 
 }

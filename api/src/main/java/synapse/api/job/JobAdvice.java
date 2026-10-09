@@ -83,6 +83,13 @@ class JobAdvice {
 		return resposta.body(new ErroDto("job_nao_encontrado", "Job não encontrado."));
 	}
 
+	@ExceptionHandler(SimulacaoNaoEncontradaException.class)
+	ResponseEntity<ErroDto> simulacaoNaoEncontrada(SimulacaoNaoEncontradaException ex, HttpServletRequest request) {
+		exigirOperacao(request, ex, OperacaoJob.CONSULTAR);
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+			.body(new ErroDto("simulacao_nao_encontrada", "Simulação não encontrada neste job."));
+	}
+
 	@ExceptionHandler(DataAccessException.class)
 	ResponseEntity<Void> falhaDePersistencia(DataAccessException ex, HttpServletRequest request) {
 		return switch (operacao(request, ex)) {

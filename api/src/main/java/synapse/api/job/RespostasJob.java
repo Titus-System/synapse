@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonRawValue;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -46,6 +47,15 @@ record JobDetalhadoDto(UUID id, String status, String origem, List<String> compe
 }
 
 record PaginaJobsDto(List<JobResumoDto> itens, int pagina, int tamanho, long total) {
+}
+
+/**
+ * Forma de {@code DetalhamentoSimulacao}. {@code linhas} é o jsonb repassado como foi
+ * gravado, sem passar por objetos Java, e fica ausente quando a simulação não tem
+ * detalhamento.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+record DetalhamentoSimulacaoDto(UUID simulacao_id, @JsonRawValue @Nullable String linhas) {
 }
 
 /**

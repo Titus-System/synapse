@@ -61,6 +61,12 @@ class JobController {
 		return this.service.buscar(id);
 	}
 
+	@AutorizarJob(OperacaoJob.CONSULTAR)
+	@GetMapping(path = "/jobs/{id}/simulacoes/{simulacaoId}/linhas", produces = "application/json")
+	DetalhamentoSimulacaoDto detalharSimulacao(@PathVariable UUID id, @PathVariable UUID simulacaoId) {
+		return this.service.detalharSimulacao(id, simulacaoId);
+	}
+
 	@AutorizarJob(OperacaoJob.ACOMPANHAR)
 	@GetMapping(path = "/jobs/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
 	ResponseEntity<SseEmitter> acompanhar(@PathVariable("id") UUID id) {
