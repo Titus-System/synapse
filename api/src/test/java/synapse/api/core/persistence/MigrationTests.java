@@ -46,9 +46,11 @@ class MigrationTests {
 	private static final List<String> TABELAS = List.of("usuarios", "submissoes", "jobs", "job_transicoes", "job_acoes",
 			"regras", "prompts", "respostas_modelo", "codigos_gerados", "resultados_simulacao", "explicacoes",
 			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras",
-			"rodadas_correcao");
+			"rodadas_correcao", "trabalhos_transcricao");
 
-	private static final int CHANGESETS = 23;
+	private static final int CHANGESETS = 24;
+
+	private static final int CHANGESETS_ANTES_DOS_TRABALHOS = 23;
 
 	private static final int CHANGESETS_ANTES_DAS_RODADAS = 22;
 
@@ -593,7 +595,7 @@ class MigrationTests {
 
 	@Test
 	void rollbackDasRodadasRemoveSomenteATabelaESeusIndices() throws Exception {
-		atualizar();
+		atualizar(CHANGESETS_ANTES_DOS_TRABALHOS);
 		assertThat(tabelasExistentes()).contains("rodadas_correcao");
 		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
 			semearParaRodadas(statement);
@@ -605,8 +607,9 @@ class MigrationTests {
 		reverter(1);
 
 		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DAS_RODADAS);
-		assertThat(tabelasExistentes())
-			.containsExactlyInAnyOrderElementsOf(TABELAS.stream().filter(t -> !t.equals("rodadas_correcao")).toList());
+		assertThat(tabelasExistentes()).containsExactlyInAnyOrderElementsOf(TABELAS.stream()
+			.filter(t -> !t.equals("rodadas_correcao") && !t.equals("trabalhos_transcricao"))
+			.toList());
 		assertThat(dadosAnterioresAsRodadas()).isEqualTo(dadosAntes);
 		assertThat(permissoesAnterioresAsRodadas()).isEqualTo(permissoesAntes);
 		try (Connection connection = abrir();
@@ -628,6 +631,106 @@ class MigrationTests {
 				INSERT INTO regras (id, job_id, versao, origem, nucleo, especificacoes, hash, criada_em)
 				VALUES ('%s', '%s', 1, 'extracao', '{}'::jsonb, '[]'::jsonb, repeat('a', 64), now())
 				""".formatted(REGRA_ID, JOB_ID));
+	}
+
+	@Test
+	void trabalhosTemTiposNulabilidadeUuidV7EDefaultDeTentativas() throws Exception {
+		atualizar();
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearParaRodadas(statement);
+			List<String> colunas = new ArrayList<>();
+			try (ResultSet rs = statement.executeQuery("""
+					SELECT column_name, data_type, is_nullable FROM information_schema.columns
+					WHERE table_name = 'trabalhos_transcricao' ORDER BY ordinal_position
+					""")) {
+				while (rs.next()) {
+					colunas.add(rs.getString(1) + ":" + rs.getString(2) + ":" + rs.getString(3));
+				}
+			}
+			assertThat(colunas).containsExactly("id:uuid:NO", "job_id:uuid:NO", "submissao_id:uuid:NO",
+					"finalidade:text:NO", "estado:text:NO", "tentativas:integer:NO",
+					"reservado_ate:timestamp with time zone:YES", "proxima_tentativa_em:timestamp with time zone:YES",
+					"criado_em:timestamp with time zone:NO", "atualizado_em:timestamp with time zone:NO");
+			try (ResultSet rs = statement
+				.executeQuery(insereTrabalho(JOB_ID, SUBMISSAO_ID.toString()) + " RETURNING *")) {
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getObject("id", UUID.class).version()).isEqualTo(7);
+				assertThat(rs.getInt("tentativas")).isZero();
+			}
+			try (ResultSet rs = statement.executeQuery(
+					"SELECT count(*) FROM pg_constraint WHERE conrelid = 'trabalhos_transcricao'::regclass AND contype = 'c'")) {
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getInt(1)).isZero();
+			}
+		}
+	}
+
+	@Test
+	void trabalhoRecusaSegundaLinhaParaMesmaSubmissao() throws Exception {
+		atualizar();
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearParaRodadas(statement);
+			String sql = insereTrabalho(JOB_ID, SUBMISSAO_ID.toString());
+			statement.execute(sql);
+			assertThatExceptionOfType(SQLException.class).isThrownBy(() -> statement.execute(sql))
+				.satisfies(e -> assertThat(e.getSQLState()).isEqualTo("23505"));
+		}
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "job", "submissao" })
+	void trabalhoExigeReferenciasExistentes(String referencia) throws Exception {
+		atualizar();
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearParaRodadas(statement);
+			String sql = insereTrabalho(referencia.equals("job") ? UUID.randomUUID().toString() : JOB_ID,
+					referencia.equals("submissao") ? UUID.randomUUID().toString() : SUBMISSAO_ID.toString());
+			assertThatExceptionOfType(SQLException.class).isThrownBy(() -> statement.execute(sql))
+				.satisfies(e -> assertThat(e.getSQLState()).isEqualTo("23503"));
+		}
+	}
+
+	@Test
+	void upgradeERollbackDosTrabalhosPreservamTodasAsTabelasAnteriores() throws Exception {
+		atualizar(CHANGESETS_ANTES_DOS_TRABALHOS);
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearParaRodadas(statement);
+			inserirRodada(connection, "pendente", null);
+		}
+		Map<String, String> antes = dadosAntesDosTrabalhos();
+		atualizar();
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS);
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			statement.execute(insereTrabalho(JOB_ID, SUBMISSAO_ID.toString()));
+		}
+		assertThat(dadosAntesDosTrabalhos()).isEqualTo(antes);
+		reverter(1);
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DOS_TRABALHOS);
+		assertThat(tabelasExistentes()).containsExactlyInAnyOrderElementsOf(
+				TABELAS.stream().filter(t -> !t.equals("trabalhos_transcricao")).toList());
+		assertThat(dadosAntesDosTrabalhos()).isEqualTo(antes);
+	}
+
+	private static Map<String, String> dadosAntesDosTrabalhos() throws Exception {
+		Map<String, String> dados = new HashMap<>();
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			for (String tabela : TABELAS) {
+				if (!tabela.equals("trabalhos_transcricao")) {
+					try (ResultSet rs = statement.executeQuery(
+							"SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM "
+									+ tabela + " t")) {
+						assertThat(rs.next()).isTrue();
+						dados.put(tabela, rs.getString(1));
+					}
+				}
+			}
+		}
+		return dados;
+	}
+
+	private static String insereTrabalho(String job, String submissao) {
+		return "INSERT INTO trabalhos_transcricao (job_id, submissao_id, finalidade, estado, criado_em, atualizado_em) VALUES ('%s', '%s', 'entrada_inicial', 'pendente', now(), now())"
+			.formatted(job, submissao);
 	}
 
 	private static UUID inserirRodada(Connection connection, String estado, @Nullable UUID anterior) throws Exception {
@@ -652,7 +755,7 @@ class MigrationTests {
 		Map<String, String> dados = new HashMap<>();
 		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
 			for (String tabela : TABELAS) {
-				if (!tabela.equals("rodadas_correcao")) {
+				if (!tabela.equals("rodadas_correcao") && !tabela.equals("trabalhos_transcricao")) {
 					try (ResultSet rs = statement.executeQuery(
 							"SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM "
 									+ tabela + " t")) {
@@ -669,11 +772,12 @@ class MigrationTests {
 		List<String> permissoes = new ArrayList<>();
 		try (Connection connection = abrir();
 				Statement statement = connection.createStatement();
-				ResultSet rs = statement.executeQuery("""
-						SELECT (table_name, grantee, privilege_type, is_grantable)::text
-						FROM information_schema.table_privileges
-						WHERE table_schema = 'public' AND table_name <> 'rodadas_correcao' ORDER BY 1
-						""")) {
+				ResultSet rs = statement.executeQuery(
+						"""
+								SELECT (table_name, grantee, privilege_type, is_grantable)::text
+								FROM information_schema.table_privileges
+								WHERE table_schema = 'public' AND table_name NOT IN ('rodadas_correcao', 'trabalhos_transcricao') ORDER BY 1
+								""")) {
 			while (rs.next()) {
 				permissoes.add(rs.getString(1));
 			}

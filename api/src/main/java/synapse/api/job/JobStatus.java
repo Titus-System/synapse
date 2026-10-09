@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Os nove estados do job e as transições permitidas entre eles - o único lugar do código
+ * Os dez estados do job e as transições permitidas entre eles - o único lugar do código
  * que os declara. {@code simulacao_inviavel} não tem aresta direta para {@code liberado}:
  * o único predecessor de {@code liberado} é {@code aguardando_decisao_usuario},
  * alcançável apenas por uma simulação concluída ({@code simulando}). Uma nova tentativa
@@ -15,10 +15,12 @@ import java.util.Set;
  */
 public enum JobStatus {
 
-	AGUARDANDO_CONFIRMACAO_PARAMETROS, GERANDO_REGRA, SIMULANDO, SIMULACAO_INVIAVEL, AGUARDANDO_DECISAO_USUARIO,
-	LIBERADO, CANCELADO, ARQUIVADO, ERRO;
+	AGUARDANDO_TRANSCRICAO, AGUARDANDO_CONFIRMACAO_PARAMETROS, GERANDO_REGRA, SIMULANDO, SIMULACAO_INVIAVEL,
+	AGUARDANDO_DECISAO_USUARIO, LIBERADO, CANCELADO, ARQUIVADO, ERRO;
 
 	private static final Map<JobStatus, Set<JobStatus>> TRANSICOES_PERMITIDAS = Map.of(
+
+			AGUARDANDO_TRANSCRICAO, Set.of(GERANDO_REGRA, ERRO, CANCELADO),
 
 			AGUARDANDO_CONFIRMACAO_PARAMETROS, Set.of(GERANDO_REGRA, CANCELADO),
 

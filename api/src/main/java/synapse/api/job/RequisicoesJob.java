@@ -19,15 +19,6 @@ import tools.jackson.databind.json.JsonMapper;
 
 record CriarJobRequisicao(String origem, List<String> competencias, BigDecimal orcamento, JsonNode conteudo) {
 
-	/**
-	 * As competências do dataset, que é o que a ausência do campo preenche (contrato de
-	 * {@code POST /jobs}) e o que um pedido explícito pode escolher. São cinco: Jul/2025
-	 * foi recebido na base bruta mas descartado no tratamento dos dados pela decisão
-	 * {@code EXCLUDE_2025_07}, então não está no dataset embutido no sandbox nem tem
-	 * baseline congelado - um job que o inclua não tem com o que comparar.
-	 */
-	private static final List<String> COMPETENCIAS = List.of("2025-08", "2025-09", "2025-10", "2025-11", "2025-12");
-
 	private static final JsonMapper JSON = JsonMapper.builder()
 		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS, DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
 		.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
@@ -37,13 +28,12 @@ record CriarJobRequisicao(String origem, List<String> competencias, BigDecimal o
 		if (!"formulario".equals(origem)) {
 			throw CriarJobException.requisicao("O campo origem deve ser formulario.");
 		}
-		if (competencias.isEmpty() || !COMPETENCIAS.containsAll(competencias)) {
-			throw CriarJobException.requisicao("Informe competências entre 2025-08 e 2025-12, em uma lista não vazia.");
+		try {
+			competencias = new ParametrosIniciaisJob(orcamento, competencias).competencias();
 		}
-		if (new HashSet<>(competencias).size() != competencias.size()) {
-			throw CriarJobException.requisicao("O campo competencias não permite meses repetidos.");
+		catch (JobsDeSubmissoes.ParametrosInvalidos ex) {
+			throw CriarJobException.requisicao(ex.getMessage());
 		}
-		competencias = competencias.stream().sorted().toList();
 		validarConteudo(conteudo);
 		conteudo = conteudo.deepCopy();
 	}
@@ -62,26 +52,14 @@ record CriarJobRequisicao(String origem, List<String> competencias, BigDecimal o
 		if (!raiz.path("origem").isString()) {
 			throw CriarJobException.requisicao("O campo origem deve ser formulario.");
 		}
-		JsonNode orcamento = raiz.path("orcamento");
-		if (!orcamento.isNumber()) {
-			throw CriarJobException.requisicao("O campo orcamento é obrigatório e precisa ser um número.");
+		try {
+			ParametrosIniciaisJob parametros = ParametrosIniciaisJob.deJson(raiz);
+			return new CriarJobRequisicao(raiz.path("origem").asString(), parametros.competencias(),
+					parametros.orcamento(), raiz.path("conteudo"));
 		}
-		List<String> competencias = COMPETENCIAS;
-		if (raiz.has("competencias")) {
-			JsonNode meses = raiz.path("competencias");
-			if (!meses.isArray()) {
-				throw CriarJobException.requisicao("O campo competencias precisa ser uma lista de meses.");
-			}
-			competencias = new ArrayList<>();
-			for (JsonNode mes : meses) {
-				if (!mes.isString()) {
-					throw CriarJobException.requisicao("Cada competência precisa ser um mês entre 2025-08 e 2025-12.");
-				}
-				competencias.add(mes.asString());
-			}
+		catch (JobsDeSubmissoes.ParametrosInvalidos ex) {
+			throw CriarJobException.requisicao(ex.getMessage());
 		}
-		return new CriarJobRequisicao(raiz.path("origem").asString(), competencias, orcamento.decimalValue(),
-				raiz.path("conteudo"));
 	}
 
 	RepresentacaoRegraDto representacao() {

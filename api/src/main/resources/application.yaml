@@ -1,4 +1,14 @@
+server:
+  tomcat:
+    # Drena o upload recusado para entregar o JSON 413 antes de fechar a conexão.
+    # Os limites de aceitação continuam em spring.servlet.multipart.
+    max-swallow-size: -1
+
 spring:
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
   main:
     banner-mode: off
   config:
@@ -93,6 +103,9 @@ app:
 logging:
   level:
     root: ${app.observability.log-level}
+    # Conversores MVC em DEBUG imprimem corpos; JDBC em TRACE imprime parâmetros.
+    org.springframework.web.servlet.mvc.method.annotation: INFO
+    org.springframework.jdbc.core.StatementCreatorUtils: INFO
 
 management:
   endpoints:

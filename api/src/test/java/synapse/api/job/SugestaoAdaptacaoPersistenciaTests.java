@@ -177,6 +177,23 @@ class SugestaoAdaptacaoPersistenciaTests {
 	}
 
 	@Test
+	void sugestaoDeJobTextualPreservaOrigemTexto() throws Exception {
+		UUID jobId = jobInviavel();
+		artefatos.update(
+				"UPDATE submissoes SET tipo = 'texto', conteudo = NULL, transcricao = 'descricao' WHERE id = (SELECT submissao_id FROM jobs WHERE id = ?)",
+				jobId);
+		UUID origem = versaoId(jobId, 1);
+		UUID resultado = resultado(jobId, origem, "inviavel", "492100");
+		SugestaoAplicada aplicada = Objects.requireNonNull(
+				sugestaoService.aplicarSugestaoAdaptacao(jobId, origem, resultado, representacao("0.0246")));
+		String payload = Objects.requireNonNull(jdbc.queryForObject(
+				"SELECT payload::text FROM outbox_events WHERE job_id = ? AND payload->>'regra_id' = ?", String.class,
+				jobId, aplicada.versao().id().toString()));
+		ContratoDeEvento.validar("regra-submetida", payload);
+		assertThat(new JsonMapper().readTree(payload).path("origem").asString()).isEqualTo("texto");
+	}
+
+	@Test
 	void reentregasNaoReabremOCicloMesmoQuandoAlternativaTambemEInviavel() {
 		UUID jobId = jobInviavel();
 		UUID original = versaoId(jobId, 1);

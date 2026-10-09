@@ -119,7 +119,7 @@ class ExecutarAcaoControllerTests {
 			.andExpect(jsonPath("$.codigo").value("estado_invalido"))
 			.andExpect(jsonPath("$.mensagem")
 				.value("A ação cancelar exige o job em aguardando_confirmacao_parametros, aguardando_decisao_usuario, "
-						+ "simulacao_inviavel; o job está em liberado."));
+						+ "aguardando_transcricao, simulacao_inviavel; o job está em liberado."));
 
 		verifyNoInteractions(this.emissores);
 	}
