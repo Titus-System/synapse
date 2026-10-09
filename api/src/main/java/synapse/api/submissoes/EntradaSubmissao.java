@@ -26,9 +26,7 @@ record EntradaSubmissao(String texto) {
 		String texto = "";
 		if ("texto".equals(tipo)) {
 			JsonNode valor = raiz.path("texto");
-			if (!valor.isString() || valor.asString()
-				.codePoints()
-				.allMatch(c -> Character.isWhitespace(c) || Character.isSpaceChar(c))) {
+			if (!valor.isString() || semConteudo(valor.asString())) {
 				throw SubmissaoException.requisicao("Escreva a descrição da regra antes de enviar.");
 			}
 			texto = valor.asString();
@@ -37,5 +35,14 @@ record EntradaSubmissao(String texto) {
 			}
 		}
 		return new EntradaSubmissao(texto);
+	}
+
+	/**
+	 * Vale para o texto digitado e para o transcrito: {@code isBlank} não cobre o espaço
+	 * ideográfico nem o NBSP, que um teclado e um provedor de ASR produzem. Uma gravação
+	 * sem fala não pode chegar à extração como uma regra vazia.
+	 */
+	static boolean semConteudo(String texto) {
+		return texto.codePoints().allMatch(c -> Character.isWhitespace(c) || Character.isSpaceChar(c));
 	}
 }

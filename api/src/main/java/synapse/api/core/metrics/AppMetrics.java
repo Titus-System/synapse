@@ -34,6 +34,43 @@ public class AppMetrics {
 			.register(this.registry);
 	}
 
+	/**
+	 * Trabalhos de transcrição com desfecho, um incremento por trabalho processado.
+	 * {@code resultado} vem de um conjunto fechado - {@code concluida},
+	 * {@code falhou_transitoria}, {@code falhou_permanente}, {@code descartada},
+	 * {@code reserva_perdida} e {@code interrompida}. Só {@code concluida} é conclusão de
+	 * negócio: a retomada de uma reserva vencida e a reserva perdida para outra instância
+	 * não produzem texto nem evento.
+	 */
+	public Counter transcricaoTrabalho(String resultado) {
+		return Counter.builder("transcricao.trabalhos")
+			.description("Trabalhos de transcrição processados, por desfecho; só concluida produz texto e evento")
+			.tag("resultado", resultado)
+			.register(this.registry);
+	}
+
+	/**
+	 * Duração da chamada ao provedor, medida também quando ela falha. É distinta de
+	 * {@link #transcricaoEspera}, que mede o tempo na fila, e de
+	 * {@link #transcricaoTransicao}, que mede a transação final.
+	 */
+	public Timer transcricaoChamada(String resultado) {
+		return Timer.builder("transcricao.chamada")
+			.description("Duração da chamada ao provedor de transcrição, inclusive nas falhas")
+			.tag("resultado", resultado)
+			.register(this.registry);
+	}
+
+	/**
+	 * Espera do trabalho entre a criação e a primeira reserva. A retomada de uma reserva
+	 * vencida não registra espera: ela mediria o tempo da reserva anterior, não da fila.
+	 */
+	public Timer transcricaoEspera() {
+		return Timer.builder("transcricao.espera")
+			.description("Tempo entre a criação do trabalho de transcrição e sua primeira reserva")
+			.register(this.registry);
+	}
+
 	/** Chamadas à porta de transcrição até o término da transação, não jobs únicos. */
 	public Timer transcricaoTransicao(String operacao, String resultado) {
 		return Timer.builder("transcricao.transicao")

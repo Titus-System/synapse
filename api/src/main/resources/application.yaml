@@ -48,11 +48,12 @@ spring:
     template:
       mandatory: true
   # O scheduler padrão tem uma thread só; o heartbeat SSE bloqueia enquanto envia a um
-  # cliente lento e atrasaria o poller do outbox.
+  # cliente lento, e o processador de transcrição espera o provedor por até a soma dos
+  # tempos limite. Uma thread para cada um mantém o poller do outbox em dia.
   task:
     scheduling:
       pool:
-        size: 2
+        size: 3
 
 # Único lugar que lê variável de ambiente. Todo o resto consome app.*.
 app:
@@ -106,6 +107,10 @@ app:
     base-url: ${TRANSCRIPTION_BASE_URL:https://api.eu.deepgram.com}
     connect-timeout-ms: ${TRANSCRIPTION_CONNECT_TIMEOUT_MS:5000}
     read-timeout-ms: ${TRANSCRIPTION_READ_TIMEOUT_MS:60000}
+    processor:
+      enabled: ${TRANSCRIPTION_PROCESSOR_ENABLED:true}
+      poll-interval: ${TRANSCRIPTION_POLL_INTERVAL:1s}
+      reservation-timeout: ${TRANSCRIPTION_RESERVATION_TIMEOUT:5m}
 
 logging:
   level:

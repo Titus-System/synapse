@@ -140,7 +140,7 @@ Table trabalhos_transcricao {
     (submissao_id) [unique, name: 'uq_trabalhos_transcricao_submissao_id']
   }
 
-  Note: 'Controle pertencente a API, com SELECT, INSERT e UPDATE, sem DELETE. Codegen e worker nao acessam. No maximo um trabalho por submissao. Audio e formato permanecem em submissoes; a T-232 preenchera transcricao e transcrito_em. A T-231 cria o trabalho pendente, sem processar a transcricao. Finalidade correcao e processamento sao tarefas posteriores.'
+  Note: 'Controle pertencente a API, com SELECT, INSERT e UPDATE, sem DELETE. Codegen e worker nao acessam. No maximo um trabalho por submissao. Audio e formato permanecem em submissoes; a transacao final do processamento preenche transcricao e transcrito_em. O envio por voz cria o trabalho pendente; o processador agendado o reserva com FOR UPDATE SKIP LOCKED, chama o provedor sem transacao aberta e grava o desfecho. Reserva vencida volta a ser elegivel. Finalidade correcao e ignorada e as novas tentativas com espera sao tarefas posteriores.'
 }
 
 Table rodadas_correcao {

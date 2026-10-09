@@ -84,6 +84,10 @@ class SubmissoesHttpTests {
 
 	private static final String MOTIVO_TRANSCRICAO = "Não foi possível transcrever a gravação. Envie a regra de novo, por texto ou por voz.";
 
+	/** Irrelevante aqui: só a chave decide a disponibilidade da voz. */
+	private static final AppProperties.Transcription.Processor PROCESSADOR = new AppProperties.Transcription.Processor(
+			false, Duration.ofSeconds(1), Duration.ofMinutes(5));
+
 	private static final JsonMapper JSON = JsonMapper.builder()
 		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
 		.build();
@@ -132,7 +136,8 @@ class SubmissoesHttpTests {
 					"--app.postgres.owner.password=" + postgres.getPassword(), "--app.postgres.user=synapse_api",
 					"--app.postgres.password=senha-de-teste", "--spring.rabbitmq.dynamic=false",
 					"--spring.rabbitmq.listener.simple.auto-startup=false", "--management.health.rabbit.enabled=false",
-					"--management.health.db.enabled=false", "--app.outbox.enabled=false");
+					"--management.health.db.enabled=false", "--app.outbox.enabled=false",
+					"--app.transcription.processor.enabled=false");
 		dono = new JdbcTemplate(
 				new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword()));
 		dono.execute("ALTER ROLE synapse_api WITH PASSWORD 'senha-de-teste'");
@@ -370,7 +375,7 @@ class SubmissoesHttpTests {
 	@ValueSource(strings = { "", " ", "chave-ficticia-sem-chamada-externa" })
 	void disponibilidadeUsaConfiguracaoRealDoDeepgram(String chaveConfigurada) throws Exception {
 		var cliente = new ClienteDeepgram(
-				new AppProperties.Transcription(chaveConfigurada, "http://127.0.0.1:1", 100, 100));
+				new AppProperties.Transcription(chaveConfigurada, "http://127.0.0.1:1", 100, 100, PROCESSADOR));
 		VOZ.set(new DisponibilidadeTranscricao(cliente).disponivel());
 		var resposta = voz("audio/ogg", ogg(4), PARAMETROS, rh);
 		if (chaveConfigurada.isBlank()) {
