@@ -133,6 +133,20 @@ def test_convencoes_conferem_com_oraculo_de_dominio(prompt: dict[str, Any], conv
             "converter_para_inteiro": capturar(r": (\w+) converter para inteiro", texto) != "não",
             "tipo_no_join": capturar(r"joins precisam preservar (\w+)", texto),
         }
+    elif convencao == "cod_cargo":
+        observado = {
+            "tabela_sem_cargo": capturar(r"^(\w+) não tem", texto),
+            "colunas_ausentes": capturar(r"não tem (.+?):", texto).split(" nem "),
+            "tabelas_com_cargo": re.split(r", | e ", capturar(r"só existe em (.+?)\.", texto)),
+        }
+    elif convencao == "valor de venda":
+        observado = {
+            "coluna": capturar(r"vem de (\w+) em", texto),
+            "tabela": capturar(r"em bases\['(\w+)'\]", texto),
+            "agrupamento": re.split(r", | e ", capturar(r"somado por (.+?), e nunca", texto)),
+            "reconstruir_do_baseline": capturar(r"e (\w+) de dividir a comissão", texto) != "nunca",
+            "regras_do_baseline": re.split(r", | e ", capturar(r"já aplica (.+?) antes", texto)),
+        }
     else:
         observado = {
             "descricoes": capturar(r"origem possui (.*?) para o cargo", texto).split(" e "),
@@ -143,6 +157,55 @@ def test_convencoes_conferem_com_oraculo_de_dominio(prompt: dict[str, Any], conv
         }
 
     assert observado == oraculo["fatos"], oraculo["fontes"]
+
+
+def colunas_canonicas() -> dict[str, set[str]]:
+    canonico = json.loads((CANONICO / "schema.json").read_text(encoding="utf-8"))
+    return {
+        tabela: {campo["name"] for campo in dados["fields"]}
+        for tabela, dados in canonico["tables"].items()
+    }
+
+
+# O oráculo é manual, e os dois fatos abaixo são sobre colunas que o dataset publica: uma coluna
+# nova em vendas, ou um cargo que saia de rh, tem de reprovar aqui, não silenciosamente no prompt.
+def test_oraculo_do_cargo_confere_com_o_dataset_e_com_o_contrato(prompt: dict[str, Any]) -> None:
+    fatos = FATOS_ESPERADOS["convencoes"]["cod_cargo"]["fatos"]
+    colunas = colunas_canonicas()
+
+    assert not colunas[fatos["tabela_sem_cargo"]] & set(fatos["colunas_ausentes"])
+    do_dataset = [t for t in fatos["tabelas_com_cargo"] if t in colunas]
+    assert do_dataset == ["rh", "comissoes"]
+    for tabela in do_dataset:
+        assert "cod_cargo" in colunas[tabela]
+
+    # A linha de apuracao_base na tabela de tipos do contrato, não a da assinatura.
+    contrato = prompt["instrucoes_fixas_do_sistema"]["contrato_regrafn"]
+    assert "cod_cargo" in capturar(r"\| `apuracao_base` \| (`matricula`[^|]+)", contrato)
+
+
+def test_convencao_do_percentual_do_nucleo_esta_ancorada_no_schema(prompt: dict[str, Any]) -> None:
+    """O schema diz que o percentual é o %_Comiss proposto; a convenção diz o que isso faz com a
+    comissão da linha, porque o modelo somou o percentual ao baseline em vez de substituí-lo."""
+    sistema = prompt["instrucoes_fixas_do_sistema"]
+    descricao = sistema["regra_schema_bundle"]["regra-nucleo.schema.json"]["properties"][
+        "percentual"
+    ]["description"]
+    texto = sistema["convencoes"]["percentual do núcleo"]
+
+    assert "%_Comiss proposto" in descricao
+    assert (
+        capturar(r"a comissão da linha passa a ser (.+?), que substitui", texto)
+        == "vlr_venda vezes o percentual"
+    )
+
+
+def test_oraculo_do_valor_de_venda_confere_com_o_dataset_e_com_as_regras_base() -> None:
+    fatos = FATOS_ESPERADOS["convencoes"]["valor de venda"]["fatos"]
+    colunas = colunas_canonicas()
+
+    assert {fatos["coluna"], *fatos["agrupamento"]} <= colunas[fatos["tabela"]]
+    assert set(fatos["regras_do_baseline"]) <= set(FATOS_ESPERADOS["regras_base"]["conceitos"])
 
 
 def test_regras_base_sao_contexto_materializado_sem_ensinar_recalculo(
