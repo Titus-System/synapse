@@ -46,13 +46,29 @@ class ExemplosDeContratoTests {
 
 	@Test
 	void desserializaOResultadoDaSimulacao() throws IOException {
-		ResultadoSimulacaoDto resultado = desserializar("domain/resultado-simulacao.json", ResultadoSimulacaoDto.class);
+		// O exemplo não traz as quebras absolutas, que são opcionais.
+		ResultadoSimulacaoDto resultado = this.objectMapper.readerFor(ResultadoSimulacaoDto.class)
+			.with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+			.readValue(Files.readString(exemplo("domain/resultado-simulacao.json")));
 		TotaisSimulacaoDto totais = Objects.requireNonNull(resultado.totais());
 		DecomposicaoResultadoDto decomposicao = Objects.requireNonNull(resultado.decomposicao());
 
 		assertThat(totais.orcamento()).isEqualTo(new BigDecimal("485000.0"));
 		assertThat(resultado.assercoes()).hasSize(3);
 		assertThat(decomposicao.competencia()).containsEntry("2025-08", BigDecimal.ZERO);
+		assertThat(decomposicao.matricula()).isNull();
+		assertThat(decomposicao.loja_absoluto()).isNull();
+		assertThat(decomposicao.competencia_absoluto()).isNull();
+	}
+
+	@Test
+	void desserializaAsQuebrasAbsolutasDaDecomposicao() throws IOException {
+		DecomposicaoResultadoDto decomposicao = desserializar("domain/resultado-decomposicao.json",
+				DecomposicaoResultadoDto.class);
+
+		assertThat(decomposicao.matricula()).containsEntry("MATRIC-422", new BigDecimal("141300"));
+		assertThat(decomposicao.loja_absoluto()).containsEntry("13", new BigDecimal("274850"));
+		assertThat(decomposicao.competencia_absoluto()).containsEntry("2025-11", new BigDecimal("253200"));
 	}
 
 	@Test
