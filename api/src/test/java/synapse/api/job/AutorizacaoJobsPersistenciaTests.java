@@ -203,6 +203,33 @@ class AutorizacaoJobsPersistenciaTests {
 	}
 
 	@Test
+	void detalhamentoDaSimulacaoConferePapelEPossePersistida() throws Exception {
+		UUID proprio = criarJob(A, "aguardando_decisao_usuario");
+		UUID alheio = criarJob(B, "aguardando_decisao_usuario");
+		String simulacao = "/simulacoes/" + UUID.randomUUID() + "/linhas";
+		String rh = token("subject-a", List.of("profissional-rh"));
+
+		// Passar da autorização é o que leva à busca da simulação, inexistente aqui.
+		HttpResponse<String> doDono = chamar("GET", "/jobs/" + proprio + simulacao, "", rh);
+		assertThat(doDono.statusCode()).isEqualTo(404);
+		assertThat(new JsonMapper().readTree(doDono.body()).path("codigo").asString())
+			.isEqualTo("simulacao_nao_encontrada");
+		for (List<String> papeis : List.of(List.of("auditor", "offline_access"), List.of("offline_access"))) {
+			HttpResponse<String> semPapel = chamar("GET", "/jobs/" + proprio + simulacao, "",
+					token("subject-a", papeis));
+			assertThat(semPapel.statusCode()).isEqualTo(403);
+			assertThat(new JsonMapper().readTree(semPapel.body()).path("codigo").asString()).isEqualTo("sem_permissao");
+		}
+		HttpResponse<String> semPosse = chamar("GET", "/jobs/" + alheio + simulacao, "", rh);
+		assertThat(semPosse.statusCode()).isEqualTo(403);
+		assertThat(new JsonMapper().readTree(semPosse.body()).path("codigo").asString()).isEqualTo("sem_permissao");
+		HttpResponse<String> inexistente = chamar("GET", "/jobs/" + UUID.randomUUID() + simulacao, "", rh);
+		assertThat(inexistente.statusCode()).isEqualTo(404);
+		assertThat(new JsonMapper().readTree(inexistente.body()).path("codigo").asString())
+			.isEqualTo("job_nao_encontrado");
+	}
+
+	@Test
 	void criacaoUsaSubEIgnoraIdentidadeForjadaEPapelLocal() throws Exception {
 		dono.update("UPDATE usuarios SET papel = 'auditor' WHERE id = ?", A);
 		String corpo = CriarJobControllerTests.FORMULARIO.replace("\"origem\"",

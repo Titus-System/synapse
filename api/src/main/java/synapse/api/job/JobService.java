@@ -115,6 +115,29 @@ class JobService {
 		return consultarJob(jobId);
 	}
 
+	/**
+	 * O detalhamento sai como foi gravado. Os logs registram só referências e se havia
+	 * detalhamento, nunca o conteúdo.
+	 */
+	@Transactional(readOnly = true)
+	DetalhamentoSimulacaoDto detalharSimulacao(UUID jobId, UUID simulacaoId) {
+		try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
+			List<DetalhamentoSimulacaoDto> encontrados = this.repository.buscarDetalhamento(jobId, simulacaoId);
+			if (encontrados.isEmpty()) {
+				log.atWarn()
+					.addKeyValue("simulacao_id", simulacaoId)
+					.log("detalhamento recusado: simulação não encontrada no job");
+				throw new SimulacaoNaoEncontradaException(simulacaoId);
+			}
+			DetalhamentoSimulacaoDto detalhamento = encontrados.getFirst();
+			log.atDebug()
+				.addKeyValue("simulacao_id", simulacaoId)
+				.addKeyValue("com_detalhamento", detalhamento.linhas() != null)
+				.log("detalhamento da simulação consultado");
+			return detalhamento;
+		}
+	}
+
 	private JobDetalhadoDto consultarJob(UUID jobId) {
 		try {
 			DadosConsulta dados = this.repository.consultarJob(jobId);

@@ -182,6 +182,22 @@ class JobRepository {
 		return new ResultadoSimulacaoDto(totais, assercoes, decomposicao);
 	}
 
+	/**
+	 * Única leitura de {@code resultados_simulacao.linhas}. O {@code LEFT JOIN} mantém a
+	 * simulação ainda sem resultado, que existe e não tem detalhamento.
+	 */
+	List<DetalhamentoSimulacaoDto> buscarDetalhamento(UUID jobId, UUID simulacaoId) {
+		return this.jdbc.query("""
+				SELECT s.id, r.linhas
+				FROM simulacoes s
+				LEFT JOIN resultados_simulacao r ON r.id = s.resultado_id
+				WHERE s.id = ? AND s.job_id = ?
+				""",
+				(rs, numero) -> new DetalhamentoSimulacaoDto(Objects.requireNonNull(rs.getObject("id", UUID.class)),
+						rs.getString("linhas")),
+				simulacaoId, jobId);
+	}
+
 	List<RegraCriadaDto> mapearRegras(String regrasJson) {
 		JsonNode raiz = this.json.readTree(regrasJson);
 		List<RegraCriadaDto> regras = new ArrayList<>();
