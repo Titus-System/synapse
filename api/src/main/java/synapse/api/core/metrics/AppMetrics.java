@@ -23,6 +23,27 @@ public class AppMetrics {
 	}
 
 	/**
+	 * Criações confirmadas e recusas de submissão, por tipo e classe fechada de
+	 * resultado.
+	 */
+	public Counter submissaoCriacao(String tipo, String resultado) {
+		return Counter.builder("submissoes.criacao")
+			.description("Criações confirmadas e recusas de submissão; rollback não conta como aceita")
+			.tag("tipo", tipo)
+			.tag("resultado", resultado)
+			.register(this.registry);
+	}
+
+	/** Chamadas à porta de transcrição até o término da transação, não jobs únicos. */
+	public Timer transcricaoTransicao(String operacao, String resultado) {
+		return Timer.builder("transcricao.transicao")
+			.description("Chamadas à porta de transcrição até commit ou rollback; descartes não são conclusões")
+			.tag("operacao", operacao)
+			.tag("resultado", resultado)
+			.register(this.registry);
+	}
+
+	/**
 	 * Executa o job contabilizando execução, duração e falha. {@code jobName} precisa vir
 	 * de um conjunto limitado, como {@code "generate_code"} — nunca o id do job.
 	 */

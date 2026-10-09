@@ -231,8 +231,8 @@ class JobRepository {
 				""", UUID.class, usuarioId, origem, this.jsonPadrao.writeValueAsString(conteudo), timestamp));
 	}
 
-	UUID inserirJob(String status, UUID usuarioId, UUID submissaoId, List<String> competencias, BigDecimal orcamento,
-			Timestamp timestamp) {
+	UUID inserirJob(String status, UUID usuarioId, UUID submissaoId, List<String> competencias,
+			@Nullable BigDecimal orcamento, Timestamp timestamp) {
 		return Objects.requireNonNull(this.jdbc.queryForObject("""
 				INSERT INTO jobs (status, usuario_id, submissao_id, competencias, orcamento, criado_em)
 				VALUES (?, ?, ?, ?, ?, ?) RETURNING id

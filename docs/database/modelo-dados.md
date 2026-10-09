@@ -14,7 +14,7 @@ O DBML reúne a estrutura existente e as extensões aprovadas para a Sprint 2. A
 
 ## 1. As tabelas
 
-São 17 tabelas no DBML, num schema único. As seções abaixo explicam o que guardam e, quando há coluna `jsonb` ou array, mostram exemplos dos conteúdos mais propensos a confusão.
+São 18 tabelas no DBML, num schema único. As seções abaixo explicam o que guardam e, quando há coluna `jsonb` ou array, mostram exemplos dos conteúdos mais propensos a confusão.
 
 ### `usuarios`
 
@@ -95,6 +95,26 @@ Na entrada por texto ou voz definida pela T-277, o job nasce antes da extração
 `orcamento` é o orçamento de comissão do período; sem ele, a simulação não verifica orçamento. `meta_venda` é o total de vendas pretendido para o período; sem ela, a simulação usa as vendas históricas. A ausência de período preserva todas as competências publicadas. A migration e a aplicação dos parâmetros no job pertencem à T-279; a extração é da T-278 e a validação, da T-280. O DBML registra esse contrato, não a conclusão dessas implementações.
 
 A procedência é `submissao_id` ou `job_origem_id`, nunca as duas. É dela que se deduz o ponto de entrada no grafo, sem precisar de coluna dedicada.
+
+### `trabalhos_transcricao`
+
+Controle de processamento da API, criado pela T-231. Cada submissão tem no máximo um trabalho, garantido por `uq_trabalhos_transcricao_submissao_id`. As referências obrigatórias a `jobs` e `submissoes` têm FKs sem exclusão em cascata. A API tem `SELECT`, `INSERT` e `UPDATE`, sem `DELETE`; codegen e worker não têm acesso.
+
+`finalidade` documenta `entrada_inicial | correcao`; `estado`, `pendente | em_andamento | concluido | falhou | descartado`. São colunas `text`, sem enum nativo ou `CHECK`. `tentativas` começa em zero; `reservado_ate` indica o prazo da reserva e `proxima_tentativa_em` agenda uma nova tentativa, ambos nulos na criação. `criado_em` e `atualizado_em` são obrigatórios e recebem o mesmo instante inicial.
+
+Texto e voz trazem os parâmetros na descrição. `POST /submissoes` aceita e ignora os campos obsoletos `orcamento` e `competencias`, sem validá-los. O job nasce com todas as competências publicadas, pela mesma fonte de `POST /jobs`, e com orçamento e meta nulos. A T-279 aplica os parâmetros extraídos depois.
+
+A T-231 grava submissão, job em `aguardando_transcricao`, transição inicial e trabalho pendente na mesma transação, sem `regra-submetida`. O áudio permanece em `submissoes.binario`, com seu formato canônico em `formato`. A T-232 preencherá `submissoes.transcricao` e `transcrito_em` e concluirá o trabalho junto com a transição e o outbox. O processador, a reserva, as novas tentativas e a correção por voz não são implementados pela T-231.
+
+A disponibilidade é consultada por `DisponibilidadeTranscricao`, package-private em `submissoes`, que delega a `ClienteDeepgram.configurado()`. Essa consulta verifica a configuração, sem chamar a transcrição. Sem chave configurada, a API inicia normalmente e recusa voz com `409 estado_invalido`. Os testes podem substituir a disponibilidade sem fazer chamadas externas.
+
+Texto inicial grava a descrição verbatim em `submissoes.transcricao`, cria o job em `gerando_regra` e registra `regra-submetida` sem `regra_id`, orçamento ou meta, sem criar versão de regra. A porta `JobsDeSubmissoes` exige transação existente, centraliza a autorização de criação e compartilha somente `CompetenciasPublicadas` com `POST /jobs`, que preserva suas próprias validações. As operações de concluir/falhar transcrição conferem job, submissão, origem e estado sob trava e, depois do commit, anunciam o novo estado no stream SSE do job. A falha grava o motivo `erro_transcricao`, que o stream e `GET /jobs/{id}` traduzem para a razão exibida ao usuário. A T-232 será responsável por chamá-las na transação final que grava o texto e atualiza o trabalho.
+
+O multipart admite arquivo de até 5 MiB (`5MB` no Spring) e requisição de até 6 MiB para acomodar JSON e cabeçalhos. O Tomcat drena até 10 MB do corpo recusado (`max-swallow-size: 10MB`) para entregar o JSON 413 sem interromper a conexão; isso não amplia o limite de aceitação, e o teto impede que um corpo sem fim prenda uma thread em qualquer rota. Formatos são conferidos por Content-Type e assinatura do contêiner, sem decodificação. O contador `submissoes_criacao_total`, exposto em `/metrics`, registra criações confirmadas e recusas HTTP por `tipo` e `resultado`; rollback não conta como `aceita`. Duração HTTP usa a instrumentação existente. Logs registram resultado, tipo, referências e, para voz validada, formato e faixa de tamanho; não contêm descrição, binário ou filename.
+
+A porta de transcrição emite `transcricao_transicao_seconds` (contagem e duração) até o término da transação do chamador, por `operacao` (`concluir` ou `falhar`) e `resultado` (`aplicada`, `descartada` ou `rollback`). Conta chamadas, não jobs únicos: uma repetição descartada não conta como transição aplicada. Logs de transição preservam `job_id` também nos callbacks após commit e limpam o contexto ao terminar. Esses instrumentos medem apenas a transição, sem incluir espera na fila ou chamada ao provedor.
+
+Os conversores MVC e o vinculador de parâmetros JDBC têm nível mínimo `INFO` mesmo quando o restante da aplicação usa `DEBUG`/`TRACE`: seus logs de diagnóstico podem imprimir o corpo HTTP ou os parâmetros SQL. O teste HTTP captura também os logs do framework, além dos eventos de domínio, para verificar a ausência do texto, dos bytes, do filename e do token.
 
 ### `rodadas_correcao`
 

@@ -402,6 +402,45 @@ class PermissoesDeBancoTests {
 
 	private static final String JOB_ID = "11111111-1111-4111-8111-111111111111";
 
+	private static final String INSERE_TRABALHO = """
+			INSERT INTO trabalhos_transcricao (job_id, submissao_id, finalidade, estado, criado_em, atualizado_em)
+			VALUES ('11111111-1111-4111-8111-111111111111', '44444444-4444-4444-8444-444444444444',
+			        'entrada_inicial', 'pendente', now(), now())
+			""";
+
+	@Test
+	void apiInsereLeEAtualizaTrabalhoMasNaoApaga() throws Exception {
+		try (Connection connection = como(UsuariosDeBanco.API); Statement statement = connection.createStatement()) {
+			connection.setAutoCommit(false);
+			try {
+				statement.execute(INSERE_TRABALHO);
+				assertThat(statement
+					.executeUpdate("UPDATE trabalhos_transcricao SET estado = 'em_andamento', tentativas = 1"))
+					.isEqualTo(1);
+				try (ResultSet rs = statement.executeQuery("SELECT estado, tentativas FROM trabalhos_transcricao")) {
+					assertThat(rs.next()).isTrue();
+					assertThat(rs.getString(1)).isEqualTo("em_andamento");
+					assertThat(rs.getInt(2)).isEqualTo(1);
+				}
+			}
+			finally {
+				connection.rollback();
+			}
+		}
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.API, "DELETE FROM trabalhos_transcricao"))
+			.isEqualTo(PERMISSAO_NEGADA);
+	}
+
+	@Test
+	void codegenEWorkerNaoAlcancamTrabalhos() {
+		for (String usuario : new String[] { UsuariosDeBanco.CODEGEN, UsuariosDeBanco.WORKER }) {
+			for (String sql : new String[] { "SELECT * FROM trabalhos_transcricao", INSERE_TRABALHO,
+					"UPDATE trabalhos_transcricao SET estado = 'concluido'", "DELETE FROM trabalhos_transcricao" }) {
+				assertThat(sqlStateAoFalhar(usuario, sql)).as("%s: %s", usuario, sql).isEqualTo(PERMISSAO_NEGADA);
+			}
+		}
+	}
+
 	private static final String INSERE_RODADA = """
 			INSERT INTO rodadas_correcao (job_id, regra_analisada_id, conflitos, estado, criada_em, atualizada_em)
 			VALUES ('%s', '55555555-5555-4555-8555-555555555555',

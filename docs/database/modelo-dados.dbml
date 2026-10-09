@@ -80,7 +80,7 @@ Table jobs {
 NULL quando o job nasceu de reprocessamento - ali a procedencia e job_origem_id.
 De qual submissao este job nasceu. N-1: uma submissao pode gerar varios jobs, e um job
 nunca vem de mais de uma.
-Procedencia original, preservada durante as correcoes. Formulario atual inicia geracao com regra estruturada; reprocessamento usa aguardando_confirmacao_parametros. Voz e aguardando_transcricao sao fluxo planejado da Sprint 2; as referencias de correcoes ficam nas rodadas.
+Procedencia original, preservada durante as correcoes. Formulario inicia geracao com regra estruturada; texto inicia gerando_regra sem versao; voz inicia aguardando_transcricao com trabalho pendente (T-231). Reprocessamento usa aguardando_confirmacao_parametros; as referencias de correcoes ficam nas rodadas.
 ''']
   competencias text[] [not null, note: '''
 Competencias a simular, formato AAAA-MM. O job cobre o periodo inteiro em UMA simulacao,
@@ -122,6 +122,25 @@ validacao de dominio a aponta como conflito.
     (status) [note: 'varreduras operacionais']
     (job_origem_id)
   }
+}
+
+Table trabalhos_transcricao {
+  id uuid [pk, default: `uuidv7()`]
+  job_id uuid [not null, ref: > jobs.id]
+  submissao_id uuid [not null, ref: > submissoes.id]
+  finalidade text [not null, note: 'entrada_inicial | correcao']
+  estado text [not null, note: 'pendente | em_andamento | concluido | falhou | descartado']
+  tentativas int [not null, default: 0, note: 'quantidade de tentativas de transcricao iniciadas']
+  reservado_ate timestamptz [null, note: 'null enquanto nao ha reserva; prazo de exclusividade do processamento']
+  proxima_tentativa_em timestamptz [null, note: 'null enquanto nao ha nova tentativa agendada']
+  criado_em timestamptz [not null]
+  atualizado_em timestamptz [not null, note: 'instante da ultima alteracao do controle; igual a criado_em na insercao']
+
+  indexes {
+    (submissao_id) [unique, name: 'uq_trabalhos_transcricao_submissao_id']
+  }
+
+  Note: 'Controle pertencente a API, com SELECT, INSERT e UPDATE, sem DELETE. Codegen e worker nao acessam. No maximo um trabalho por submissao. Audio e formato permanecem em submissoes; a T-232 preenchera transcricao e transcrito_em. A T-231 cria o trabalho pendente, sem processar a transcricao. Finalidade correcao e processamento sao tarefas posteriores.'
 }
 
 Table rodadas_correcao {

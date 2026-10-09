@@ -187,6 +187,11 @@ final class MotivoDaParada {
 
 	static final String FALHA_ANTES_DA_SIMULACAO = "Falha durante o processamento da regra, antes da simulação.";
 
+	/** O token de {@code job_transicoes.motivo} de uma transcrição de voz que falhou. */
+	static final String FALHA_NA_TRANSCRICAO = "erro_transcricao";
+
+	static final String TRANSCRICAO_FALHOU = "Não foi possível transcrever a gravação. Envie a regra de novo, por texto ou por voz.";
+
 	private static final String PREFIXO_FALHA_NA_ETAPA = "erro_";
 
 	private MotivoDaParada() {
@@ -211,6 +216,9 @@ final class MotivoDaParada {
 		DesfechoDaSimulacao desfecho = DesfechoDaSimulacao.peloMotivoDaTrilha(motivoDaTrilha);
 		if (desfecho != null) {
 			return (desfecho.destino() == status) ? desfecho.razaoLocalizada() : null;
+		}
+		if (status == JobStatus.ERRO && FALHA_NA_TRANSCRICAO.equals(motivoDaTrilha)) {
+			return TRANSCRICAO_FALHOU;
 		}
 		if (status == JobStatus.ERRO && motivoDaTrilha.startsWith(PREFIXO_FALHA_NA_ETAPA)
 				&& EtapaDoGrafo.deEvento(motivoDaTrilha.substring(PREFIXO_FALHA_NA_ETAPA.length())) != null) {
