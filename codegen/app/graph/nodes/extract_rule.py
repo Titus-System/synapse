@@ -20,11 +20,13 @@ from app.contratos.mensagens import (
 from app.core.logger import get_logger, job_id_ctx, no_ctx
 from app.core.metrics.global_metrics import (
     CONSTRUTOS_DA_EXTRACAO,
+    PARAMETROS_DA_SIMULACAO,
     elementos_extraidos,
     falhas_extracao,
     job_duration,
     job_failures,
     job_runs,
+    parametros_extracao,
     rebaixamentos_extracao,
 )
 from app.extracao.modelos import FalhaExtracaoError
@@ -141,6 +143,9 @@ async def extract_rule(state: AgentState, config: RunnableConfig) -> AgentState:
             elementos_extraidos.labels(construto=construto).inc(quantidade)
         for motivo, quantidade in rebaixamentos.items():
             rebaixamentos_extracao.labels(motivo=motivo).inc(quantidade)
+        for parametro in PARAMETROS_DA_SIMULACAO:
+            resultado_parametro = "extraido" if parametro in salvo.parametros else "ausente"
+            parametros_extracao.labels(parametro=parametro, resultado=resultado_parametro).inc()
         logger.info(
             "extraction finished",
             extra={
@@ -148,6 +153,7 @@ async def extract_rule(state: AgentState, config: RunnableConfig) -> AgentState:
                 "extracao_reutilizada": extracao_reutilizada,
                 "elementos_por_construto": dict(contagens),
                 "rebaixamentos_por_motivo": dict(rebaixamentos),
+                "parametros_extraidos": sorted(salvo.parametros),
             },
         )
         return {"prompt_id": str(salvo.prompt_id), "resposta_id": str(salvo.resposta_id)}

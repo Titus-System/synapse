@@ -6,6 +6,29 @@ from app.extracao.registro import Construto
 _TEXTO = {"type": "string", "minLength": 1}
 _COMPETENCIA = {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$"}
 _CODIGOS = {"type": "array", "minItems": 1, "items": _TEXTO}
+_MONETARIO = {"type": "number"}
+
+
+def _schema_parametro(valor: dict[str, Any]) -> dict[str, Any]:
+    # O trecho só serve à conferência de lastro da T-210; até lá, o valor entra como o
+    # modelo o devolveu, sem checar o trecho contra o texto.
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["valor", "trecho"],
+        "properties": {"valor": valor, "trecho": _TEXTO},
+    }
+
+
+PARAMETROS: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "orcamento": _schema_parametro(_MONETARIO),
+        "meta_venda": _schema_parametro(_MONETARIO),
+        "competencias": _schema_parametro({"type": "array", "minItems": 1, "items": _COMPETENCIA}),
+    },
+}
 
 NUCLEO: dict[str, Any] = {
     "type": "object",
@@ -47,10 +70,11 @@ def schema_envelope() -> dict[str, Any]:
         {
             "type": "object",
             "additionalProperties": False,
-            "required": ["nucleo", "elementos"],
+            "required": ["nucleo", "elementos", "parametros"],
             "properties": {
                 "nucleo": NUCLEO,
                 "elementos": {"type": "array", "items": {"type": "object"}},
+                "parametros": PARAMETROS,
             },
         }
     )

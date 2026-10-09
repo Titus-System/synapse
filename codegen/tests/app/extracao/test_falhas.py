@@ -39,6 +39,28 @@ async def test_entrada_vazia_falha_sem_chamar_modelo(texto: str) -> None:
             "nucleo": {},
             "elementos": [{"construto_pretendido": "bonus_fixo", "trecho": "inventado"}],
         },
+        {"nucleo": {}, "elementos": [], "parametros": {"orcamento": 500000}},
+        {"nucleo": {}, "elementos": [], "parametros": {"orcamento": {"valor": 500000}}},
+        {
+            "nucleo": {},
+            "elementos": [],
+            "parametros": {"orcamento": {"valor": 500000, "trecho": "x", "extra": 1}},
+        },
+        {
+            "nucleo": {},
+            "elementos": [],
+            "parametros": {"meta_venda": {"valor": "500000", "trecho": "x"}},
+        },
+        {
+            "nucleo": {},
+            "elementos": [],
+            "parametros": {"competencias": {"valor": [], "trecho": "x"}},
+        },
+        {
+            "nucleo": {},
+            "elementos": [],
+            "parametros": {"desconhecido": {"valor": 1, "trecho": "x"}},
+        },
     ],
 )
 async def test_saida_inutilizavel_falha_sem_expor_artefatos(conteudo: object) -> None:
@@ -62,7 +84,7 @@ async def test_so_aceita_stop_mesmo_com_json_valido(motivo: str | None) -> None:
 
 
 async def test_nao_emite_conteudo_em_logs(caplog: pytest.LogCaptureFixture) -> None:
-    await extrair(modelo_falso({"nucleo": {}, "elementos": [ELEMENTO]}))
+    await extrair(modelo_falso({"nucleo": {}, "elementos": [ELEMENTO], "parametros": {}}))
 
     with pytest.raises(FalhaExtracaoError):
         await extrair(modelo_falso("segredo-modelo"))

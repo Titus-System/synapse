@@ -8,7 +8,7 @@ import pytest
 import simplejson
 
 from app.repositorio.extracoes import PersistenciaExtracaoError, buscar_extracao, gravar_extracao
-from tests.app.extracao.test_motor import ELEMENTO, extrair, modelo_falso
+from tests.app.extracao.test_motor import ELEMENTO, PARAMETROS_BRUTOS, extrair, modelo_falso
 
 pytestmark = [
     pytest.mark.postgres,
@@ -26,6 +26,7 @@ async def resultado() -> Any:
             {
                 "nucleo": {"loja": ["0013"], "percentual": Decimal("2.1234567890123456789")},
                 "elementos": [ELEMENTO],
+                "parametros": PARAMETROS_BRUTOS,
             }
         )
     )
@@ -48,6 +49,15 @@ async def test_grava_e_recupera_os_tres_artefatos_com_referencias(banco_extracao
     assert lido == salvo
     assert salvo.representacao.para_contrato() == extraido.representacao.para_contrato()
     assert salvo.rebaixamentos == extraido.rebaixamentos
+    assert (
+        salvo.parametros
+        == extraido.parametros
+        == {
+            "orcamento": Decimal("500000"),
+            "meta_venda": Decimal("12000000"),
+            "competencias": ["2025-09", "2025-10", "2025-11"],
+        }
+    )
     assert await contagens(dono, job) == [1, 1, 1]
     assert (
         await dono.fetchval("SELECT conteudo FROM prompts WHERE id=$1", salvo.prompt_id)
@@ -57,6 +67,10 @@ async def test_grava_e_recupera_os_tres_artefatos_com_referencias(banco_extracao
         await dono.fetchval("SELECT conteudo FROM respostas_modelo WHERE id=$1", salvo.resposta_id)
         == extraido.chamada.resposta
     )
+    parametros_no_banco = await dono.fetchval(
+        "SELECT parametros::text FROM extracoes_regras WHERE id=$1", salvo.id
+    )
+    assert simplejson.loads(parametros_no_banco, use_decimal=True) == salvo.parametros
 
 
 async def test_reentrega_retorna_artefato_original_mesmo_com_outra_resposta(
@@ -65,7 +79,9 @@ async def test_reentrega_retorna_artefato_original_mesmo_com_outra_resposta(
     sessoes, dono, job, submissao = banco_extracao
     original = await resultado()
     salvo = await gravar_extracao(sessoes, job_id=job, submissao_id=submissao, resultado=original)
-    diferente = await extrair(modelo_falso({"nucleo": {"percentual": 2}, "elementos": []}))
+    diferente = await extrair(
+        modelo_falso({"nucleo": {"percentual": 2}, "elementos": [], "parametros": {}})
+    )
 
     repetido = await gravar_extracao(
         sessoes, job_id=job, submissao_id=submissao, resultado=diferente
@@ -78,7 +94,9 @@ async def test_reentrega_retorna_artefato_original_mesmo_com_outra_resposta(
 async def test_concorrencia_reverte_artefatos_da_transacao_perdedora(banco_extracao: Any) -> None:
     sessoes, dono, job, submissao = banco_extracao
     resultados = [
-        await extrair(modelo_falso({"nucleo": {"percentual": i}, "elementos": []}))
+        await extrair(
+            modelo_falso({"nucleo": {"percentual": i}, "elementos": [], "parametros": {}})
+        )
         for i in range(8)
     ]
 
