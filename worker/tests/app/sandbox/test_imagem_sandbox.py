@@ -315,7 +315,13 @@ def test_modulo_proibido_nao_e_importavel_na_imagem(imagem: str, modulo: str) ->
 
 @pytest.mark.parametrize(
     "modulo",
-    ["app.execucao", "app.execucao.veredito", "app.execucao.baseline", "app.execucao.coleta"],
+    [
+        "app.execucao",
+        "app.execucao.veredito",
+        "app.execucao.baseline",
+        "app.execucao.bases",
+        "app.execucao.coleta",
+    ],
 )
 def test_o_que_julga_o_resultado_nao_existe_dentro_da_imagem(imagem: str, modulo: str) -> None:
     """O veredito é calculado no processo do worker (T-066), que o código gerado não alcança.

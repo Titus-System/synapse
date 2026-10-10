@@ -1,10 +1,11 @@
 """Julgamento do resultado contra o baseline, a cobertura e o orçamento, fora do container
-(T-066, T-241, T-281).
+(T-066, T-241, T-270, T-281).
 
 O container produz números crus. O processo do worker, que o código gerado não alcança:
 
-1. confere o ``totais.baseline`` devolvido contra o baseline congelado que o worker mantém, e
-   que os totais fecham entre si;
+1. confere o ``totais.baseline`` devolvido contra o baseline que o worker mantém, e que os
+   totais fecham entre si: o congelado numa execução sobre as vendas históricas, e o que o
+   próprio worker reapurou sobre as vendas escaladas numa execução na meta de venda;
 2. com isso, a diferença absoluta e a percentual do container passam a ser as do baseline do
    worker, e seguem como vieram, sem recomposição;
 3. quando o comando trouxe ``elementos_exigidos``, confere a cobertura: todo elemento exigido
@@ -13,6 +14,10 @@ O container produz números crus. O processo do worker, que o código gerado nã
 
 Sem orçamento, as conferências 1 a 3 são as mesmas, e só a 4 não acontece: o resultado conferido
 segue sem ``totais.orcamento`` e sem veredito, porque não há critério que o julgue (T-281).
+
+Todo sucesso conferido leva ``totais.vendas_historicas``, o total de vendas das competências
+lido das bases do worker, e nunca do container (T-270). Na meta, o veredito compara o simulado
+na meta com o orçamento.
 
 O orçamento é o único parâmetro que **julga** o resultado, e nunca entrou no container: código
 gerado que o enxergasse poderia mirar nele (ARCHITECTURE.md §3.4).
@@ -31,6 +36,7 @@ from decimal import Decimal
 from typing import Literal, NotRequired, TypedDict
 
 from app.execucao.baseline import BaselinesCongelados, CompetenciaSemBaselineError
+from app.execucao.bases import BasesDoWorker
 from app.execucao.coleta import (
     Classe,
     DesfechoClassificado,
@@ -44,13 +50,15 @@ type Veredito = Literal["viavel", "inviavel", "indeterminado"]
 
 
 class TotaisJulgados(TypedDict):
-    """``resultado-totais.schema.json``: os totais do container mais o orçamento aplicado, que
-    falta quando o comando não trouxe orçamento."""
+    """``resultado-totais.schema.json``: os totais do container mais o que só o worker
+    acrescenta, o total de vendas das competências e o orçamento aplicado, que falta quando o
+    comando não trouxe orçamento."""
 
     baseline: float
     simulado: float
     diferenca_abs: float
     diferenca_pct: float
+    vendas_historicas: float
     orcamento: NotRequired[float]
 
 
@@ -150,23 +158,35 @@ def julgar(
     baselines: BaselinesCongelados,
     *,
     elementos_exigidos: Sequence[str] | None,
+    bases: BasesDoWorker,
+    baseline_na_meta: Decimal | None = None,
 ) -> Julgamento:
     """``elementos_exigidos`` é o do comando, e None quando ele não o trouxe: aí a cobertura não
     é conferida, e um comando publicado antes da T-241 segue julgado como antes.
 
     ``orcamento`` None é o job sem orçamento: o sucesso sai sem veredito e sem
-    ``totais.orcamento``, depois das mesmas conferências."""
+    ``totais.orcamento``, depois das mesmas conferências.
+
+    ``baseline_na_meta`` é o total que o worker reapurou sobre as vendas escaladas, numa
+    execução na meta de venda, e é contra ele que o baseline do container é conferido. None é a
+    execução sobre as vendas históricas, conferida contra o congelado como sempre foi."""
     if desfecho.classe != "sucesso" or desfecho.resultado is None:
         return Julgamento(desfecho.classe, desfecho.motivo, "indeterminado", desfecho=desfecho)
 
     totais = desfecho.resultado["totais"]
-    try:
-        congelado = baselines.total(competencias)
-    # O harness não produz sucesso para uma competência sem baseline na imagem: se produziu, a
-    # imagem tem um baseline que o worker não tem, e o número não tem com o que ser conferido.
-    except CompetenciaSemBaselineError:
-        return Julgamento("erro_codigo", "baseline_divergente", "indeterminado", desfecho=desfecho)
-    if not _totais_conferem(totais, congelado):
+    if baseline_na_meta is not None:
+        esperado = baseline_na_meta
+    else:
+        try:
+            esperado = baselines.total(competencias)
+        # O harness não produz sucesso para uma competência sem baseline na imagem: se produziu,
+        # a imagem tem um baseline que o worker não tem, e o número não tem com o que ser
+        # conferido.
+        except CompetenciaSemBaselineError:
+            return Julgamento(
+                "erro_codigo", "baseline_divergente", "indeterminado", desfecho=desfecho
+            )
+    if not _totais_conferem(totais, esperado):
         return Julgamento("erro_codigo", "baseline_divergente", "indeterminado", desfecho=desfecho)
     if elementos_exigidos is not None:
         # As chaves de decomposicao.elemento são os elemento_ref de contribuicoes: o harness
@@ -190,6 +210,8 @@ def julgar(
         simulado=totais["simulado"],
         diferenca_abs=totais["diferenca_abs"],
         diferenca_pct=totais["diferenca_pct"],
+        # Conferido o baseline, as competências são as das bases do worker.
+        vendas_historicas=float(bases.vendas_historicas(competencias)),
     )
     veredito: Veredito | None = None
     if orcamento is not None:
@@ -203,7 +225,7 @@ def julgar(
     return Julgamento("sucesso", "ok", veredito, resultado=resultado, desfecho=desfecho)
 
 
-def _totais_conferem(totais: Totais, baseline_congelado: Decimal) -> bool:
+def _totais_conferem(totais: Totais, baseline_do_worker: Decimal) -> bool:
     """O baseline do container é o do worker, e a diferença é a que os dois totais implicam.
 
     As mesmas contas da T-035 (``resultado.montar_resultado``) sobre os mesmos centavos: a
@@ -215,7 +237,7 @@ def _totais_conferem(totais: Totais, baseline_congelado: Decimal) -> bool:
     # Baseline zero não tem fração definida; a T-035 publica 0.0.
     pct = float(diferenca / baseline) if baseline else 0.0
     return (
-        baseline == baseline_congelado
+        baseline == baseline_do_worker
         and Decimal(str(totais["diferenca_abs"])) == diferenca
         and totais["diferenca_pct"] == pct
     )

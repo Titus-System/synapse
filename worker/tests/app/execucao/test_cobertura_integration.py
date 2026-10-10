@@ -14,6 +14,7 @@ from uuid import uuid4
 import pytest
 
 from app.execucao.baseline import carregar_baselines
+from app.execucao.bases import carregar_bases
 from app.execucao.coleta import classificar
 from app.execucao.container import Limites, executar_no_sandbox
 from app.execucao.preparo import preparar_execucao
@@ -119,6 +120,7 @@ def executar(fonte: str, imagem: str, elementos_exigidos: list[str] | None) -> J
         execucao.orcamento,
         carregar_baselines(),
         elementos_exigidos=execucao.elementos_exigidos,
+        bases=carregar_bases(),
     )
 
 

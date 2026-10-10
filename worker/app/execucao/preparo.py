@@ -16,6 +16,9 @@ class PayloadContainer:
     linguagem: str
     fonte: str
     competencias: list[str]
+    # None quando o comando não trouxe meta, e então o campo nem vai ao container. A meta entra
+    # porque muda a entrada da apuração, não o critério de julgamento (T-270).
+    meta_venda: float | None = None
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,8 @@ class ExecucaoPreparada:
     orcamento: float | None
     # None quando o comando não os trouxe: a conferência de cobertura não roda (T-241).
     elementos_exigidos: list[str] | None
+    # Não muda a execução nem entra no container: só vai para a linha e o evento (T-270).
+    proposito: str = "simulacao"
 
 
 def preparar_execucao(comando: ExecutarCodigo, codigo: CodigoGerado) -> ExecucaoPreparada:
@@ -38,9 +43,11 @@ def preparar_execucao(comando: ExecutarCodigo, codigo: CodigoGerado) -> Execucao
         linguagem=codigo.linguagem,
         fonte=codigo.fonte,
         competencias=comando.competencias,
+        meta_venda=comando.meta_venda,
     )
     return ExecucaoPreparada(
         payload=payload,
         orcamento=comando.orcamento,
         elementos_exigidos=comando.elementos_exigidos,
+        proposito=comando.proposito,
     )

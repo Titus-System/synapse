@@ -23,9 +23,13 @@ from app.sandbox.resultado import ResultadoSimulacao
 VERSAO = 2
 
 # O payload que o worker escreve no stdin: exatamente os campos de PayloadContainer
-# (app/execucao/preparo.py). Nunca ``orcamento``: quem produz o número não alcança o
-# critério que vai julgá-lo (T-066). Um teste confere que as duas listas não divergem.
+# (app/execucao/preparo.py), os obrigatórios sempre e os opcionais só quando o comando os traz.
+# Nunca ``orcamento``: quem produz o número não alcança o critério que vai julgá-lo (T-066). Um
+# teste confere que as listas não divergem.
 CAMPOS_PAYLOAD = frozenset({"job_id", "codigo_gerado_id", "linguagem", "fonte", "competencias"})
+# ``meta_venda`` entra porque muda a entrada da apuração, e não o critério de julgamento: as
+# vendas do período são escaladas até ela antes de a regra rodar (T-270).
+CAMPOS_PAYLOAD_OPCIONAIS = frozenset({"meta_venda"})
 
 type Status = Literal["sucesso", "assercao_violada", "erro_codigo"]
 

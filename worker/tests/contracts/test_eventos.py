@@ -74,3 +74,65 @@ def test_orcamento_nulo_e_recusado_e_so_a_ausencia_e_job_sem_orcamento() -> None
         ExecutarCodigo.model_validate(sem_campo | {"orcamento": None})
     with pytest.raises(ValidationError):
         ExecutarCodigo.model_validate_json(json.dumps(sem_campo | {"orcamento": None}))
+
+
+# ---- a meta de venda e o propósito (T-270) ----
+
+
+def test_desserializa_exemplo_executar_codigo_na_meta() -> None:
+    mensagem = ExecutarCodigo.model_validate(carregar_exemplo("executar-codigo-meta-venda.json"))
+
+    assert (mensagem.meta_venda, mensagem.proposito) == (26000000.0, "simulacao")
+
+
+def test_desserializa_exemplo_executar_codigo_da_busca_da_meta() -> None:
+    mensagem = ExecutarCodigo.model_validate(carregar_exemplo("executar-codigo-busca-meta.json"))
+
+    assert (mensagem.meta_venda, mensagem.proposito) == (28500000.0, "busca_meta")
+
+
+def test_sem_meta_o_comando_e_o_de_antes_da_meta() -> None:
+    mensagem = ExecutarCodigo.model_validate(carregar_exemplo("executar-codigo.json"))
+
+    assert (mensagem.meta_venda, mensagem.proposito) == (None, "simulacao")
+
+
+@pytest.mark.parametrize(
+    "mudanca",
+    [
+        {"meta_venda": None},
+        {"meta_venda": 0.0},
+        {"meta_venda": -1.0},
+        {"proposito": "outro"},
+        {"proposito": None},
+    ],
+    ids=["meta nula", "meta zero", "meta negativa", "proposito desconhecido", "proposito nulo"],
+)
+def test_meta_e_proposito_fora_do_contrato_sao_recusados(mudanca: dict[str, object]) -> None:
+    """Só a ausência de `meta_venda` é uma execução sobre as vendas históricas: um `null` faria o
+    worker simular nas vendas históricas uma execução pedida na meta."""
+    comando = carregar_exemplo("executar-codigo-meta-venda.json") | mudanca
+
+    with pytest.raises(ValidationError):
+        ExecutarCodigo.model_validate_json(json.dumps(comando))
+
+
+def test_meta_nao_finita_e_recusada() -> None:
+    corpo = json.dumps(carregar_exemplo("executar-codigo-meta-venda.json")).replace(
+        "26000000.0", "Infinity"
+    )
+
+    with pytest.raises(ValidationError, match="finite_number"):
+        ExecutarCodigo.model_validate_json(corpo)
+
+
+@pytest.mark.parametrize(
+    "nome", ["simulacao-concluida-meta-venda.json", "simulacao-concluida-busca-meta.json"]
+)
+def test_simulacao_concluida_na_meta_sai_como_o_exemplo(nome: str) -> None:
+    exemplo = carregar_exemplo(nome)
+
+    mensagem = SimulacaoConcluida.model_validate(exemplo)
+
+    assert mensagem.meta_venda == exemplo["meta_venda"]
+    assert json.loads(mensagem.model_dump_json(exclude_none=True)) == exemplo

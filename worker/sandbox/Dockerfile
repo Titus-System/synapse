@@ -60,10 +60,11 @@ COPY --from=builder /opt/venv /opt/venv
 RUN /usr/local/bin/python -m pip uninstall -y pip
 
 # Código: lista branca, um arquivo por linha, nunca `COPY worker/app`. Módulo novo que
-# ninguém listou não entra na imagem. Ficam de fora: daemon.py (importa docker, app.config
-# e app.core.logger) e regras_competencia.py (só recomputa baselines, e o baseline aqui é
-# dado congelado). O layout espelha o repositório (app/sandbox/), porque resultado.py
-# importa os irmãos por app.sandbox.* e carga.py acha os dados relativo ao próprio arquivo.
+# ninguém listou não entra na imagem. Fica de fora daemon.py (importa docker, app.config e
+# app.core.logger). regras_competencia.py e escalonamento.py reapuram o baseline sobre as
+# vendas escaladas até a meta de venda (T-270). O layout espelha o repositório
+# (app/sandbox/), porque resultado.py importa os irmãos por app.sandbox.* e carga.py acha os
+# dados relativo ao próprio arquivo.
 COPY --chmod=0444 worker/app/__init__.py ./app/__init__.py
 COPY --chmod=0444 \
      worker/app/sandbox/__init__.py \
@@ -71,21 +72,24 @@ COPY --chmod=0444 \
      worker/app/sandbox/assercoes.py \
      worker/app/sandbox/carga.py \
      worker/app/sandbox/envelope.py \
+     worker/app/sandbox/escalonamento.py \
      worker/app/sandbox/executor.py \
      worker/app/sandbox/harness.py \
      worker/app/sandbox/regras_base.py \
+     worker/app/sandbox/regras_competencia.py \
      worker/app/sandbox/resultado.py \
      ./app/sandbox/
 
-# Dados: as três bases e a tabela de eventos de RH, o schema e os baselines congelados
-# (T-032) das cinco competências publicadas (2025-08 a 2025-12; julho foi excluído pela
-# T-026). Ficam de fora: normalization_report.json (relatório da T-026, não é base) e
-# regras_competencia.jsonl (insumo do recálculo, que o harness não faz).
+# Dados: as três bases e a tabela de eventos de RH, o schema, o catálogo de regras da
+# competência (insumo da reapuração na meta, T-270) e os baselines congelados (T-032) das
+# cinco competências publicadas (2025-08 a 2025-12; julho foi excluído pela T-026). Fica de
+# fora normalization_report.json (relatório da T-026, não é base).
 COPY --chmod=0444 \
      worker/sandbox/data/domrock/rh.jsonl \
      worker/sandbox/data/domrock/vendas.jsonl \
      worker/sandbox/data/domrock/comissoes.jsonl \
      worker/sandbox/data/domrock/eventos_rh.jsonl \
+     worker/sandbox/data/domrock/regras_competencia.jsonl \
      worker/sandbox/data/domrock/schema.json \
      ./sandbox/data/domrock/
 COPY --chmod=0444 \

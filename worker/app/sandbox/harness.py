@@ -8,6 +8,9 @@ A função gerada e o harness rodam no mesmo processo Python (contrato T-034): o
 não dá isolamento, a contenção vem das flags do container. O que este módulo faz é
 impedir o erro acidental: a regra recebe cópias das entradas, e a agregação usa o
 baseline que só o harness guarda.
+
+Com meta de venda, as vendas e o baseline chegam escalados até a meta pela carga (T-270), e
+este módulo os trata como trataria os históricos: nada aqui sabe da meta.
 """
 
 from __future__ import annotations

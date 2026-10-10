@@ -13,6 +13,7 @@ from app.sandbox.carga import (
     BaseInconsistenteError,
     CargaError,
     CompetenciaNaoPublicadaError,
+    ReapuracaoError,
     Tipo,
     carregar,
     competencias_publicadas,
@@ -284,6 +285,98 @@ def test_carga_e_deterministica() -> None:
     assert primeira.registros_base == segunda.registros_base
     for nome in TABELAS:
         assert primeira.bases[nome].equals(segunda.bases[nome])
+
+
+# ---- carga na meta de venda (T-270) ----
+
+# A soma de vlr_venda de 2025-11, em centavos, e uma meta 10% acima dela.
+VENDAS_2025_11 = Decimal("13271681.51")
+META_2025_11 = float(VENDAS_2025_11 * Decimal("1.1"))
+
+
+@pytest.fixture(scope="module")
+def novembro_na_meta() -> Any:
+    return carregar(["2025-11"], meta_venda=META_2025_11)
+
+
+@pytest.mark.parametrize("tabela", ["rh", "comissoes", "eventos_rh"])
+def test_na_meta_as_outras_bases_nao_mudam(
+    novembro: Any, novembro_na_meta: Any, tabela: str
+) -> None:
+    assert novembro_na_meta.bases[tabela].equals(novembro.bases[tabela])
+
+
+def test_na_meta_toda_venda_e_escalada_pelo_mesmo_fator(
+    novembro: Any, novembro_na_meta: Any
+) -> None:
+    historicas, escaladas = novembro.bases["vendas"], novembro_na_meta.bases["vendas"]
+
+    assert escaladas.drop(columns="vlr_venda").equals(historicas.drop(columns="vlr_venda"))
+    assert list(escaladas["vlr_venda"]) == [
+        float(Decimal(str(valor)) * Decimal("1.1")) for valor in historicas["vlr_venda"]
+    ]
+
+
+@pytest.mark.parametrize("tabela", [*TABELAS, "apuracao_base"])
+def test_na_meta_os_dtypes_seguem_a_convencao_do_contrato(
+    novembro_na_meta: Any, tabela: str
+) -> None:
+    dataframe = (
+        novembro_na_meta.apuracao_base
+        if tabela == "apuracao_base"
+        else novembro_na_meta.bases[tabela]
+    )
+
+    assert {coluna: str(dtype) for coluna, dtype in dataframe.dtypes.items()} == {
+        coluna: dtype_esperado(tabela, coluna) for coluna in dataframe.columns
+    }
+
+
+def test_na_meta_o_baseline_e_o_reapurado_sobre_as_vendas_escaladas(
+    novembro: Any, novembro_na_meta: Any
+) -> None:
+    """As mesmas matrículas, na mesma ordem e com as mesmas dimensões; só a comissão muda, e não
+    na proporção da escala."""
+    apuracao = novembro_na_meta.apuracao_base
+
+    total = sum((Decimal(str(v)) for v in apuracao["comissao"]), Decimal(0))
+    assert total == Decimal("558870.26")
+    assert apuracao.drop(columns="comissao").equals(novembro.apuracao_base.drop(columns="comissao"))
+
+
+def test_na_meta_registros_base_espelham_o_dataframe_em_tipos_nativos(
+    novembro_na_meta: Any,
+) -> None:
+    """A tupla de dicts que o harness guarda para a agregação, na mesma forma da carga sem meta."""
+    registros = novembro_na_meta.registros_base
+
+    assert isinstance(registros, tuple) and all(isinstance(r, dict) for r in registros)
+    assert [r["comissao"] for r in registros] == list(novembro_na_meta.apuracao_base["comissao"])
+    assert type(registros[0]["cod_loja"]) is int
+    assert type(registros[0]["comissao"]) is float
+
+
+def test_meta_igual_ao_total_historico_e_a_carga_sem_meta() -> None:
+    """Fator 1: as vendas, o baseline e os registros do harness são os de uma execução sem meta,
+    num período de mais de uma competência."""
+    periodo = ["2025-08", "2025-11"]
+    sem_meta = carregar(periodo)
+
+    na_meta = carregar(periodo, meta_venda=23583194.87)
+
+    assert na_meta.registros_base == sem_meta.registros_base
+    assert na_meta.apuracao_base.equals(sem_meta.apuracao_base)
+    for nome in TABELAS:
+        assert na_meta.bases[nome].equals(sem_meta.bases[nome])
+
+
+def test_meta_sem_vendas_no_periodo_falha_como_carga(tmp_path: Path) -> None:
+    """Uma falha da reapuração é do harness, não da regra: sai com código 1, sem envelope."""
+    raiz = dataset_de_um_funcionario(tmp_path)
+    escrever_jsonl(raiz / "regras_competencia.jsonl", [])
+
+    with pytest.raises(ReapuracaoError, match="não pôde ser reapurado"):
+        carregar(["2025-08"], meta_venda=1000.0, raiz=raiz)
 
 
 # ---- período ----

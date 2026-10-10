@@ -126,6 +126,10 @@ def evento_de(gravado: ResultadoGravado) -> SimulacaoConcluida:
     """O evento do schema: referência, status e, só em `sucesso`, o veredito e os agregados. O
     veredito nulo de um sucesso sem orçamento sai ausente do evento, não `null`.
 
+    A meta e o propósito saem em qualquer status, porque a api separa a execução candidata da
+    busca da meta antes de olhar o desfecho (T-270, T-274). A meta, quando a execução teve meta;
+    o propósito, só quando é `busca_meta`, já que ausente equivale a `simulacao`.
+
     Claim-check: a decomposição e o desfecho das asserções ficam na linha, não no evento.
     """
     campos: dict[str, Any] = {
@@ -133,6 +137,10 @@ def evento_de(gravado: ResultadoGravado) -> SimulacaoConcluida:
         "resultado_id": gravado.id,
         "status": gravado.status,
     }
+    if gravado.meta_venda is not None:
+        campos["meta_venda"] = gravado.meta_venda
+    if gravado.proposito != "simulacao":
+        campos["proposito"] = gravado.proposito
     if gravado.status == "sucesso" and gravado.totais is not None:
         totais = gravado.totais
         campos |= {

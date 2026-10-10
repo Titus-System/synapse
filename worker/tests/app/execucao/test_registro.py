@@ -5,7 +5,9 @@ evento, só a referência e os agregados do schema. Os dois saem de `ResultadoGr
 o resultado recém-gravado e para o que uma reentrega encontra já gravado.
 """
 
+import dataclasses
 import json
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -396,3 +398,51 @@ def test_linha_com_vocabulario_fora_do_schema_nao_vira_evento(
 
     with pytest.raises(ValidationError):
         evento_de(gravado)
+
+
+# ---- a meta e o propósito (T-270) ----
+
+
+def _na_meta(julgamento: Julgamento, meta_venda: float | None, proposito: str) -> ResultadoGravado:
+    return dataclasses.replace(gravado_de(julgamento), meta_venda=meta_venda, proposito=proposito)
+
+
+@pytest.mark.parametrize(
+    "julgamento",
+    [julgamento_de_sucesso(600000.0), *NAO_SUCESSOS],
+    ids=["sucesso", *IDS_DOS_NAO_SUCESSOS],
+)
+def test_a_execucao_na_meta_publica_a_meta_e_a_candidata_publica_o_proposito(
+    julgamento: Julgamento,
+) -> None:
+    """Em qualquer status: a api separa a candidata da busca antes de olhar o desfecho (T-274),
+    e o codegen associa cada execução à meta que testou."""
+    corpo = corpo_do_evento(_na_meta(julgamento, 26000000.0, "busca_meta"))
+
+    assert (corpo["meta_venda"], corpo["proposito"]) == (26000000.0, "busca_meta")
+    assert erros_do_evento("simulacao-concluida", corpo) == []
+
+
+def test_a_simulacao_do_job_na_meta_publica_a_meta_sem_o_proposito() -> None:
+    """Ausente equivale a simulacao: o evento sai como o exemplo do contrato."""
+    corpo = corpo_do_evento(_na_meta(julgamento_de_sucesso(600000.0), 26000000.0, "simulacao"))
+
+    assert corpo["meta_venda"] == 26000000.0 and "proposito" not in corpo
+    assert erros_do_evento("simulacao-concluida", corpo) == []
+
+
+def test_sem_meta_o_evento_sai_como_antes_da_meta() -> None:
+    corpo = corpo_do_evento(gravado_de(julgamento_de_sucesso(600000.0)))
+
+    assert set(corpo) == CAMPOS_DO_EVENTO_DE_SUCESSO
+
+
+def test_a_linha_reentregue_na_meta_publica_o_mesmo_evento_que_a_recem_gravada() -> None:
+    """A coluna `numeric` devolve a meta como `Decimal`, e a consulta a converte de volta ao float
+    do comando: os dois caminhos publicam a mesma meta."""
+    recem_gravado = _na_meta(julgamento_de_sucesso(600000.0), 14598849.661, "busca_meta")
+    do_banco = dataclasses.replace(
+        recem_gravado, meta_venda=float(Decimal(str(recem_gravado.meta_venda)))
+    )
+
+    assert evento_de(do_banco) == evento_de(recem_gravado)
