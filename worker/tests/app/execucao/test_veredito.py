@@ -32,6 +32,7 @@ from tests.app.execucao.envelopes import (
     PAYLOAD,
     RESULTADO,
     envelope,
+    linhas_para,
     saida,
 )
 
@@ -54,7 +55,9 @@ def totais(baseline: str, simulado: str, /) -> dict[str, float]:
 def sucesso(baseline: str, simulado: str, /, **mudancas: Any) -> DesfechoClassificado:
     resultado = copy.deepcopy(RESULTADO)
     resultado["totais"] = totais(baseline, simulado) | mudancas
-    return DesfechoClassificado("sucesso", "ok", [ASSERCAO_OK], resultado=resultado)
+    return DesfechoClassificado(
+        "sucesso", "ok", [ASSERCAO_OK], resultado=resultado, linhas=linhas_para(["2025-11"])
+    )
 
 
 def julgar_2025_11(

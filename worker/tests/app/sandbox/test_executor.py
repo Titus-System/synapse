@@ -153,7 +153,7 @@ def test_exemplo_do_contrato_devolve_envelope_de_sucesso() -> None:
 
     assert codigo == SAIDA_SUCESSO
     assert envelope["status"] == "sucesso" and envelope["erro"] is None
-    assert envelope["versao"] == 2
+    assert envelope["versao"] == 3
     assert (envelope["job_id"], envelope["codigo_gerado_id"]) == (JOB_ID, CODIGO_ID)
     assert envelope["competencias"] == ["2025-11"]
     assert envelope["resultado"]["totais"]["baseline"] == 508382.32
@@ -191,11 +191,14 @@ def test_declaracao_fora_do_contrato_e_erro_do_codigo() -> None:
     assert (envelope["resultado"], envelope["elementos_implementados"]) == (None, None)
 
 
-def test_o_resultado_nao_traz_orcamento_nem_linha_das_bases() -> None:
+def test_envelope_separa_detalhamento_do_resultado_e_nao_traz_orcamento() -> None:
     _, bruto = rodar(payload())
 
     assert b"orcamento" not in bruto
-    assert b"MATRIC-" not in bruto and b"matricula" not in bruto
+    envelope = json.loads(bruto)
+    assert set(envelope["resultado"]) == {"totais", "assercoes", "decomposicao"}
+    assert envelope["linhas"]["2025-11"]
+    assert "apuracao_simulada" not in envelope and "bases" not in envelope
 
 
 def test_resultado_do_envelope_valida_no_contrato_com_o_orcamento_do_worker() -> None:

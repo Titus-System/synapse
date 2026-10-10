@@ -79,6 +79,24 @@ def resultado_para(competencias: list[str], a_mais: str = "1000.00") -> dict[str
     return resultado
 
 
+def linhas_para(competencias: list[str]) -> dict[str, Any]:
+    """Detalhamento de forma válida; reconciliação de valores pertence à T-262."""
+    return {
+        c: {
+            "MATRIC-1": {
+                "cod_loja": "13",
+                "cod_marca": "10",
+                "cod_cargo": "100",
+                "comissao_baseline": 100.0,
+                "comissao_simulada": 110.0,
+                "diferenca": 10.0,
+                "contribuicoes": {"elem.1": 10.0},
+            }
+        }
+        for c in competencias
+    }
+
+
 def envelope(status: str = "sucesso", **mudancas: Any) -> dict[str, Any]:
     base: dict[str, Any] = {
         "versao": VERSAO,
@@ -88,6 +106,7 @@ def envelope(status: str = "sucesso", **mudancas: Any) -> dict[str, Any]:
         "status": status,
         "assercoes": [ASSERCAO_OK],
         "resultado": copy.deepcopy(RESULTADO),
+        "linhas": linhas_para(mudancas.get("competencias", COMPETENCIAS)),
         "elementos_implementados": list(ELEMENTOS_DO_RESULTADO),
         "erro": None,
     }
@@ -95,12 +114,14 @@ def envelope(status: str = "sucesso", **mudancas: Any) -> dict[str, Any]:
         base |= {
             "assercoes": [ASSERCAO_VIOLADA],
             "resultado": None,
+            "linhas": None,
             "elementos_implementados": None,
         }
     if status == "erro_codigo":
         base |= {
             "assercoes": [],
             "resultado": None,
+            "linhas": None,
             "elementos_implementados": None,
             "erro": dict(FALHA),
         }

@@ -113,6 +113,7 @@ def processar(entrada: BinaryIO, saida: BinaryIO, *, raiz: Path = RAIZ_DADOS) ->
         status=status,
         assercoes=execucao.assercoes if execucao else [],
         resultado=execucao.resultado if execucao else None,
+        linhas=execucao.linhas if execucao else None,
         elementos_implementados=execucao.elementos_implementados if execucao else None,
         erro=falha,
     )

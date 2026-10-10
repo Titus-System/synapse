@@ -174,6 +174,7 @@ async def _gravar(comando: ExecutarCodigo, julgamento: Julgamento) -> ResultadoG
                 assercoes=linha.assercoes,
                 decomposicao=linha.decomposicao,
                 diagnostico=linha.diagnostico,
+                linhas=linha.linhas,
             )
     logger.info(
         "resultado gravado",
@@ -181,6 +182,8 @@ async def _gravar(comando: ExecutarCodigo, julgamento: Julgamento) -> ResultadoG
             "resultado_id": str(gravado.id),
             "status": gravado.status,
             "com_diagnostico": linha.diagnostico is not None,
+            "competencias_detalhadas": len(linha.linhas or {}),
+            "linhas_detalhadas": sum(len(mes) for mes in (linha.linhas or {}).values()),
         },
     )
     return gravado

@@ -85,7 +85,7 @@ def montar(
         base,
         competencias if competencias is not None else ["2025-11"],
         assercoes=assercoes_ok(),
-    )
+    ).resultado
 
 
 def soma(quebra: dict[str, float]) -> Decimal:
@@ -146,6 +146,9 @@ def test_monta_totais_decomposicao_e_assercoes_do_periodo() -> None:
             "marca": {"10": 30.0},
             "cargo": {"100": 30.0, "150": 0.0},
             "competencia": {"2025-11": 30.0},
+            "matricula": {"MATRIC-1": 130.0, "MATRIC-2": 200.0},
+            "loja_absoluto": {"13": 130.0, "58": 200.0},
+            "competencia_absoluto": {"2025-11": 330.0},
         },
     }
 
@@ -231,6 +234,9 @@ def test_decomposicao_existe_quando_a_diferenca_e_zero() -> None:
         "marca": {"10": 0.0},
         "cargo": {"100": 0.0},
         "competencia": {"2025-11": 0.0},
+        "matricula": {"MATRIC-1": 100.0},
+        "loja_absoluto": {"13": 100.0},
+        "competencia_absoluto": {"2025-11": 100.0},
     }
 
 
@@ -474,7 +480,7 @@ def test_aceita_tabela_dataframe_like_sem_depender_de_pandas() -> None:
         DataFrameFalso(base),
         ["2025-11"],
         assercoes=assercoes_ok(),
-    )
+    ).resultado
 
     assert resultado == montar(base, simulada, contribuicoes)
 
@@ -523,14 +529,18 @@ def test_totais_nao_trazem_orcamento() -> None:
     assert "orcamento" not in resultado["totais"]
 
 
-def test_nenhuma_linha_das_bases_aparece_na_saida() -> None:
+def test_resultado_so_leva_agregados_e_detalhamento_fica_separado() -> None:
     base, simulada, contribuicoes = cenario_de_varias_dimensoes()
 
     resultado = montar(base, simulada, contribuicoes, ["2025-10", "2025-11"])
 
-    serializado = json.dumps(resultado)
-    assert "MATRIC-" not in serializado
-    assert "matricula" not in serializado
+    assert set(resultado) == {"totais", "assercoes", "decomposicao"}
+    assert resultado["decomposicao"]["matricula"] == {
+        "MATRIC-1": 100.0,
+        "MATRIC-2": 263.08,
+        "MATRIC-3": 84.11,
+        "MATRIC-4": 325.92,
+    }
 
 
 def test_nao_muta_as_tabelas_recebidas() -> None:

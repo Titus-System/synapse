@@ -15,6 +15,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from app.db.engine import get_sessionmaker
 from app.repositorio.resultados import buscar_resultado, gravar_resultado
+from tests.app.execucao.envelopes import linhas_para
 
 pytestmark = pytest.mark.postgres
 
@@ -54,6 +55,7 @@ async def gravar(seed: dict[str, object], **mudancas: Any) -> UUID:
         "assercoes": ASSERCOES,
         "decomposicao": DECOMPOSICAO,
         "diagnostico": None,
+        "linhas": linhas_para(["2025-08", "2025-11"]),
     }
     async with get_sessionmaker()() as sessao, sessao.begin():
         gravado = await gravar_resultado(sessao, **(campos | mudancas))
@@ -83,6 +85,7 @@ async def test_grava_a_linha_com_todas_as_colunas(
     assert json.loads(linha["assercoes"]) == ASSERCOES
     assert json.loads(linha["decomposicao"]) == DECOMPOSICAO
     assert linha["diagnostico"] is None
+    assert json.loads(linha["linhas"]) == linhas_para(["2025-08", "2025-11"])
     assert linha["criado_em"] is not None
 
 
@@ -148,6 +151,7 @@ async def test_a_linha_nao_existe_para_outros_ate_a_transacao_confirmar(
             assercoes=ASSERCOES,
             decomposicao=DECOMPOSICAO,
             diagnostico=None,
+            linhas=linhas_para(["2025-08", "2025-11"]),
         )
         assert await ler_como_dono(conexao_dono, gravado.id) is None
         await sessao_tx.rollback()
@@ -289,3 +293,53 @@ async def test_worker_nao_escreve_em_nenhuma_outra_tabela(tabela: str) -> None:
     with pytest.raises(DBAPIError, match="permission denied"):
         async with get_sessionmaker()() as sessao, sessao.begin():
             await sessao.execute(text(f"INSERT INTO {tabela} DEFAULT VALUES"))
+
+
+@pytest.mark.parametrize("status", ["assercao_violada", "erro_codigo", "erro_infra"])
+async def test_sem_sucesso_grava_linhas_sql_null_mesmo_se_receber_detalhamento(
+    codigo_gerado_seed: dict[str, object],
+    conexao_dono: Any,
+    status: str,
+) -> None:
+    resultado_id = await gravar(
+        codigo_gerado_seed,
+        status=status,
+        veredito=None,
+        totais=None,
+        assercoes=[],
+        decomposicao=None,
+    )
+
+    linha = await ler_como_dono(conexao_dono, resultado_id)
+    assert linha["linhas"] is None
+
+
+async def test_grava_detalhamento_de_todo_periodo_no_mesmo_insert(
+    codigo_gerado_seed: dict[str, object],
+    conexao_dono: Any,
+) -> None:
+    from decimal import Decimal
+
+    from tests.app.sandbox.detalhamento import envelope_do_periodo
+
+    envelope = envelope_do_periodo()
+    resultado = envelope["resultado"]
+    resultado_id = await gravar(
+        codigo_gerado_seed,
+        linhas=envelope["linhas"],
+        totais=resultado["totais"],
+        decomposicao=resultado["decomposicao"],
+        assercoes=resultado["assercoes"],
+    )
+
+    gravado = await ler_como_dono(conexao_dono, resultado_id)
+    linhas = json.loads(gravado["linhas"])
+    assert linhas == envelope["linhas"]
+    assert sum(
+        (
+            Decimal(str(registro["comissao_simulada"]))
+            for mes in linhas.values()
+            for registro in mes.values()
+        ),
+        Decimal(0),
+    ) == Decimal(str(resultado["totais"]["simulado"]))
