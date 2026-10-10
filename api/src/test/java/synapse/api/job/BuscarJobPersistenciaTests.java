@@ -187,7 +187,7 @@ class BuscarJobPersistenciaTests {
 		UUID jobId = criarJobEmProcessamento();
 		UUID regra = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
 		criarExecucaoPendente(jobId, regra);
-		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada", null);
 
 		JsonNode resposta = consultar(jobId);
 
@@ -204,7 +204,7 @@ class BuscarJobPersistenciaTests {
 		UUID jobId = criarJobEmProcessamento();
 		UUID regra = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
 		UUID codigo = criarExecucaoPendente(jobId, regra);
-		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada", null);
 		UUID resultado = criarResultado(jobId, codigo, "sucesso", "viavel", true);
 		eventos.concluirSimulacao(jobId, resultado, DesfechoDaSimulacao.VIAVEL);
 
@@ -228,7 +228,7 @@ class BuscarJobPersistenciaTests {
 		UUID jobId = criarJobEmProcessamento();
 		UUID regra = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
 		UUID codigo = criarExecucaoPendente(jobId, regra);
-		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada", null);
 		String statusDoResultado = Objects.requireNonNull(desfecho.motivoDaTrilha());
 		// O sandbox não devia deixar número nem veredito num status de falha; se
 		// deixasse, a consulta não pode repassá-los.
@@ -262,7 +262,7 @@ class BuscarJobPersistenciaTests {
 		UUID jobId = criarJobEmProcessamento();
 		UUID regra = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
 		UUID codigo = criarExecucaoPendente(jobId, regra);
-		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada", null);
 		UUID resultado = criarResultado(jobId, codigo, "sucesso", "inviavel", true);
 		eventos.concluirSimulacao(jobId, resultado, DesfechoDaSimulacao.INVIAVEL);
 
@@ -280,7 +280,7 @@ class BuscarJobPersistenciaTests {
 	void falhaAnteriorASimulacaoTemMotivoConsultavel(EtapaDoGrafo etapa) throws Exception {
 		UUID jobId = criarJobEmProcessamento();
 		criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
-		EventoEstadoDto evento = Objects.requireNonNull(eventos.aplicarEtapaAlterada(jobId, etapa, "erro"));
+		EventoEstadoDto evento = Objects.requireNonNull(eventos.aplicarEtapaAlterada(jobId, etapa, "erro", null));
 
 		JsonNode resposta = consultar(jobId);
 
@@ -297,7 +297,7 @@ class BuscarJobPersistenciaTests {
 		UUID jobId = criarJobEmProcessamento();
 		UUID regraV1 = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
 		UUID codigoV1 = criarExecucaoPendente(jobId, regraV1);
-		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada", null);
 		eventos.concluirSimulacao(jobId, criarResultado(jobId, codigoV1, "sucesso", "inviavel", true),
 				DesfechoDaSimulacao.INVIAVEL);
 		JsonNode parado = consultar(jobId);
@@ -311,7 +311,7 @@ class BuscarJobPersistenciaTests {
 
 		UUID regraV2 = criarRegra(jobId, 2, "0.0199", "hash-v2", "2026-01-01T10:05:00Z");
 		UUID codigoV2 = criarExecucaoPendente(jobId, regraV2);
-		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada", null);
 		JsonNode simulando = consultar(jobId);
 		assertThat(simulando.path("status").asString()).isEqualTo("simulando");
 		assertThat(simulando.propertyNames()).doesNotContain("motivo");
@@ -331,7 +331,7 @@ class BuscarJobPersistenciaTests {
 		UUID jobId = criarJobEmProcessamento();
 		UUID regra = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
 		UUID codigo = criarExecucaoPendente(jobId, regra);
-		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada");
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada", null);
 		eventos.concluirSimulacao(jobId, criarResultado(jobId, codigo, "sucesso", "inviavel", true),
 				DesfechoDaSimulacao.INVIAVEL);
 		maquina.transicionar(jobId, JobStatus.ARQUIVADO, "usuario", null);
@@ -371,7 +371,7 @@ class BuscarJobPersistenciaTests {
 	void jobParadoComMotivoReconhecidoNaoLogaNada() throws Exception {
 		UUID jobId = criarJobEmProcessamento();
 		criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
-		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.GERACAO_CODIGO, "erro");
+		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.GERACAO_CODIGO, "erro", null);
 
 		try (CapturaDeLog captura = new CapturaDeLog("synapse.api.job.BuscarJobService")) {
 			consultar(jobId);

@@ -29,10 +29,13 @@ from app.core.metrics.global_metrics import (
 )
 from app.extracao.modelos import FalhaExtracaoError
 from app.extracao.motor import extrair_regra
-from app.falhas import FalhaDoJobError, ProvedorIndisponivelError
+from app.falhas import (
+    FalhaDoJobError,
+    JobEncerradoDuranteEsperaError,
+    ProvedorIndisponivelError,
+)
 from app.graph.core.llm import registry
 from app.graph.core.llm.disponibilidade import (
-    JobEncerradoDuranteEsperaError,
     chamar_com_espera_do_provedor,
     ganchos_da_espera,
 )
@@ -172,7 +175,10 @@ async def extract_rule(state: AgentState, config: RunnableConfig) -> AgentState:
             classe = "transcricao_indisponivel"
         elif isinstance(erro, FalhaExtracaoError):
             classe = "saida_invalida"
-        elif isinstance(erro, asyncio.CancelledError):
+        elif isinstance(erro, asyncio.CancelledError | JobEncerradoDuranteEsperaError):
+            # O job encerrado na espera é decisão do usuário, não falha do provedor: sem este
+            # ramo, `classe` ficaria no valor da operação em curso (`provedor`) e cada
+            # cancelamento durante uma indisponibilidade contaria como falha dela.
             classe = "cancelamento"
         job_failures.labels(job_name="extract_rule").inc()
         falhas_extracao.labels(classe=classe).inc()

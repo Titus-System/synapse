@@ -16,7 +16,7 @@ from app.contratos.mensagens import (
     StatusTerminal,
     Veredito,
 )
-from app.graph.core.llm.disponibilidade import JobEncerradoDuranteEsperaError
+from app.falhas import JobEncerradoDuranteEsperaError
 from app.graph.entrypoint import ResumeOutcome
 from app.graph.nodes.code_generation import ProvedorIndisponivelGeracaoError
 from app.mensageria import roteamento as modulo

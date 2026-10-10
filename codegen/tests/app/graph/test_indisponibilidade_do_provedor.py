@@ -17,9 +17,9 @@ from prometheus_client.parser import text_string_to_metric_families
 
 from app.contratos.mensagens import EtapaAlterada
 from app.core.logger import FormatadorJson, ManipuladorFilaContexto, job_id_ctx, no_ctx
+from app.falhas import JobEncerradoDuranteEsperaError
 from app.graph.core.llm import disponibilidade
 from app.graph.core.llm.disponibilidade import (
-    JobEncerradoDuranteEsperaError,
     chamar_com_espera_do_provedor,
     e_indisponibilidade_do_provedor,
 )
@@ -433,12 +433,16 @@ async def test_extracao_esgotada_publica_erro_com_causa_e_rejeita_sem_requeue(
 
 
 async def test_job_encerrado_na_espera_descarta_a_mensagem_sem_avisar_erro(
-    monkeypatch: pytest.MonkeyPatch, relogio: Relogio
+    monkeypatch: pytest.MonkeyPatch,
+    relogio: Relogio,
+    logs: list[dict[str, Any]],
+    cliente: AsyncClient,
 ) -> None:
     ambiente = AmbienteExtracao(monkeypatch)
     monkeypatch.setattr(FakeChatModel, "ainvoke", AsyncMock(side_effect=_servidor()))
     monkeypatch.setattr("app.repositorio.encerramentos.foi_encerrado", AsyncMock(return_value=True))
     recebida = mensagem(ambiente.entrada())
+    antes = (await cliente.get("/metrics")).text
 
     await ambiente.consumer.receber(recebida)
 
@@ -446,6 +450,26 @@ async def test_job_encerrado_na_espera_descarta_a_mensagem_sem_avisar_erro(
     status = [p["status"] for nome, p in ambiente.publicacoes if nome == "etapa-alterada"]
     assert "erro" not in status
     assert relogio.esperas == [30]
+    # A decisão do usuário não é falha do provedor: nem o contador do provedor nem a classe
+    # `provedor` da extração podem se mover, senão cada cancelamento durante uma
+    # indisponibilidade apareceria como mais uma falha dela.
+    depois = (await cliente.get("/metrics")).text
+    for desfecho in ("recuperado", "esgotado"):
+        rotulos = {"no": "extracao_parametros", "desfecho": desfecho}
+        assert amostra(depois, "llm_provider_failures_total", rotulos) == amostra(
+            antes, "llm_provider_failures_total", rotulos
+        )
+    assert amostra(depois, "codegen_extracao_falhas_total", {"classe": "provedor"}) == amostra(
+        antes, "codegen_extracao_falhas_total", {"classe": "provedor"}
+    )
+    assert (
+        amostra(depois, "codegen_extracao_falhas_total", {"classe": "cancelamento"})
+        - amostra(antes, "codegen_extracao_falhas_total", {"classe": "cancelamento"})
+        == 1
+    )
+    [falha] = [log for log in logs if log["message"] == "extraction failed"]
+    assert falha["extra"]["classe"] == "cancelamento"
+    assert falha["extra"]["motivo"] == "cancelamento"
 
 
 def test_exemplos_dos_contratos_novos_validam_no_modelo() -> None:

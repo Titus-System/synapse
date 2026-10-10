@@ -126,6 +126,8 @@ falhas_do_provedor = prometheus.register_counter(
 
 # Tempo entre a primeira falha de provedor de uma chamada e o fim da espera, em qualquer
 # desfecho. É espera por um terceiro, e não o tempo de execução do nó (`job_duration_seconds`).
+# A contagem é maior que a soma de `llm_provider_failures_total`: a espera encerrada por um job
+# encerrado, ou por uma falha que não é do provedor, é medida aqui e não tem desfecho lá.
 espera_do_provedor = prometheus.register_histogram(
     "llm_provider_wait_seconds",
     "Tempo de espera pelo provedor indisponível, por nó",

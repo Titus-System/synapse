@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import simplejson
-from httpx import AsyncClient
+from httpx import AsyncClient, ConnectError, ReadTimeout
 from jsonschema import Draft202012Validator, FormatChecker
 from langchain_core.messages import AIMessage
 from prometheus_client.parser import text_string_to_metric_families
@@ -385,12 +385,15 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
         (ValueError, "falha_na_operacao"),
     ],
 )
-async def test_falha_do_provedor_identifica_motivo_sem_expor_excecao(
+async def test_falha_inesperada_da_chamada_identifica_motivo_sem_expor_excecao(
     monkeypatch: pytest.MonkeyPatch,
     logs: list[dict[str, Any]],
     tipo_erro: type[Exception],
     motivo: str,
 ) -> None:
+    """Timeout e erro de conexão não entram aqui: desde a T-268 eles vão para a espera do
+    provedor (`test_indisponibilidade_do_provedor.py`), e só o que não é indisponibilidade
+    chega ao tratamento de falha do nó."""
     ambiente = AmbienteExtracao(monkeypatch)
     payload = ambiente.entrada()
     monkeypatch.setattr(
@@ -442,6 +445,37 @@ async def test_falha_de_publicacao_identifica_o_evento_sem_expor_excecao(
         "operacao": operacao,
         "extracao_reutilizada": False,
     }
+    assert "SEGREDO_DO_BROKER" not in simplejson.dumps(logs)
+
+
+@pytest.mark.parametrize(
+    ("erro", "motivo"),
+    [
+        (TimeoutError("SEGREDO_DO_BROKER"), "timeout"),
+        (ReadTimeout("SEGREDO_DO_BROKER"), "timeout"),
+        (ConnectionError("SEGREDO_DO_BROKER"), "conexao"),
+        (ConnectError("SEGREDO_DO_BROKER"), "conexao"),
+        (RuntimeError("SEGREDO_DO_BROKER"), "falha_na_operacao"),
+    ],
+)
+async def test_falha_de_infraestrutura_identifica_a_classe_do_erro(
+    monkeypatch: pytest.MonkeyPatch,
+    logs: list[dict[str, Any]],
+    erro: Exception,
+    motivo: str,
+) -> None:
+    """A publicação é o caminho que ainda vê timeout e erro de conexão crus: na chamada ao
+    modelo eles passaram a ser indisponibilidade do provedor, com espera e janela."""
+    ambiente = AmbienteExtracao(monkeypatch)
+    ambiente.producers.etapa_alterada.side_effect = erro
+    recebida = mensagem(ambiente.entrada())
+
+    await ambiente.consumer.receber(recebida)
+
+    recebida.nack.assert_awaited_once_with(requeue=True)
+    [falha] = [log for log in logs if log["message"] == "extraction failed"]
+    assert falha["extra"]["classe"] == "publicacao"
+    assert falha["extra"]["motivo"] == motivo
     assert "SEGREDO_DO_BROKER" not in simplejson.dumps(logs)
 
 

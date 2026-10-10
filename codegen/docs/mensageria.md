@@ -93,7 +93,7 @@ Antes de rejeitar, o `GraphRouter` publica `etapa-alterada` com `status="erro"` 
 
 Nenhuma dessas exceções carrega conteúdo de artefato, e a mensagem delas nunca vai para log nem para evento — só a etapa e a correlação do job.
 
-Falha transitória (banco ou broker indisponível, erro de rede do provedor) não é `FalhaDoJobError`: continua em `nack(requeue=True)`, porque a reentrega é a resposta certa.
+Falha transitória (banco ou broker indisponível) não é `FalhaDoJobError`: continua em `nack(requeue=True)`, porque a reentrega é a resposta certa. O erro de rede do provedor de LLM é tratado antes disso, pela espera dentro do próprio processamento (ver *Indisponibilidade do provedor* abaixo); só o esgotamento da janela vira `FalhaDoJobError`.
 
 Para o comando de saída `executar-codigo`, a [DEC-091](../../docs/decisoes/dec-091.md) define retry gerenciado pela aplicação no **worker, lado consumidor**. O producer do codegen apenas publica o comando inicial. O worker usa o header AMQP `synapse_retry_count` (ausente = zero), com até três tentativas totais, sem alterar o payload ou o schema. Somente falhas de infraestrutura permitem retry automático; falhas permanentes e tentativas esgotadas vão para `executar-codigo.dlq`, declarada pelo worker, sem consumidor automático. O worker republica uma cópia persistente, aguarda publisher confirm e só então confirma a original; se a publicação falhar, devolve a original com requeue. As filas permanecem sem argumentos `x-*`, conforme DEC-089, e não há backoff, TTL ou plugins. A classificação completa da T-065 e a persistência/publicação de resultado da T-067 permanecem fora desta camada.
 

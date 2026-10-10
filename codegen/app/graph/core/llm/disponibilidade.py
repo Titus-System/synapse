@@ -22,7 +22,7 @@ from langchain_core.runnables import RunnableConfig
 from app.contratos.mensagens import EtapaAlterada, NoGrafo
 from app.core.logger import get_logger
 from app.core.metrics.global_metrics import espera_do_provedor, falhas_do_provedor
-from app.falhas import ProvedorIndisponivelError
+from app.falhas import JobEncerradoDuranteEsperaError, ProvedorIndisponivelError
 from app.graph.core.state import AgentState
 from app.repositorio import encerramentos
 
@@ -36,10 +36,6 @@ CODIGOS_HTTP_INDISPONIVEIS: Final = frozenset({429, 500, 502, 503, 504})
 
 ESPERAS_S: Final = (30.0, 60.0, 120.0)
 JANELA_S: Final = 600.0
-
-
-class JobEncerradoDuranteEsperaError(Exception):
-    """O usuário cancelou ou arquivou o job enquanto o codegen esperava o provedor."""
 
 
 def e_indisponibilidade_do_provedor(erro: BaseException) -> bool:

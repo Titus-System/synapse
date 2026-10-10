@@ -13,8 +13,7 @@ from app.contratos.mensagens import (
 )
 from app.core.logger import get_logger
 from app.core.metrics.global_metrics import parametros_confirmados
-from app.falhas import FalhaDoJobError
-from app.graph.core.llm.disponibilidade import JobEncerradoDuranteEsperaError
+from app.falhas import FalhaDoJobError, JobEncerradoDuranteEsperaError
 from app.graph.core.state import AgentState
 from app.graph.entrypoint import ResumeOutcome, RunOutcome, resume_to_completion, run_to_completion
 from app.mensageria.limpeza import LimpezaDeCheckpoints
