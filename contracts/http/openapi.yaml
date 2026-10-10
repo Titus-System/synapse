@@ -2495,8 +2495,12 @@ components:
             é reaberta numa rodada `pendente` nova, consultável em
             `GET /jobs/{id}/rodadas`. `aguardando_correcao` na etapa `confirmacao`
             anuncia que a validação apontou os `conflitos` deste evento, e é seguido de
-            um evento `estado` para `aguardando_confirmacao_parametros`. O vocabulário
-            ainda não está fechado.
+            um evento `estado` para `aguardando_confirmacao_parametros`.
+            `aguardando_provedor` avisa que o serviço de IA está com alta demanda e que
+            o processamento continua tentando; não muda o estado do job e deixa de
+            valer no próximo evento `etapa` ou `estado`. Se as tentativas se esgotam, o
+            job vai a `erro` e o evento `estado` traz em `motivo` a razão localizada.
+            O vocabulário ainda não está fechado.
         conflitos:
           $ref: "../domain/conflitos-rodada.schema.json"
           description: |

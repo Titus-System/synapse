@@ -22,12 +22,19 @@
     "status": {
       "type": "string",
       "minLength": 1,
-      "description": "Situação reportada pelo codegen para a etapa iniciada. A API a traduz para o estado do job, de que ela é dona, e repassa o progresso ao frontend. Com o job em gerando_regra, três valores o movem: iniciada na etapa delegacao_worker o leva a simulando; aguardando_correcao na etapa confirmacao o leva a aguardando_confirmacao_parametros, porque a validação apontou conflitos na versão e o ciclo dela terminou à espera da correção do usuário, e a API abre uma rodada pendente com esses conflitos; e erro, em qualquer etapa, o leva a erro. Com o job em aguardando_confirmacao_parametros, erro na etapa extracao_parametros é a falha da reextração de uma correção: a API não encerra o job, fecha a rodada em reextração e reabre a correção numa rodada pendente nova, encadeada e com os mesmos conflitos. Os demais valores só são repassados ao frontend. O vocabulário ainda não está fechado."
+      "description": "Situação reportada pelo codegen para a etapa iniciada. A API a traduz para o estado do job, de que ela é dona, e repassa o progresso ao frontend. Com o job em gerando_regra, três valores o movem: iniciada na etapa delegacao_worker o leva a simulando; aguardando_correcao na etapa confirmacao o leva a aguardando_confirmacao_parametros, porque a validação apontou conflitos na versão e o ciclo dela terminou à espera da correção do usuário, e a API abre uma rodada pendente com esses conflitos; e erro, em qualquer etapa, o leva a erro. Com o job em aguardando_confirmacao_parametros, erro na etapa extracao_parametros é a falha da reextração de uma correção: a API não encerra o job, fecha a rodada em reextração e reabre a correção numa rodada pendente nova, encadeada e com os mesmos conflitos. aguardando_provedor, em qualquer etapa que chama o modelo, avisa que o provedor de IA está indisponível e que o codegen continua tentando dentro da mesma mensagem; é publicado uma vez por chamada, não muda o estado do job e deixa de valer no próximo evento do job. Quando a janela de tentativas se esgota, o evento é erro com causa provedor_indisponivel. Os demais valores só são repassados ao frontend. O vocabulário ainda não está fechado."
     },
     "regra_id": {
       "type": "string",
       "format": "uuid",
       "description": "Versão da regra em regras a que o evento se refere. Obrigatório quando status é aguardando_correcao: identifica a versão analisada, cujos conflitos vão no evento, e é por ele que a API associa a rodada à versão certa, sem depender de qual versão o job tem como corrente quando o evento chega. Na falha da reextração, é a versão que a correção corrigia, a mesma regra_origem_id recebida em correcao-submetida. Ausente nos demais usos, em que a API correlaciona o evento só pelo job."
+    },
+    "causa": {
+      "type": "string",
+      "enum": [
+        "provedor_indisponivel"
+      ],
+      "description": "Causa da falha, opcional e só usada com status erro. provedor_indisponivel indica que o provedor de IA não respondeu dentro da janela de novas tentativas, e a API a traduz num motivo próprio do job. Ausente, o erro segue o tratamento genérico de falha do processamento. Não carrega mensagem, código HTTP nem nome do provedor."
     },
     "conflitos": {
       "$ref": "../domain/conflitos-rodada.schema.json",
@@ -86,6 +93,17 @@
       "etapa": "extracao_parametros",
       "status": "erro",
       "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+    },
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "etapa": "geracao_codigo",
+      "status": "aguardando_provedor"
+    },
+    {
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "etapa": "geracao_codigo",
+      "status": "erro",
+      "causa": "provedor_indisponivel"
     }
   ]
 }
