@@ -84,6 +84,8 @@ export const usarStoreJobAtual = defineStore('current-job', () => {
         statusAnterior.value = evento.status_anterior ?? null
         statusAtual.value = evento.status
         motivoParada.value = evento.motivo ?? null
+        // A espera pelo provedor vale até o próximo evento do job, de progresso ou de estado.
+        if (etapaAtual.value?.status === 'aguardando_provedor') etapaAtual.value = null
         if (job.value)
           job.value = {
             ...job.value,

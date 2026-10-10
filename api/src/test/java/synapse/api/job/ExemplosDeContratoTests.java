@@ -71,13 +71,31 @@ class ExemplosDeContratoTests {
 		assertThat(decomposicao.competencia_absoluto()).containsEntry("2025-11", new BigDecimal("253200"));
 	}
 
-	@Test
-	void desserializaOEventoDeEtapaAlterada() throws IOException {
-		EtapaAlteradaDto evento = desserializar("events/etapa-alterada.json", EtapaAlteradaDto.class);
+	/**
+	 * {@code causa} é opcional no schema e ausente nos exemplos antigos, então os eventos
+	 * de {@code etapa-alterada} são lidos sem {@code FAIL_ON_MISSING_CREATOR_PROPERTIES}
+	 * (ver {@link #desserializaOEventoDeRegraSubmetidaDeOrigemVoz()}).
+	 */
+	@ParameterizedTest
+	@ValueSource(strings = { "etapa-alterada", "etapa-alterada-aguardando-provedor",
+			"etapa-alterada-erro-provedor-indisponivel" })
+	void desserializaOEventoDeEtapaAlterada(String exemplo) throws IOException {
+		String json = Files.readString(exemplo("events/" + exemplo + ".json"));
+		EtapaAlteradaDto evento = this.objectMapper.readerFor(EtapaAlteradaDto.class)
+			.with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+			.readValue(json);
 
 		assertThat(evento.job_id()).isEqualTo(UUID.fromString("3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"));
 		assertThat(evento.etapa()).isEqualTo("geracao_codigo");
-		assertThat(evento.status()).isEqualTo("iniciada");
+		assertThat(evento.status()).isEqualTo(switch (exemplo) {
+			case "etapa-alterada" -> "iniciada";
+			case "etapa-alterada-aguardando-provedor" -> "aguardando_provedor";
+			default -> "erro";
+		});
+		assertThat(evento.causa())
+			.isEqualTo(exemplo.endsWith("provedor-indisponivel") ? "provedor_indisponivel" : null);
+
+		ContratoDeEvento.validar("etapa-alterada", json);
 	}
 
 	/**

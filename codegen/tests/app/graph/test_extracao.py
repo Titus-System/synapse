@@ -342,7 +342,7 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
             if falha == "cancelamento":
                 aguardando.set()
                 await asyncio.Event().wait()
-            raise ConnectionError("TRANSCRICAO_PRIVADA_DO_PROVEDOR")
+            raise RuntimeError("TRANSCRICAO_PRIVADA_DO_PROVEDOR")
 
         monkeypatch.setattr(FakeChatModel, "ainvoke", falhar)
     elif falha == "publicacao":
@@ -437,19 +437,19 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
 @pytest.mark.parametrize(
     ("tipo_erro", "motivo"),
     [
-        (TimeoutError, "timeout"),
-        (ReadTimeout, "timeout"),
-        (ConnectionError, "conexao"),
-        (ConnectError, "conexao"),
         (RuntimeError, "falha_na_operacao"),
+        (ValueError, "falha_na_operacao"),
     ],
 )
-async def test_falha_do_provedor_identifica_motivo_sem_expor_excecao(
+async def test_falha_inesperada_da_chamada_identifica_motivo_sem_expor_excecao(
     monkeypatch: pytest.MonkeyPatch,
     logs: list[dict[str, Any]],
     tipo_erro: type[Exception],
     motivo: str,
 ) -> None:
+    """Timeout e erro de conexão não entram aqui: desde a T-268 eles vão para a espera do
+    provedor (`test_indisponibilidade_do_provedor.py`), e só o que não é indisponibilidade
+    chega ao tratamento de falha do nó."""
     ambiente = AmbienteExtracao(monkeypatch)
     payload = ambiente.entrada()
     monkeypatch.setattr(
@@ -504,6 +504,37 @@ async def test_falha_de_publicacao_identifica_o_evento_sem_expor_excecao(
     assert "SEGREDO_DO_BROKER" not in simplejson.dumps(logs)
 
 
+@pytest.mark.parametrize(
+    ("erro", "motivo"),
+    [
+        (TimeoutError("SEGREDO_DO_BROKER"), "timeout"),
+        (ReadTimeout("SEGREDO_DO_BROKER"), "timeout"),
+        (ConnectionError("SEGREDO_DO_BROKER"), "conexao"),
+        (ConnectError("SEGREDO_DO_BROKER"), "conexao"),
+        (RuntimeError("SEGREDO_DO_BROKER"), "falha_na_operacao"),
+    ],
+)
+async def test_falha_de_infraestrutura_identifica_a_classe_do_erro(
+    monkeypatch: pytest.MonkeyPatch,
+    logs: list[dict[str, Any]],
+    erro: Exception,
+    motivo: str,
+) -> None:
+    """A publicação é o caminho que ainda vê timeout e erro de conexão crus: na chamada ao
+    modelo eles passaram a ser indisponibilidade do provedor, com espera e janela."""
+    ambiente = AmbienteExtracao(monkeypatch)
+    ambiente.producers.etapa_alterada.side_effect = erro
+    recebida = mensagem(ambiente.entrada())
+
+    await ambiente.consumer.receber(recebida)
+
+    recebida.nack.assert_awaited_once_with(requeue=True)
+    [falha] = [log for log in logs if log["message"] == "extraction failed"]
+    assert falha["extra"]["classe"] == "publicacao"
+    assert falha["extra"]["motivo"] == motivo
+    assert "SEGREDO_DO_BROKER" not in simplejson.dumps(logs)
+
+
 @pytest.mark.parametrize(("duracao", "falha"), [(45.0, False), (180.0, True)])
 async def test_duracao_longa_ocupa_buckets_finitos_em_sucesso_e_falha(
     monkeypatch: pytest.MonkeyPatch,
@@ -515,7 +546,9 @@ async def test_duracao_longa_ocupa_buckets_finitos_em_sucesso_e_falha(
     instantes = iter([0.0, duracao])
     monkeypatch.setattr("app.graph.nodes.extract_rule.perf_counter", lambda: next(instantes))
     if falha:
-        monkeypatch.setattr(FakeChatModel, "ainvoke", AsyncMock(side_effect=ReadTimeout("privado")))
+        monkeypatch.setattr(
+            FakeChatModel, "ainvoke", AsyncMock(side_effect=RuntimeError("privado"))
+        )
     antes = (await cliente.get("/metrics")).text
     recebida = mensagem(ambiente.entrada())
 

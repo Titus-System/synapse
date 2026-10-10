@@ -161,6 +161,19 @@ describe('SimulateView', () => {
     wrapper.unmount()
   })
 
+  it('mostra a razão de indisponibilidade do serviço de IA sem termos técnicos', async () => {
+    const razao =
+      'O serviço de inteligência artificial ficou indisponível por muito tempo e a regra não foi processada. Envie a regra de novo mais tarde.'
+    const { wrapper } = await montarInterrompido(razao)
+
+    const texto = wrapper.get('main').text()
+    expect(texto).toContain(razao)
+    for (const proibido of ['provedor_indisponivel', 'gerando_regra', 'geracao_codigo', '503', 'Gemini']) {
+      expect(texto).not.toContain(proibido)
+    }
+    wrapper.unmount()
+  })
+
   it('mostra a razão localizada da parada no lugar do texto padrão', async () => {
     const { wrapper } = await montarInterrompido(
       'A regra usa um elemento sem implementação correspondente.',
