@@ -71,10 +71,12 @@ def schema_envelope() -> dict[str, Any]:
             "type": "object",
             "additionalProperties": False,
             "required": ["nucleo", "elementos", "parametros"],
+            # O modelo gera as chaves na ordem de `properties`. Decidindo os parâmetros antes dos
+            # elementos, ele não faz do pedido de simular um período um elemento.
             "properties": {
                 "nucleo": NUCLEO,
-                "elementos": {"type": "array", "items": {"type": "object"}},
                 "parametros": PARAMETROS,
+                "elementos": {"type": "array", "items": {"type": "object"}},
             },
         }
     )
