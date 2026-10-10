@@ -14,7 +14,8 @@ import tools.jackson.databind.JsonNode;
  * {@link EtapaAlteradaConsumidor} quem valida antes de repassar ao SSE, nunca a
  * desserialização.
  */
-record EtapaAlteradaDto(@Nullable UUID job_id, @Nullable String etapa, @Nullable String status) {
+record EtapaAlteradaDto(@Nullable UUID job_id, @Nullable String etapa, @Nullable String status,
+		@Nullable String causa) {
 }
 
 /**
