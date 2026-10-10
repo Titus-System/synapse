@@ -17,6 +17,7 @@ import pytest
 
 from app.core.metrics.global_metrics import DESFECHOS_DA_EXECUCAO
 from app.execucao.baseline import BaselinesCongelados, carregar_baselines
+from app.execucao.bases import carregar_bases
 from app.execucao.coleta import DesfechoClassificado, classificar, classificar_falha_de_infra
 from app.execucao.schema import validador
 from app.execucao.veredito import (
@@ -25,6 +26,7 @@ from app.execucao.veredito import (
     julgamento_de_infra,
     julgar,
 )
+from tests.app.esquemas import erros_do_dominio
 from tests.app.execucao.envelopes import (
     ASSERCAO_OK,
     ASSERCAO_VIOLADA,
@@ -38,6 +40,8 @@ from tests.app.execucao.envelopes import (
 
 BASELINE_2025_11 = "508382.32"
 BASELINE_2025_08_11 = "871403.78"
+# A soma de vlr_venda de 2025-11 no dataset canônico, em centavos (T-270).
+VENDAS_2025_11 = 13271681.51
 
 
 def totais(baseline: str, simulado: str, /) -> dict[str, float]:
@@ -72,6 +76,7 @@ def julgar_2025_11(
         orcamento,
         carregar_baselines(),
         elementos_exigidos=elementos_exigidos,
+        bases=carregar_bases(),
     )
 
 
@@ -148,6 +153,7 @@ def test_a_diferenca_absoluta_e_a_percentual_acompanham_o_veredito() -> None:
         "simulado": 520000.0,
         "diferenca_abs": 11617.68,
         "diferenca_pct": float(Decimal("11617.68") / Decimal("508382.32")),
+        "vendas_historicas": VENDAS_2025_11,
         "orcamento": 485000.0,
     }
     assert julgamento.veredito == "inviavel"
@@ -157,7 +163,12 @@ def test_periodo_de_varias_competencias_confere_a_soma_dos_baselines() -> None:
     desfecho = sucesso(BASELINE_2025_08_11, "880000.00")
 
     julgamento = julgar(
-        desfecho, ["2025-08", "2025-11"], 900000.0, carregar_baselines(), elementos_exigidos=None
+        desfecho,
+        ["2025-08", "2025-11"],
+        900000.0,
+        carregar_baselines(),
+        elementos_exigidos=None,
+        bases=carregar_bases(),
     )
 
     assert (julgamento.classe, julgamento.veredito) == ("sucesso", "viavel")
@@ -247,7 +258,12 @@ def test_competencia_sem_baseline_no_worker_e_divergencia() -> None:
     baselines = BaselinesCongelados({"2025-11": Decimal(BASELINE_2025_11)})
 
     julgamento = julgar(
-        sucesso(BASELINE_2025_11, "520000.00"), ["2026-01"], 1.0, baselines, elementos_exigidos=None
+        sucesso(BASELINE_2025_11, "520000.00"),
+        ["2026-01"],
+        1.0,
+        baselines,
+        elementos_exigidos=None,
+        bases=carregar_bases(),
     )
 
     assert (julgamento.classe, julgamento.motivo) == ("erro_codigo", "baseline_divergente")
@@ -257,7 +273,9 @@ def test_baseline_zero_tem_fracao_zero_como_na_t035() -> None:
     baselines = BaselinesCongelados({"2025-11": Decimal("0.00")})
     desfecho = sucesso("0.00", "10.00")
 
-    julgamento = julgar(desfecho, ["2025-11"], 100.0, baselines, elementos_exigidos=None)
+    julgamento = julgar(
+        desfecho, ["2025-11"], 100.0, baselines, elementos_exigidos=None, bases=carregar_bases()
+    )
 
     assert (julgamento.classe, julgamento.veredito) == ("sucesso", "viavel")
 
@@ -292,6 +310,7 @@ def test_cobertura_completa_segue_para_o_veredito_com_o_mesmo_resultado_de_antes
         "simulado": 520000.0,
         "diferenca_abs": 11617.68,
         "diferenca_pct": float(Decimal("11617.68") / Decimal("508382.32")),
+        "vendas_historicas": VENDAS_2025_11,
         "orcamento": 485000.0,
     }
 
@@ -430,7 +449,12 @@ def test_o_desfecho_classificado_de_sucesso_e_julgado_sem_o_acrescimo_da_t065() 
     assert desfecho.classe == "sucesso"
 
     julgamento = julgar(
-        desfecho, PAYLOAD.competencias, 485000.0, carregar_baselines(), elementos_exigidos=None
+        desfecho,
+        PAYLOAD.competencias,
+        485000.0,
+        carregar_baselines(),
+        elementos_exigidos=None,
+        bases=carregar_bases(),
     )
 
     assert (julgamento.classe, julgamento.veredito) == ("sucesso", "inviavel")
@@ -469,6 +493,7 @@ def test_sem_orcamento_o_sucesso_conferido_sai_sem_veredito_e_sem_totais_orcamen
         "simulado": 520000.0,
         "diferenca_abs": 11617.68,
         "diferenca_pct": float(Decimal("11617.68") / Decimal("508382.32")),
+        "vendas_historicas": VENDAS_2025_11,
     }
     assert julgamento.resultado is not None
     assert julgamento.resultado["decomposicao"] is desfecho.resultado["decomposicao"]
@@ -548,3 +573,105 @@ def test_os_desfechos_da_metrica_sao_um_conjunto_fechado() -> None:
         "erro_codigo",
         "erro_infra",
     }
+
+
+# ---- na meta de venda: a conferência contra o baseline que o worker reapurou (T-270) ----
+
+# O baseline de 2025-11 reapurado sobre as vendas escaladas até 10% acima do total histórico, e
+# essa meta. O total vem do motor congelado (test_escalonamento.py e test_bases.py o conferem).
+BASELINE_NA_META_2025_11 = "558870.26"
+META_2025_11 = float(Decimal(str(VENDAS_2025_11)) * Decimal("1.1"))
+
+
+def julgar_na_meta(desfecho: DesfechoClassificado, orcamento: float | None = 600000.0) -> Any:
+    return julgar(
+        desfecho,
+        ["2025-11"],
+        orcamento,
+        carregar_baselines(),
+        elementos_exigidos=None,
+        bases=carregar_bases(),
+        baseline_na_meta=carregar_bases().baseline_na_meta(["2025-11"], META_2025_11),
+    )
+
+
+def test_na_meta_o_baseline_e_conferido_contra_o_que_o_worker_reapurou() -> None:
+    julgamento = julgar_na_meta(sucesso(BASELINE_NA_META_2025_11, "570000.00"), 600000.0)
+
+    assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == (
+        "sucesso",
+        "ok",
+        "viavel",
+    )
+    assert julgamento.totais == {
+        "baseline": 558870.26,
+        "simulado": 570000.0,
+        "diferenca_abs": 11129.74,
+        "diferenca_pct": float(Decimal("11129.74") / Decimal(BASELINE_NA_META_2025_11)),
+        "vendas_historicas": VENDAS_2025_11,
+        "orcamento": 600000.0,
+    }
+    assert list(validador().iter_errors(julgamento.resultado)) == []
+
+
+@pytest.mark.parametrize(
+    "desfecho",
+    [
+        pytest.param(sucesso(BASELINE_2025_11, "570000.00"), id="baseline congelado"),
+        pytest.param(sucesso("558870.27", "570000.00"), id="um centavo a mais"),
+        pytest.param(sucesso("559220.55", "570000.00"), id="baseline proporcional"),
+        pytest.param(
+            sucesso(BASELINE_NA_META_2025_11, "570000.00", diferenca_abs=11129.75), id="abs"
+        ),
+    ],
+)
+def test_na_meta_baseline_que_nao_e_o_reapurado_e_divergente(
+    desfecho: DesfechoClassificado,
+) -> None:
+    """Na meta, nem o congelado vale: o container que devolve o baseline histórico (ou o
+    proporcional, 1,1 vez o congelado) não simulou na meta, e o número não é o pedido."""
+    julgamento = julgar_na_meta(desfecho)
+
+    assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == (
+        "erro_codigo",
+        "baseline_divergente",
+        "indeterminado",
+    )
+    assert julgamento.resultado is None
+
+
+@pytest.mark.parametrize(
+    ("orcamento", "veredito"),
+    [(570000.0, "viavel"), (569999.99, "inviavel")],
+    ids=["cabe", "acima"],
+)
+def test_na_meta_o_veredito_compara_o_simulado_na_meta(orcamento: float, veredito: str) -> None:
+    julgamento = julgar_na_meta(sucesso(BASELINE_NA_META_2025_11, "570000.00"), orcamento)
+
+    assert (julgamento.classe, julgamento.veredito) == ("sucesso", veredito)
+
+
+def test_na_meta_sem_orcamento_sai_sem_veredito() -> None:
+    julgamento = julgar_na_meta(sucesso(BASELINE_NA_META_2025_11, "570000.00"), None)
+
+    assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == ("sucesso", "ok", None)
+    assert julgamento.totais is not None and "orcamento" not in julgamento.totais
+    assert julgamento.totais["vendas_historicas"] == VENDAS_2025_11
+    assert desfecho_da_execucao(julgamento) == "sem_orcamento"
+
+
+@pytest.mark.parametrize("na_meta", [False, True], ids=["historico", "meta"])
+@pytest.mark.parametrize("orcamento", [600000.0, None], ids=["com orcamento", "sem orcamento"])
+def test_todo_sucesso_leva_o_total_de_vendas_das_competencias(
+    na_meta: bool, orcamento: float | None
+) -> None:
+    """O total histórico, antes da escala, com e sem meta: é o divisor do fator e o que a tela
+    mostra ao lado da meta. Vem das bases do worker, nunca do container."""
+    if na_meta:
+        julgamento = julgar_na_meta(sucesso(BASELINE_NA_META_2025_11, "570000.00"), orcamento)
+    else:
+        julgamento = julgar_2025_11(sucesso(BASELINE_2025_11, "520000.00"), orcamento)
+
+    assert julgamento.totais is not None
+    assert julgamento.totais["vendas_historicas"] == VENDAS_2025_11
+    assert erros_do_dominio("resultado-totais", dict(julgamento.totais)) == []

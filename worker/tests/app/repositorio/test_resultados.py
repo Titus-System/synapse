@@ -6,6 +6,7 @@ migrations da api concederam (ou não) cada privilégio.
 """
 
 import json
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -14,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from app.db.engine import get_sessionmaker
-from app.repositorio.resultados import buscar_resultado, gravar_resultado
+from app.repositorio.resultados import ResultadoGravado, buscar_resultado, gravar_resultado
 from tests.app.execucao.envelopes import linhas_para
 
 pytestmark = pytest.mark.postgres
@@ -56,10 +57,25 @@ async def gravar(seed: dict[str, object], **mudancas: Any) -> UUID:
         "decomposicao": DECOMPOSICAO,
         "diagnostico": None,
         "linhas": linhas_para(["2025-08", "2025-11"]),
+        "meta_venda": None,
+        "proposito": "simulacao",
     }
     async with get_sessionmaker()() as sessao, sessao.begin():
         gravado = await gravar_resultado(sessao, **(campos | mudancas))
     return gravado.id
+
+
+async def buscar(
+    seed: dict[str, object], *, meta_venda: float | None = None, proposito: str = "simulacao"
+) -> ResultadoGravado | None:
+    async with get_sessionmaker()() as sessao:
+        return await buscar_resultado(
+            sessao,
+            seed["job_id"],  # type: ignore[arg-type]
+            seed["id"],  # type: ignore[arg-type]
+            meta_venda=meta_venda,
+            proposito=proposito,
+        )
 
 
 async def ler_como_dono(conexao_dono: Any, resultado_id: UUID) -> Any:
@@ -86,7 +102,19 @@ async def test_grava_a_linha_com_todas_as_colunas(
     assert json.loads(linha["decomposicao"]) == DECOMPOSICAO
     assert linha["diagnostico"] is None
     assert json.loads(linha["linhas"]) == linhas_para(["2025-08", "2025-11"])
+    assert (linha["meta_venda"], linha["proposito"]) == (None, "simulacao")
     assert linha["criado_em"] is not None
+
+
+async def test_grava_a_meta_e_o_proposito_da_execucao(
+    codigo_gerado_seed: dict[str, object], conexao_dono: Any
+) -> None:
+    """A meta vai como o comando a trouxe, pela representação do número (T-270)."""
+    resultado_id = await gravar(codigo_gerado_seed, meta_venda=14598849.661, proposito="busca_meta")
+
+    linha = await ler_como_dono(conexao_dono, resultado_id)
+
+    assert (linha["meta_venda"], linha["proposito"]) == (Decimal("14598849.661"), "busca_meta")
 
 
 async def test_grava_o_diagnostico_de_um_erro_codigo_na_mesma_linha(
@@ -152,6 +180,8 @@ async def test_a_linha_nao_existe_para_outros_ate_a_transacao_confirmar(
             decomposicao=DECOMPOSICAO,
             diagnostico=None,
             linhas=linhas_para(["2025-08", "2025-11"]),
+            meta_venda=None,
+            proposito="simulacao",
         )
         assert await ler_como_dono(conexao_dono, gravado.id) is None
         await sessao_tx.rollback()
@@ -188,12 +218,7 @@ async def test_busca_a_linha_gravada_para_o_par_job_e_codigo(
 ) -> None:
     resultado_id = await gravar(codigo_gerado_seed)
 
-    async with get_sessionmaker()() as sessao:
-        achado = await buscar_resultado(
-            sessao,
-            codigo_gerado_seed["job_id"],  # type: ignore[arg-type]
-            codigo_gerado_seed["id"],  # type: ignore[arg-type]
-        )
+    achado = await buscar(codigo_gerado_seed)
 
     assert achado is not None
     assert (achado.id, achado.status, achado.veredito) == (resultado_id, "sucesso", "inviavel")
@@ -201,15 +226,7 @@ async def test_busca_a_linha_gravada_para_o_par_job_e_codigo(
 
 
 async def test_sem_linha_a_busca_devolve_nada(codigo_gerado_seed: dict[str, object]) -> None:
-    async with get_sessionmaker()() as sessao:
-        assert (
-            await buscar_resultado(
-                sessao,
-                codigo_gerado_seed["job_id"],  # type: ignore[arg-type]
-                codigo_gerado_seed["id"],  # type: ignore[arg-type]
-            )
-            is None
-        )
+    assert await buscar(codigo_gerado_seed) is None
 
 
 async def test_a_busca_ignora_erro_infra(codigo_gerado_seed: dict[str, object]) -> None:
@@ -224,12 +241,7 @@ async def test_a_busca_ignora_erro_infra(codigo_gerado_seed: dict[str, object]) 
         decomposicao=None,
     )
 
-    async with get_sessionmaker()() as sessao:
-        achado = await buscar_resultado(
-            sessao,
-            codigo_gerado_seed["job_id"],  # type: ignore[arg-type]
-            codigo_gerado_seed["id"],  # type: ignore[arg-type]
-        )
+    achado = await buscar(codigo_gerado_seed)
 
     assert achado is None
 
@@ -240,14 +252,30 @@ async def test_a_busca_devolve_a_linha_mais_antiga_quando_ha_mais_de_uma(
     primeira = await gravar(codigo_gerado_seed)
     await gravar(codigo_gerado_seed, veredito="viavel")
 
-    async with get_sessionmaker()() as sessao:
-        achado = await buscar_resultado(
-            sessao,
-            codigo_gerado_seed["job_id"],  # type: ignore[arg-type]
-            codigo_gerado_seed["id"],  # type: ignore[arg-type]
-        )
+    achado = await buscar(codigo_gerado_seed)
 
     assert achado is not None and achado.id == primeira
+
+
+async def test_a_busca_e_pela_meta_e_pelo_proposito(
+    codigo_gerado_seed: dict[str, object],
+) -> None:
+    """A busca da meta maior roda o mesmo código em várias metas (T-273): cada meta e cada
+    propósito é outro comando, e a reentrega de um não pode receber a linha do outro."""
+    historica = await gravar(codigo_gerado_seed)
+    candidata = await gravar(codigo_gerado_seed, meta_venda=14598849.661, proposito="busca_meta")
+    do_job = await gravar(codigo_gerado_seed, meta_venda=14598849.661, proposito="simulacao")
+
+    sem_meta = await buscar(codigo_gerado_seed)
+    na_candidata = await buscar(codigo_gerado_seed, meta_venda=14598849.661, proposito="busca_meta")
+    na_meta_do_job = await buscar(codigo_gerado_seed, meta_venda=14598849.661)
+
+    assert sem_meta is not None and (sem_meta.id, sem_meta.meta_venda) == (historica, None)
+    assert na_candidata is not None and na_candidata.id == candidata
+    assert (na_candidata.meta_venda, na_candidata.proposito) == (14598849.661, "busca_meta")
+    assert na_meta_do_job is not None and na_meta_do_job.id == do_job
+    assert await buscar(codigo_gerado_seed, meta_venda=14598849.66) is None
+    assert await buscar(codigo_gerado_seed, meta_venda=20000000.0, proposito="busca_meta") is None
 
 
 # ---- permissões: o worker só insere ----

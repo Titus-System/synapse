@@ -80,3 +80,32 @@ execucoes_julgadas = prometheus.register_counter(
 )
 for _desfecho in DESFECHOS_DA_EXECUCAO:
     execucoes_julgadas.labels(desfecho=_desfecho)
+
+# As execuções julgadas na meta de venda (T-270), por propósito e pelo mesmo desfecho de
+# worker_execucoes_julgadas_total, que também as conta. Conta execuções, não jobs, com as mesmas
+# exceções: a reentrega que só republica não conta, e cada tentativa de um erro_infra conta. A
+# meta não é rótulo: é um valor contínuo, e cada candidata da busca teria uma série própria.
+PROPOSITOS_DA_EXECUCAO = ("simulacao", "busca_meta")
+
+execucoes_na_meta = prometheus.register_counter(
+    "worker_execucoes_na_meta_total",
+    "Execuções no sandbox na meta de venda julgadas pelo worker, por propósito e desfecho",
+    ["proposito", "desfecho"],
+)
+for _proposito in PROPOSITOS_DA_EXECUCAO:
+    for _desfecho in DESFECHOS_DA_EXECUCAO:
+        execucoes_na_meta.labels(proposito=_proposito, desfecho=_desfecho)
+
+# A reapuração do baseline na meta que o worker faz por conta própria, antes do container, para
+# conferir o que volta dele (T-270). Uma observação por execução na meta preparada, também quando
+# a reapuração falha e o comando vai à DLQ. Tempo do processo do worker, fora do prazo do
+# container.
+RESULTADOS_DA_REAPURACAO = ("ok", "falha")
+
+duracao_do_baseline_na_meta = prometheus.register_histogram(
+    "worker_baseline_na_meta_seconds",
+    "Duração da reapuração do baseline na meta de venda no processo do worker",
+    ["resultado"],
+)
+for _resultado in RESULTADOS_DA_REAPURACAO:
+    duracao_do_baseline_na_meta.labels(resultado=_resultado)

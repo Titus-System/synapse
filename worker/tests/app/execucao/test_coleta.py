@@ -384,6 +384,35 @@ def test_sem_orcamento_um_orcamento_fabricado_pelo_container_continua_reprovado(
     )
 
 
+@pytest.mark.parametrize("orcamento", [ORCAMENTO, None], ids=["com orcamento", "sem orcamento"])
+def test_o_total_de_vendas_vindo_do_container_e_reprovado(orcamento: float | None) -> None:
+    """``totais.vendas_historicas`` é do worker, lido das próprias bases (T-270). Na saída do
+    container, alguém o fabricou, e ele chegaria à linha e à tela como se fosse o total do
+    dataset."""
+    dados = envelope()
+    dados["resultado"]["totais"]["vendas_historicas"] = 1.0
+
+    desfecho = classificar(saida(dados), PAYLOAD, orcamento)
+
+    assert (desfecho.classe, desfecho.motivo) == ("erro_codigo", "resultado_fora_do_schema")
+    assert desfecho.problemas == (
+        {"caminho": "$.totais.vendas_historicas", "palavra_chave": "fornecido_pelo_container"},
+    )
+
+
+def test_os_dois_totais_do_worker_fabricados_sao_reprovados_os_dois() -> None:
+    dados = envelope()
+    dados["resultado"]["totais"]["orcamento"] = 485000.0
+    dados["resultado"]["totais"]["vendas_historicas"] = 1.0
+
+    desfecho = classificar(saida(dados), PAYLOAD, ORCAMENTO)
+
+    assert desfecho.problemas == (
+        {"caminho": "$.totais.orcamento", "palavra_chave": "fornecido_pelo_container"},
+        {"caminho": "$.totais.vendas_historicas", "palavra_chave": "fornecido_pelo_container"},
+    )
+
+
 # ---- erro de infraestrutura e o que não vaza ----
 
 

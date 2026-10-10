@@ -135,3 +135,27 @@ limpeza_de_checkpoint_duracao = prometheus.register_histogram(
     "Duração de uma tentativa de limpeza dos checkpoints de um job encerrado, por resultado",
     ["resultado"],
 )
+
+# Uma contagem por chamada ao modelo que teve falha de provedor (429, 5xx, timeout ou conexão),
+# no desfecho dela: `recuperado` quando uma nova tentativa funcionou, `esgotado` quando a janela
+# acabou. Não conta cada tentativa nem a espera interrompida por um job encerrado.
+falhas_do_provedor = prometheus.register_counter(
+    "llm_provider_failures_total",
+    "Chamadas ao modelo com falha de provedor, por nó e desfecho",
+    ["no", "desfecho"],
+)
+
+# Tempo entre a primeira falha de provedor de uma chamada e o fim da espera, em qualquer
+# desfecho. É espera por um terceiro, e não o tempo de execução do nó (`job_duration_seconds`).
+# A contagem é maior que a soma de `llm_provider_failures_total`: a espera encerrada por um job
+# encerrado, ou por uma falha que não é do provedor, é medida aqui e não tem desfecho lá.
+espera_do_provedor = prometheus.register_histogram(
+    "llm_provider_wait_seconds",
+    "Tempo de espera pelo provedor indisponível, por nó",
+    ["no"],
+    buckets=(30, 60, 120, 240, 360, 480, 600, 720, float("inf")),
+)
+for _no in ("extracao_parametros", "geracao_codigo"):
+    espera_do_provedor.labels(no=_no)
+    for _desfecho in ("recuperado", "esgotado"):
+        falhas_do_provedor.labels(no=_no, desfecho=_desfecho)

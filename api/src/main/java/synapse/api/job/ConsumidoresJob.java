@@ -69,7 +69,7 @@ class EtapaAlteradaConsumidor {
 
 			EventoEstadoDto transicao;
 			try {
-				transicao = this.servico.aplicarEtapaAlterada(jobId, etapa, status);
+				transicao = this.servico.aplicarEtapaAlterada(jobId, etapa, status, evento.causa());
 			}
 			catch (EmptyResultDataAccessException ex) {
 				log.atWarn().setCause(ex).log("etapa-alterada de job desconhecido; evento descartado");

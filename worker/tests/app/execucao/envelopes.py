@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from app.execucao.baseline import carregar_baselines
+from app.execucao.bases import carregar_bases
 from app.execucao.container import SaidaBruta
 from app.execucao.preparo import PayloadContainer
 from app.sandbox.envelope import SAIDA_SUCESSO, VERSAO
@@ -63,10 +64,16 @@ FALHA = {
 }
 
 
-def resultado_para(competencias: list[str], a_mais: str = "1000.00") -> dict[str, Any]:
-    """O resultado que o harness produziria para estas competências: o baseline é o congelado
-    que o worker confere, e o simulado é ele mais `a_mais`."""
-    baseline = carregar_baselines().total(competencias)
+def resultado_para(
+    competencias: list[str], a_mais: str = "1000.00", *, meta_venda: float | None = None
+) -> dict[str, Any]:
+    """O resultado que o harness produziria para estas competências: o baseline é o que o worker
+    confere, o congelado ou, com meta, o reapurado sobre as vendas escaladas (T-270), e o
+    simulado é ele mais `a_mais`."""
+    if meta_venda is None:
+        baseline = carregar_baselines().total(competencias)
+    else:
+        baseline = carregar_bases().baseline_na_meta(competencias, meta_venda)
     simulado = baseline + Decimal(a_mais)
     diferenca = simulado - baseline
     resultado = copy.deepcopy(RESULTADO)

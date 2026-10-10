@@ -226,6 +226,57 @@ class EtapaAlteradaConsumidorTests {
 	}
 
 	@Test
+	void aguardandoProvedorChegaAoClienteSemMudarOEstadoDoJob() throws Exception {
+		UUID jobId = criarJob(JobStatus.GERANDO_REGRA);
+		StreamCliente cliente = conectar(jobId);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
+
+		publicar(jobId, "geracao_codigo", "aguardando_provedor");
+
+		String bloco = cliente.aguardarBloco("\"status\":\"aguardando_provedor\"", Duration.ofSeconds(10));
+		assertThat(bloco).contains("\"etapa\":\"geracao_codigo\"").doesNotContain("causa");
+		assertThat(statusPersistido(jobId)).isEqualTo("gerando_regra");
+		assertThat(contarTransicoes(jobId)).isZero();
+		assertThat(cliente.contarOcorrencias("event:estado")).isEqualTo(1);
+	}
+
+	@Test
+	void erroComCausaProvedorIndisponivelGravaOMotivoProprioEExplicaNaConsulta() throws Exception {
+		UUID jobId = criarJob(JobStatus.GERANDO_REGRA);
+		StreamCliente cliente = conectar(jobId);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
+
+		publicar(jobId, "geracao_codigo", "erro", "provedor_indisponivel");
+
+		String blocoEstado = cliente.aguardarBloco("\"status_anterior\":\"gerando_regra\"", Duration.ofSeconds(10));
+		cliente.aguardarFimDoStream(Duration.ofSeconds(10));
+		assertThat(statusPersistido(jobId)).isEqualTo("erro");
+		assertThat(motivoDaUltimaTransicao(jobId)).isEqualTo("erro_provedor_indisponivel");
+		String razao = ClienteDoJob.dadosDoBloco(blocoEstado).path("motivo").asString();
+		assertThat(razao).isEqualTo(MotivoDaParada.PROVEDOR_INDISPONIVEL);
+
+		criarRegra(jobId);
+		JsonNode job = ClienteDoJob.consultar(porta, jobId);
+		assertThat(job.path("motivo").asString()).isEqualTo(razao);
+	}
+
+	@Test
+	void erroSemCausaOuComCausaDesconhecidaMantemOMotivoGenerico() throws Exception {
+		UUID semCausa = criarJob(JobStatus.GERANDO_REGRA);
+		UUID desconhecida = criarJob(JobStatus.GERANDO_REGRA);
+
+		publicar(semCausa, "geracao_codigo", "erro");
+		publicar(desconhecida, "geracao_codigo", "erro", "causa_futura");
+
+		await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+			assertThat(statusPersistido(semCausa)).isEqualTo("erro");
+			assertThat(statusPersistido(desconhecida)).isEqualTo("erro");
+		});
+		assertThat(motivoDaUltimaTransicao(semCausa)).isEqualTo("erro_geracao_codigo");
+		assertThat(motivoDaUltimaTransicao(desconhecida)).isEqualTo("erro_geracao_codigo");
+	}
+
+	@Test
 	void statusErroForaDeGerandoRegraSoRepassaAEtapa() throws Exception {
 		UUID jobId = criarJob(JobStatus.SIMULANDO);
 		StreamCliente cliente = conectar(jobId);
@@ -303,9 +354,14 @@ class EtapaAlteradaConsumidorTests {
 	// --- Apoio ----------------------------------------------------------------------
 
 	private static void publicar(UUID jobId, String etapa, String status) {
+		publicar(jobId, etapa, status, null);
+	}
+
+	private static void publicar(UUID jobId, String etapa, String status, @Nullable String causa) {
+		String campoCausa = (causa != null) ? ",\"causa\":\"%s\"".formatted(causa) : "";
 		String corpo = """
-				{"job_id":"%s","etapa":"%s","status":"%s"}
-				""".formatted(jobId, etapa, status).strip();
+				{"job_id":"%s","etapa":"%s","status":"%s"%s}
+				""".formatted(jobId, etapa, status, campoCausa).strip();
 		Message mensagem = MessageBuilder.withBody(corpo.getBytes(StandardCharsets.UTF_8))
 			.setContentType(MessageProperties.CONTENT_TYPE_JSON)
 			.setContentEncoding("utf-8")

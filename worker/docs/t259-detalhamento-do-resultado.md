@@ -41,6 +41,8 @@ O teto do stdout do container é 1 MiB (`Limites.teto_stdout`). Medido com uma r
 
 O envelope é serializado sem espaços, e dois testes conferem a folga: um monta o envelope no host, outro o produz na imagem real. Se um dia não couber, o teto se ajusta em `app/execucao/container.py`, conferindo que a memória do container comporta o novo valor — não se corta o detalhamento.
 
+A execução na meta (T-270) infla todos os valores do detalhamento, mas o crescimento é no número de dígitos, não no de linhas: medido sobre as cinco competências, 517 KiB com fator 1, 526 KiB com 100× e 533 KiB com 10.000×. O teto não é a restrição que limita a meta.
+
 ## O que vem do container não se recompõe, e não se confia nele
 
 O worker grava o detalhamento **como veio**, igual à decomposição. Ele confere forma e período, não aritmética: o schema, e que as competências de `linhas` são exatamente as do comando (`competencias_divergentes`). A conferência dos valores contra o baseline e os totais é da **T-262**.

@@ -11,7 +11,8 @@ from langchain_core.runnables import RunnableConfig
 
 from app.contratos.mensagens import EtapaAlterada, NoGrafo
 from app.core.logger import get_logger, no_ctx
-from app.falhas import FalhaDoJobError
+from app.falhas import FalhaDoJobError, ProvedorIndisponivelError
+from app.graph.core.llm.disponibilidade import chamar_com_espera_do_provedor, ganchos_da_espera
 from app.graph.core.llm.registry import get_model, get_model_metadata
 from app.graph.core.state import AgentState
 from app.prompts.geracao_codigo import montar_prompt_geracao
@@ -41,11 +42,18 @@ class RespostaModeloInvalidaError(FalhaDoJobError):
     etapa = "geracao_codigo"
 
 
+class ProvedorIndisponivelGeracaoError(ProvedorIndisponivelError):
+    """The provider stayed unavailable for the whole retry window of the generation call."""
+
+    etapa = "geracao_codigo"
+
+
 async def code_generation(state: AgentState, config: RunnableConfig) -> AgentState:
     """Build the generation prompt from `representacao_regra` and call `code_generation`.
 
-    Raises `RespostaModeloInvalidaError` when the reply is empty, blocked or truncated - a
-    provider error propagates as-is. Neither case leaves partial state (AGENTS.md).
+    Raises `RespostaModeloInvalidaError` when the reply is empty, blocked or truncated, and
+    `ProvedorIndisponivelGeracaoError` when the provider stays unavailable for the whole retry
+    window. Any other provider error propagates as-is. No case leaves partial state (AGENTS.md).
     """
     await config["configurable"]["producers"].etapa_alterada(
         EtapaAlterada(job_id=UUID(state["job_id"]), etapa=NO_GERACAO_CODIGO, status="iniciada")
@@ -56,7 +64,14 @@ async def code_generation(state: AgentState, config: RunnableConfig) -> AgentSta
     token = no_ctx.set(NO_GERACAO_CODIGO)
     try:
         model = get_model("code_generation")
-        response = await model.ainvoke([HumanMessage(content=prompt)])
+        avisar, encerrado = ganchos_da_espera(config, state, NO_GERACAO_CODIGO)
+        response = await chamar_com_espera_do_provedor(
+            lambda: model.ainvoke([HumanMessage(content=prompt)]),
+            no=NO_GERACAO_CODIGO,
+            esgotada=ProvedorIndisponivelGeracaoError,
+            avisar=avisar,
+            encerrado=encerrado,
+        )
         content, finish_reason = extrair_resposta(response)
 
         if not content or finish_reason != _FINISH_REASON_ACEITO:

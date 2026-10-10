@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from app.execucao.baseline import carregar_baselines
+from app.execucao.bases import carregar_bases
 from app.execucao.coleta import DesfechoClassificado, classificar, classificar_falha_de_infra
 from app.execucao.container import Limites, SaidaBruta, SandboxInfraError, executar_no_sandbox
 from app.execucao.preparo import PayloadContainer, preparar_execucao
@@ -170,7 +171,14 @@ def test_regra_que_forja_o_envelope_de_sucesso_nao_e_sucesso(imagem: str) -> Non
 
 
 def julgar_2025_11(desfecho: DesfechoClassificado, orcamento: float | None) -> Any:
-    return julgar(desfecho, ["2025-11"], orcamento, carregar_baselines(), elementos_exigidos=None)
+    return julgar(
+        desfecho,
+        ["2025-11"],
+        orcamento,
+        carregar_baselines(),
+        elementos_exigidos=None,
+        bases=carregar_bases(),
+    )
 
 
 def test_o_total_do_container_e_o_baseline_congelado_do_worker(imagem: str) -> None:

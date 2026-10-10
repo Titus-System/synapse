@@ -51,15 +51,20 @@ class JobEventosService {
 	/**
 	 * O evento {@code estado} da transição aplicada, ou {@code null} quando a combinação
 	 * não move o job ou ele já saiu de {@code gerando_regra}.
+	 * <p>
+	 * {@code causa} só tem efeito com {@code erro}: uma causa que a api reconhece dá ao
+	 * job um motivo próprio, e a ausência ou uma causa desconhecida mantém o motivo
+	 * genérico. {@code aguardando_provedor} não passa por nenhum ramo: é só repassado ao
+	 * SSE.
 	 */
 	@Transactional
-	@Nullable EventoEstadoDto aplicarEtapaAlterada(UUID jobId, EtapaDoGrafo etapa, String status) {
+	@Nullable EventoEstadoDto aplicarEtapaAlterada(UUID jobId, EtapaDoGrafo etapa, String status, @Nullable String causa) {
 		if (etapa == EtapaDoGrafo.DELEGACAO_WORKER && STATUS_INICIADA.equals(status)) {
 			return avancarDeGerandoRegra(jobId, JobStatus.SIMULANDO, null, null);
 		}
 		if (STATUS_ERRO.equals(status)) {
-			return avancarDeGerandoRegra(jobId, JobStatus.ERRO, MotivoDaParada.falhaNaEtapa(etapa),
-					MotivoDaParada.FALHA_ANTES_DA_SIMULACAO);
+			return avancarDeGerandoRegra(jobId, JobStatus.ERRO, MotivoDaParada.falhaNaEtapa(etapa, causa),
+					MotivoDaParada.razaoDaFalha(causa));
 		}
 		return null;
 	}

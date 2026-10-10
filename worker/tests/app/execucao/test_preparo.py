@@ -63,3 +63,25 @@ def test_comando_sem_orcamento_prepara_a_execucao_sem_ele() -> None:
     assert execucao.orcamento is None
     assert not hasattr(execucao.payload, "orcamento")
     assert execucao.payload.competencias == ["2025-08"]
+
+
+def test_a_meta_vai_ao_container_e_o_proposito_nao() -> None:
+    """A meta muda a entrada da apuração e entra no payload; o propósito não muda a execução e
+    fica com o worker, que o grava e o devolve (T-270)."""
+    codigo = _codigo()
+    comando = _comando(codigo_gerado_id=codigo.id, meta_venda=26000000.0, proposito="busca_meta")
+
+    execucao = preparar_execucao(comando, codigo)
+
+    assert execucao.payload.meta_venda == 26000000.0
+    assert not hasattr(execucao.payload, "proposito")
+    assert execucao.proposito == "busca_meta"
+
+
+def test_sem_meta_o_payload_vai_sem_meta_e_o_proposito_e_simulacao() -> None:
+    codigo = _codigo()
+
+    execucao = preparar_execucao(_comando(codigo_gerado_id=codigo.id), codigo)
+
+    assert execucao.payload.meta_venda is None
+    assert execucao.proposito == "simulacao"

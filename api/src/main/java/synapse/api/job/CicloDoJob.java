@@ -202,7 +202,14 @@ final class MotivoDaParada {
 
 	static final String TRANSCRICAO_FALHOU = "Não foi possível transcrever a gravação. Envie a regra de novo, por texto ou por voz.";
 
+	static final String CAUSA_PROVEDOR_INDISPONIVEL = "provedor_indisponivel";
+
+	static final String PROVEDOR_INDISPONIVEL = "O serviço de inteligência artificial ficou indisponível por muito tempo e a regra não foi processada. Envie a regra de novo mais tarde.";
+
 	private static final String PREFIXO_FALHA_NA_ETAPA = "erro_";
+
+	private static final String MOTIVO_DA_TRILHA_PROVEDOR_INDISPONIVEL = PREFIXO_FALHA_NA_ETAPA
+			+ CAUSA_PROVEDOR_INDISPONIVEL;
 
 	private MotivoDaParada() {
 	}
@@ -210,6 +217,22 @@ final class MotivoDaParada {
 	/** O token de {@code job_transicoes.motivo} de uma falha anterior à simulação. */
 	static String falhaNaEtapa(EtapaDoGrafo etapa) {
 		return PREFIXO_FALHA_NA_ETAPA + etapa.paraEvento();
+	}
+
+	/**
+	 * O token de uma falha anterior à simulação com a {@code causa} do evento. A causa
+	 * conhecida troca o token por um próprio, que não nomeia a etapa; sem causa, ou com
+	 * uma causa que esta api não conhece, vale o token da etapa.
+	 */
+	static String falhaNaEtapa(EtapaDoGrafo etapa, @Nullable String causa) {
+		return CAUSA_PROVEDOR_INDISPONIVEL.equals(causa) ? MOTIVO_DA_TRILHA_PROVEDOR_INDISPONIVEL : falhaNaEtapa(etapa);
+	}
+
+	/**
+	 * A razão localizada de uma falha anterior à simulação, a mesma da consulta e do SSE.
+	 */
+	static String razaoDaFalha(@Nullable String causa) {
+		return CAUSA_PROVEDOR_INDISPONIVEL.equals(causa) ? PROVEDOR_INDISPONIVEL : FALHA_ANTES_DA_SIMULACAO;
 	}
 
 	/**
@@ -229,6 +252,11 @@ final class MotivoDaParada {
 		}
 		if (status == JobStatus.ERRO && FALHA_NA_TRANSCRICAO.equals(motivoDaTrilha)) {
 			return TRANSCRICAO_FALHOU;
+		}
+		// Os dois tokens próprios vêm antes do ramo da etapa: ambos começam com o mesmo
+		// prefixo e nenhum nomeia um nó do grafo, então o ramo genérico não os alcança.
+		if (status == JobStatus.ERRO && MOTIVO_DA_TRILHA_PROVEDOR_INDISPONIVEL.equals(motivoDaTrilha)) {
+			return PROVEDOR_INDISPONIVEL;
 		}
 		if (status == JobStatus.ERRO && motivoDaTrilha.startsWith(PREFIXO_FALHA_NA_ETAPA)
 				&& EtapaDoGrafo.deEvento(motivoDaTrilha.substring(PREFIXO_FALHA_NA_ETAPA.length())) != null) {

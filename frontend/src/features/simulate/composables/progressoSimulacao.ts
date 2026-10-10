@@ -31,11 +31,17 @@ const statusBase: Record<StatusJob, { percentual: number; titulo: string; detalh
   erro: { percentual: 100, titulo: 'Processamento interrompido', detalhe: 'Não foi possível concluir esta simulação.', erro: true },
 }
 
+export const MENSAGEM_DE_ESPERA_DO_PROVEDOR =
+  'O serviço de inteligência artificial está com alta demanda. Estamos tentando de novo automaticamente, e você pode sair desta tela sem perder o processamento.'
+
 export function calcularProgresso(status: StatusJob | null, etapa: EventoEtapa | null): ProgressoSimulacao {
   const base = status ? statusBase[status] : null
   const etapaConhecida = etapa ? etapas[etapa.etapa] : undefined
 
   if (etapaConhecida && status === 'gerando_regra') {
+    if (etapa?.status === 'aguardando_provedor') {
+      return { ...etapaConhecida, detalhe: MENSAGEM_DE_ESPERA_DO_PROVEDOR, erro: false }
+    }
     return { ...etapaConhecida, erro: etapa?.status === 'erro' }
   }
 

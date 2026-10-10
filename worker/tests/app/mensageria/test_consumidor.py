@@ -19,6 +19,7 @@ from prometheus_client import REGISTRY
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.core.logger import ContextQueueHandler, JsonFormatter
+from app.execucao.bases import carregar_bases
 from app.execucao.coleta import DesfechoClassificado
 from app.execucao.container import SaidaBruta, SandboxCanceladoError, SandboxInfraError
 from app.execucao.preparo import PayloadContainer
@@ -816,7 +817,7 @@ async def test_resultado_ja_gravado_republica_o_evento_sem_executar_de_novo(
 
     assert sandbox.payloads == []
     assert banco.gravados == []
-    assert banco.consultas == [(job_id, codigo.id)]
+    assert banco.consultas == [(job_id, codigo.id, None, "simulacao")]
     (evento,) = _publicados(broker)
     assert evento["resultado_id"] == str(banco.existente.id) and evento["status"] == status
     assert erros_do_evento("simulacao-concluida", evento) == []
@@ -1153,6 +1154,8 @@ async def test_a_falha_de_cobertura_vai_ao_log_com_o_job_e_as_referencias_sem_co
         "motivo": "cobertura_incompleta",
         "veredito": "indeterminado",
         "desfecho": "erro_codigo",
+        "com_meta_venda": False,
+        "proposito": "simulacao",
         "codigo_saida": 0,
         "elementos_ausentes": ["elem.2"],
         "quantidade_fora_da_regra": 1,
@@ -1436,6 +1439,8 @@ async def test_comando_sem_orcamento_vai_ao_log_e_a_metrica_como_execucao_normal
         "motivo": "ok",
         "veredito": None,
         "desfecho": "sem_orcamento",
+        "com_meta_venda": False,
+        "proposito": "simulacao",
         "codigo_saida": 0,
     }
     mensagens_registradas = [linha["message"] for linha in linhas]
@@ -1483,6 +1488,292 @@ async def test_reentrega_de_resultado_sem_orcamento_republica_sem_veredito_e_nao
     assert evento["status"] == "sucesso" and "veredito" not in evento
     assert erros_do_evento("simulacao-concluida", evento) == []
     assert _execucoes_julgadas("sem_orcamento") == antes
+
+
+# ---- execução na meta de venda: a reapuração do worker e a conferência (T-270) ----
+
+METRICA_NA_META = "worker_execucoes_na_meta_total"
+METRICA_REAPURACAO = "worker_baseline_na_meta_seconds_count"
+# A soma de vlr_venda de 2025-08 é 10.311.513,36; a meta fica acima dela.
+VENDAS_2025_08 = 10311513.36
+META = 11000000.0
+
+
+def _corpo_na_meta(**overrides: Any) -> bytes:
+    return _corpo_comando(**({"meta_venda": META} | overrides))
+
+
+def _amostra(nome: str, **rotulos: str) -> float:
+    valor = REGISTRY.get_sample_value(nome, rotulos)
+    assert valor is not None, f"{nome}{rotulos} não está no registry"
+    return valor
+
+
+def _amostra_em_metrics(texto: str, nome: str, **rotulos: str) -> float:
+    # O formato de texto do prometheus_client escreve os rótulos em ordem alfabética.
+    seletor = ",".join(f'{chave}="{valor}"' for chave, valor in sorted(rotulos.items()))
+    achado = re.search(rf"^{nome}{{{seletor}}} (\S+)$", texto, flags=re.MULTILINE)
+    assert achado is not None, f"{nome}{{{seletor}}} não aparece em /metrics"
+    return float(achado.group(1))
+
+
+class BasesQueRegistram:
+    """As bases reais do worker, com a reapuração registrada no diário: é o que prova a ordem
+    entre a conferência e o container."""
+
+    def __init__(self) -> None:
+        self._bases = carregar_bases()
+
+    def baseline_na_meta(self, competencias: list[str], meta_venda: float) -> Any:
+        DIARIO.append("reapurar")
+        return self._bases.baseline_na_meta(competencias, meta_venda)
+
+    def vendas_historicas(self, competencias: list[str]) -> Any:
+        return self._bases.vendas_historicas(competencias)
+
+
+@pytest.fixture
+def bases_que_registram(
+    monkeypatch: pytest.MonkeyPatch, sandbox: SandboxFalso
+) -> BasesQueRegistram:
+    bases = BasesQueRegistram()
+    monkeypatch.setattr(consumidor, "carregar_bases", lambda: bases)
+    responder = sandbox.resposta
+
+    def registrar_container(payload: PayloadContainer) -> SaidaBruta:
+        DIARIO.append("container")
+        return responder(payload)
+
+    sandbox.resposta = registrar_container
+    return bases
+
+
+@pytest.mark.parametrize(
+    ("proposito", "no_evento"),
+    [(None, None), ("simulacao", None), ("busca_meta", "busca_meta")],
+    ids=["sem proposito", "simulacao", "busca_meta"],
+)
+async def test_na_meta_o_worker_reapura_antes_do_container_e_grava_e_publica_a_meta(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    bases_que_registram: BasesQueRegistram,
+    proposito: str | None,
+    no_evento: str | None,
+) -> None:
+    job_id, codigo = uuid4(), _codigo()
+    extra = {} if proposito is None else {"proposito": proposito}
+    corpo = _corpo_na_meta(job_id=str(job_id), codigo_gerado_id=str(codigo.id), **extra)
+    mensagem = MensagemFalsa(body=corpo)
+    broker, _ = _preparar(monkeypatch, [mensagem], codigo)
+
+    await consumir_fila_execucao(broker)
+
+    assert DIARIO == ["reapurar", "container", "gravar", "publicar", "ack"]
+    (payload,) = sandbox.payloads
+    assert payload.meta_venda == META and not hasattr(payload, "proposito")
+    (linha,) = banco.gravados
+    assert (linha["status"], linha["meta_venda"]) == ("sucesso", META)
+    assert linha["proposito"] == (proposito or "simulacao")
+    reapurado = float(carregar_bases().baseline_na_meta(["2025-08"], META))
+    assert linha["totais"]["baseline"] == reapurado != 363021.46
+    assert linha["totais"]["vendas_historicas"] == VENDAS_2025_08
+    assert erros_do_dominio("resultado-totais", linha["totais"]) == []
+    (evento,) = _publicados(broker)
+    assert evento["meta_venda"] == META and evento.get("proposito") == no_evento
+    assert erros_do_evento("simulacao-concluida", evento) == []
+    assert banco.consultas == [(job_id, codigo.id, META, proposito or "simulacao")]
+
+
+async def test_na_meta_o_baseline_historico_vindo_do_container_e_divergente(
+    monkeypatch: pytest.MonkeyPatch, sandbox: SandboxFalso, banco: BancoDeResultadosFalso
+) -> None:
+    """Um container que não simulou na meta devolve o baseline congelado: o worker o confere
+    contra o que ele mesmo reapurou, e o número não segue."""
+    sandbox.resposta = lambda p: saida_para(p, resultado=resultado_para(p.competencias))
+    antes = _amostra(METRICA_NA_META, proposito="busca_meta", desfecho="erro_codigo")
+    corpo = _corpo_na_meta(proposito="busca_meta")
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=corpo)], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    (linha,) = banco.gravados
+    assert (linha["status"], linha["totais"]) == ("erro_codigo", None)
+    assert linha["diagnostico"] == {"causa": "baseline_divergente"}
+    assert (linha["meta_venda"], linha["proposito"]) == (META, "busca_meta")
+    (evento,) = _publicados(broker)
+    assert evento == {
+        "job_id": evento["job_id"],
+        "resultado_id": evento["resultado_id"],
+        "status": "erro_codigo",
+        "meta_venda": META,
+        "proposito": "busca_meta",
+    }
+    assert _amostra(METRICA_NA_META, proposito="busca_meta", desfecho="erro_codigo") == antes + 1
+
+
+async def test_na_meta_o_log_e_as_metricas_contam_a_execucao_e_a_reapuracao(
+    monkeypatch: pytest.MonkeyPatch,
+    client: AsyncClient,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    """A execução na meta conta no desfecho de sempre e, por propósito, na métrica da meta; a
+    reapuração do worker é medida. O log diz que havia meta, nunca a meta nem os totais."""
+    texto_antes = (await client.get("/metrics")).text
+    na_meta_antes = _amostra_em_metrics(
+        texto_antes, METRICA_NA_META, proposito="busca_meta", desfecho="viavel"
+    )
+    reapuracoes_antes = _amostra_em_metrics(texto_antes, METRICA_REAPURACAO, resultado="ok")
+    viavel_antes = _execucoes_em_metrics(texto_antes, "viavel")
+    job_id = uuid4()
+    corpo = _corpo_na_meta(job_id=str(job_id), proposito="busca_meta", orcamento=999999.0)
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=corpo)], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    texto = (await client.get("/metrics")).text
+    assert (
+        _amostra_em_metrics(texto, METRICA_NA_META, proposito="busca_meta", desfecho="viavel")
+        == na_meta_antes + 1
+    )
+    assert _amostra_em_metrics(texto, METRICA_REAPURACAO, resultado="ok") == reapuracoes_antes + 1
+    assert _execucoes_em_metrics(texto, "viavel") == viavel_antes + 1
+    linhas = linhas_de_log()
+    assert all(erros_do_log(linha) == [] for linha in linhas)
+    assert all(linha["job_id"] == str(job_id) for linha in linhas)
+    (preparada,) = [linha for linha in linhas if linha["message"] == "execução preparada"]
+    assert (preparada["extra"]["com_meta_venda"], preparada["extra"]["proposito"]) == (
+        True,
+        "busca_meta",
+    )
+    (reapurado,) = [linha for linha in linhas if linha["message"] == "baseline na meta reapurado"]
+    assert reapurado["extra"]["duracao_s"] >= 0
+    (julgada,) = [linha for linha in linhas if linha["message"] == "execução julgada"]
+    assert (julgada["extra"]["desfecho"], julgada["extra"]["com_meta_venda"]) == ("viavel", True)
+    assert julgada["extra"]["proposito"] == "busca_meta"
+    (gravado,) = [linha for linha in linhas if linha["message"] == "resultado gravado"]
+    assert (gravado["extra"]["com_meta_venda"], gravado["extra"]["proposito"]) == (
+        True,
+        "busca_meta",
+    )
+    serializado = json.dumps(linhas)
+    reapurado_total = str(float(carregar_bases().baseline_na_meta(["2025-08"], META)))
+    for numero in ("11000000", reapurado_total, str(VENDAS_2025_08)):
+        assert numero not in serializado
+
+
+async def test_meta_que_nao_se_aplica_vai_a_dlq_sem_subir_o_container(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    """A regra nem rodou: não há resultado a gravar em nome dela, e repetir daria o mesmo. A
+    falha é medida e registrada só pela classe."""
+    falhas_antes = _amostra(METRICA_REAPURACAO, resultado="falha")
+    corpo = _corpo_na_meta(competencias=["2026-01"])
+    broker, canal = _preparar(monkeypatch, [MensagemFalsa(body=corpo)], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    assert sandbox.payloads == [] and banco.gravados == []
+    assert _publicados(broker) == []
+    assert _rota_da_republicacao(canal) == "executar-codigo.dlq"
+    assert _amostra(METRICA_REAPURACAO, resultado="falha") == falhas_antes + 1
+    (erro,) = [
+        linha
+        for linha in linhas_de_log()
+        if linha["message"] == "baseline na meta não reapurado; encaminhando para DLQ"
+    ]
+    assert erro["level"] == "ERROR" and erro["extra"] == {"erro": "CompetenciaSemBaselineError"}
+    assert erros_do_log(erro) == []
+
+
+async def test_sem_meta_o_worker_nao_reapura(
+    monkeypatch: pytest.MonkeyPatch,
+    banco: BancoDeResultadosFalso,
+    bases_que_registram: BasesQueRegistram,
+) -> None:
+    reapuracoes_antes = _amostra(METRICA_REAPURACAO, resultado="ok")
+    na_meta_antes = _amostra(METRICA_NA_META, proposito="simulacao", desfecho="inviavel")
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=_corpo_comando())], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    assert DIARIO == ["container", "gravar", "publicar", "ack"]
+    (linha,) = banco.gravados
+    assert (linha["meta_venda"], linha["proposito"]) == (None, "simulacao")
+    assert linha["totais"]["baseline"] == 363021.46
+    assert _amostra(METRICA_REAPURACAO, resultado="ok") == reapuracoes_antes
+    assert _amostra(METRICA_NA_META, proposito="simulacao", desfecho="inviavel") == na_meta_antes
+
+
+def _gravado_na_meta(job_id: UUID, meta_venda: float | None, proposito: str) -> ResultadoGravado:
+    return ResultadoGravado(
+        id=uuid4(),
+        job_id=job_id,
+        status="sucesso",
+        veredito=None,
+        totais={"baseline": 100.0, "simulado": 90.0, "diferenca_abs": -10.0, "diferenca_pct": -0.1},
+        meta_venda=meta_venda,
+        proposito=proposito,
+    )
+
+
+@pytest.mark.parametrize(
+    ("ja_gravado", "pedido"),
+    [
+        ((META, "busca_meta"), (12000000.0, "busca_meta")),
+        ((None, "simulacao"), (META, "simulacao")),
+        ((META, "simulacao"), (META, "busca_meta")),
+    ],
+    ids=["outra meta", "historico e meta", "outro proposito"],
+)
+async def test_o_mesmo_codigo_em_outra_meta_ou_proposito_executa_de_novo(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    ja_gravado: tuple[float | None, str],
+    pedido: tuple[float, str],
+) -> None:
+    """A busca da meta maior roda o mesmo código em várias metas (T-273): cada candidata é uma
+    execução, e o resultado de uma não responde pela outra."""
+    job_id, codigo = uuid4(), _codigo()
+    banco.existente = _gravado_na_meta(job_id, *ja_gravado)
+    meta, proposito = pedido
+    corpo = _corpo_comando(
+        job_id=str(job_id), codigo_gerado_id=str(codigo.id), meta_venda=meta, proposito=proposito
+    )
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=corpo)], codigo)
+
+    await consumir_fila_execucao(broker)
+
+    assert len(sandbox.payloads) == 1
+    (linha,) = banco.gravados
+    assert (linha["meta_venda"], linha["proposito"]) == pedido
+
+
+async def test_a_mesma_meta_e_o_mesmo_proposito_republicam_sem_executar(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    bases_que_registram: BasesQueRegistram,
+) -> None:
+    job_id, codigo = uuid4(), _codigo()
+    banco.existente = _gravado_na_meta(job_id, META, "busca_meta")
+    antes = _amostra(METRICA_NA_META, proposito="busca_meta", desfecho="sem_orcamento")
+    corpo = _corpo_na_meta(
+        job_id=str(job_id), codigo_gerado_id=str(codigo.id), proposito="busca_meta"
+    )
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=corpo)], codigo)
+
+    await consumir_fila_execucao(broker)
+
+    assert sandbox.payloads == [] and banco.gravados == []
+    assert "reapurar" not in DIARIO
+    (evento,) = _publicados(broker)
+    assert (evento["meta_venda"], evento["proposito"]) == (META, "busca_meta")
+    assert _amostra(METRICA_NA_META, proposito="busca_meta", desfecho="sem_orcamento") == antes
 
 
 @pytest.mark.parametrize("status", ["sucesso", "erro_codigo", "assercao_violada"])

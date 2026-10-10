@@ -16,7 +16,9 @@ from app.contratos.mensagens import (
     StatusTerminal,
     Veredito,
 )
+from app.falhas import JobEncerradoDuranteEsperaError
 from app.graph.entrypoint import ResumeOutcome
+from app.graph.nodes.code_generation import ProvedorIndisponivelGeracaoError
 from app.mensageria import roteamento as modulo
 from app.mensageria.roteamento import (
     ContextoAusenteError,
@@ -120,6 +122,44 @@ async def test_entregar_avisa_a_api_e_repropaga_quando_o_job_falha(
 
     [evento] = producers.etapa_alterada.await_args.args
     assert evento == EtapaAlterada(job_id=JOB_ID, etapa="geracao_codigo", status="erro")
+
+
+async def test_entregar_leva_a_causa_da_falha_no_aviso_de_erro(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        modulo,
+        "run_to_completion",
+        AsyncMock(side_effect=ProvedorIndisponivelGeracaoError("segredo")),
+    )
+    producers = MagicMock(etapa_alterada=AsyncMock())
+    roteador = GraphRouter(sessoes=object(), producers=producers, limpeza=LimpezaFalsa())
+
+    with pytest.raises(ProvedorIndisponivelGeracaoError):
+        await roteador.entregar(JOB_ID, _regra_submetida())
+
+    [evento] = producers.etapa_alterada.await_args.args
+    assert evento == EtapaAlterada(
+        job_id=JOB_ID,
+        etapa="geracao_codigo",
+        status="erro",
+        causa="provedor_indisponivel",
+    )
+
+
+async def test_entregar_trata_o_job_encerrado_na_espera_como_job_encerrado(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        modulo, "run_to_completion", AsyncMock(side_effect=JobEncerradoDuranteEsperaError)
+    )
+    producers = MagicMock(etapa_alterada=AsyncMock())
+    roteador = GraphRouter(sessoes=object(), producers=producers, limpeza=LimpezaFalsa())
+
+    with pytest.raises(JobEncerradoError):
+        await roteador.entregar(JOB_ID, _regra_submetida())
+
+    producers.etapa_alterada.assert_not_awaited()
 
 
 async def test_entregar_nao_avisa_erro_quando_o_grafo_conclui(

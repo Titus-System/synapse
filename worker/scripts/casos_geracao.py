@@ -29,6 +29,7 @@ from typing import Any, Literal, cast
 from uuid import uuid4
 
 from app.execucao.baseline import carregar_baselines, localizar
+from app.execucao.bases import carregar_bases
 from app.execucao.coleta import Classe, Motivo, classificar
 from app.execucao.container import executar_no_sandbox
 from app.execucao.preparo import PayloadContainer
@@ -291,6 +292,7 @@ def executar_caso(caso: Caso, fonte: str, *, imagem: str | None = None) -> Medic
         ORCAMENTO_SEM_VEREDITO,
         carregar_baselines(),
         elementos_exigidos=caso.elementos_exigidos,
+        bases=carregar_bases(),
     )
     return medir(julgamento)
 

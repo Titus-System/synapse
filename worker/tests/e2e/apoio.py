@@ -212,18 +212,26 @@ class Corretor:
         orcamento: float | None,
         *,
         elementos_exigidos: list[str] | None = None,
+        meta_venda: float | None = None,
+        proposito: str | None = None,
+        competencias: list[str] | None = None,
     ) -> None:
         """Sem `elementos_exigidos`, o comando é o de antes da conferência de cobertura (T-241).
-        `orcamento` None é o comando de um job sem orçamento, que chega sem o campo (T-281)."""
+        `orcamento` None é o comando de um job sem orçamento, que chega sem o campo (T-281). Sem
+        `meta_venda` e `proposito`, o comando é o de antes da meta de venda (T-270)."""
         corpo: dict[str, Any] = {
             "job_id": str(semente["job_id"]),
             "codigo_gerado_id": str(semente["id"]),
-            "competencias": COMPETENCIAS,
+            "competencias": competencias or COMPETENCIAS,
         }
         if orcamento is not None:
             corpo["orcamento"] = orcamento
         if elementos_exigidos is not None:
             corpo["elementos_exigidos"] = elementos_exigidos
+        if meta_venda is not None:
+            corpo["meta_venda"] = meta_venda
+        if proposito is not None:
+            corpo["proposito"] = proposito
         await self.publicar(json.dumps(corpo).encode("utf-8"))
 
     async def esperar(self, fila: AbstractQueue, prazo: float = 90.0) -> Message | None:

@@ -19,15 +19,18 @@ mesmas, e só a 4 não acontece: o `sucesso` sai sem veredito e sem `totais.orca
 há critério que o julgue. Um baseline adulterado continua `baseline_divergente`, e uma cobertura
 incompleta continua `cobertura_incompleta`.
 
+Numa execução na meta de venda (T-270), não há baseline congelado da meta: a conferência 1 é contra o baseline que o próprio worker reapurou sobre as vendas escaladas, antes de subir o container (`app/execucao/bases.py`). As conferências 2 a 4 são as mesmas, e o veredito compara o simulado na meta com o orçamento. Todo `sucesso`, com ou sem meta, leva `totais.vendas_historicas`, lido das bases do worker e nunca do container. Detalhes em `docs/t270-execucao-na-meta.md`.
+
 ## Onde está
 
 | Arquivo | O quê |
 | --- | --- |
 | `app/execucao/baseline.py` | `carregar_baselines`: os cinco baselines congelados, conferidos contra o manifesto |
+| `app/execucao/bases.py` | `carregar_bases`: as bases da apuração, para o baseline na meta e `vendas_historicas` (T-270) |
 | `app/execucao/veredito.py` | `julgar`, `decidir_veredito`, `Julgamento` |
 | `app/mensageria/consumidor.py` | classifica (T-065), julga e registra classe, motivo e veredito no log |
-| `app/main.py` | `carregar_baselines()` na subida: sem os baselines, o worker não sobe |
-| `worker/Dockerfile` | copia só `sandbox/data/domrock/baselines/` (os cinco `.jsonl` e o manifesto) |
+| `app/main.py` | `carregar_baselines()` e `carregar_bases()` na subida: sem eles, o worker não sobe |
+| `worker/Dockerfile` | copia `sandbox/data/domrock/baselines/` (os cinco `.jsonl` e o manifesto) e as bases da apuração |
 | `docs/decisoes/dec-093.md` | a decisão do caso de igualdade e do `indeterminado` |
 
 ## O veredito
