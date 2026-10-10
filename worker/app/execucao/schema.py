@@ -11,7 +11,7 @@ que serve ao repositório (``<raiz>/contracts``) e à imagem (``/app/contracts``
 """
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, TypedDict
@@ -23,6 +23,7 @@ from referencing.jsonschema import DRAFT202012
 ESQUEMA_RESULTADO = "resultado-simulacao.schema.json"
 ESQUEMA_ASSERCOES = "resultado-assercoes.schema.json"
 ESQUEMA_DIAGNOSTICO = "resultado-diagnostico.schema.json"
+ESQUEMA_LINHAS = "resultado-linhas.schema.json"
 
 
 class Problema(TypedDict):
@@ -73,6 +74,19 @@ def carregar_contratos() -> None:
     validador(ESQUEMA_RESULTADO)
     validador(ESQUEMA_ASSERCOES)
     validador(ESQUEMA_DIAGNOSTICO)
+    validador(ESQUEMA_LINHAS)
+
+
+def validar_linhas(linhas: object, competencias: Sequence[str]) -> list[Problema]:
+    """Valida a forma e o período; conferência dos valores pertence à T-262.
+
+    Caminhos do validador contêm chaves arbitrárias do container (inclusive matrícula).
+    O diagnóstico e os logs levam somente a raiz estática e a classe do erro.
+    """
+    palavras = {str(erro.validator) for erro in validador(ESQUEMA_LINHAS).iter_errors(linhas)}
+    if isinstance(linhas, dict) and set(linhas) != set(competencias):
+        palavras.add("competencias_divergentes")
+    return [Problema(caminho="$.linhas", palavra_chave=p) for p in sorted(palavras)]
 
 
 # Os totais que só o worker acrescenta, de fontes que o código gerado não alcança: o orçamento

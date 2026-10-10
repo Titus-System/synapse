@@ -14,8 +14,8 @@ resultado de sucesso segue **como veio do container**.
 | Arquivo | O quê |
 | --- | --- |
 | `app/execucao/coleta.py` | `classificar`, `classificar_falha_de_infra`, `DesfechoClassificado` |
-| `app/execucao/schema.py` | validação do resultado contra `contracts/domain/resultado-simulacao.schema.json` |
-| `app/mensageria/consumidor.py` | executa, classifica, registra a classe no log e dá `ack` |
+| `app/execucao/schema.py` | validação do resultado contra `contracts/domain/resultado-simulacao.schema.json` e do detalhamento contra `resultado-linhas.schema.json` |
+| `app/mensageria/consumidor.py` | executa, classifica **numa thread**, registra a classe no log e dá `ack` |
 | `app/main.py` | `carregar_contratos()` na subida: sem `contracts/`, o worker não sobe |
 
 ## O que é capturado
@@ -41,27 +41,40 @@ A primeira regra que casa vence. Só a `erro_infra` vem de fora desta tabela: é
 | 7 | código de saída diferente do que o `status` do envelope implica | `erro_codigo` | `codigo_de_saida_divergente` |
 | 8 | `status == "assercao_violada"` | `assercao_violada` | `assercao` |
 | 9 | `status == "erro_codigo"` | `erro_codigo` | `excecao` |
-| 10 | `status == "sucesso"`, mas o resultado não valida no schema | `erro_codigo` | `resultado_fora_do_schema` |
-| 11 | `status == "sucesso"` e o resultado valida | `sucesso` | `ok` |
+| 10 | `status == "sucesso"`, mas o resultado ou o detalhamento não valida no schema | `erro_codigo` | `resultado_fora_do_schema` |
+| 11 | `status == "sucesso"` e os dois validam | `sucesso` | `ok` |
 
 O **motivo** é para log, métricas e para a gravação (T-067). Nunca carrega conteúdo do
 container, e no caso 10 `problemas` lista onde o schema falhou (`$.decomposicao: required`),
-sem valores.
+sem valores. Os problemas do detalhamento saem todos como `$.linhas`, com a palavra-chave que
+reprovou: o caminho real conteria chaves escolhidas pelo container (T-259).
+
+A classificação roda **numa thread** (`asyncio.to_thread`), como o container. Ler 1 MiB de JSON
+e conferi-lo contra os schemas é CPU pura e cresce com o detalhamento — perto de 1 s no período
+inteiro, contra 22 ms do resultado sozinho —, e no event loop pararia o heartbeat do RabbitMQ e
+o `/metrics` por todo esse tempo. O contexto do job acompanha a thread, então o log da recusa
+continua correlacionado.
 
 ### A forma e a coerência (regra 5)
 
 O harness sempre produz um envelope de forma fixa, e um que a contradiz não foi escrito por
-ele. Reprovam: chave a mais ou a menos; `versao` diferente de 2 (a 1 é a de antes de
-`elementos_implementados`, T-241); tipos errados; `assercoes` fora do schema
-`resultado-assercoes`; e as incoerências:
+ele. Reprovam: chave a mais ou a menos; `versao` diferente de 3 (a 1 é a de antes de
+`elementos_implementados`, T-241; a 2, a de antes do detalhamento, T-259); tipos errados;
+`assercoes` fora do schema `resultado-assercoes`; e as incoerências:
 
 - `sucesso` sem `resultado`, com `erro`, com alguma asserção `violada`, cuja lista de
   asserções difere da de `resultado.assercoes`, ou com `elementos_implementados` que não seja
   nulo nem uma lista de identificadores de `elemento_ref`;
-- `assercao_violada` com `resultado`, com `erro`, com `elementos_implementados`, ou **sem**
-  nenhuma asserção violada;
-- `erro_codigo` sem `erro`, com `elementos_implementados`, ou com `erro` fora de `tipo`,
-  `mensagem` e `traceback` em texto.
+- `assercao_violada` com `resultado`, com `erro`, com `linhas`, com `elementos_implementados`,
+  ou **sem** nenhuma asserção violada;
+- `erro_codigo` sem `erro`, com `linhas`, com `elementos_implementados`, ou com `erro` fora de
+  `tipo`, `mensagem` e `traceback` em texto.
+
+Um `sucesso` **sem** a chave `linhas` é a única ausência que esta regra deixa passar, de
+propósito: ela é tratada na validação do resultado, para sair como `resultado_fora_do_schema`
+com um problema em `$.linhas` que o codegen possa ler no diagnóstico, e não como
+`envelope_invalido`, que não diz nada. O harness e o worker são construídos e implantados
+juntos, então um envelope de sucesso sem detalhamento é sempre defeito.
 
 ## As decisões
 
@@ -86,6 +99,12 @@ ele. Reprovam: chave a mais ou a menos; `versao` diferente de 2 (a 1 é a de ant
 4. **Um `totais.orcamento` na saída do container é reprovado** (`resultado_fora_do_schema`,
    problema `$.totais.orcamento: fornecido_pelo_container`). O harness não o produz: alguém o
    fabricou, e ele não pode chegar ao veredito parecendo dado do container.
+5. **O detalhamento é validado em forma e período, e o caminho do problema é estático** (T-259).
+   As chaves de `linhas` são competência e matrícula escolhidas pelo container, então o caminho
+   do validador não pode ir ao diagnóstico nem ao log: `validar_linhas` descarta o caminho real
+   e devolve sempre `$.linhas` com a palavra-chave que reprovou. Além do schema, confere que as
+   competências do detalhamento são exatamente as do comando (`competencias_divergentes`). A
+   conferência dos **valores** contra o baseline e os totais é da T-262.
 
 ## A relação entre a classe e o `retry_count`
 
@@ -130,6 +149,10 @@ caminhos que falharam no schema. O `repr` de `DesfechoClassificado` omite `resul
   `simulacao-concluida`.
 - **Comando que esgota as três tentativas de `erro_infra`**: resolvido pela T-067 (DEC-094), que
   grava e publica `erro_infra` antes de enviar o comando à DLQ.
+- **T-259** (feita, `docs/t259-detalhamento-do-resultado.md`): o envelope passa à versão 3, com o
+  detalhamento em `linhas`, e a coleta o valida.
+- **T-262**: conferir os valores do detalhamento e das quebras absolutas contra o baseline e os
+  totais. Esta entrega confere forma e período, não aritmética.
 
 ## Verificação
 
@@ -137,6 +160,7 @@ Na pasta `worker/`:
 
 ```bash
 poetry run pytest tests/app/execucao/test_coleta.py tests/app/execucao/test_schema.py
+poetry run pytest tests/app/execucao/test_linhas.py                  # detalhamento malformado
 poetry run pytest tests/app/execucao/test_coleta_integration.py      # imagem real do sandbox
 poetry run pytest tests/app/mensageria                                # consumidor; os de integração pedem o compose
 sh verify.sh

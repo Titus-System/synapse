@@ -17,17 +17,18 @@ montar_resultado(
     apuracao_base,    # baseline congelado do período (T-032), na forma do contrato
     competencias,     # as competências do job, na ordem recebida
     assercoes=...,    # desfecho das invariantes, pronto da T-031
-) -> ResultadoSimulacao
+) -> ResultadoMontado   # .resultado (agregados) e .linhas (detalhamento, T-259)
 ```
 
 Entradas e saídas são tabelas do contrato: `Sequence[Mapping]` ou qualquer
 objeto com `.to_dict(orient="records")`. O módulo não importa pandas, não lê
 arquivo, não acessa rede e não conhece orçamento.
 
-## As cinco quebras
+## As cinco quebras da diferença
 
-Toda quebra é da **diferença** em relação ao baseline, nunca do total: somar
-qualquer uma delas dá `totais.diferenca_abs`.
+Estas cinco quebras são da **diferença** em relação ao baseline, nunca do total:
+somar qualquer uma delas dá `totais.diferenca_abs`. As três quebras absolutas da
+seção seguinte distribuem o total simulado, e são outra coisa.
 
 | Quebra | Origem | Chave ausente significa |
 | --- | --- | --- |
@@ -46,6 +47,26 @@ gerado não consegue mover uma matrícula de loja e distorcer a quebra. Uma
 divergência entre as duas é recusada em vez de absorvida, e as colunas de
 dimensão de `contribuicoes` são ignoradas de propósito.
 
+## As três quebras absolutas e o detalhamento (T-259)
+
+`matricula`, `loja_absoluto` e `competencia_absoluto` distribuem o **total
+simulado**, não a diferença: somar qualquer uma delas dá `totais.simulado`. Dizem
+quem receberia quanto, em que loja e em que mês; não explicam o efeito da regra,
+que continua nas cinco quebras da diferença. O contrato as declara opcionais, e um
+resultado sem elas continua válido.
+
+A loja é a do baseline, como nas quebras da diferença, então quem mudou de loja no
+período conta para cada loja nos meses em que esteve nela.
+
+`montar_resultado` devolve também o **detalhamento** (`ResultadoMontado.linhas`),
+indexado por competência e, dentro dela, por matrícula: loja, marca, cargo e
+comissão do baseline, comissão simulada, diferença e as contribuições de cada
+elemento com delta diferente de zero. Toda matrícula e competência do baseline
+aparece, inclusive a que a regra não alterou — com diferença zero e contribuições
+vazias. Ele fica **fora** de `resultado`, porque `resultado` é gravado nas colunas
+que a consulta do job devolve; o caminho dele até o banco é
+[`t259-detalhamento-do-resultado.md`](t259-detalhamento-do-resultado.md).
+
 ## Arredondamento e reconciliação
 
 A comissão é arredondada **uma vez por linha** (`ROUND_HALF_UP`, duas casas),
@@ -61,6 +82,10 @@ sobra da linha vai para o elemento de maior valor absoluto **daquela linha**, co
 empate pelo menor identificador. É o único ajuste do módulo; é determinístico, e
 como as dimensões usam os mesmos deltas por linha, a quebra por elemento fecha
 exatamente com `totais.diferenca_abs`.
+
+A reconciliação por linha acontece **uma vez**, em `_parcelas_por_linha`, e a quebra
+por elemento e o detalhamento leem o mesmo resultado dela. Recalculá-la em cada um
+abriria a porta para divergirem em um centavo na mesma linha.
 
 Esta é a segunda política tentada. A primeira somava as contribuições cruas,
 arredondava cada balde no fim e lançava a sobra global no maior balde. Sobre as cinco
@@ -122,6 +147,7 @@ Na pasta `worker/`:
 
 ```bash
 poetry run pytest tests/app/sandbox/test_resultado.py
+poetry run pytest tests/app/sandbox/test_resultado_linhas.py   # quebras absolutas e detalhamento
 sh verify.sh
 ```
 

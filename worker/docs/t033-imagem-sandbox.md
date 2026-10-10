@@ -92,7 +92,10 @@ como bug do harness.
 valida contra `resultado-simulacao.schema.json`. `elementos_implementados` também só existe em
 `sucesso`: é a lista que a regra declarou no retorno de `aplicar_regra`, conferida pelo harness
 como lista de identificadores de `elemento_ref`, ou nulo quando a regra não declarou nada. O
-worker a usa na conferência de cobertura (T-241), e desde ela o envelope está na versão 2. `erro` carrega tipo, mensagem (1000
+worker a usa na conferência de cobertura (T-241), que levou o envelope à versão 2. `linhas`, o
+detalhamento por competência e matrícula (T-259), também só existe em `sucesso`, num campo próprio
+para que a consulta do job não carregue o período inteiro, e levou o envelope à **versão 3**.
+`erro` carrega tipo, mensagem (1000
 caracteres) e os quadros do traceback que são da própria regra (8000 caracteres). **Esse
 conteúdo é dado não confiável**: quem o consome o trata como texto, nunca como instrução, e
 não o registra em log.

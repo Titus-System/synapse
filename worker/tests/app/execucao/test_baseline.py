@@ -232,7 +232,9 @@ def test_sem_os_baselines_a_localizacao_falha_alto(tmp_path: Path) -> None:
     primeiro job descobrir. O módulo é copiado para uma árvore sem `sandbox/data` acima dele."""
     pasta = tmp_path / "app" / "execucao"
     pasta.mkdir(parents=True)
-    (pasta / "baseline.py").write_text(Path(baseline.__file__).read_text(encoding="utf-8"))
+    (pasta / "baseline.py").write_text(
+        Path(baseline.__file__).read_text(encoding="utf-8"), encoding="utf-8"
+    )
 
     resultado = subprocess.run(
         [sys.executable, "-c", "import baseline; baseline.carregar_baselines()"],

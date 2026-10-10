@@ -26,7 +26,12 @@ import pandas
 from app.sandbox.assercoes import Desfecho, numero_finito
 from app.sandbox.carga import Entrada
 from app.sandbox.regras_base import Registro
-from app.sandbox.resultado import PADRAO_ELEMENTO_REF, ResultadoSimulacao, montar_resultado
+from app.sandbox.resultado import (
+    PADRAO_ELEMENTO_REF,
+    LinhasResultado,
+    ResultadoSimulacao,
+    montar_resultado,
+)
 
 NOME_ARQUIVO = "regra.py"
 NOME_MODULO = "regra"
@@ -92,6 +97,7 @@ class Execucao(NamedTuple):
     # Só com o resultado: a declaração serve à conferência de cobertura, e só um resultado
     # chega a ela.
     elementos_implementados: list[str] | None = None
+    linhas: LinhasResultado | None = None
 
 
 def carregar_regra(fonte: str, *, nome_arquivo: str = NOME_ARQUIVO) -> RegraFn:
@@ -236,7 +242,7 @@ def agregar(saida: SaidaDaRegra, entrada: Entrada, competencias: Sequence[str]) 
     desfecho = comissao_nao_negativa(simulada)
     if desfecho["resultado"] == "violada":
         return Execucao([desfecho], None)
-    resultado = montar_resultado(
+    montado = montar_resultado(
         {
             "apuracao_simulada": simulada,
             "contribuicoes": _registros(saida.tabelas["contribuicoes"]),
@@ -245,7 +251,7 @@ def agregar(saida: SaidaDaRegra, entrada: Entrada, competencias: Sequence[str]) 
         competencias,
         assercoes=[desfecho],
     )
-    return Execucao([desfecho], resultado, saida.elementos_implementados)
+    return Execucao([desfecho], montado.resultado, saida.elementos_implementados, montado.linhas)
 
 
 def _registros(tabela: pandas.DataFrame) -> list[dict[str, object]]:

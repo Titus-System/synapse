@@ -41,6 +41,12 @@ Os campos são exatamente os de `PayloadContainer` (`app/execucao/preparo.py`), 
 **O stdin precisa de EOF.** O executor lê até o fim do fluxo; sem `shutdown(SHUT_WR)` o
 container espera para sempre. Quem escreve sem fechar criou um job eterno.
 
+O envelope (`app/sandbox/envelope.py::Envelope`, versão 3) leva os agregados em `resultado` e o
+detalhamento por competência e matrícula em `linhas`, num campo **próprio**: o `resultado` é
+gravado nas colunas que a consulta do job devolve, e o detalhamento do período inteiro (meio
+megabyte) não pode ir junto. Os dois cabem no teto de 1 MiB do stdout com folga, e um teste mede
+isso na imagem real (T-259, `docs/t259-detalhamento-do-resultado.md`).
+
 | Saída | Envelope | Significa |
 | --- | --- | --- |
 | `0` | sim | `sucesso` |
@@ -67,7 +73,7 @@ orçamento adiante.
 
 Os `elementos_exigidos` do comando seguem a mesma regra: ficam em `ExecucaoPreparada`, fora do
 payload, e só o julgamento os lê. Dentro do container o harness apenas lê e valida a declaração
-`elementos_implementados`, que vai no envelope (versão 2) só ao lado de um resultado; a
+`elementos_implementados`, que vai no envelope (versão 3) só ao lado de um resultado; a
 conferência de cobertura (T-241) é do worker, depois da conferência do baseline.
 
 O veredito (`app/execucao/veredito.py`) é a única coisa que lê o orçamento: `viavel` até o

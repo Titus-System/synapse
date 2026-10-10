@@ -5,8 +5,8 @@ elemento, na forma fixada pelo contrato da T-034 - na saída decomposta de
 ``contracts/domain/resultado-simulacao.schema.json``. Sem I/O, sem rede e sem
 pandas: só a biblioteca padrão e os helpers do próprio sandbox.
 
-A quebra é sempre da DIFERENÇA em relação ao baseline, nunca do total: somar
-qualquer uma das cinco dá ``totais.diferenca_abs``. O orçamento e o veredito não
+As cinco quebras da diferença somam ``totais.diferenca_abs``. As três quebras
+absolutas e o detalhamento somam ``totais.simulado``. O orçamento e o veredito não
 aparecem aqui - quem os aplica é o worker, fora do container (T-066), porque
 quem produz o número não deve alcançar o critério que vai julgá-lo.
 """
@@ -16,6 +16,7 @@ from __future__ import annotations
 import operator
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from typing import NamedTuple, SupportsIndex, TypedDict, cast
 
@@ -56,19 +57,43 @@ class Totais(TypedDict):
 
 
 class Decomposicao(TypedDict):
-    """Quebra da diferença em relação ao baseline, nas cinco dimensões exigidas."""
+    """Cinco quebras da diferença e três do total simulado (T-200 C)."""
 
     elemento: dict[str, float]
     loja: dict[str, float]
     marca: dict[str, float]
     cargo: dict[str, float]
     competencia: dict[str, float]
+    matricula: dict[str, float]
+    loja_absoluto: dict[str, float]
+    competencia_absoluto: dict[str, float]
 
 
 class ResultadoSimulacao(TypedDict):
     totais: Totais
     assercoes: list[Desfecho]
     decomposicao: Decomposicao
+
+
+class LinhaDetalhada(TypedDict):
+    cod_loja: str
+    cod_marca: str
+    cod_cargo: str
+    comissao_baseline: float
+    comissao_simulada: float
+    diferenca: float
+    contribuicoes: dict[str, float]
+
+
+type LinhasResultado = dict[str, dict[str, LinhaDetalhada]]
+
+
+@dataclass(frozen=True)
+class ResultadoMontado:
+    """Artefatos separados: a consulta do job não carrega o detalhamento (T-256)."""
+
+    resultado: ResultadoSimulacao = field(repr=False)
+    linhas: LinhasResultado = field(repr=False)
 
 
 class ResultadoInvalidoError(ValueError):
@@ -92,7 +117,7 @@ def montar_resultado(
     competencias: Sequence[str],
     *,
     assercoes: Sequence[Desfecho],
-) -> ResultadoSimulacao:
+) -> ResultadoMontado:
     """Agrega o retorno da função gerada no formato de ``resultado-simulacao``.
 
     ``saida`` é o ``dict`` devolvido por ``aplicar_regra``, com
@@ -104,11 +129,12 @@ def montar_resultado(
     delta_por_linha, simulado = _conferir_simulada(_tabela(saida, "apuracao_simulada"), base)
     contribuicoes = _agrupar_contribuicoes(_tabela(saida, "contribuicoes"), base)
     _conferir_atribuicao(delta_por_linha, contribuicoes)
+    parcelas = _parcelas_por_linha(contribuicoes, delta_por_linha)
 
     baseline = _somar(linha.comissao for linha in base.values())
     diferenca = simulado - baseline
 
-    return ResultadoSimulacao(
+    resultado = ResultadoSimulacao(
         totais=Totais(
             baseline=_moeda(baseline),
             simulado=_moeda(simulado),
@@ -117,8 +143,9 @@ def montar_resultado(
             diferenca_pct=float(diferenca / baseline) if baseline else 0.0,
         ),
         assercoes=list(assercoes),
-        decomposicao=_decompor(base, delta_por_linha, contribuicoes, periodo),
+        decomposicao=_decompor(base, delta_por_linha, parcelas, periodo),
     )
+    return ResultadoMontado(resultado, _detalhar(base, delta_por_linha, parcelas, periodo))
 
 
 def _conferir_competencias(competencias: Sequence[str]) -> tuple[str, ...]:
@@ -272,6 +299,9 @@ def _decompor(
     por_marca: dict[str, Decimal] = {}
     por_cargo: dict[str, Decimal] = {}
     por_competencia: dict[str, Decimal] = dict.fromkeys(periodo, Decimal(0))
+    por_matricula: dict[str, Decimal] = {}
+    loja_absoluto: dict[str, Decimal] = {}
+    competencia_absoluto: dict[str, Decimal] = dict.fromkeys(periodo, Decimal(0))
 
     # Percorre todas as linhas do baseline, não só as afetadas: dimensão com
     # zero foi simulada e a regra não a alcançou, o que diz outra coisa que
@@ -282,9 +312,13 @@ def _decompor(
         por_marca[linha.cod_marca] = por_marca.get(linha.cod_marca, Decimal(0)) + delta
         por_cargo[linha.cod_cargo] = por_cargo.get(linha.cod_cargo, Decimal(0)) + delta
         por_competencia[chave[1]] += delta
+        comissao = linha.comissao + delta
+        por_matricula[chave[0]] = por_matricula.get(chave[0], Decimal(0)) + comissao
+        loja_absoluto[linha.cod_loja] = loja_absoluto.get(linha.cod_loja, Decimal(0)) + comissao
+        competencia_absoluto[chave[1]] += comissao
 
     return Decomposicao(
-        elemento=_por_elemento(contribuicoes, delta_por_linha),
+        elemento=_por_elemento(contribuicoes),
         loja=_serializar(por_loja, _ordem_codigo),
         marca=_serializar(por_marca, _ordem_codigo),
         cargo=_serializar(por_cargo, _ordem_codigo),
@@ -294,20 +328,18 @@ def _decompor(
             competencia: _moeda(_sem_zero_negativo(por_competencia[competencia]))
             for competencia in periodo
         },
+        matricula=_serializar(por_matricula, _ordem_codigo),
+        loja_absoluto=_serializar(loja_absoluto, _ordem_codigo),
+        competencia_absoluto={c: _moeda(competencia_absoluto[c]) for c in periodo},
     )
 
 
-def _por_elemento(
+def _parcelas_por_linha(
     contribuicoes: Mapping[Chave, Mapping[str, Decimal]],
     delta_por_linha: Mapping[Chave, Decimal],
-) -> dict[str, float]:
-    """Quebra por elemento da regra, fechando exatamente na diferença total.
-
-    Elemento cujas contribuições se cancelam permanece com zero: ele teve efeito
-    e o efeito foi nulo, o que é informação. Omiti-lo diria que ele não foi
-    implementado, que é outro caso (a conferência de cobertura é da T-241).
-    """
-    baldes: dict[str, Decimal] = {}
+) -> dict[Chave, dict[str, Decimal]]:
+    """Arredonda e reconcilia uma vez, para decomposição e detalhamento coincidirem."""
+    por_linha: dict[Chave, dict[str, Decimal]] = {}
     for chave, declaradas in contribuicoes.items():
         parcelas = {elemento: _centavos(valor) for elemento, valor in declaradas.items()}
         # A comissão é arredondada por linha e a contribuição por elemento, e
@@ -320,9 +352,40 @@ def _por_elemento(
         if residuo:
             alvo = min(parcelas, key=lambda elemento: (-abs(parcelas[elemento]), elemento))
             parcelas[alvo] += residuo
+        por_linha[chave] = parcelas
+    return por_linha
+
+
+def _por_elemento(contribuicoes: Mapping[Chave, Mapping[str, Decimal]]) -> dict[str, float]:
+    """Preserva elementos com soma zero: efeito nulo é distinto de ausência (T-241)."""
+    baldes: dict[str, Decimal] = {}
+    for parcelas in contribuicoes.values():
         for elemento, valor in parcelas.items():
             baldes[elemento] = baldes.get(elemento, Decimal(0)) + valor
     return _serializar(baldes, _ordem_elemento)
+
+
+def _detalhar(
+    base: Mapping[Chave, _LinhaBase],
+    deltas: Mapping[Chave, Decimal],
+    parcelas: Mapping[Chave, Mapping[str, Decimal]],
+    periodo: tuple[str, ...],
+) -> LinhasResultado:
+    linhas: LinhasResultado = {competencia: {} for competencia in periodo}
+    for chave, linha in sorted(base.items()):
+        matricula, competencia = chave
+        linhas[competencia][matricula] = LinhaDetalhada(
+            cod_loja=linha.cod_loja,
+            cod_marca=linha.cod_marca,
+            cod_cargo=linha.cod_cargo,
+            comissao_baseline=_moeda(linha.comissao),
+            comissao_simulada=_moeda(linha.comissao + deltas[chave]),
+            diferenca=_moeda(_sem_zero_negativo(deltas[chave])),
+            contribuicoes=_serializar(
+                {e: v for e, v in parcelas.get(chave, {}).items() if v}, _ordem_elemento
+            ),
+        )
+    return linhas
 
 
 def _serializar(

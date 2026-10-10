@@ -349,14 +349,20 @@ função gerada. Com `meta_venda` no payload, escala as vendas e reapura o basel
 
 Depois de chamar:
 1. Agrega `apuracao_simulada` e `apuracao_base` em `totais`, somando o período inteiro.
-2. Monta a `decomposicao` por elemento (de `contribuicoes`) e pelas dimensões `loja`,
-   `marca`, `cargo` e `competencia` - uma entrada por mês do período, mesmo com zero.
+2. Monta a `decomposicao`: as cinco quebras da diferença, por elemento (de
+   `contribuicoes`) e pelas dimensões `loja`, `marca`, `cargo` e `competencia` - uma
+   entrada por mês do período, mesmo com zero -, e as três quebras absolutas
+   (`matricula`, `loja_absoluto`, `competencia_absoluto`), que somam `totais.simulado`.
+   Das mesmas parcelas em centavos monta também o detalhamento por competência e
+   matrícula (`resultado-linhas.schema.json`), num artefato separado do resultado
+   (T-259).
 3. Roda as asserções invariantes (T-031).
 4. Valida a saída contra o schema (`validar-saida.py`).
 5. Serializa o resultado.
 
-A decomposição completa (T-035) e as asserções (T-031) são de outras tarefas. O
-`harness.py` deste diretório traz uma versão mínima só para os testes do contrato.
+A decomposição completa (T-035), as quebras absolutas e o detalhamento (T-259) e as
+asserções (T-031) são de outras tarefas. O `harness.py` deste diretório traz uma versão
+mínima só para os testes do contrato.
 
 ## A saída e sua fronteira
 
@@ -366,7 +372,12 @@ O artefato final é o `resultado-simulacao`, descrito por
 confere. Um total sozinho não basta: sem a decomposição não dá para dizer de onde veio
 a diferença nem quanto dela cabe a cada elemento.
 
-Fronteira container e worker: o que sai do container não inclui o orçamento, o total histórico de vendas nem o veredito. O harness produz `baseline`, `simulado`, `diferenca_abs`, `diferenca_pct`, a `decomposicao` e as `assercoes`. É o worker, fora do container, que adiciona a `totais` o orçamento, quando o comando o traz, e `vendas_historicas`, o total de vendas das competências antes de qualquer escalonamento, lido de uma fonte que o código gerado não alcança (T-270). É também o worker que calcula o veredito (T-066) e confere a cobertura (seção "Conferência de cobertura"). Sem orçamento no comando, `totais.orcamento` fica ausente e o resultado de sucesso sai sem veredito (T-281). O artefato validado neste diretório já traz o orçamento só para servir de exemplo completo.
+O detalhamento por competência e matrícula viaja **ao lado** do resultado, não dentro
+dele: tem seu próprio schema (`resultado-linhas.schema.json`), sua própria coluna
+(`resultados_simulacao.linhas`) e sua própria rota de consulta, porque é duas ordens de
+grandeza maior que os agregados e a consulta do job não pode carregá-lo (T-259).
+
+Fronteira container e worker: o que sai do container não inclui o orçamento, o total histórico de vendas nem o veredito. O harness produz `baseline`, `simulado`, `diferenca_abs`, `diferenca_pct`, a `decomposicao`, as `assercoes` e o detalhamento. É o worker, fora do container, que adiciona a `totais` o orçamento, quando o comando o traz, e `vendas_historicas`, o total de vendas das competências antes de qualquer escalonamento, lido de uma fonte que o código gerado não alcança (T-270). É também o worker que calcula o veredito (T-066) e confere a cobertura (seção "Conferência de cobertura"). Sem orçamento no comando, `totais.orcamento` fica ausente e o resultado de sucesso sai sem veredito (T-281). O artefato validado neste diretório já traz o orçamento só para servir de exemplo completo.
 
 ## Como o código declara o elemento que implementa
 

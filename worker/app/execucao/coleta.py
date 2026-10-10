@@ -23,12 +23,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
+from app.core.logger import get_logger
+from app.core.metrics.global_metrics import sandbox_envelope_bytes
 from app.execucao.container import SaidaBruta
 from app.execucao.preparo import PayloadContainer
-from app.execucao.schema import Problema, validar_assercoes, validar_resultado
+from app.execucao.schema import Problema, validar_assercoes, validar_linhas, validar_resultado
 from app.sandbox.assercoes import Desfecho
 from app.sandbox.envelope import SAIDA_POR_STATUS, VERSAO, Envelope, Falha
-from app.sandbox.resultado import PADRAO_ELEMENTO_REF, ResultadoSimulacao
+from app.sandbox.resultado import PADRAO_ELEMENTO_REF, LinhasResultado, ResultadoSimulacao
+
+logger = get_logger("app.execucao.coleta")
 
 type Classe = Literal["sucesso", "assercao_violada", "erro_codigo", "erro_infra"]
 
@@ -66,6 +70,7 @@ class DesfechoClassificado:
     assercoes: list[Desfecho] = field(default_factory=list, repr=False)
     # Só em sucesso, e é o objeto do envelope como veio: sem orçamento, sem recomposição.
     resultado: ResultadoSimulacao | None = field(default=None, repr=False)
+    linhas: LinhasResultado | None = field(default=None, repr=False)
     # Só em sucesso: os elementos que o código gerado declarou implementar, cada um no espaço de
     # elemento_ref. None quando ele não declarou nada; quem julga isso é a T-241, no veredito.
     elementos_implementados: tuple[str, ...] | None = field(default=None, repr=False)
@@ -110,6 +115,8 @@ def classificar(
     if saida.codigo_saida != SAIDA_POR_STATUS[envelope["status"]]:
         return _erro_codigo("codigo_de_saida_divergente", saida)
 
+    sandbox_envelope_bytes.labels(status=envelope["status"]).observe(len(saida.stdout))
+
     assercoes = envelope["assercoes"]
     if envelope["status"] == "assercao_violada":
         return DesfechoClassificado("assercao_violada", "assercao", assercoes, saida=saida)
@@ -121,6 +128,18 @@ def classificar(
     resultado = envelope["resultado"]
     assert resultado is not None  # garantido por _forma_valida para status "sucesso"
     problemas = validar_resultado(resultado, orcamento)
+    linhas = envelope.get("linhas")
+    problemas_linhas = validar_linhas(linhas, payload.competencias)
+    if problemas_linhas:
+        logger.info(
+            "detalhamento recusado",
+            extra={
+                "status": "erro_codigo",
+                "motivo": "resultado_fora_do_schema",
+                "classes": [p["palavra_chave"] for p in problemas_linhas],
+            },
+        )
+        problemas.extend(problemas_linhas)
     if problemas:
         return DesfechoClassificado(
             "erro_codigo",
@@ -135,6 +154,7 @@ def classificar(
         "ok",
         assercoes,
         resultado=resultado,
+        linhas=linhas,
         elementos_implementados=tuple(elementos) if elementos is not None else None,
         saida=saida,
     )
@@ -169,7 +189,12 @@ def _ler_envelope(stdout: bytes) -> dict[str, Any] | None:
 def _forma_valida(dados: Mapping[str, Any]) -> bool:
     """A forma e a coerência que o harness sempre produz. Um envelope que as contradiz não foi
     escrito por ele, ou foi escrito por uma regra que quis parecer sucesso."""
-    if set(dados) != Envelope.__required_keys__:
+    # A ausência do detalhamento em sucesso pertence à validação do resultado, para
+    # produzir resultado_fora_do_schema, não envelope_invalido.
+    campos = set(dados)
+    if dados.get("status") == "sucesso":
+        campos.add("linhas")
+    if campos != Envelope.__required_keys__:
         return False
     versao, status = dados["versao"], dados["status"]
     if type(versao) is not int or versao != VERSAO:
@@ -198,7 +223,7 @@ def _forma_valida(dados: Mapping[str, Any]) -> bool:
             and (elementos is None or _declaracao_valida(elementos))
         )
     # A declaração só acompanha um resultado: sem ele não há o que conferir.
-    if elementos is not None:
+    if elementos is not None or dados["linhas"] is not None:
         return False
     if status == "assercao_violada":
         return resultado is None and erro is None and violada
