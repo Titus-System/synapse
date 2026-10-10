@@ -133,6 +133,7 @@ class EtapaAlterada(ModeloContrato):
     job_id: UUID
     etapa: NoGrafo
     status: str = Field(min_length=1)
+    causa: Literal["provedor_indisponivel"] | None = None
 
 
 class NoConcluido(ModeloContrato):

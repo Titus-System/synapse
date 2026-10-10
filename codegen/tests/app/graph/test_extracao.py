@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import simplejson
-from httpx import AsyncClient, ConnectError, ReadTimeout
+from httpx import AsyncClient
 from jsonschema import Draft202012Validator, FormatChecker
 from langchain_core.messages import AIMessage
 from prometheus_client.parser import text_string_to_metric_families
@@ -299,7 +299,7 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
             if falha == "cancelamento":
                 aguardando.set()
                 await asyncio.Event().wait()
-            raise ConnectionError("TRANSCRICAO_PRIVADA_DO_PROVEDOR")
+            raise RuntimeError("TRANSCRICAO_PRIVADA_DO_PROVEDOR")
 
         monkeypatch.setattr(FakeChatModel, "ainvoke", falhar)
     elif falha == "publicacao":
@@ -381,11 +381,8 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
 @pytest.mark.parametrize(
     ("tipo_erro", "motivo"),
     [
-        (TimeoutError, "timeout"),
-        (ReadTimeout, "timeout"),
-        (ConnectionError, "conexao"),
-        (ConnectError, "conexao"),
         (RuntimeError, "falha_na_operacao"),
+        (ValueError, "falha_na_operacao"),
     ],
 )
 async def test_falha_do_provedor_identifica_motivo_sem_expor_excecao(
@@ -459,7 +456,9 @@ async def test_duracao_longa_ocupa_buckets_finitos_em_sucesso_e_falha(
     instantes = iter([0.0, duracao])
     monkeypatch.setattr("app.graph.nodes.extract_rule.perf_counter", lambda: next(instantes))
     if falha:
-        monkeypatch.setattr(FakeChatModel, "ainvoke", AsyncMock(side_effect=ReadTimeout("privado")))
+        monkeypatch.setattr(
+            FakeChatModel, "ainvoke", AsyncMock(side_effect=RuntimeError("privado"))
+        )
     antes = (await cliente.get("/metrics")).text
     recebida = mensagem(ambiente.entrada())
 

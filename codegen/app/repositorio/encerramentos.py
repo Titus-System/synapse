@@ -83,6 +83,12 @@ async def estado(sessao: AsyncSession, job_id: UUID) -> EstadoDoEncerramento | N
     )
 
 
+async def foi_encerrado(sessoes: async_sessionmaker[AsyncSession], job_id: UUID) -> bool:
+    """Lê o registro de encerramento numa sessão curta, fora do lock do processamento."""
+    async with sessoes() as sessao:
+        return await estado(sessao, job_id) is not None
+
+
 async def marcar_limpo(sessao: AsyncSession, job_id: UUID) -> None:
     await sessao.execute(_MARCAR_LIMPO, {"job_id": job_id})
 

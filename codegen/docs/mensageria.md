@@ -42,7 +42,7 @@ Cada producer recebe um DTO pronto, serializa e valida o corpo serializado pelo 
 | `FalhaDoJobError` do roteador | `reject(requeue=False)`, log correlacionado e `etapa-alterada` com `erro` |
 | Cancelamento | sem ACK; fechamento da conexão devolve mensagens não confirmadas |
 
-A rejeição de mensagens inválidas e jobs desconhecidos é a decisão mínima local para falhas não recuperáveis. **As filas de entrada do codegen não têm DLQ; essas rejeições descartam a mensagem.** Ausência de roteador configurado não é job desconhecido: nesse caso nenhum consumer é iniciado e as mensagens ficam nas filas. Falhas transitórias usam a reentrega do broker, sem republicação/retry manual. Sem backoff configurado, uma falha persistente pode causar reentregas repetidas.
+A rejeição de mensagens inválidas e jobs desconhecidos é a decisão mínima local para falhas não recuperáveis. **As filas de entrada do codegen não têm DLQ; essas rejeições descartam a mensagem.** Ausência de roteador configurado não é job desconhecido: nesse caso nenhum consumer é iniciado e as mensagens ficam nas filas. Falhas transitórias usam a reentrega do broker, sem republicação/retry manual. Sem backoff configurado, uma falha persistente pode causar reentregas repetidas. A indisponibilidade do provedor de LLM é a exceção: ver *Indisponibilidade do provedor* abaixo.
 
 ## Confirmação de parâmetros (T-218)
 
@@ -185,3 +185,14 @@ Remove-Item Env:RUN_RABBITMQ_INTEGRATION
 ```
 
 Cada teste cria e remove somente seu próprio vhost `t049-<uuid>` no RabbitMQ real, usando `docker compose exec ... rabbitmqctl`; não há segundo ambiente RabbitMQ. As credenciais precisam permitir acesso a esse vhost. Os cenários cobrem entradas, encerramento, fanout e producers. O teste de `parametros-confirmados` publica mensagem válida, duplicata, mensagem sem contexto, contexto inválido e JSON malformado; passa pelo consumer, roteador e grafo reais, substituindo banco, modelo e produtores do grafo. Depois que os callbacks completam ACK/reject, consulta a fila passivamente e exige um consumer, profundidade zero e uma única delegação ao worker. Nenhum serviço API ou worker precisa ser iniciado. Sem `RUN_RABBITMQ_INTEGRATION=1`, esses testes são explicitamente pulados; habilitados, ausência de broker/Docker é falha, nunca aprovação simulada.
+
+## Indisponibilidade do provedor de LLM (T-268)
+
+Falhas da chamada ao modelo que indicam provedor indisponível (HTTP 429, 500, 502, 503 e 504, timeout e erro de conexão, inclusive embrulhados pelo `langchain_google_genai`) não sobem como falha transitória. `app/graph/core/llm/disponibilidade.py` espera dentro do processamento da mensagem, antes do `ack`, nos nós `geracao_codigo` e `extracao_parametros`:
+
+- A primeira falha publica `etapa-alterada` com `status = aguardando_provedor`, uma vez por chamada. O aviso não muda o estado do job.
+- As esperas são de 30, 60 e 120 segundos e depois 120 segundos, dentro de uma janela de 10 minutos contada da primeira falha, que fica abaixo do `consumer_timeout` de 30 minutos do RabbitMQ. O `max_retries=2` do SDK não muda.
+- Antes de cada nova tentativa o codegen consulta `jobs_grafo_encerrados`. Um job cancelado ou arquivado na espera lança `JobEncerradoDuranteEsperaError`, que o roteador converte em `JobEncerradoError` (ACK, sem aviso de erro).
+- Esgotada a janela, o nó lança `ProvedorIndisponivelError` (`FalhaDoJobError`): o roteador publica `etapa-alterada` com `erro` e `causa = provedor_indisponivel`, e o consumer rejeita sem requeue.
+- Logs (`causa = provedor_indisponivel`, sem a mensagem do provedor) e métricas `llm_provider_failures_total{no,desfecho}` e `llm_provider_wait_seconds{no}`. O contador conta chamadas com falha de provedor por desfecho (`recuperado` ou `esgotado`), não cada tentativa.
+- Uma reentrega depois de queda do processo reinicia a janela e pode repetir o aviso.

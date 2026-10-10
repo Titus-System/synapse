@@ -9,7 +9,7 @@ Falha transitória (banco ou broker indisponível, erro de rede do provedor) nã
 ela sobe como exceção comum e a reentrega do broker é a resposta certa.
 """
 
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from app.contratos.mensagens import NoGrafo
 
@@ -25,3 +25,16 @@ class FalhaDoJobError(Exception):
     #: `contracts/domain/comum.schema.json#/$defs/no_grafo`. A `api` a usa para montar o
     #: motivo da transição (`erro_<etapa>`).
     etapa: ClassVar[NoGrafo]
+
+    #: Causa opcional de `etapa-alterada`, para a `api` dar ao job um motivo próprio. Sem ela,
+    #: a falha segue o tratamento genérico.
+    causa: ClassVar[Literal["provedor_indisponivel"] | None] = None
+
+
+class ProvedorIndisponivelError(FalhaDoJobError):
+    """O provedor de LLM seguiu indisponível durante toda a janela de novas tentativas.
+
+    Cada nó que chama o modelo declara a sua subclasse, com a etapa em que a chamada falhou.
+    """
+
+    causa = "provedor_indisponivel"

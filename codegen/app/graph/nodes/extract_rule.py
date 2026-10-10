@@ -29,8 +29,13 @@ from app.core.metrics.global_metrics import (
 )
 from app.extracao.modelos import FalhaExtracaoError
 from app.extracao.motor import extrair_regra
-from app.falhas import FalhaDoJobError
+from app.falhas import FalhaDoJobError, ProvedorIndisponivelError
 from app.graph.core.llm import registry
+from app.graph.core.llm.disponibilidade import (
+    JobEncerradoDuranteEsperaError,
+    chamar_com_espera_do_provedor,
+    ganchos_da_espera,
+)
 from app.graph.core.state import AgentState
 from app.repositorio.artefatos import id_do_evento_de_trilha
 from app.repositorio.extracoes import buscar_extracao, gravar_extracao
@@ -44,13 +49,17 @@ class EntradaExtracaoInvalidaError(FalhaDoJobError):
     etapa = ETAPA
 
 
+class ProvedorIndisponivelExtracaoError(ProvedorIndisponivelError):
+    etapa = ETAPA
+
+
 class FalhaTransitoriaExtracaoError(RuntimeError):
     """Sanitized infrastructure failure; the consumer retries the message."""
 
 
 def _motivo_da_falha(erro: BaseException, classe: str) -> str:
     # Classify by type: exception text can contain artifacts or credentials.
-    if isinstance(erro, FalhaDoJobError | asyncio.CancelledError):
+    if isinstance(erro, FalhaDoJobError | JobEncerradoDuranteEsperaError | asyncio.CancelledError):
         return classe
     if isinstance(erro, TimeoutError | TimeoutException):
         return "timeout"
@@ -94,11 +103,18 @@ async def extract_rule(state: AgentState, config: RunnableConfig) -> AgentState:
             modelo = registry.get_model("extraction")
             metadados_modelo = registry.get_model_metadata("extraction")
             operacao = "extrair_regra"
-            resultado = await extrair_regra(
-                texto,
-                state["competencias"],
-                modelo=modelo,
-                metadados_modelo=metadados_modelo,
+            avisar, encerrado = ganchos_da_espera(config, state, ETAPA)
+            resultado = await chamar_com_espera_do_provedor(
+                lambda: extrair_regra(
+                    texto,
+                    state["competencias"],
+                    modelo=modelo,
+                    metadados_modelo=metadados_modelo,
+                ),
+                no=ETAPA,
+                esgotada=ProvedorIndisponivelExtracaoError,
+                avisar=avisar,
+                encerrado=encerrado,
             )
             classe = "persistencia"
             operacao = "gravar_extracao"
@@ -169,7 +185,9 @@ async def extract_rule(state: AgentState, config: RunnableConfig) -> AgentState:
                 "extracao_reutilizada": extracao_reutilizada,
             },
         )
-        if isinstance(erro, FalhaDoJobError | asyncio.CancelledError):
+        if isinstance(
+            erro, FalhaDoJobError | JobEncerradoDuranteEsperaError | asyncio.CancelledError
+        ):
             raise
     finally:
         job_duration.labels(job_name="extract_rule").observe(perf_counter() - inicio)

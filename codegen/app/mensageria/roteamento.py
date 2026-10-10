@@ -14,6 +14,7 @@ from app.contratos.mensagens import (
 from app.core.logger import get_logger
 from app.core.metrics.global_metrics import parametros_confirmados
 from app.falhas import FalhaDoJobError
+from app.graph.core.llm.disponibilidade import JobEncerradoDuranteEsperaError
 from app.graph.core.state import AgentState
 from app.graph.entrypoint import ResumeOutcome, RunOutcome, resume_to_completion, run_to_completion
 from app.mensageria.limpeza import LimpezaDeCheckpoints
@@ -98,9 +99,14 @@ class GraphRouter:
         try:
             async with self.limpeza.durante_o_processamento(job_id) as encerramento:
                 _recusar_se_encerrado(job_id, mensagem, encerramento)
-                desfecho = await self._processar(
-                    job_id, mensagem, self.sessoes, self.producers, assentados
-                )
+                try:
+                    desfecho = await self._processar(
+                        job_id, mensagem, self.sessoes, self.producers, assentados
+                    )
+                except JobEncerradoDuranteEsperaError as erro:
+                    # O encerramento chegou durante a espera pelo provedor: a mensagem é
+                    # descartada como a de qualquer job encerrado, sem avisar a `api`.
+                    raise JobEncerradoError(str(job_id)) from erro
         finally:
             # Fora do lock compartilhado: o encerramento pode ter chegado durante o
             # processamento, e só agora a limpeza consegue o lock exclusivo.
@@ -148,9 +154,13 @@ class GraphRouter:
             # o job em `gerando_regra` para sempre. Uma falha ao publicar não é tratada de
             # propósito - ela sobe como falha comum, o consumer reenfileira e a reentrega
             # tenta avisar de novo. Melhor do que engolir o aviso.
-            await producers.etapa_alterada(
-                EtapaAlterada(job_id=job_id, etapa=falha.etapa, status="erro")
-            )
+            if falha.causa is None:
+                aviso = EtapaAlterada(job_id=job_id, etapa=falha.etapa, status="erro")
+            else:
+                aviso = EtapaAlterada(
+                    job_id=job_id, etapa=falha.etapa, status="erro", causa=falha.causa
+                )
+            await producers.etapa_alterada(aviso)
             raise
         return None
 
