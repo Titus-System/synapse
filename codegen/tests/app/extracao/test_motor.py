@@ -173,3 +173,24 @@ async def test_preserva_orcamento_negativo_sem_corrigir() -> None:
     resultado = await extrair(modelo_falso({"nucleo": {}, "elementos": [], "parametros": bruto}))
 
     assert resultado.parametros == {"orcamento": Decimal("-100")}
+
+
+async def test_condicao_de_meta_dentro_da_regra_fica_em_elemento_sem_virar_meta_venda() -> None:
+    """Quem separa a condição de meta da meta de venda é o modelo, instruído pelo prompt, e o caso
+    real está em test_llm.py. Aqui se fixa a montagem: o elemento não perde nem cede nada aos
+    parâmetros."""
+    texto = "Pague 2% na loja 13 e um bônus de R$ 300 para quem bater a meta de R$ 50 mil."
+    elemento = {
+        "construto_pretendido": "bonus_por_meta",
+        "descricao": "bônus de R$ 300 para quem bater a meta de R$ 50 mil",
+        "trecho": "um bônus de R$ 300 para quem bater a meta de R$ 50 mil",
+    }
+
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [elemento], "parametros": {}}), texto
+    )
+
+    assert resultado.parametros == {}
+    assert resultado.representacao.para_contrato()["especificacoes"] == [
+        {"ref": "elem.1", "construto": "generico", "descricao": elemento["descricao"]}
+    ]
