@@ -247,7 +247,14 @@ async def _processar(mensagem: AbstractIncomingMessage, broker: ConexaoBroker) -
                     },
                 )
                 saida = await _executar_no_container(execucao.payload)
-                desfecho = classificar(saida, execucao.payload, execucao.orcamento)
+                # Numa thread, como o container: conferir o envelope contra os schemas é CPU
+                # pura e cresce com o detalhamento (perto de 1 s no período inteiro, contra 22 ms
+                # do resultado sozinho), e no loop pararia o heartbeat do RabbitMQ e o `/metrics`
+                # por todo esse tempo. O contexto do job acompanha a thread, então o log da
+                # recusa continua correlacionado.
+                desfecho = await asyncio.to_thread(
+                    classificar, saida, execucao.payload, execucao.orcamento
+                )
                 # Aqui, no processo do worker: nem o orçamento nem os elementos exigidos entraram
                 # no container.
                 julgamento = julgar(

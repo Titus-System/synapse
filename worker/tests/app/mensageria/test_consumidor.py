@@ -1565,3 +1565,42 @@ async def test_recusa_do_detalhamento_na_coleta_nao_expoe_chaves_nem_valores(
     assert segredo not in json.dumps(registros)
     assert banco.gravados[0]["linhas"] is None
     assert segredo not in json.dumps(banco.gravados[0]["diagnostico"])
+
+
+async def test_a_classificacao_do_envelope_nao_bloqueia_o_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    """Conferir o envelope contra os schemas é CPU pura e cresce com o detalhamento: no loop
+    pararia o heartbeat do RabbitMQ por todo esse tempo.
+
+    `liberar` só é acionado pelo loop, depois de a classificação ter começado: se ela estivesse
+    no loop, a espera de dentro dela terminaria por timeout e não por progresso.
+    """
+    entrou, liberar = threading.Event(), threading.Event()
+    progrediu: list[bool] = []
+    real = consumidor.classificar
+
+    def classificar_devagar(*args: Any, **kwargs: Any) -> DesfechoClassificado:
+        entrou.set()
+        progrediu.append(liberar.wait(2))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(consumidor, "classificar", classificar_devagar)
+    mensagem = MensagemFalsa(body=_corpo_comando())
+    broker, _ = _preparar(monkeypatch, [mensagem], _codigo())
+
+    consumo = asyncio.create_task(consumir_fila_execucao(broker))
+    await asyncio.to_thread(entrou.wait, 5)
+    liberar.set()
+    await consumo
+
+    assert progrediu == [True]
+    assert banco.gravados[0]["status"] == "sucesso"
+    # O contexto do job acompanha a thread: sem isso o log sairia sem correlação.
+    registros = linhas_de_log()
+    julgada = next(r for r in registros if r["message"] == "execução julgada")
+    assert julgada["job_id"] == json.loads(mensagem.body)["job_id"]
+    assert all(erros_do_log(r) == [] for r in registros)
