@@ -66,6 +66,21 @@ describe('usarStoreJobAtual', () => {
     expect(fechar).toHaveBeenCalledOnce()
   })
 
+  it('retira a espera pelo provedor no próximo evento de progresso ou de estado', async () => {
+    const store = usarStoreJobAtual()
+    await store.iniciarAcompanhamento('job-1')
+
+    handlers().onEtapa({ job_id: 'job-1', etapa: 'geracao_codigo', status: 'aguardando_provedor' })
+    expect(store.etapaAtual?.status).toBe('aguardando_provedor')
+    handlers().onEtapa({ job_id: 'job-1', etapa: 'delegacao_worker', status: 'iniciada' })
+    expect(store.etapaAtual?.status).toBe('iniciada')
+
+    handlers().onEtapa({ job_id: 'job-1', etapa: 'geracao_codigo', status: 'aguardando_provedor' })
+    handlers().onEstado({ job_id: 'job-1', status: 'erro', motivo: 'ficou indisponível' })
+    expect(store.etapaAtual).toBeNull()
+    expect(store.motivoParada).toBe('ficou indisponível')
+  })
+
   it('mantém o motivo da parada que a reconsulta do mesmo status não devolve', async () => {
     const store = usarStoreJobAtual()
     await store.iniciarAcompanhamento('job-1')
