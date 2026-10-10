@@ -19,12 +19,17 @@ from typing import Literal, TypedDict
 from app.sandbox.assercoes import Desfecho
 from app.sandbox.resultado import ResultadoSimulacao
 
-VERSAO = 1
+# 2: o envelope passou a levar ``elementos_implementados`` (T-241).
+VERSAO = 2
 
 # O payload que o worker escreve no stdin: exatamente os campos de PayloadContainer
-# (app/execucao/preparo.py). Nunca ``orcamento``: quem produz o número não alcança o
-# critério que vai julgá-lo (T-066). Um teste confere que as duas listas não divergem.
+# (app/execucao/preparo.py), os obrigatórios sempre e os opcionais só quando o comando os traz.
+# Nunca ``orcamento``: quem produz o número não alcança o critério que vai julgá-lo (T-066). Um
+# teste confere que as listas não divergem.
 CAMPOS_PAYLOAD = frozenset({"job_id", "codigo_gerado_id", "linguagem", "fonte", "competencias"})
+# ``meta_venda`` entra porque muda a entrada da apuração, e não o critério de julgamento: as
+# vendas do período são escaladas até ela antes de a regra rodar (T-270).
+CAMPOS_PAYLOAD_OPCIONAIS = frozenset({"meta_venda"})
 
 type Status = Literal["sucesso", "assercao_violada", "erro_codigo"]
 
@@ -74,6 +79,9 @@ class Envelope(TypedDict):
     # Só em sucesso. Válido contra resultado-simulacao.schema.json quando o worker
     # acrescenta totais.orcamento.
     resultado: ResultadoSimulacao | None
+    # Só em sucesso, e nulo também quando o código gerado não declarou nada: a lista que ele
+    # devolveu em aplicar_regra, para a conferência de cobertura do worker (T-241).
+    elementos_implementados: list[str] | None
     # Só em erro_codigo.
     erro: Falha | None
 

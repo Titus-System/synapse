@@ -20,12 +20,8 @@
       "description": "Versão confirmada da regra em regras. Correção do usuário gera uma versão nova, nunca altera a anterior, então este id identifica exatamente o que foi confirmado. O conteúdo fica no banco, no formato de representacao-regra."
     },
     "competencias": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "$ref": "../domain/comum.schema.json#/$defs/competencia"
-      },
-      "description": "Competências históricas a simular, vindas de jobs.competencias, no mesmo formato de regra-submetida e já com o ajuste feito na confirmação, quando houve. O codegen não tem permissão em jobs, e é por este campo que o ciclo da versão conhece o período que leva ao worker. Nunca vazio, porque um job que não simula nada não é job. Ausente só nas mensagens publicadas antes de o campo existir; sem ele o codegen não consegue abrir o ciclo.",
+      "$ref": "../domain/parametros-simulacao.schema.json#/properties/competencias",
+      "description": "Competências históricas a simular, vindas de jobs.competencias, no mesmo formato de regra-submetida e já com o ajuste feito na confirmação ou na correção, quando houve, inclusive uma competência fora das publicadas, que a validação de domínio aponta como conflito. O codegen não tem permissão em jobs, e é por este campo que o ciclo da versão conhece o período que leva ao worker. Nunca vazio, porque um job que não simula nada não é job. Ausente só nas mensagens publicadas antes de o campo existir; sem ele o codegen não consegue abrir o ciclo.",
       "examples": [
         [
           "2025-08",
@@ -34,13 +30,12 @@
       ]
     },
     "orcamento": {
-      "allOf": [
-        {
-          "$ref": "../domain/comum.schema.json#/$defs/brl"
-        }
-      ],
-      "minimum": 0,
-      "description": "Critério de orçamento do período, vindo de jobs.orcamento, no mesmo formato de regra-submetida e já com o ajuste feito na confirmação, quando houve. Ausente quando o job ainda não tem orçamento definido; o codegen carrega o valor no estado do ciclo sem usá-lo para decidir viabilidade, que é apuração do worker sobre dados reais."
+      "$ref": "../domain/parametros-simulacao.schema.json#/properties/orcamento",
+      "description": "Critério de orçamento do período, vindo de jobs.orcamento, no mesmo formato de regra-submetida e já com o ajuste feito na confirmação ou na correção, quando houve. É o valor como o usuário o disse, sem limite inferior, para que a validação de domínio aponte um orçamento negativo como conflito. Ausente quando o job não tem orçamento, e então a simulação é feita sem a verificação de orçamento. O codegen carrega o valor no estado do ciclo sem usá-lo para decidir viabilidade, que é apuração do worker sobre dados reais."
+    },
+    "meta_venda": {
+      "$ref": "../domain/parametros-simulacao.schema.json#/properties/meta_venda",
+      "description": "Meta de venda do período, vinda de jobs.meta_venda, no mesmo formato de regra-submetida e já com a correção, quando houve. É o valor como o usuário o disse, sem limite inferior, pelo mesmo motivo do orçamento. Ausente quando o job não tem meta, e então a simulação usa as vendas históricas."
     }
   },
   "examples": [

@@ -88,6 +88,7 @@ async def test_sucesso_confirma_sem_republicar(broker: ConexaoBroker, mensagem: 
             competencias=["2025-08"],
         ),
         orcamento=100000.0,
+        elementos_exigidos=None,
     )
 
     await consumidor.consumir_fila_execucao(broker)

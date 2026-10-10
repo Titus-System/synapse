@@ -19,7 +19,7 @@ import synapse.api.core.logging.JsonLogFormatter;
  * logger. O MDC é copiado na captura: ele é lido de forma preguiçosa e o escopo de
  * correlação já terá fechado quando o teste olhar o evento.
  */
-final class CapturaDeLog implements AutoCloseable {
+public final class CapturaDeLog implements AutoCloseable {
 
 	private static final StructuredLoggingJsonMembersCustomizer.Builder<Object> SEM_CUSTOMIZACAO = new StructuredLoggingJsonMembersCustomizer.Builder<>() {
 
@@ -48,23 +48,23 @@ final class CapturaDeLog implements AutoCloseable {
 
 	};
 
-	CapturaDeLog(Class<?> classe) {
+	public CapturaDeLog(Class<?> classe) {
 		this(classe.getName());
 	}
 
-	CapturaDeLog(String nome) {
+	public CapturaDeLog(String nome) {
 		this.logger = (Logger) LoggerFactory.getLogger(nome);
 		this.appender.setContext(this.logger.getLoggerContext());
 		this.appender.start();
 		this.logger.addAppender(this.appender);
 	}
 
-	List<ILoggingEvent> eventos() {
+	public List<ILoggingEvent> eventos() {
 		return List.copyOf(this.appender.list);
 	}
 
 	/** A linha JSON que o serviço emitiria para o evento. */
-	static String emJson(ILoggingEvent evento) {
+	public static String emJson(ILoggingEvent evento) {
 		MockEnvironment ambiente = new MockEnvironment().withProperty("app.environment", "development")
 			.withProperty("app.service.name", "synapse-api")
 			.withProperty("app.service.public-url", "http://localhost:8080")

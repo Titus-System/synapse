@@ -34,8 +34,6 @@ próprio arquivo. O mesmo cálculo serve ao repositório e à imagem.
 | Fora da imagem | Motivo |
 | --- | --- |
 | `app/sandbox/daemon.py` | importa `docker`, `app.config` e `app.core.logger`: daria ao container que roda código não confiável o cliente do daemon |
-| `app/sandbox/regras_competencia.py` | só serve para recomputar baselines (T-032); aqui o baseline é dado congelado |
-| `regras_competencia.jsonl` | insumo do recálculo, que o harness não faz |
 | `normalization_report.json` | 1,85 MB de relatório da T-026; não é base |
 | `contracts/` | a imagem não valida schema (sem `jsonschema`, pela lista da T-034) |
 | `pip`, do venv **e** do Python do sistema | a lista de bibliotecas é a da T-034 e nada além |
@@ -48,6 +46,8 @@ inspeciona a imagem construída, e um terceiro prova que o processo do worker n�
 Entram as três bases, a tabela de eventos de RH **inteira** (2025-07 a 2025-12, porque um
 evento de julho ainda afeta um mês posterior), o `schema.json` e os baselines congelados das
 cinco competências publicadas, com o `manifesto.json`.
+
+Com a meta de venda (T-270), entram também `app/sandbox/regras_competencia.py`, `app/sandbox/escalonamento.py` e `regras_competencia.jsonl`: na meta, o harness reapura o baseline sobre as vendas escaladas com o mesmo motor que gerou o congelado (`docs/t270-execucao-na-meta.md`).
 
 **Cinco competências, não seis.** O texto original da tarefa fala em seis. Julho foi excluído
 pela T-026 (`EXCLUDE_2025_07`, confirmado em 15/09/2026) e `schema.json` declara
@@ -65,6 +65,8 @@ O worker escreve um JSON de uma linha no stdin e lê o envelope no stdout.
 Os campos são exatamente os de `PayloadContainer` (`app/execucao/preparo.py`), e um teste
 confere que as duas listas não divergem. **O orçamento nunca entra**: campo desconhecido é
 recusado, não ignorado, e a mensagem de erro não repete o valor.
+
+`meta_venda` é o único campo opcional (`CAMPOS_PAYLOAD_OPCIONAIS`), e só vai quando o comando traz meta (T-270).
 
 A fonte viaja como valor de string do JSON e volta byte a byte igual; o payload é lido em
 binário e decodificado como UTF-8 explícito, então o locale do container é irrelevante. O
@@ -87,7 +89,10 @@ falha ao rodar a própria regra viram `erro_codigo`; qualquer outra exceção na
 como bug do harness.
 
 `resultado` só existe em `sucesso` e, com `totais.orcamento` acrescentado pelo worker (T-066),
-valida contra `resultado-simulacao.schema.json`. `erro` carrega tipo, mensagem (1000
+valida contra `resultado-simulacao.schema.json`. `elementos_implementados` também só existe em
+`sucesso`: é a lista que a regra declarou no retorno de `aplicar_regra`, conferida pelo harness
+como lista de identificadores de `elemento_ref`, ou nulo quando a regra não declarou nada. O
+worker a usa na conferência de cobertura (T-241), e desde ela o envelope está na versão 2. `erro` carrega tipo, mensagem (1000
 caracteres) e os quadros do traceback que são da própria regra (8000 caracteres). **Esse
 conteúdo é dado não confiável**: quem o consome o trata como texto, nunca como instrução, e
 não o registra em log.

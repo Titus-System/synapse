@@ -56,7 +56,7 @@ class ExecutarAcaoControllerTests {
 		NucleoRegraDto nucleo = new NucleoRegraDto(null, null, null, null, null);
 		RegraCriadaDto regra = new RegraCriadaDto(UUID.randomUUID(), 1, "confirmacao_usuario",
 				new RepresentacaoRegraDto(nucleo, List.of()), Instant.parse("2026-09-16T15:00:00Z"));
-		return new JobDetalhadoDto(JOB_ID, status, "formulario", List.of("2025-11"), new BigDecimal("485000"),
+		return new JobDetalhadoDto(JOB_ID, status, "formulario", List.of("2025-11"), new BigDecimal("485000"), null,
 				Instant.parse("2026-09-16T15:00:00Z"), null, Instant.parse("2026-09-18T10:00:00Z"), UUID.randomUUID(),
 				null, null, List.of(regra), null, List.of());
 	}
@@ -119,7 +119,7 @@ class ExecutarAcaoControllerTests {
 			.andExpect(jsonPath("$.codigo").value("estado_invalido"))
 			.andExpect(jsonPath("$.mensagem")
 				.value("A ação cancelar exige o job em aguardando_confirmacao_parametros, aguardando_decisao_usuario, "
-						+ "simulacao_inviavel; o job está em liberado."));
+						+ "aguardando_transcricao, simulacao_inviavel; o job está em liberado."));
 
 		verifyNoInteractions(this.emissores);
 	}

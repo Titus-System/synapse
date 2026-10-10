@@ -125,6 +125,28 @@ class PermissoesDeBancoTests {
 				""".formatted(JOB_ID, CODIGO_ID))).doesNotThrowAnyException();
 	}
 
+	/**
+	 * A meta e o propósito da execução entram no mesmo INSERT do resultado, pela
+	 * permissão de tabela do worker, e ficam tão imutáveis quanto ele; api e codegen só
+	 * os leem.
+	 */
+	@Test
+	void oWorkerGravaAMetaEOPropositoDaExecucaoSemPoderAlteraLos() {
+		String insere = """
+				INSERT INTO resultados_simulacao
+				    (job_id, codigo_gerado_id, status, assercoes, meta_venda, proposito, criado_em)
+				VALUES ('%s', '%s', 'sucesso', '[]'::jsonb, 12000000, 'busca_meta', now())
+				""".formatted(JOB_ID, CODIGO_ID);
+		assertThatCode(() -> executar(UsuariosDeBanco.WORKER, insere)).doesNotThrowAnyException();
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, "UPDATE resultados_simulacao SET proposito = 'simulacao'"))
+			.isEqualTo(PERMISSAO_NEGADA);
+		for (String usuario : new String[] { UsuariosDeBanco.API, UsuariosDeBanco.CODEGEN }) {
+			assertThatCode(() -> executar(usuario, "SELECT meta_venda, proposito FROM resultados_simulacao"))
+				.doesNotThrowAnyException();
+			assertThat(sqlStateAoFalhar(usuario, insere)).isEqualTo(PERMISSAO_NEGADA);
+		}
+	}
+
 	@Test
 	void oCodegenLeATranscricao() {
 		assertThatCode(() -> executar(UsuariosDeBanco.CODEGEN, "SELECT transcricao FROM submissoes"))
@@ -282,8 +304,34 @@ class PermissoesDeBancoTests {
 	void oCodegenGravaExtracaoEAApiLePelaReferencia() {
 		assertThatCode(() -> {
 			executar(UsuariosDeBanco.CODEGEN, INSERE_EXTRACAO);
-			executar(UsuariosDeBanco.API, "SELECT representacao, rebaixamentos FROM extracoes_regras");
+			executar(UsuariosDeBanco.API, "SELECT representacao, rebaixamentos, parametros FROM extracoes_regras");
 		}).doesNotThrowAnyException();
+	}
+
+	/**
+	 * Os parâmetros da simulação: o codegen grava os seus na extração e na versão que
+	 * nasce dela, a api os lê e grava no job os do próprio job. Nenhum dos dois alcança o
+	 * que não é seu, e nenhuma coluna nova precisou de GRANT próprio.
+	 */
+	@Test
+	void osParametrosDaSimulacaoSeguemAPermissaoDaTabelaQueOsGuarda() {
+		assertThatCode(() -> {
+			executar(UsuariosDeBanco.CODEGEN, """
+					INSERT INTO regras (job_id, versao, origem, nucleo, especificacoes, parametros, hash, criada_em)
+					VALUES ('%s', 3, 'extracao', '{}'::jsonb, '[]'::jsonb,
+					        '{"meta_venda": 12000000.0}'::jsonb, repeat('c', 64), now())
+					""".formatted(JOB_ID));
+			executar(UsuariosDeBanco.API, "SELECT parametros FROM regras");
+			executar(UsuariosDeBanco.API,
+					"UPDATE jobs SET orcamento = NULL, meta_venda = 12000000.0 WHERE id = '%s'".formatted(JOB_ID));
+		}).doesNotThrowAnyException();
+
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.CODEGEN, "UPDATE jobs SET meta_venda = 1"))
+			.isEqualTo(PERMISSAO_NEGADA);
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.WORKER, "SELECT parametros FROM extracoes_regras"))
+			.isEqualTo(PERMISSAO_NEGADA);
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.API, "UPDATE regras SET parametros = '{}'::jsonb"))
+			.isEqualTo(PERMISSAO_NEGADA);
 	}
 
 	@Test
@@ -376,6 +424,45 @@ class PermissoesDeBancoTests {
 
 	private static final String JOB_ID = "11111111-1111-4111-8111-111111111111";
 
+	private static final String INSERE_TRABALHO = """
+			INSERT INTO trabalhos_transcricao (job_id, submissao_id, finalidade, estado, criado_em, atualizado_em)
+			VALUES ('11111111-1111-4111-8111-111111111111', '44444444-4444-4444-8444-444444444444',
+			        'entrada_inicial', 'pendente', now(), now())
+			""";
+
+	@Test
+	void apiInsereLeEAtualizaTrabalhoMasNaoApaga() throws Exception {
+		try (Connection connection = como(UsuariosDeBanco.API); Statement statement = connection.createStatement()) {
+			connection.setAutoCommit(false);
+			try {
+				statement.execute(INSERE_TRABALHO);
+				assertThat(statement
+					.executeUpdate("UPDATE trabalhos_transcricao SET estado = 'em_andamento', tentativas = 1"))
+					.isEqualTo(1);
+				try (ResultSet rs = statement.executeQuery("SELECT estado, tentativas FROM trabalhos_transcricao")) {
+					assertThat(rs.next()).isTrue();
+					assertThat(rs.getString(1)).isEqualTo("em_andamento");
+					assertThat(rs.getInt(2)).isEqualTo(1);
+				}
+			}
+			finally {
+				connection.rollback();
+			}
+		}
+		assertThat(sqlStateAoFalhar(UsuariosDeBanco.API, "DELETE FROM trabalhos_transcricao"))
+			.isEqualTo(PERMISSAO_NEGADA);
+	}
+
+	@Test
+	void codegenEWorkerNaoAlcancamTrabalhos() {
+		for (String usuario : new String[] { UsuariosDeBanco.CODEGEN, UsuariosDeBanco.WORKER }) {
+			for (String sql : new String[] { "SELECT * FROM trabalhos_transcricao", INSERE_TRABALHO,
+					"UPDATE trabalhos_transcricao SET estado = 'concluido'", "DELETE FROM trabalhos_transcricao" }) {
+				assertThat(sqlStateAoFalhar(usuario, sql)).as("%s: %s", usuario, sql).isEqualTo(PERMISSAO_NEGADA);
+			}
+		}
+	}
+
 	private static final String INSERE_RODADA = """
 			INSERT INTO rodadas_correcao (job_id, regra_analisada_id, conflitos, estado, criada_em, atualizada_em)
 			VALUES ('%s', '55555555-5555-4555-8555-555555555555',
@@ -385,10 +472,16 @@ class PermissoesDeBancoTests {
 
 	private static final String CODIGO_ID = "33333333-3333-4333-8333-333333333333";
 
+	/**
+	 * Com {@code parametros}, que é coluna acrescentada depois da tabela: a permissão do
+	 * codegen é de tabela, e por isso já a alcança sem GRANT próprio.
+	 */
 	private static final String INSERE_EXTRACAO = """
-			INSERT INTO extracoes_regras (job_id, submissao_id, resposta_id, representacao, rebaixamentos, criado_em)
+			INSERT INTO extracoes_regras
+			    (job_id, submissao_id, resposta_id, representacao, rebaixamentos, parametros, criado_em)
 			VALUES ('%s', '44444444-4444-4444-8444-444444444444', '77777777-7777-4777-8777-777777777777',
-			        '{"nucleo": {}, "especificacoes": []}'::jsonb, '[]'::jsonb, now())
+			        '{"nucleo": {}, "especificacoes": []}'::jsonb, '[]'::jsonb,
+			        '{"orcamento": 500000.0, "competencias": ["2025-09"]}'::jsonb, now())
 			""".formatted(JOB_ID);
 
 	private static final String INSERE_RESULTADO_COM_DIAGNOSTICO = """

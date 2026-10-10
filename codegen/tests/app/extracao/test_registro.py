@@ -22,7 +22,9 @@ async def test_conversao_invalida_preserva_elemento_generico(
         Construto(propriedades={}, obrigatorios=(), instrucoes="Teste", converter=converter),
     )
 
-    resultado = await extrair(modelo_falso({"nucleo": {}, "elementos": [ELEMENTO, ELEMENTO]}))
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [ELEMENTO, ELEMENTO], "parametros": {}})
+    )
 
     assert resultado.representacao.para_contrato() == {
         "nucleo": {},

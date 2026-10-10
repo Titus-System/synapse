@@ -9,6 +9,7 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import liquibase.Contexts;
 import liquibase.Liquibase;
 import liquibase.database.DatabaseFactory;
@@ -38,6 +39,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import synapse.api.core.logging.CorrelationContext;
+import synapse.api.core.metrics.AppMetrics;
 import synapse.api.core.outbox.Outbox;
 import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
@@ -154,6 +156,35 @@ class SugestaoAdaptacaoPersistenciaTests {
 		assertThat(evento.orcamento()).isEqualByComparingTo("485000.1234567890123456789");
 	}
 
+	/**
+	 * A versão de origem com parâmetros - o caso de um job de texto que chegou inviável -
+	 * tem o hash cobrindo-os; a sugestão precisa carregar os mesmos parâmetros, com o
+	 * mesmo hash coberto, para a versão nova, e não apenas ajustar o percentual.
+	 */
+	@Test
+	void sugestaoCarregaOsParametrosDaVersaoDeOrigemParaAVersaoNova() {
+		UUID jobId = jobInviavel();
+		UUID origem = versaoId(jobId, 1);
+		RepresentacaoRegraDto regraOrigem = representacao("0.025");
+		ParametrosDaSimulacao params = new ParametrosDaSimulacao(new java.math.BigDecimal("500000"), null,
+				List.of("2025-11"));
+		artefatos.update("UPDATE regras SET hash = ?, parametros = ?::jsonb WHERE id = ?",
+				HashDaRegra.calcular(regraOrigem, params), "{\"orcamento\":500000,\"competencias\":[\"2025-11\"]}",
+				origem);
+		UUID resultado = resultado(jobId, origem, "inviavel", "492100");
+
+		SugestaoAplicada aplicada = Objects.requireNonNull(
+				sugestaoService.aplicarSugestaoAdaptacao(jobId, origem, resultado, representacao("0.0246")));
+
+		assertThat(aplicada.versao().versao()).isEqualTo(2);
+		tools.jackson.databind.json.JsonMapper json = new tools.jackson.databind.json.JsonMapper();
+		assertThat(json.readTree(Objects.requireNonNull(jdbc.queryForObject(
+				"SELECT parametros::text FROM regras WHERE job_id = ? AND versao = 2", String.class, jobId))))
+			.isEqualTo(json.readTree("{\"orcamento\":500000,\"competencias\":[\"2025-11\"]}"));
+		assertThat(jdbc.queryForObject("SELECT hash FROM regras WHERE job_id = ? AND versao = 2", String.class, jobId))
+			.isEqualTo(HashDaRegra.calcular(representacao("0.0246"), params));
+	}
+
 	@Test
 	void duasSimulacoesMantemOsResultadosAssociadosAsSuasRegras() {
 		UUID jobId = jobInviavel();
@@ -174,6 +205,23 @@ class SugestaoAdaptacaoPersistenciaTests {
 			.simulado()).isEqualByComparingTo("492100");
 		assertThat(Objects.requireNonNull(Objects.requireNonNull(job.simulacoes().getLast().resultado()).totais())
 			.simulado()).isEqualByComparingTo("484226.40");
+	}
+
+	@Test
+	void sugestaoDeJobTextualPreservaOrigemTexto() throws Exception {
+		UUID jobId = jobInviavel();
+		artefatos.update(
+				"UPDATE submissoes SET tipo = 'texto', conteudo = NULL, transcricao = 'descricao' WHERE id = (SELECT submissao_id FROM jobs WHERE id = ?)",
+				jobId);
+		UUID origem = versaoId(jobId, 1);
+		UUID resultado = resultado(jobId, origem, "inviavel", "492100");
+		SugestaoAplicada aplicada = Objects.requireNonNull(
+				sugestaoService.aplicarSugestaoAdaptacao(jobId, origem, resultado, representacao("0.0246")));
+		String payload = Objects.requireNonNull(jdbc.queryForObject(
+				"SELECT payload::text FROM outbox_events WHERE job_id = ? AND payload->>'regra_id' = ?", String.class,
+				jobId, aplicada.versao().id().toString()));
+		ContratoDeEvento.validar("regra-submetida", payload);
+		assertThat(new JsonMapper().readTree(payload).path("origem").asString()).isEqualTo("texto");
 	}
 
 	@Test
@@ -240,7 +288,7 @@ class SugestaoAdaptacaoPersistenciaTests {
 		}).when(emissores).emitir(eq(jobId), any());
 		var sugestoes = new SugestaoAdaptacaoConsumidor(sugestaoService, emissores, new CorrelationContext());
 		var conclusoes = new SimulacaoConcluidaConsumidor(contexto.getBean(JobEventosService.class), emissores,
-				new CorrelationContext());
+				new CorrelationContext(), new AppMetrics(new SimpleMeterRegistry()));
 		var proposta = new SugestaoAdaptacaoPropostaDto(jobId, regraId, resultadoId, representacao("0.0099"));
 		var conclusao = new SimulacaoConcluidaDto(jobId, resultadoId, "sucesso", "inviavel", null, null, null, null);
 
@@ -291,7 +339,7 @@ class SugestaoAdaptacaoPersistenciaTests {
 		var agora = java.time.Instant.now();
 		var regra = representacao("0.03");
 		var atual = contexto.getBean(VersoesDaRegra.class)
-			.resolver(jobId, regra, HashDaRegra.calcular(regra), "confirmacao_usuario", versaoId(jobId, 1),
+			.resolver(jobId, regra, null, HashDaRegra.calcular(regra), "confirmacao_usuario", versaoId(jobId, 1),
 					java.sql.Timestamp.from(agora), agora);
 		UUID resultado = resultado(jobId, atual.id(), "inviavel", "492100");
 		assertThat(sugestaoService.aplicarSugestaoAdaptacao(jobId, atual.id(), resultado, representacao("0.025")))
@@ -363,7 +411,7 @@ class SugestaoAdaptacaoPersistenciaTests {
 			jdbc.update("UPDATE simulacoes SET resultado_id = NULL WHERE job_id = ?", jobId);
 		}
 		var consumidor = new SimulacaoConcluidaConsumidor(contexto.getBean(JobEventosService.class),
-				mock(EmissoresSse.class), new CorrelationContext());
+				mock(EmissoresSse.class), new CorrelationContext(), new AppMetrics(new SimpleMeterRegistry()));
 		try (var anterior = new CorrelationContext().abrir("contexto-anterior", null);
 				var captura = new CapturaDeLog("synapse.api.job.SimulacaoConcluidaService")) {
 			consumidor

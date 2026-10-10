@@ -11,6 +11,7 @@ e com o motivo no stderr.
 from __future__ import annotations
 
 import json
+import math
 import os
 import signal
 import sys
@@ -21,6 +22,7 @@ from typing import BinaryIO, NamedTuple
 from app.sandbox.carga import RAIZ_DADOS, CargaError, Entrada, carregar
 from app.sandbox.envelope import (
     CAMPOS_PAYLOAD,
+    CAMPOS_PAYLOAD_OPCIONAIS,
     LIMITE_MENSAGEM,
     LIMITE_TRACEBACK,
     SAIDA_HARNESS,
@@ -47,6 +49,8 @@ class Payload(NamedTuple):
     codigo_gerado_id: str
     competencias: tuple[str, ...]
     fonte: str
+    # None quando o comando não trouxe meta: a regra roda sobre as vendas históricas.
+    meta_venda: float | None = None
 
 
 def ler_payload(dados: bytes) -> Payload:
@@ -66,7 +70,7 @@ def ler_payload(dados: bytes) -> Payload:
     # Campo desconhecido é recusado, não ignorado. O caso que importa é ``orcamento``:
     # se um dia chegar aqui, é falha do worker, e falhar em voz alta é o que impede o
     # critério de julgamento de entrar onde o número é produzido.
-    extras = bruto.keys() - CAMPOS_PAYLOAD
+    extras = bruto.keys() - CAMPOS_PAYLOAD - CAMPOS_PAYLOAD_OPCIONAIS
     faltando = CAMPOS_PAYLOAD - bruto.keys()
     if extras or faltando:
         raise PayloadInvalidoError(
@@ -90,14 +94,31 @@ def ler_payload(dados: bytes) -> Payload:
         codigo_gerado_id=bruto["codigo_gerado_id"],
         competencias=tuple(competencias),
         fonte=bruto["fonte"],
+        meta_venda=_meta_venda(bruto),
     )
+
+
+def _meta_venda(bruto: dict[str, object]) -> float | None:
+    """A meta do payload, ou None quando ele não a traz. Só a ausência é "sem meta": um ``null``
+    rodaria sobre as vendas históricas uma execução pedida na meta."""
+    if "meta_venda" not in bruto:
+        return None
+    meta = bruto["meta_venda"]
+    if (
+        isinstance(meta, bool)
+        or not isinstance(meta, int | float)
+        or not math.isfinite(meta)
+        or meta <= 0
+    ):
+        raise PayloadInvalidoError("meta_venda deve ser um número finito e positivo")
+    return float(meta)
 
 
 def processar(entrada: BinaryIO, saida: BinaryIO, *, raiz: Path = RAIZ_DADOS) -> int:
     """Executa um payload e escreve o envelope. Devolve o código de saída do processo."""
     try:
         payload = ler_payload(entrada.read())
-        dados = carregar(payload.competencias, raiz=raiz)
+        dados = carregar(payload.competencias, meta_venda=payload.meta_venda, raiz=raiz)
     except (PayloadInvalidoError, CargaError) as erro:
         print(f"falha do harness: {erro}", file=sys.stderr)
         return SAIDA_HARNESS
@@ -113,6 +134,7 @@ def processar(entrada: BinaryIO, saida: BinaryIO, *, raiz: Path = RAIZ_DADOS) ->
         status=status,
         assercoes=execucao.assercoes if execucao else [],
         resultado=execucao.resultado if execucao else None,
+        elementos_implementados=execucao.elementos_implementados if execucao else None,
         erro=falha,
     )
     saida.write(serializar(envelope).encode("utf-8") + b"\n")
@@ -124,13 +146,13 @@ def _rodar(
     fonte: str, dados: Entrada, competencias: list[str]
 ) -> tuple[Status, Execucao | None, Falha | None]:
     try:
-        tabelas = rodar_regra(fonte, dados, competencias)
+        saida_da_regra = rodar_regra(fonte, dados, competencias)
     # SystemExit não é Exception: uma regra que chama sys.exit() sairia do processo com
     # código 0 e sem envelope, e pareceria sucesso para quem só olha o código de saída.
     except (Exception, SystemExit) as erro:
         return "erro_codigo", None, _falha(erro)
     try:
-        execucao = agregar(tabelas, dados, competencias)
+        execucao = agregar(saida_da_regra, dados, competencias)
     except ResultadoInvalidoError as erro:
         # A saída do código gerado não sustenta o resultado. Qualquer OUTRA exceção
         # daqui é bug do harness: sobe para main e vira código 1, nunca culpa da regra.

@@ -201,6 +201,15 @@ class JobNaoEncontradoException extends RuntimeException {
 
 }
 
+/** A simulação não existe ou pertence a outro job. */
+class SimulacaoNaoEncontradaException extends RuntimeException {
+
+	SimulacaoNaoEncontradaException(UUID simulacaoId) {
+		super("Simulação não encontrada: " + simulacaoId);
+	}
+
+}
+
 /** A sessão é válida, mas não pode acessar o job solicitado. */
 class SemPermissaoNoJobException extends RuntimeException {
 

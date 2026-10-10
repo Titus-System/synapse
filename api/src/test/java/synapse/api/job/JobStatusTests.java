@@ -13,6 +13,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class JobStatusTests {
 
+	@Test
+	void transcricaoSoPodeGerarRegraFalharOuCancelar() {
+		for (JobStatus destino : JobStatus.values()) {
+			assertThat(JobStatus.AGUARDANDO_TRANSCRICAO.permiteTransicaoPara(destino))
+				.as("aguardando_transcricao -> %s", destino)
+				.isEqualTo(Set.of(JobStatus.GERANDO_REGRA, JobStatus.ERRO, JobStatus.CANCELADO).contains(destino));
+		}
+		assertThat(JobStatus.AGUARDANDO_TRANSCRICAO.terminal()).isFalse();
+		assertThat(JobStatus.AGUARDANDO_TRANSCRICAO.emProcessamento()).isFalse();
+		assertThat(JobStatus.origensPermitidasPara(JobStatus.AGUARDANDO_TRANSCRICAO)).isEmpty();
+	}
+
 	// --- Caminhos válidos -----------------------------------------------------------
 
 	@Test

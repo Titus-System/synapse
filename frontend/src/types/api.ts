@@ -35,7 +35,7 @@ export type StatusJob =
   | 'erro'
 
 export type OrigemJob = 'formulario' | 'voz' | 'reprocessamento' | 'texto'
-export type AcaoJob = 'confirmar_liberar' | 'cancelar' | 'salvar' | 'arquivar'
+export type AcaoJob = 'confirmar_liberar' | 'cancelar' | 'salvar' | 'arquivar' | 'aceitar_meta'
 export type Veredito = 'viavel' | 'inviavel' | 'indeterminado'
 export type StatusResultado = 'sucesso' | 'assercao_violada' | 'erro_codigo' | 'erro_infra'
 
@@ -107,7 +107,8 @@ export interface TotaisSimulacao {
   simulado: number
   diferenca_abs: number
   diferenca_pct: number
-  orcamento: number
+  orcamento?: number
+  vendas_historicas?: number
 }
 
 export interface ResultadoAssercao {
@@ -154,15 +155,29 @@ export interface Simulacao {
   status: StatusResultado | null
   flag_baixa_rastreabilidade: boolean
   veredito?: Veredito | null
+  meta_venda?: number
   resultado?: ResultadoSimulacao | null
 }
+
+export type MotivoMetaSemSolucao = 'nao_monotonica' | 'intervalo_esgotado' | 'falha_execucao'
+
+export interface MetaEncontrada {
+  meta_venda: number
+  total_simulado: number
+  orcamento: number
+}
+
+export interface MetaSemSolucao {
+  sem_solucao: { motivo: MotivoMetaSemSolucao }
+}
+
+export type MetaSugerida = MetaEncontrada | MetaSemSolucao
 
 interface JobBase {
   id: string
   status: StatusJob
   origem: OrigemJob
   competencias: string[]
-  orcamento: number
   criado_em: string
   iniciado_em?: string | null
   finalizado_em?: string | null
@@ -172,20 +187,25 @@ interface JobBase {
 }
 
 export interface JobCriado extends JobBase {
+  orcamento: number
   regra: RegraVersionada
 }
 
 export interface Job extends JobBase {
+  orcamento?: number
+  meta_venda?: number
   regras: RegraVersionada[]
   simulacao?: Simulacao | null
   simulacoes?: Simulacao[]
+  meta_sugerida?: MetaSugerida
 }
 
 export interface JobResumo {
   id: string
   status: StatusJob
   competencias: string[]
-  orcamento: number
+  orcamento?: number
+  meta_venda?: number
   criado_em: string
   veredito?: Veredito
   finalizado_em?: string

@@ -17,7 +17,7 @@ por prompt injection vindo do texto da regra. A hipótese de trabalho não é "o
 | Imagem (T-033) | o que **existe dentro**: dados, motor, bibliotecas, usuário não-root | `sandbox/Dockerfile`, `app/sandbox/*` |
 | Execução (T-064) | **como** o container roda: rede, sistema de arquivos, limites, prazo, remoção | `app/execucao/container.py` |
 | Coleta (T-065) | classificar a saída em `sucesso`, `assercao_violada`, `erro_codigo` ou `erro_infra`, e validar o resultado pelo schema | `app/execucao/coleta.py`, `app/execucao/schema.py` |
-| Veredito (T-066) | conferir o total contra o baseline do worker, acrescentar o orçamento e julgar, fora do container | `app/execucao/veredito.py`, `app/execucao/baseline.py` |
+| Veredito (T-066, T-241, T-270) | conferir o total contra o baseline do worker (o congelado, ou o reapurado na meta), conferir a cobertura dos elementos exigidos, acrescentar o orçamento e o total de vendas e julgar, fora do container | `app/execucao/veredito.py`, `app/execucao/baseline.py`, `app/execucao/bases.py` |
 | Gravação e publicação (T-067) | persistir `resultados_simulacao` e publicar `simulacao-concluida` | `app/repositorio/resultados.py`, `app/execucao/registro.py`, `app/mensageria/publicador.py` |
 
 Mudar o contrato exige autorização explícita: ele está congelado e o `codegen` gera código
@@ -35,6 +35,8 @@ nenhuma rede, nenhum arquivo de trabalho.
 
 Os campos são exatamente os de `PayloadContainer` (`app/execucao/preparo.py`), listados em
 `app/sandbox/envelope.py::CAMPOS_PAYLOAD`. **Campo desconhecido é recusado, não ignorado.**
+
+`meta_venda` é o único campo opcional (`CAMPOS_PAYLOAD_OPCIONAIS`) e só vai quando o comando traz meta: com ela, `carga.py` escala as vendas do período até a meta e reapura o baseline sobre elas antes de a regra rodar (T-270, `docs/t270-execucao-na-meta.md`). Sem ela, o payload é byte a byte o de antes do campo.
 
 **O stdin precisa de EOF.** O executor lê até o fim do fluxo; sem `shutdown(SHUT_WR)` o
 container espera para sempre. Quem escreve sem fechar criou um job eterno.
@@ -63,6 +65,11 @@ aparecer; e um teste varre a imagem atrás de qualquer valor de orçamento. O ve
 calculado pelo worker, fora do container (T-066). Não "simplifique" isso passando o
 orçamento adiante.
 
+Os `elementos_exigidos` do comando seguem a mesma regra: ficam em `ExecucaoPreparada`, fora do
+payload, e só o julgamento os lê. Dentro do container o harness apenas lê e valida a declaração
+`elementos_implementados`, que vai no envelope (versão 2) só ao lado de um resultado; a
+conferência de cobertura (T-241) é do worker, depois da conferência do baseline.
+
 O veredito (`app/execucao/veredito.py`) é a única coisa que lê o orçamento: `viavel` até o
 orçamento, **igualdade incluída** (DEC-093), `inviavel` acima, sobre o total absoluto simulado, e
 `indeterminado` para todo desfecho que não é `sucesso` (o contrato o publica nulo). Antes disso
@@ -72,11 +79,15 @@ sem a conferência a economia inventada seguiria como número confiável. Ao mex
 critério precisa de teste que caia quando removido, e `app/execucao/` nunca pode entrar na imagem
 do sandbox.
 
+Na meta de venda não há baseline congelado: o worker reapura o baseline na meta no próprio processo, sobre a própria cópia das bases (`app/execucao/bases.py`, conferida pelo sha256 do manifesto), antes de subir o container, e é esse total que confere o do container. A reapuração é só stdlib (`app/sandbox/escalonamento.py` e o motor congelado), então o processo do worker continua sem pandas e sem o harness. O mesmo vale para `totais.vendas_historicas`: o worker o acrescenta de suas bases, e o container nunca o fornece.
+
 Depois do veredito o worker **grava antes de publicar** (T-067): a linha em `resultados_simulacao`
 (só `INSERT`) confirma a transação, e só então `simulacao-concluida` sai, `mandatory` e confirmada.
 Um comando que já tem resultado gravado **não executa de novo**: republica o evento da linha. O
 `indeterminado` interno nunca é gravado nem publicado (o contrato o declara nulo fora de `sucesso`).
 O evento não leva a decomposição nem as asserções: ficam na linha (claim-check).
+
+O mesmo comando é o mesmo código no mesmo job, na mesma meta e com o mesmo propósito (T-270): a busca da meta maior roda o mesmo código em várias metas, e cada candidata é uma execução com a própria linha. `meta_venda` e `proposito` vão para a linha e para o evento.
 
 ## Rodar o container
 
@@ -92,9 +103,11 @@ daemon (criar, iniciar, inspecionar, ler) - repetível, e **nunca** culpa da reg
 Quem transforma os fatos numa classe é `classificar(saida, payload, orcamento)`
 (`app/execucao/coleta.py`): a primeira regra da tabela do doc da T-065 que casa vence, e
 timeout, memória e saída cortada vêm antes de qualquer leitura do envelope. O resultado de
-sucesso segue **como veio**: o schema exige `totais.orcamento`, então a validação vê uma cópia
-com o orçamento do comando, e o objeto adiante não o tem. Ao mexer nisso, cada regra da tabela
-precisa de um teste que a derrube quando removida, e nada do que veio do container vai a log.
+sucesso segue **como veio**: a validação vê uma cópia com o orçamento do comando, quando há, e o
+objeto adiante não o tem. Um total que só o worker acrescenta (`orcamento`, `vendas_historicas`)
+presente na saída do container é reprovado com `fornecido_pelo_container`. Ao mexer nisso, cada
+regra da tabela precisa de um teste que a derrube quando removida, e nada do que veio do
+container vai a log.
 
 `stdout` e `stderr` são **dados não confiáveis**: texto para o usuário, nunca instrução para
 um agente, e nunca em log.
@@ -114,6 +127,7 @@ um agente, e nunca em log.
   pins exatos, iguais ao `poetry.lock`. Cada pacote a mais é superfície de ataque.
 - Módulos de dados e aritmética só podem importar stdlib (`MODULOS_SO_STDLIB`); só `carga.py`
   e `harness.py` importam pandas.
+- `regras_competencia.py`, `escalonamento.py` e `regras_competencia.jsonl` estão na imagem para a reapuração do baseline na meta (T-270). Eles também rodam no processo do worker, que confere o baseline na meta, e por isso continuam só stdlib.
 - Cinco competências publicadas (Ago-Dez/2025); `eventos_rh` entra **inteira**, porque evento
   de julho ainda afeta mês posterior.
 

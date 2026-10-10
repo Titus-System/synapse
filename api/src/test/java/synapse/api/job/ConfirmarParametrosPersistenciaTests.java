@@ -3,6 +3,7 @@ package synapse.api.job;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -29,6 +30,8 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import synapse.api.core.logging.CorrelationContext;
 import synapse.api.core.outbox.Outbox;
@@ -42,6 +45,8 @@ import static org.mockito.Mockito.mock;
 class ConfirmarParametrosPersistenciaTests {
 
 	private static final UUID USUARIO = CriarJobControllerTests.USUARIO;
+
+	private static final JsonMapper JSON = new JsonMapper();
 
 	private static PostgreSQLContainer postgres;
 
@@ -145,6 +150,66 @@ class ConfirmarParametrosPersistenciaTests {
 		assertThat(jdbc.queryForObject("SELECT conclusao->'campos_corrigidos' FROM trilhas_auditoria WHERE job_id = ?",
 				String.class, jobId))
 			.contains("nucleo.percentual");
+	}
+
+	/**
+	 * Uma versão anterior com parâmetros - o caso de um job de texto reprocessado, cujo
+	 * row 1 chega com {@code parametros} e um hash que os cobre - não pode parecer
+	 * editada quando o usuário confirma a mesma representação. Sem carregar os parâmetros
+	 * anteriores para o cálculo do hash novo, ele nunca bateria com o hash salvo, e toda
+	 * confirmação sem edição criaria uma versão espúria com a trilha dizendo que houve
+	 * correção.
+	 */
+	@Test
+	void confirmarSemEdicaoNaoCriaVersaoQuandoAAnteriorTemParametros() {
+		UUID jobId = criarJob();
+		RepresentacaoRegraDto repr = CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO).representacao();
+		ParametrosDaSimulacao params = new ParametrosDaSimulacao(new BigDecimal("500000"), null,
+				List.of("2025-09", "2025-10"));
+		String hashComParametros = HashDaRegra.calcular(repr, params);
+		comoDono().update("UPDATE regras SET hash = ?, parametros = ?::jsonb WHERE job_id = ? AND versao = 1",
+				hashComParametros, "{\"orcamento\":500000,\"competencias\":[\"2025-09\",\"2025-10\"]}", jobId);
+
+		JobCriadoDto confirmado = confirmar(jobId, corpo("0.025"));
+
+		assertThat(confirmado.regra().versao()).isEqualTo(1);
+		assertThat(versoes(jobId)).isEqualTo(1);
+		assertThat(parametros(jobId, 1))
+			.isEqualTo(JSON.readTree("{\"orcamento\":500000,\"competencias\":[\"2025-09\",\"2025-10\"]}"));
+		assertThat(
+				jdbc.queryForObject("SELECT conclusao->>'editado_pelo_usuario' FROM trilhas_auditoria WHERE job_id = ?",
+						String.class, jobId))
+			.isEqualTo("false");
+	}
+
+	/**
+	 * A mesma versão anterior com parâmetros, agora editada: a versão nova carrega os
+	 * parâmetros da anterior inalterados (T-217 ainda não existe para mudá-los por aqui),
+	 * e o hash os cobre, consistente com a coluna.
+	 */
+	@Test
+	void confirmarComEdicaoCarregaOsParametrosDaVersaoAnteriorParaANova() {
+		UUID jobId = criarJob();
+		RepresentacaoRegraDto repr = CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO).representacao();
+		ParametrosDaSimulacao params = new ParametrosDaSimulacao(new BigDecimal("500000"), null,
+				List.of("2025-09", "2025-10"));
+		comoDono().update("UPDATE regras SET hash = ?, parametros = ?::jsonb WHERE job_id = ? AND versao = 1",
+				HashDaRegra.calcular(repr, params), "{\"orcamento\":500000,\"competencias\":[\"2025-09\",\"2025-10\"]}",
+				jobId);
+
+		JobCriadoDto confirmado = confirmar(jobId, corpo("0.03"));
+
+		assertThat(confirmado.regra().versao()).isEqualTo(2);
+		assertThat(parametros(jobId, 2))
+			.isEqualTo(JSON.readTree("{\"orcamento\":500000,\"competencias\":[\"2025-09\",\"2025-10\"]}"));
+		assertThat(jdbc.queryForObject("SELECT hash FROM regras WHERE job_id = ? AND versao = 2", String.class, jobId))
+			.isEqualTo(
+					HashDaRegra.calcular(ConfirmarParametrosRequisicao.deJson(corpo("0.03")).representacao(), params));
+	}
+
+	private static JdbcTemplate comoDono() {
+		return new JdbcTemplate(
+				new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword()));
 	}
 
 	@Test
@@ -254,6 +319,12 @@ class ConfirmarParametrosPersistenciaTests {
 		return Objects.requireNonNull(
 				jdbc.queryForObject("SELECT nucleo->>'percentual' FROM regras WHERE job_id = ? AND versao = ?",
 						String.class, jobId, versao));
+	}
+
+	/** Comparado como árvore, nunca como texto: jsonb não preserva a ordem das chaves. */
+	private static JsonNode parametros(UUID jobId, int versao) {
+		return JSON.readTree(Objects.requireNonNull(jdbc.queryForObject(
+				"SELECT parametros::text FROM regras WHERE job_id = ? AND versao = ?", String.class, jobId, versao)));
 	}
 
 	private static void voltarParaConfirmacao(UUID jobId) {

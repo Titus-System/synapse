@@ -38,6 +38,58 @@ _CONVENCOES = {
         "da marca correspondente. O join usa competencia, cod_marca e cod_cargo; "
         "descr_cargo é somente descritivo e não participa do join."
     ),
+    "cod_cargo": (
+        "vendas não tem cod_cargo nem descr_cargo: o cargo de uma matrícula só existe em rh, "
+        "comissoes e apuracao_base. Para filtrar ou agrupar por cargo, junte com apuracao_base, "
+        "que já traz cod_cargo, ou com rh. Vale para qualquer coluna: use somente as que o "
+        "esquema da tabela em bases declara, nunca uma presumida pelo nome."
+    ),
+    "percentual do núcleo": (
+        "O percentual do núcleo é o %_Comiss proposto para a linha: dentro do escopo da regra a "
+        "comissão da linha passa a ser vlr_venda vezes o percentual, que substitui a comissão do "
+        "baseline em vez de somar com ela. O delta de nucleo.percentual é essa comissão nova "
+        "menos a de apuracao_base, e fica negativo quando o percentual proposto é menor que o "
+        "vigente. Um item de especificacoes que acrescente pontos percentuais soma sobre o "
+        "percentual do núcleo, e o delta dele é só a parcela que ele acrescenta."
+    ),
+    "delta por elemento": (
+        "Ao dividir o delta de uma linha entre mais de um elemento (por exemplo núcleo e um "
+        "elem.N concorrendo na mesma matrícula e competência), calcule o delta de cada "
+        "elemento a partir dos valores anteriores à mudança, antes de sobrescrever "
+        "apuracao_simulada['comissao']; nunca derive o delta de um elemento subtraindo a "
+        "comissão já atualizada por outro. A soma dos deltas declarados para uma matrícula e "
+        "competência precisa igualar exatamente apuracao_simulada.comissao menos "
+        "apuracao_base.comissao ali, com tolerância de um centavo - uma diferença nessa soma "
+        "falha o job."
+    ),
+    "generico sem dado correspondente": (
+        "Antes de implementar um item de especificacoes do construto generico, confira se o "
+        "que a descrição ou os campos pedem corresponde a uma coluna real de bases (rh, "
+        "vendas, comissoes, eventos_rh) ou de apuracao_base. Um conceito que nenhuma base "
+        "carrega - por exemplo a data de fundação ou de aniversário de uma loja, clima, ou "
+        "qualquer evento sem coluna correspondente - não é implementável com os dados "
+        "recebidos. Nesse caso, não aproxime com outra condição que apenas pareça "
+        "relacionada (como lotação, vigência ou cargo): levante NotImplementedError nomeando "
+        "o elemento e o motivo, como a seção 'Como o código declara o elemento que "
+        "implementa' do contrato manda. Um elemento aproximado é pior do que um elemento "
+        "que falha, porque produz um número que parece completo sem a parte que faltou."
+    ),
+    "valor de venda": (
+        "O valor de venda de uma matrícula numa competência vem de vlr_venda em bases['vendas'], "
+        "somado por matricula e competencia, e nunca de dividir a comissão de apuracao_base pelo "
+        "percentual de comissoes: o baseline já aplica gerente, admissão, demissão e afastamentos "
+        "antes dessa comissão, e reconstruir a venda a partir dela erra em toda linha que uma "
+        "dessas regras mudou."
+    ),
+    "fora do escopo da regra": (
+        "apuracao_simulada precisa manter exatamente o mesmo valor de comissao que "
+        "apuracao_base em toda linha fora do escopo da regra proposta (fora do núcleo, fora "
+        "da vigência, fora da especificação). Nunca recalcule a coluna comissao inteira com "
+        "uma fórmula que vale zero ou outra coisa fora do escopo; aplique a fórmula só nas "
+        "linhas que a condição seleciona, por exemplo com "
+        "simulada['comissao'].where(~mascara, nova_formula) ou atribuição em "
+        "simulada.loc[mascara, 'comissao'], nunca em simulada['comissao'] inteira."
+    ),
 }
 
 _REGRAS_BASE = (

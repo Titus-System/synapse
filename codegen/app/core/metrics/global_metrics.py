@@ -55,6 +55,18 @@ job_duration = prometheus.register_histogram(
     buckets=(*Histogram.DEFAULT_BUCKETS[:-1], 15, 30, 45, 60, 90, 120, 180, 240, 300, float("inf")),
 )
 
+# Conta execuções do nó; reentregas sem avanço do checkpoint não passam por ele.
+job_runs.labels(job_name="validate_domain")
+job_failures.labels(job_name="validate_domain")
+job_duration.labels(job_name="validate_domain")
+resultados_validacao_dominio = prometheus.register_counter(
+    "codegen_validacao_dominio_resultados_total",
+    "Validações de domínio concluídas por resultado",
+    ["resultado"],
+)
+for _resultado in ("liberada", "barrada"):
+    resultados_validacao_dominio.labels(resultado=_resultado)
+
 CONSTRUTOS_DA_EXTRACAO = (
     "nucleo",
     "generico",
@@ -93,12 +105,21 @@ falhas_extracao = prometheus.register_counter(
     "Tentativas de extração que falharam por classe",
     ["classe"],
 )
+PARAMETROS_DA_SIMULACAO = ("orcamento", "meta_venda", "competencias")
+parametros_extracao = prometheus.register_counter(
+    "codegen_extracao_parametros_total",
+    "Extrações concluídas por parâmetro da simulação e se o texto o trouxe",
+    ["parametro", "resultado"],
+)
 for _construto in CONSTRUTOS_DA_EXTRACAO:
     elementos_extraidos.labels(construto=_construto)
 for _motivo in MOTIVOS_DE_REBAIXAMENTO:
     rebaixamentos_extracao.labels(motivo=_motivo)
 for _classe in CLASSES_DE_FALHA_EXTRACAO:
     falhas_extracao.labels(classe=_classe)
+for _parametro in PARAMETROS_DA_SIMULACAO:
+    for _resultado in ("extraido", "ausente"):
+        parametros_extracao.labels(parametro=_parametro, resultado=_resultado)
 
 # Uma tentativa por job encerrado que ainda tinha checkpoints a remover. `adiada` é a tentativa
 # que esbarrou num processamento em andamento ou num ciclo à espera do resultado e será refeita

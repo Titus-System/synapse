@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -15,6 +16,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import synapse.api.core.outbox.EventoOutbox;
 import synapse.api.core.outbox.Outbox;
+import synapse.api.core.logging.CorrelationContext;
 
 /**
  * Único ponto do código autorizado a escrever {@code jobs.status}. Toda transição,
@@ -145,10 +147,15 @@ public class MaquinaDeEstadosDoJob {
 	private void anunciarEncerramento(UUID jobId, UUID transicaoId, JobStatus destino, Instant instante) {
 		this.outbox.registrar(jobId, EventoOutbox.JOB_ENCERRADO,
 				new JobEncerradoDto(transicaoId, jobId, destino.paraColuna(), instante));
-		Runnable registrar = () -> log.atInfo()
-			.addKeyValue("evento_id", transicaoId)
-			.addKeyValue("status", destino.paraColuna())
-			.log("encerramento do job registrado no outbox");
+		String usuarioId = MDC.get(CorrelationContext.USER_ID_KEY);
+		Runnable registrar = () -> {
+			try (var escopo = new CorrelationContext().abrir(jobId.toString(), usuarioId)) {
+				log.atInfo()
+					.addKeyValue("evento_id", transicaoId)
+					.addKeyValue("status", destino.paraColuna())
+					.log("encerramento do job registrado no outbox");
+			}
+		};
 		// Só depois do commit: uma transação desfeita não pode aparecer no log como
 		// encerrada.
 		if (TransactionSynchronizationManager.isSynchronizationActive()) {

@@ -76,13 +76,15 @@ async def _linhas_do_job(conexao_dono: Any, job_id: UUID) -> list[Any]:
     )
 
 
-def _comando(codigo_gerado_seed: dict[str, Any], orcamento: float = 485000.0) -> Message:
-    corpo = {
+def _comando(codigo_gerado_seed: dict[str, Any], orcamento: float | None = 485000.0) -> Message:
+    """`orcamento` None é o comando de um job sem orçamento, que chega sem o campo."""
+    corpo: dict[str, Any] = {
         "job_id": str(codigo_gerado_seed["job_id"]),
         "codigo_gerado_id": str(codigo_gerado_seed["id"]),
         "competencias": ["2025-11"],
-        "orcamento": orcamento,
     }
+    if orcamento is not None:
+        corpo["orcamento"] = orcamento
     return Message(body=json.dumps(corpo).encode("utf-8"))
 
 
@@ -244,6 +246,45 @@ async def test_comando_no_rabbitmq_vira_linha_no_banco_e_evento_nas_duas_filas(
     assert da_api is not None and json.loads(da_api.body) == corpo
 
     assert await _retirar(broker_real, broker_real.fila.name) is None
+    assert await _retirar(broker_real, f"{broker_real.fila.name}.dlq") is None
+
+
+async def test_comando_sem_orcamento_vira_sucesso_sem_veredito_na_linha_e_nas_duas_filas(
+    monkeypatch: pytest.MonkeyPatch,
+    broker_real: ConexaoBroker,
+    filas: tuple[AbstractQueue, AbstractQueue],
+    conexao_dono: Any,
+    codigo_gerado_seed: dict[str, Any],
+    imagem: str,
+) -> None:
+    """Job sem orçamento (T-281): o mesmo container, o mesmo baseline conferido e a mesma linha,
+    sem `totais.orcamento` e com o veredito nulo; o evento chega às duas filas sem veredito."""
+    fila_api, fila_codegen = filas
+    execucoes = _espia_do_container(monkeypatch, imagem)
+    concluido = _observar_processamento(monkeypatch, total=1)
+    await broker_real.canal.default_exchange.publish(
+        _comando(codigo_gerado_seed, None), routing_key=broker_real.fila.name
+    )
+
+    await _consumir_ate(broker_real, concluido)
+
+    (execucao,) = execucoes
+    assert execucao[1].codigo_saida == 0
+    assert _containers_do_job(execucao[0].job_id) == []
+    (linha,) = await _linhas_do_job(conexao_dono, codigo_gerado_seed["job_id"])
+    assert (linha["status"], linha["veredito"], linha["diagnostico"]) == ("sucesso", None, None)
+    totais = json.loads(linha["totais"])
+    assert (totais["baseline"], totais["simulado"]) == (BASELINE_2025_11, SIMULADO_DO_EXEMPLO)
+    assert "orcamento" not in totais
+    assert erros_do_dominio("resultado-totais", totais) == []
+    da_api, do_codegen = await retirar(fila_api), await retirar(fila_codegen)
+    assert da_api is not None and do_codegen is not None
+    corpo = json.loads(da_api.body)
+    assert json.loads(do_codegen.body) == corpo
+    assert corpo["resultado_id"] == str(linha["id"])
+    assert corpo["status"] == "sucesso" and "veredito" not in corpo
+    assert corpo["total_simulado"] == SIMULADO_DO_EXEMPLO
+    assert erros_do_evento("simulacao-concluida", corpo) == []
     assert await _retirar(broker_real, f"{broker_real.fila.name}.dlq") is None
 
 

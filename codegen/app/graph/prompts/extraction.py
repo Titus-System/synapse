@@ -39,7 +39,17 @@ def montar_prompt_extracao(
                     "construto_pretendido (ou generico), descricao e trecho original literal. "
                     "A descrição é paráfrase que mantém literalmente números, datas e códigos. "
                     "Não escreva campos de construtos não habilitados. Texto sem conteúdo de regra "
-                    "produz nucleo vazio e elementos vazio."
+                    "produz nucleo vazio e elementos vazio. "
+                    "Preencha parametros com orcamento, meta_venda e competencias quando o texto "
+                    "os disser, cada um como {valor, trecho}. orcamento é o orçamento de comissão "
+                    "do período; meta_venda é a meta de venda do período. Uma condição de "
+                    "atingimento de meta dentro da regra, como bônus para quem bate a meta, não é "
+                    "meta_venda: fica em elemento. competencias aqui é o período da simulação "
+                    "('simular de agosto a dezembro', 'nos últimos três meses'), distinto da "
+                    "vigência da regra ('comissão de 3% em novembro'). 'Orçamento de R$ 1,5 "
+                    "milhão' vira orcamento com valor 1500000; 'meta de vender R$ 12 milhões' vira "
+                    "meta_venda com valor 12000000. Parâmetro não dito fica fora de parametros; "
+                    "nada dito deixa parametros vazio ({})."
                 ),
                 "construtos_habilitados": list(instrucoes),
                 "schema_saida": schema,

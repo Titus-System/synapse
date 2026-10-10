@@ -141,7 +141,8 @@ async def test_texto_publicado_na_fila_persiste_e_expoe_metricas(
                                 break
                             await asyncio.sleep(0.1)
                     [linha] = await dono.fetch(
-                        "SELECT e.id AS extracao_id, e.representacao::text, p.no,"
+                        "SELECT e.id AS extracao_id, e.representacao::text,"
+                        " e.parametros::text AS parametros, p.no,"
                         " p.conteudo AS prompt, r.conteudo AS resposta"
                         " FROM extracoes_regras e JOIN respostas_modelo r ON r.id=e.resposta_id"
                         " JOIN prompts p ON p.id=r.prompt_id WHERE e.job_id=$1",
@@ -151,6 +152,7 @@ async def test_texto_publicado_na_fila_persiste_e_expoe_metricas(
                         "nucleo": NUCLEO,
                         "especificacoes": [],
                     }
+                    assert simplejson.loads(linha["parametros"], use_decimal=True) == {}
                     assert linha["no"] == "extracao_parametros"
                     assert str(linha["extracao_id"]) == extraida["extracao_id"]
                     assert TEXTO in linha["prompt"]

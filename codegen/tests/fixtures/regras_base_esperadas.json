@@ -63,6 +63,45 @@
         "descr_cargo_no_join": false
       },
       "decisao": "CANONICAL_MANAGER_RATE"
+    },
+    "cod_cargo": {
+      "fontes": [
+        "worker/sandbox/data/domrock/schema.json#/tables/vendas/fields",
+        "contracts/harness/README.md#convenção-de-tipos-das-colunas"
+      ],
+      "fatos": {
+        "tabela_sem_cargo": "vendas",
+        "colunas_ausentes": [
+          "cod_cargo",
+          "descr_cargo"
+        ],
+        "tabelas_com_cargo": [
+          "rh",
+          "comissoes",
+          "apuracao_base"
+        ]
+      }
+    },
+    "valor de venda": {
+      "fontes": [
+        "worker/sandbox/data/domrock/schema.json#/tables/vendas/fields",
+        "contracts/harness/README.md#regrafn-o-contrato-de-entrada-e-saida"
+      ],
+      "fatos": {
+        "coluna": "vlr_venda",
+        "tabela": "vendas",
+        "agrupamento": [
+          "matricula",
+          "competencia"
+        ],
+        "reconstruir_do_baseline": false,
+        "regras_do_baseline": [
+          "gerente",
+          "admissão",
+          "demissão",
+          "afastamentos"
+        ]
+      }
     }
   },
   "regras_base": {

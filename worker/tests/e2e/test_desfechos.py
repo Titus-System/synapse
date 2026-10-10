@@ -7,12 +7,13 @@ no log. É o ciclo fechado: todo comando termina, e termina de um jeito que dá 
 """
 
 import json
+import re
 from typing import Any
 from uuid import uuid4
 
 import pytest
 
-from tests.app.esquemas import erros_do_dominio, erros_do_log
+from tests.app.esquemas import erros_do_dominio, erros_do_evento, erros_do_log
 from tests.e2e import regras
 from tests.e2e.apoio import Ambiente, Worker
 
@@ -60,6 +61,179 @@ async def test_sucesso_grava_a_linha_e_publica_o_evento_nas_duas_filas(
     assert da_api["resultado_id"] == str(linha["id"])
     assert (da_api["status"], da_api["veredito"]) == ("sucesso", veredito)
     await fechar_o_ciclo(ambiente, worker, semente)
+
+
+def _execucoes_julgadas(metricas: str, desfecho: str) -> float:
+    achado = re.search(
+        rf'^worker_execucoes_julgadas_total{{desfecho="{desfecho}"}} (\S+)$',
+        metricas,
+        flags=re.MULTILINE,
+    )
+    assert achado is not None, f"worker_execucoes_julgadas_total de {desfecho} fora de /metrics"
+    return float(achado.group(1))
+
+
+async def test_sem_orcamento_o_sucesso_e_gravado_e_publicado_sem_veredito(
+    ambiente: Ambiente,
+) -> None:
+    """Job sem orçamento (T-281): o comando chega sem o campo, o resultado é conferido contra o
+    baseline como sempre, e a linha e o evento saem sem veredito e sem `totais.orcamento`. O
+    processo real registra o desfecho no log e o conta em `/metrics` como uma execução normal."""
+    worker = await ambiente.iniciar_worker()
+    assert _execucoes_julgadas(await worker.metricas(), "sem_orcamento") == 0.0
+    semente = await ambiente.semear(regras.SUCESSO, orcamento=None)
+
+    await ambiente.corretor.publicar_comando(semente, None)
+    da_api = await ambiente.corretor.evento(ambiente.corretor.api)
+    do_codegen = await ambiente.corretor.evento(ambiente.corretor.codegen)
+
+    (linha,) = await ambiente.linhas(semente["job_id"])
+    assert (linha["status"], linha["veredito"], linha["diagnostico"]) == ("sucesso", None, None)
+    totais = json.loads(linha["totais"])
+    assert (totais["baseline"], totais["simulado"]) == (
+        regras.BASELINE_2025_11,
+        regras.SIMULADO_DO_EXEMPLO,
+    )
+    assert "orcamento" not in totais
+    assert erros_do_dominio("resultado-totais", totais) == []
+    assert da_api == do_codegen
+    assert da_api["resultado_id"] == str(linha["id"])
+    assert da_api["status"] == "sucesso" and "veredito" not in da_api
+    assert erros_do_evento("simulacao-concluida", da_api) == []
+    (preparada,) = worker.mensagens("execução preparada")
+    assert preparada["extra"]["com_orcamento"] is False
+    (julgada,) = worker.mensagens("execução julgada")
+    assert erros_do_log(julgada) == []
+    assert julgada["job_id"] == str(semente["job_id"])
+    assert (julgada["extra"]["veredito"], julgada["extra"]["desfecho"]) == (None, "sem_orcamento")
+    metricas = await worker.metricas()
+    assert _execucoes_julgadas(metricas, "sem_orcamento") == 1.0
+    assert _execucoes_julgadas(metricas, "viavel") == 0.0
+    await fechar_o_ciclo(ambiente, worker, semente)
+
+
+def _amostra(metricas: str, nome: str, **rotulos: str) -> float:
+    # O formato de texto do prometheus_client escreve os rótulos em ordem alfabética.
+    seletor = ",".join(f'{chave}="{valor}"' for chave, valor in sorted(rotulos.items()))
+    achado = re.search(rf"^{nome}{{{seletor}}} (\S+)$", metricas, flags=re.MULTILINE)
+    assert achado is not None, f"{nome}{{{seletor}}} fora de /metrics"
+    return float(achado.group(1))
+
+
+async def test_na_meta_o_resultado_e_gravado_e_publicado_com_a_meta_e_o_proposito(
+    ambiente: Ambiente,
+) -> None:
+    """Execução candidata da busca da meta (T-270): o worker reapura o baseline na meta, o
+    container simula sobre as vendas escaladas, e a linha e o evento levam a meta e o propósito.
+    O processo real registra a execução no log e em `/metrics`, sem a meta nem os totais."""
+    worker = await ambiente.iniciar_worker()
+    antes = await worker.metricas()
+    assert (
+        _amostra(antes, "worker_execucoes_na_meta_total", desfecho="viavel", proposito="busca_meta")
+        == 0.0
+    )
+    assert _amostra(antes, "worker_baseline_na_meta_seconds_count", resultado="ok") == 0.0
+    semente = await ambiente.semear(regras.SUCESSO)
+
+    await ambiente.corretor.publicar_comando(
+        semente, 600000.0, meta_venda=regras.META_2025_11, proposito="busca_meta"
+    )
+    da_api = await ambiente.corretor.evento(ambiente.corretor.api)
+    do_codegen = await ambiente.corretor.evento(ambiente.corretor.codegen)
+
+    (linha,) = await ambiente.linhas(semente["job_id"])
+    assert (linha["status"], linha["veredito"]) == ("sucesso", "viavel")
+    assert (float(linha["meta_venda"]), linha["proposito"]) == (regras.META_2025_11, "busca_meta")
+    totais = json.loads(linha["totais"])
+    assert (totais["baseline"], totais["simulado"]) == (
+        regras.BASELINE_NA_META_2025_11,
+        regras.SIMULADO_DO_EXEMPLO_NA_META,
+    )
+    assert totais["vendas_historicas"] == regras.VENDAS_2025_11
+    assert erros_do_dominio("resultado-totais", totais) == []
+    assert da_api == do_codegen
+    assert da_api["resultado_id"] == str(linha["id"])
+    assert (da_api["meta_venda"], da_api["proposito"]) == (regras.META_2025_11, "busca_meta")
+    assert da_api["total_baseline"] == regras.BASELINE_NA_META_2025_11
+    assert erros_do_evento("simulacao-concluida", da_api) == []
+    (preparada,) = worker.mensagens("execução preparada")
+    assert (preparada["extra"]["com_meta_venda"], preparada["extra"]["proposito"]) == (
+        True,
+        "busca_meta",
+    )
+    (reapurado,) = worker.mensagens("baseline na meta reapurado")
+    assert reapurado["job_id"] == str(semente["job_id"])
+    (julgada,) = worker.mensagens("execução julgada")
+    assert erros_do_log(julgada) == []
+    assert (julgada["extra"]["desfecho"], julgada["extra"]["proposito"]) == ("viavel", "busca_meta")
+    texto = worker.texto_do_log()
+    for numero in ("14598849", "558870.26", "543091.28", "13271681.51"):
+        assert numero not in texto
+    depois = await worker.metricas()
+    assert (
+        _amostra(
+            depois, "worker_execucoes_na_meta_total", desfecho="viavel", proposito="busca_meta"
+        )
+        == 1.0
+    )
+    assert _amostra(depois, "worker_baseline_na_meta_seconds_count", resultado="ok") == 1.0
+    assert _execucoes_julgadas(depois, "viavel") == 1.0
+    await fechar_o_ciclo(ambiente, worker, semente)
+
+
+async def test_na_meta_o_baseline_inflado_pela_regra_e_erro_codigo(ambiente: Ambiente) -> None:
+    """A regra infla o baseline que o harness reapurou na meta: só a reapuração do worker a
+    denuncia, e a linha guarda a meta da execução que falhou."""
+    worker = await ambiente.iniciar_worker()
+    semente = await ambiente.semear(regras.INFLA_O_BASELINE)
+
+    await ambiente.corretor.publicar_comando(semente, 600000.0, meta_venda=regras.META_2025_11)
+    da_api = await ambiente.corretor.evento(ambiente.corretor.api)
+    await ambiente.corretor.evento(ambiente.corretor.codegen)
+
+    (linha,) = await ambiente.linhas(semente["job_id"])
+    assert (linha["status"], linha["totais"]) == ("erro_codigo", None)
+    assert json.loads(linha["diagnostico"]) == {"causa": "baseline_divergente"}
+    assert (float(linha["meta_venda"]), linha["proposito"]) == (regras.META_2025_11, "simulacao")
+    assert set(da_api) == CAMPOS_DO_EVENTO_DE_ERRO | {"meta_venda"}
+    assert erros_do_evento("simulacao-concluida", da_api) == []
+    (julgada,) = worker.mensagens("execução julgada")
+    assert (julgada["extra"]["motivo"], julgada["extra"]["com_meta_venda"]) == (
+        "baseline_divergente",
+        True,
+    )
+    metricas = await worker.metricas()
+    assert (
+        _amostra(
+            metricas,
+            "worker_execucoes_na_meta_total",
+            desfecho="erro_codigo",
+            proposito="simulacao",
+        )
+        == 1.0
+    )
+    await fechar_o_ciclo(ambiente, worker, semente)
+
+
+async def test_meta_que_nao_se_aplica_vai_a_dlq_sem_subir_o_container(ambiente: Ambiente) -> None:
+    """Uma competência fora das bases não tem baseline na meta: a regra nem roda, nada é gravado
+    nem publicado em nome dela, e a falha da reapuração conta em `/metrics`."""
+    worker = await ambiente.iniciar_worker()
+    semente = await ambiente.semear(regras.SUCESSO)
+
+    await ambiente.corretor.publicar_comando(
+        semente, 600000.0, meta_venda=regras.META_2025_11, competencias=["2026-01"]
+    )
+    await ambiente.corretor.esperar_fila("executar-codigo.dlq", lambda fila: fila.prontas == 1)
+
+    assert await ambiente.linhas(semente["job_id"]) == []
+    assert worker.mensagens("execução no sandbox concluída") == []
+    (erro,) = worker.mensagens("baseline na meta não reapurado; encaminhando para DLQ")
+    assert erro["extra"]["erro"] == "CompetenciaSemBaselineError"
+    assert erros_do_log(erro) == []
+    metricas = await worker.metricas()
+    assert _amostra(metricas, "worker_baseline_na_meta_seconds_count", resultado="falha") == 1.0
+    await fechar_o_ciclo(ambiente, worker, semente, na_dlq=1)
 
 
 async def test_todo_log_do_processamento_carrega_o_job_id(ambiente: Ambiente) -> None:
@@ -230,6 +404,69 @@ async def test_comando_ruim_vai_a_dlq_e_nao_trava_a_fila(ambiente: Ambiente) -> 
     assert await ambiente.linhas(de_outro_job["job_id"]) == []
     await fechar_o_ciclo(ambiente, worker, semente, na_dlq=len(ruins))
     assert await ambiente.corretor.esperar(ambiente.corretor.api, prazo=2) is None
+
+
+def _contagem_de_cobertura(metricas: str) -> float:
+    """A amostra do contador da T-241 no texto de `/metrics`. Ela existe desde a subida: o coletor
+    é carregado na composição da aplicação, e não no primeiro incremento."""
+    achado = re.search(r"^worker_cobertura_incompleta_total (\S+)$", metricas, flags=re.MULTILINE)
+    assert achado is not None, "worker_cobertura_incompleta_total não aparece em /metrics"
+    return float(achado.group(1))
+
+
+async def test_cobertura_incompleta_para_o_job_com_o_elemento_no_diagnostico_e_conta_em_metrics(
+    ambiente: Ambiente,
+) -> None:
+    """O exemplo do contrato declara só nucleo.percentual, e o comando exige também elem.1 (T-241).
+    O processo real grava o elemento no diagnóstico, registra a falha com o job e a referência, e a
+    conta no `/metrics` que expõe."""
+    worker = await ambiente.iniciar_worker()
+    assert _contagem_de_cobertura(await worker.metricas()) == 0.0
+    semente = await ambiente.semear(regras.SUCESSO)
+
+    await ambiente.corretor.publicar_comando(
+        semente, 485000.0, elementos_exigidos=["nucleo.percentual", "elem.1"]
+    )
+    evento = await ambiente.corretor.evento(ambiente.corretor.api)
+
+    (linha,) = await ambiente.linhas(semente["job_id"])
+    assert (linha["status"], linha["veredito"], linha["totais"]) == ("erro_codigo", None, None)
+    assert set(evento) == CAMPOS_DO_EVENTO_DE_ERRO and evento["status"] == "erro_codigo"
+    diagnostico = json.loads(linha["diagnostico"])
+    assert diagnostico == {"causa": "cobertura_incompleta", "elementos_ausentes": ["elem.1"]}
+    assert erros_do_dominio("resultado-diagnostico", diagnostico) == []
+    (julgada,) = worker.mensagens("execução julgada")
+    assert erros_do_log(julgada) == []
+    assert julgada["job_id"] == str(semente["job_id"])
+    assert (julgada["extra"]["motivo"], julgada["extra"]["elementos_ausentes"]) == (
+        "cobertura_incompleta",
+        ["elem.1"],
+    )
+    assert _contagem_de_cobertura(await worker.metricas()) == 1.0
+    # A fonte do exemplo do contrato: o código gerado não vai ao log.
+    assert "_MARCA_ALVO" in regras.SUCESSO
+    assert "_MARCA_ALVO" not in worker.texto_do_log()
+    await fechar_o_ciclo(ambiente, worker, semente)
+
+
+async def test_cobertura_completa_e_sucesso_e_nao_conta_em_metrics(ambiente: Ambiente) -> None:
+    worker = await ambiente.iniciar_worker()
+    semente = await ambiente.semear(regras.SUCESSO)
+
+    await ambiente.corretor.publicar_comando(
+        semente, 485000.0, elementos_exigidos=["nucleo.percentual"]
+    )
+    evento = await ambiente.corretor.evento(ambiente.corretor.api)
+
+    (linha,) = await ambiente.linhas(semente["job_id"])
+    assert (linha["status"], linha["veredito"], linha["diagnostico"]) == (
+        "sucesso",
+        "inviavel",
+        None,
+    )
+    assert evento["total_simulado"] == regras.SIMULADO_DO_EXEMPLO
+    assert _contagem_de_cobertura(await worker.metricas()) == 0.0
+    await fechar_o_ciclo(ambiente, worker, semente)
 
 
 async def test_os_logs_do_processo_seguem_o_schema_de_log_do_monorepo(ambiente: Ambiente) -> None:

@@ -5,8 +5,9 @@ Funções puras: nada aqui toca o banco nem o broker. A linha e o evento saem da
 encontra já gravado, então os dois caminhos publicam exatamente a mesma coisa.
 
 Um `erro_codigo` leva na linha o diagnóstico da falha (T-204): a causa classificada e, quando
-existirem, a falha que o sandbox capturou e os problemas de schema. O evento continua só com a
-referência; quem precisa do diagnóstico o lê da linha pelo `resultado_id`.
+existirem, a falha que o sandbox capturou, os problemas de schema e os elementos que a conferência
+de cobertura reprovou (T-241). O evento continua só com a referência; quem precisa do diagnóstico
+o lê da linha pelo `resultado_id`.
 """
 
 from dataclasses import dataclass, field
@@ -33,6 +34,10 @@ class Diagnostico(TypedDict):
     falha: NotRequired[Falha]
     # Só quando o resultado saiu do schema.
     problemas: NotRequired[list[Problema]]
+    # Só com a cobertura incompleta, e cada lista só quando tem item: os elementos exigidos que o
+    # código não declarou, e os que receberam contribuição sem ser exigidos.
+    elementos_ausentes: NotRequired[list[str]]
+    elementos_fora_da_regra: NotRequired[list[str]]
 
 
 class DiagnosticoForaDoContratoError(ValueError):
@@ -70,6 +75,11 @@ def diagnostico_do_julgamento(julgamento: Julgamento) -> Diagnostico | None:
         diagnostico["falha"] = desfecho.erro
     if desfecho is not None and desfecho.problemas:
         diagnostico["problemas"] = list(desfecho.problemas)
+    cobertura = julgamento.cobertura
+    if cobertura is not None and cobertura.ausentes:
+        diagnostico["elementos_ausentes"] = list(cobertura.ausentes)
+    if cobertura is not None and cobertura.fora_da_regra:
+        diagnostico["elementos_fora_da_regra"] = list(cobertura.fora_da_regra)
     problemas = validar_diagnostico(diagnostico)
     if problemas:
         raise DiagnosticoForaDoContratoError(problemas)
@@ -77,8 +87,9 @@ def diagnostico_do_julgamento(julgamento: Julgamento) -> Diagnostico | None:
 
 
 def linha_do_julgamento(julgamento: Julgamento) -> LinhaDoResultado:
-    """`sucesso` grava o resultado inteiro, com `totais.orcamento`; qualquer outro desfecho grava
-    só o status e as asserções, e o resto nulo (`assercoes` é `[]` em `erro_infra`), com exceção do
+    """`sucesso` grava o resultado inteiro, com `totais.orcamento` e o veredito quando o comando
+    trouxe orçamento, e sem os dois quando não trouxe (T-281); qualquer outro desfecho grava só o
+    status e as asserções, e o resto nulo (`assercoes` é `[]` em `erro_infra`), com exceção do
     diagnóstico de um `erro_codigo`.
 
     O `indeterminado` interno **nunca** é gravado: `resultados_simulacao.veredito` e o evento o
@@ -98,7 +109,9 @@ def linha_do_julgamento(julgamento: Julgamento) -> LinhaDoResultado:
 
     resultado = julgamento.resultado
     if resultado is None or julgamento.veredito == "indeterminado":
-        raise ValueError("um sucesso precisa de resultado e de veredito viavel ou inviavel")
+        raise ValueError(
+            "um sucesso precisa de resultado e de veredito viavel, inviavel ou ausente"
+        )
     return LinhaDoResultado(
         status="sucesso",
         veredito=julgamento.veredito,
@@ -110,7 +123,12 @@ def linha_do_julgamento(julgamento: Julgamento) -> LinhaDoResultado:
 
 
 def evento_de(gravado: ResultadoGravado) -> SimulacaoConcluida:
-    """O evento do schema: referência, status e, só em `sucesso`, o veredito e os agregados.
+    """O evento do schema: referência, status e, só em `sucesso`, o veredito e os agregados. O
+    veredito nulo de um sucesso sem orçamento sai ausente do evento, não `null`.
+
+    A meta e o propósito saem em qualquer status, porque a api separa a execução candidata da
+    busca da meta antes de olhar o desfecho (T-270, T-274). A meta, quando a execução teve meta;
+    o propósito, só quando é `busca_meta`, já que ausente equivale a `simulacao`.
 
     Claim-check: a decomposição e o desfecho das asserções ficam na linha, não no evento.
     """
@@ -119,6 +137,10 @@ def evento_de(gravado: ResultadoGravado) -> SimulacaoConcluida:
         "resultado_id": gravado.id,
         "status": gravado.status,
     }
+    if gravado.meta_venda is not None:
+        campos["meta_venda"] = gravado.meta_venda
+    if gravado.proposito != "simulacao":
+        campos["proposito"] = gravado.proposito
     if gravado.status == "sucesso" and gravado.totais is not None:
         totais = gravado.totais
         campos |= {

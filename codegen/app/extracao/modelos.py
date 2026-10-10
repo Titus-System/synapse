@@ -3,6 +3,7 @@ from typing import Any, Literal
 
 from app.falhas import FalhaDoJobError
 from app.representacao_regra import RepresentacaoRegra
+from app.tipos_estado import ValorRegra
 
 type MotivoRebaixamento = Literal["construto_nao_habilitado", "campo_obrigatorio_ausente"]
 
@@ -36,4 +37,5 @@ class ChamadaExtracao:
 class ResultadoExtracao:
     representacao: RepresentacaoRegra
     rebaixamentos: list[Rebaixamento]
+    parametros: dict[str, ValorRegra]
     chamada: ChamadaExtracao

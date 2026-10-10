@@ -49,14 +49,16 @@ async def extrair(modelo: FakeChatModel, texto: str = TEXTO) -> ResultadoExtraca
 async def test_preserva_nucleo_sem_inventar_campos_ou_corrigir_coerencia(
     nucleo: dict[str, Any],
 ) -> None:
-    resultado = await extrair(modelo_falso({"nucleo": nucleo, "elementos": []}))
+    resultado = await extrair(modelo_falso({"nucleo": nucleo, "elementos": [], "parametros": {}}))
 
     assert resultado.representacao.para_contrato() == {"nucleo": nucleo, "especificacoes": []}
     assert resultado.rebaixamentos == []
 
 
 async def test_texto_sem_regra_produz_representacao_minima() -> None:
-    resultado = await extrair(modelo_falso({"nucleo": {}, "elementos": []}), "Bom dia!")
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [], "parametros": {}}), "Bom dia!"
+    )
 
     assert resultado.representacao.para_contrato() == {"nucleo": {}, "especificacoes": []}
 
@@ -64,7 +66,9 @@ async def test_texto_sem_regra_produz_representacao_minima() -> None:
 async def test_rebaixa_todos_os_elementos_e_atribui_refs_na_ordem() -> None:
     elementos = [ELEMENTO, {**ELEMENTO, "construto_pretendido": "aniversario_loja"}]
 
-    resultado = await extrair(modelo_falso({"nucleo": {}, "elementos": elementos}))
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": elementos, "parametros": {}})
+    )
 
     assert resultado.representacao.para_contrato()["especificacoes"] == [
         {"ref": f"elem.{i}", "construto": "generico", "descricao": ELEMENTO["descricao"]}
@@ -84,7 +88,9 @@ async def test_rebaixa_todos_os_elementos_e_atribui_refs_na_ordem() -> None:
 async def test_rebaixa_campo_obrigatorio_ausente_sem_perder_elemento(campo: str) -> None:
     elemento = {k: v for k, v in ELEMENTO.items() if k != campo}
 
-    resultado = await extrair(modelo_falso({"nucleo": {}, "elementos": [elemento]}))
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [elemento], "parametros": {}})
+    )
 
     assert resultado.representacao.para_contrato()["especificacoes"] == [
         {"ref": "elem.1", "construto": "generico", "descricao": ELEMENTO["descricao"]}
@@ -97,7 +103,9 @@ async def test_rebaixa_campo_obrigatorio_ausente_sem_perder_elemento(campo: str)
 async def test_recupera_descricao_inutilizavel_pelo_trecho_literal(descricao: object) -> None:
     elemento = {**ELEMENTO, "descricao": descricao}
 
-    resultado = await extrair(modelo_falso({"nucleo": {}, "elementos": [elemento]}))
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [elemento], "parametros": {}})
+    )
 
     assert resultado.representacao.para_contrato()["especificacoes"] == [
         {"ref": "elem.1", "construto": "generico", "descricao": ELEMENTO["trecho"]}
@@ -108,9 +116,60 @@ async def test_recupera_descricao_inutilizavel_pelo_trecho_literal(descricao: ob
 async def test_campo_extra_no_elemento_e_rebaixado_sem_ser_copiado() -> None:
     elemento = {**ELEMENTO, "ref": "elem.99", "campo_desconhecido": "conteudo-teste"}
 
-    resultado = await extrair(modelo_falso({"nucleo": {}, "elementos": [elemento]}))
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [elemento], "parametros": {}})
+    )
 
     assert resultado.representacao.para_contrato()["especificacoes"] == [
         {"ref": "elem.1", "construto": "generico", "descricao": ELEMENTO["descricao"]}
     ]
     assert resultado.rebaixamentos[0].motivo == "construto_nao_habilitado"
+
+
+PARAMETROS_BRUTOS = {
+    "orcamento": {"valor": Decimal("500000"), "trecho": "orçamento de R$ 500 mil"},
+    "meta_venda": {"valor": Decimal("12000000"), "trecho": "meta de vender R$ 12 milhões"},
+    "competencias": {
+        "valor": ["2025-09", "2025-10", "2025-11"],
+        "trecho": "entre setembro e novembro de 2025",
+    },
+}
+
+
+async def test_parametros_completos_entram_com_valor_e_trecho_auditavel() -> None:
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [], "parametros": PARAMETROS_BRUTOS})
+    )
+
+    assert resultado.parametros == {
+        "orcamento": Decimal("500000"),
+        "meta_venda": Decimal("12000000"),
+        "competencias": ["2025-09", "2025-10", "2025-11"],
+    }
+    resposta = simplejson.loads(resultado.chamada.resposta, use_decimal=True)
+    assert resposta["parametros"] == PARAMETROS_BRUTOS
+
+
+async def test_texto_sem_parametros_produz_parametros_vazios() -> None:
+    resultado = await extrair(modelo_falso({"nucleo": {}, "elementos": [], "parametros": {}}))
+
+    assert resultado.parametros == {}
+
+
+@pytest.mark.parametrize("campo", ["orcamento", "meta_venda", "competencias"])
+async def test_parametro_isolado_nao_afeta_os_demais(campo: str) -> None:
+    resultado = await extrair(
+        modelo_falso(
+            {"nucleo": {}, "elementos": [], "parametros": {campo: PARAMETROS_BRUTOS[campo]}}
+        )
+    )
+
+    assert resultado.parametros == {campo: PARAMETROS_BRUTOS[campo]["valor"]}
+
+
+async def test_preserva_orcamento_negativo_sem_corrigir() -> None:
+    bruto = {"orcamento": {"valor": Decimal("-100"), "trecho": "orçamento de -100 reais"}}
+
+    resultado = await extrair(modelo_falso({"nucleo": {}, "elementos": [], "parametros": bruto}))
+
+    assert resultado.parametros == {"orcamento": Decimal("-100")}

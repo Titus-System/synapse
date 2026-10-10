@@ -30,13 +30,20 @@ Docker e a imagem do sandbox, que a fixture `imagem` constrói uma vez (ou reusa
 | Garantia | Teste |
 | --- | --- |
 | `sucesso` grava **uma** linha e publica o mesmo evento nas duas filas, com o veredito pelo orçamento do comando | `test_desfechos::test_sucesso_grava_a_linha_e_publica_o_evento_nas_duas_filas` |
+| comando sem orçamento: o resultado conferido grava e publica `sucesso` sem veredito e sem `totais.orcamento`, com o desfecho `sem_orcamento` no log `execução julgada` e em `worker_execucoes_julgadas_total` (T-281) | `test_sem_orcamento_o_sucesso_e_gravado_e_publicado_sem_veredito` |
+| execução na meta (candidata da busca): o worker reapura o baseline na meta, a linha e o evento levam `meta_venda` e `proposito`, `totais` traz o baseline reapurado e `vendas_historicas`, e o log e `/metrics` (`worker_execucoes_na_meta_total`, `worker_baseline_na_meta_seconds`) contam a execução, sem a meta nem os totais no log (T-270) | `test_na_meta_o_resultado_e_gravado_e_publicado_com_a_meta_e_o_proposito` |
+| na meta, a regra que infla o baseline reapurado no container é `erro_codigo` com `baseline_divergente`, e a linha guarda a meta (T-270) | `test_na_meta_o_baseline_inflado_pela_regra_e_erro_codigo` |
+| meta que não se aplica às bases vai à DLQ sem container, linha nem evento, e a falha conta em `worker_baseline_na_meta_seconds` (T-270) | `test_meta_que_nao_se_aplica_vai_a_dlq_sem_subir_o_container` |
 | asserção violada é categoria própria, sem veredito | `test_assercao_violada_e_categoria_propria_e_sem_veredito` |
 | erro da regra é `erro_codigo`, a exceção vai para o diagnóstico da linha e **nada da regra** (exceção, stdout, stderr, fonte) nem o orçamento chega ao log | `test_erro_do_codigo_e_erro_codigo_e_nada_da_regra_chega_ao_log` |
 | código que não termina é morto no prazo real de 60 s, o diagnóstico guarda só a causa `timeout` e o ciclo fecha | `test_codigo_que_nao_termina_e_morto_no_prazo_e_o_ciclo_fecha` |
+| elemento exigido e não declarado é `erro_codigo` com `cobertura_incompleta` e o elemento no diagnóstico, no log `execução julgada` e no contador de `/metrics`, que existe desde a subida (T-241) | `test_cobertura_incompleta_para_o_job_com_o_elemento_no_diagnostico_e_conta_em_metrics` |
+| cobertura completa é `sucesso` e não conta em `/metrics` | `test_cobertura_completa_e_sucesso_e_nao_conta_em_metrics` |
 | sem a imagem do sandbox: três tentativas, `erro_infra` gravado e publicado uma vez, comando na DLQ (DEC-094) | `test_infra_esgotada_grava_e_publica_erro_infra_e_so_entao_vai_a_dlq` |
 | comando inválido, código inexistente e par job/código incoerente vão à DLQ sem linha nem evento, e não travam a fila | `test_comando_ruim_vai_a_dlq_e_nao_trava_a_fila` |
 | todo log do processamento carrega o `job_id` | `test_todo_log_do_processamento_carrega_o_job_id` |
 | comando duplicado republica o evento, sem segunda linha nem segunda execução | `test_reentrega::test_comando_duplicado_nao_duplica_a_linha_nem_executa_de_novo` |
+| o mesmo código em duas metas vira duas linhas, e a reentrega de uma republica a dela sem executar (T-270) | `test_reentrega::test_o_mesmo_codigo_em_duas_metas_vira_duas_linhas_e_a_reentrega_de_uma_republica` |
 | o diagnóstico de um `erro_codigo` sobrevive ao worker: um processo novo reentregue encontra a linha, republica o mesmo evento e não executa de novo | `test_o_diagnostico_sobrevive_ao_worker_e_a_reentrega_nao_o_troca` |
 | `kill -9` no meio da execução: o comando volta, um segundo worker o conclui, uma linha e um evento | `test_worker_morto_no_meio_da_execucao_nao_perde_o_comando` |
 | SIGTERM no meio da execução: o comando não se perde e o job termina com uma linha | `test_processo::test_sigterm_no_meio_da_execucao_nao_perde_o_comando` |

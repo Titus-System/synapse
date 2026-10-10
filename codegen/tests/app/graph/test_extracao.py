@@ -23,7 +23,7 @@ from tests.app.test_mensageria import CONTRATOS
 
 TEXTO = "Pague 2,5% na loja 13. REGRA_PRIVADA"
 NUCLEO = {"percentual": Decimal("0.025"), "loja": ["13"]}
-SAIDA = {"nucleo": NUCLEO, "elementos": []}
+SAIDA = {"nucleo": NUCLEO, "elementos": [], "parametros": {}}
 
 
 @pytest.fixture
@@ -104,6 +104,7 @@ async def test_extracao_persiste_publica_ids_e_termina_ciclo(
         "nucleo": NUCLEO,
         "especificacoes": [],
     }
+    assert simplejson.loads(extracao["parametros"], use_decimal=True) == {}
     assert ambiente.publicacoes[1][1] == {
         "job_id": payload["job_id"],
         "submissao_id": payload["submissao_id"],
@@ -121,6 +122,38 @@ async def test_extracao_persiste_publica_ids_e_termina_ciclo(
     assert estado.values["submissao_id"] == payload["submissao_id"]
     for artefato in ("representacao_regra", "prompt_enviado", "resposta_bruta", "messages"):
         assert artefato not in estado.values or not estado.values[artefato]
+
+
+async def test_parametros_ditos_no_texto_sao_gravados_na_extracao(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    saida = {
+        "nucleo": NUCLEO,
+        "elementos": [],
+        "parametros": {
+            "orcamento": {"valor": Decimal("500000"), "trecho": "orçamento de R$ 500 mil"},
+            "meta_venda": {"valor": Decimal("12000000"), "trecho": "meta de 12 milhões"},
+            "competencias": {
+                "valor": ["2025-09", "2025-10", "2025-11"],
+                "trecho": "entre setembro e novembro de 2025",
+            },
+        },
+    }
+    ambiente = AmbienteExtracao(monkeypatch, [saida])
+    recebida = mensagem(ambiente.entrada())
+
+    await ambiente.consumer.receber(recebida)
+
+    recebida.ack.assert_awaited_once_with()
+    [extracao] = ambiente.banco.tabela("extracoes_regras")
+    assert simplejson.loads(extracao["parametros"], use_decimal=True) == {
+        "orcamento": Decimal("500000"),
+        "meta_venda": Decimal("12000000"),
+        "competencias": ["2025-09", "2025-10", "2025-11"],
+    }
+    # Nunca faz parte da regra: fora de nucleo/especificacoes e do evento regra-extraida.
+    assert "parametros" not in simplejson.loads(extracao["representacao"], use_decimal=True)
+    assert set(ambiente.publicacoes[1][1]) == {"job_id", "submissao_id", "extracao_id"}
 
 
 @pytest.mark.parametrize("texto", [None, "", " \n\t"])
@@ -237,7 +270,9 @@ async def test_nao_descarta_elemento_generico(monkeypatch: pytest.MonkeyPatch) -
         "descricao": "PARAFRASE_PRIVADA",
         "trecho": TEXTO,
     }
-    ambiente = AmbienteExtracao(monkeypatch, [{"nucleo": {}, "elementos": [elemento]}])
+    ambiente = AmbienteExtracao(
+        monkeypatch, [{"nucleo": {}, "elementos": [elemento], "parametros": {}}]
+    )
     recebida = mensagem(ambiente.entrada())
 
     await ambiente.consumer.receber(recebida)
@@ -284,8 +319,16 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
         "descricao": "PARAFRASE_PRIVADA",
         "trecho": TEXTO,
     }
+    parametros = {"orcamento": {"valor": Decimal("500000"), "trecho": TEXTO}}
     ambiente = AmbienteExtracao(
-        monkeypatch, [{"nucleo": NUCLEO, "elementos": [elemento, {"trecho": TEXTO}]}]
+        monkeypatch,
+        [
+            {
+                "nucleo": NUCLEO,
+                "elementos": [elemento, {"trecho": TEXTO}],
+                "parametros": parametros,
+            }
+        ],
     )
     payload = ambiente.entrada()
     aguardando = asyncio.Event()
@@ -339,6 +382,17 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
         assert amostra(depois, nome, rotulos) - amostra(antes, nome, rotulos) == (
             0 if falha else quantidade
         )
+    for parametro, esperado_resultado in (
+        ("orcamento", "extraido"),
+        ("meta_venda", "ausente"),
+        ("competencias", "ausente"),
+    ):
+        for resultado_label in ("extraido", "ausente"):
+            rotulos = {"parametro": parametro, "resultado": resultado_label}
+            delta = amostra(depois, "codegen_extracao_parametros_total", rotulos) - amostra(
+                antes, "codegen_extracao_parametros_total", rotulos
+            )
+            assert delta == (0 if falha else int(resultado_label == esperado_resultado))
     if falha:
         rotulos = {"classe": falha}
         assert (
@@ -364,6 +418,8 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
         validador.validate(log)
         assert log["job_id"] == payload["job_id"]
     assert do_no[-1]["extra"]["extracao_reutilizada"] is False
+    if not falha:
+        assert do_no[-1]["extra"]["parametros_extraidos"] == ["orcamento"]
     for privado in (
         TEXTO,
         "PARAFRASE_PRIVADA",
@@ -536,7 +592,9 @@ async def test_casos_de_nucleo_da_t203_chegam_ao_artefato_sem_alteracao(
     monkeypatch: pytest.MonkeyPatch,
     nucleo: dict[str, Any],
 ) -> None:
-    ambiente = AmbienteExtracao(monkeypatch, [{"nucleo": nucleo, "elementos": []}])
+    ambiente = AmbienteExtracao(
+        monkeypatch, [{"nucleo": nucleo, "elementos": [], "parametros": {}}]
+    )
     recebida = mensagem(ambiente.entrada())
 
     await ambiente.consumer.receber(recebida)

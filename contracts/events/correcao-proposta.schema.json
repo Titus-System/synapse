@@ -29,6 +29,10 @@
     "representacao": {
       "$ref": "../domain/representacao-regra.schema.json",
       "description": "A regra corrigida, inteira e no mesmo formato de regras.nucleo/especificacoes. Vai no corpo, e não por referência, porque ainda não existe linha em regras para apontar - criá-la é justamente o que este evento pede."
+    },
+    "parametros": {
+      "$ref": "../domain/parametros-simulacao.schema.json",
+      "description": "Os parâmetros da simulação depois da correção, no conjunto completo: os que a correção mudou e os que ela manteve. A API os grava no job e na versão nova, em regras.parametros. Dentro do objeto, um campo ausente é o parâmetro não definido depois da correção: o job fica sem orçamento ou sem meta, e as competências voltam a todas as publicadas. Uma correção que muda só os parâmetros traz a representação igual à da versão corrigida e ainda gera versão nova, porque o hash da versão cobre os parâmetros. Ausente o campo inteiro, os parâmetros do job não mudam e a versão nova registra os da versão corrigida, o que preserva o comportamento de um produtor anterior ao campo. Vai no corpo pelo mesmo motivo de representacao."
     }
   },
   "examples": [

@@ -7,22 +7,27 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.extracao.modelos import Rebaixamento, ResultadoExtracao
+from app.extracao.parametros import validar_parametros
 from app.extracao.validacao import validar_conteudo
 from app.repositorio.artefatos import gravar_prompt_e_resposta_na_sessao
 from app.representacao_regra import RepresentacaoRegra
+from app.tipos_estado import ValorRegra
 
 _NAMESPACE = UUID("b09cb3bf-59fb-5f4c-8ee8-683455f69e82")
 _BUSCAR = text(
     "SELECT e.id, e.job_id, e.submissao_id, e.resposta_id, r.prompt_id,"
-    " e.representacao::text AS representacao, e.rebaixamentos::text AS rebaixamentos"
+    " e.representacao::text AS representacao, e.rebaixamentos::text AS rebaixamentos,"
+    " e.parametros::text AS parametros"
     " FROM extracoes_regras e JOIN respostas_modelo r ON r.id = e.resposta_id"
     " WHERE e.job_id = :job_id AND e.submissao_id = :submissao_id"
 )
 _INSERIR = text(
     "INSERT INTO extracoes_regras"
-    " (id, job_id, submissao_id, resposta_id, representacao, rebaixamentos, criado_em)"
+    " (id, job_id, submissao_id, resposta_id, representacao, rebaixamentos, parametros,"
+    " criado_em)"
     " VALUES (:id, :job_id, :submissao_id, :resposta_id,"
-    " CAST(:representacao AS jsonb), CAST(:rebaixamentos AS jsonb), now())"
+    " CAST(:representacao AS jsonb), CAST(:rebaixamentos AS jsonb), CAST(:parametros AS jsonb),"
+    " now())"
     " ON CONFLICT DO NOTHING RETURNING id"
 )
 
@@ -46,6 +51,7 @@ class ExtracaoPersistida:
     resposta_id: UUID
     representacao: RepresentacaoRegra
     rebaixamentos: list[Rebaixamento]
+    parametros: dict[str, ValorRegra]
 
 
 def _ler(linha: RowMapping) -> ExtracaoPersistida:
@@ -54,6 +60,7 @@ def _ler(linha: RowMapping) -> ExtracaoPersistida:
     )
     rebaixamentos = [Rebaixamento(**item) for item in simplejson.loads(linha["rebaixamentos"])]
     validar_conteudo(representacao, rebaixamentos)
+    parametros = validar_parametros(simplejson.loads(linha["parametros"], use_decimal=True))
     return ExtracaoPersistida(
         id=linha["id"],
         job_id=linha["job_id"],
@@ -62,6 +69,7 @@ def _ler(linha: RowMapping) -> ExtracaoPersistida:
         resposta_id=linha["resposta_id"],
         representacao=representacao,
         rebaixamentos=rebaixamentos,
+        parametros=parametros,
     )
 
 
@@ -96,6 +104,7 @@ async def gravar_extracao(
     representacao, rebaixamentos = validar_conteudo(
         resultado.representacao, resultado.rebaixamentos
     )
+    parametros = validar_parametros(resultado.parametros)
     extracao_id = uuid5(_NAMESPACE, f"extracao:{job_id}:{submissao_id}")
     chamada = resultado.chamada
     salvo = None
@@ -122,6 +131,7 @@ async def gravar_extracao(
                         representacao, use_decimal=True, allow_nan=False
                     ),
                     "rebaixamentos": simplejson.dumps(rebaixamentos, ensure_ascii=False),
+                    "parametros": simplejson.dumps(parametros, use_decimal=True, allow_nan=False),
                 },
             )
             if insercao.scalar_one_or_none() is None:
@@ -135,6 +145,7 @@ async def gravar_extracao(
                 resposta_id=resposta_id,
                 representacao=RepresentacaoRegra.model_validate(representacao),
                 rebaixamentos=list(resultado.rebaixamentos),
+                parametros=parametros,
             )
     except _ExtracaoConcorrenteError:
         pass

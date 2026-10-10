@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from app.execucao.baseline import carregar_baselines
+from app.execucao.bases import carregar_bases
 from app.execucao.container import SaidaBruta
 from app.execucao.preparo import PayloadContainer
 from app.sandbox.envelope import SAIDA_SUCESSO, VERSAO
@@ -53,6 +54,9 @@ RESULTADO: dict[str, Any] = {
     },
 }
 
+# O que um código que segue o contrato declara para RESULTADO: os elementos da decomposição.
+ELEMENTOS_DO_RESULTADO = ["nucleo.percentual", "elem.1"]
+
 FALHA = {
     "tipo": "KeyError",
     "mensagem": "'cod_loja'",
@@ -60,10 +64,16 @@ FALHA = {
 }
 
 
-def resultado_para(competencias: list[str], a_mais: str = "1000.00") -> dict[str, Any]:
-    """O resultado que o harness produziria para estas competências: o baseline é o congelado
-    que o worker confere, e o simulado é ele mais `a_mais`."""
-    baseline = carregar_baselines().total(competencias)
+def resultado_para(
+    competencias: list[str], a_mais: str = "1000.00", *, meta_venda: float | None = None
+) -> dict[str, Any]:
+    """O resultado que o harness produziria para estas competências: o baseline é o que o worker
+    confere, o congelado ou, com meta, o reapurado sobre as vendas escaladas (T-270), e o
+    simulado é ele mais `a_mais`."""
+    if meta_venda is None:
+        baseline = carregar_baselines().total(competencias)
+    else:
+        baseline = carregar_bases().baseline_na_meta(competencias, meta_venda)
     simulado = baseline + Decimal(a_mais)
     diferenca = simulado - baseline
     resultado = copy.deepcopy(RESULTADO)
@@ -85,12 +95,22 @@ def envelope(status: str = "sucesso", **mudancas: Any) -> dict[str, Any]:
         "status": status,
         "assercoes": [ASSERCAO_OK],
         "resultado": copy.deepcopy(RESULTADO),
+        "elementos_implementados": list(ELEMENTOS_DO_RESULTADO),
         "erro": None,
     }
     if status == "assercao_violada":
-        base |= {"assercoes": [ASSERCAO_VIOLADA], "resultado": None}
+        base |= {
+            "assercoes": [ASSERCAO_VIOLADA],
+            "resultado": None,
+            "elementos_implementados": None,
+        }
     if status == "erro_codigo":
-        base |= {"assercoes": [], "resultado": None, "erro": dict(FALHA)}
+        base |= {
+            "assercoes": [],
+            "resultado": None,
+            "elementos_implementados": None,
+            "erro": dict(FALHA),
+        }
     return base | mudancas
 
 

@@ -17,9 +17,10 @@ async def semear_codigo(
     *,
     fonte: str,
     competencias: list[str] | None = None,
-    orcamento: float = 100000.0,
+    orcamento: float | None = 100000.0,
 ) -> dict[str, Any]:
-    """Cria um job em `simulando` com um código gerado, e devolve os ids da cadeia."""
+    """Cria um job em `simulando` com um código gerado, e devolve os ids da cadeia. `orcamento`
+    None é o job sem orçamento."""
     competencias = competencias or ["2025-08"]
     usuario_id: UUID = await conexao.fetchval(
         """

@@ -6,6 +6,7 @@ import java.time.Duration;
 import java.util.List;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
@@ -14,6 +15,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 
@@ -29,13 +31,60 @@ import org.springframework.validation.annotation.Validated;
  * @param sse stream de acompanhamento do job
  * @param outbox publicação dos eventos gravados no outbox transacional
  * @param keycloak emissor e chaves públicas dos JWTs usados pela API
+ * @param transcription cliente de transcrição de áudio
  */
 @ConfigurationProperties("app")
 @Validated
 public record AppProperties(@NotBlank String environment, @NotNull @Valid Service service, @NotNull @Valid Cors cors,
 		@NotNull @Valid Observability observability, @NotNull @Valid Postgres postgres,
 		@NotNull @Valid Rabbitmq rabbitmq, @NotNull @Valid Sse sse, @NotNull @Valid Outbox outbox,
-		@NotNull @Valid Keycloak keycloak) {
+		@NotNull @Valid Keycloak keycloak, @DefaultValue @NotNull @Valid Transcription transcription) {
+
+	/**
+	 * Configura a chamada ao provedor de transcrição.
+	 *
+	 * @param apiKey chave do Deepgram; vazia deixa o cliente não configurado
+	 * @param baseUrl endereço do provedor, sem caminho
+	 * @param connectTimeoutMs tempo limite de conexão, em milissegundos
+	 * @param readTimeoutMs tempo limite da resposta, em milissegundos; junto da conexão
+	 * deve ficar abaixo do prazo de reserva do processamento
+	 * @param processor processamento agendado dos trabalhos de transcrição
+	 */
+	public record Transcription(@DefaultValue("") @NotNull String apiKey,
+			@DefaultValue("https://api.eu.deepgram.com") @NotBlank String baseUrl,
+			@DefaultValue("5000") @Positive int connectTimeoutMs, @DefaultValue("60000") @Positive int readTimeoutMs,
+			@DefaultValue @NotNull @Valid Processor processor) {
+
+		/**
+		 * Uma reserva que vence antes de a chamada esgotar seus tempos limite deixaria
+		 * outra instância chamar o provedor de novo com o mesmo áudio.
+		 */
+		@AssertTrue(message = "o prazo de reserva deve ser maior que connect-timeout-ms + read-timeout-ms")
+		public boolean isReservaMaiorQueAChamada() {
+			return this.processor.reservationTimeout()
+				.compareTo(Duration.ofMillis((long) this.connectTimeoutMs + this.readTimeoutMs)) > 0;
+		}
+
+		@Override
+		public String toString() {
+			return "Transcription[apiKey=REDACTED, connectTimeoutMs=" + this.connectTimeoutMs + ", readTimeoutMs="
+					+ this.readTimeoutMs + ", processor=" + this.processor + "]";
+		}
+
+		/**
+		 * @param enabled liga o processador agendado; desligado, os trabalhos ficam
+		 * pendentes. Sem chave do provedor ele não roda mesmo ligado
+		 * @param pollInterval pausa entre o fim de um ciclo do processador e o início do
+		 * seguinte
+		 * @param reservationTimeout prazo de exclusividade de um trabalho reservado;
+		 * vencido, o trabalho volta a ser elegível
+		 */
+		public record Processor(@DefaultValue("true") boolean enabled,
+				@DefaultValue("1s") @NotNull Duration pollInterval,
+				@DefaultValue("5m") @NotNull Duration reservationTimeout) {
+		}
+
+	}
 
 	/**
 	 * Configura a identidade pública do serviço.

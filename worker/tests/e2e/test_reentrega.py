@@ -117,3 +117,34 @@ async def test_worker_morto_no_meio_da_execucao_nao_perde_o_comando(ambiente: Am
     assert set(ambiente.conteineres_do_job(job_id)) <= orfaos
     assert corretor.contagens()["executar-codigo.dlq"].prontas == 0
     assert json.loads(json.dumps(evento))["status"] == "sucesso"
+
+
+async def test_o_mesmo_codigo_em_duas_metas_vira_duas_linhas_e_a_reentrega_de_uma_republica(
+    ambiente: Ambiente,
+) -> None:
+    """A busca da meta maior roda o mesmo código em várias metas (T-273): cada candidata é uma
+    execução, com a própria linha, e a reentrega de uma republica a dela, sem executar (T-270)."""
+    worker = await ambiente.iniciar_worker()
+    semente = await ambiente.semear(regras.SUCESSO)
+    corretor = ambiente.corretor
+    metas = (regras.META_2025_11, 16000000.0)
+    eventos = []
+    for meta in metas:
+        await corretor.publicar_comando(semente, 600000.0, meta_venda=meta, proposito="busca_meta")
+        eventos.append(await corretor.evento(corretor.api))
+        await corretor.evento(corretor.codegen)
+
+    await corretor.publicar_comando(
+        semente, 600000.0, meta_venda=metas[0], proposito="busca_meta"
+    )  # a entrega duplicada da primeira candidata
+    republicado = await corretor.evento(corretor.api)
+    await corretor.evento(corretor.codegen)
+
+    linhas = await ambiente.linhas(semente["job_id"])
+    assert [float(linha["meta_venda"]) for linha in linhas] == list(metas)
+    assert [evento["meta_venda"] for evento in eventos] == list(metas)
+    assert [evento["resultado_id"] for evento in eventos] == [str(linha["id"]) for linha in linhas]
+    assert republicado == eventos[0]
+    assert len(worker.mensagens("execução no sandbox concluída")) == 2
+    assert (await corretor.esperar_comando_concluido()).vazia
+    assert ambiente.conteineres_do_job(semente["job_id"]) == []

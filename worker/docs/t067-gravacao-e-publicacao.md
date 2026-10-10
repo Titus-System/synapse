@@ -43,11 +43,13 @@ schema prevê (claim-check, ARCHITECTURE.md §6.1). O contrato **não foi altera
 | --- | --- | --- |
 | `status` | `sucesso` | a classe |
 | `veredito` | `viavel` ou `inviavel` | nulo (nunca `indeterminado`) |
-| `totais` | os do container **mais `orcamento`** | nulo |
+| `totais` | os do container **mais `vendas_historicas`** e, quando o comando o traz, **`orcamento`** | nulo |
 | `assercoes` | as do resultado | as do desfecho (`[]` em `erro_infra`) |
 | `decomposicao` | a do container, como veio | nulo |
 | `diagnostico` | nulo | em `erro_codigo`, a causa e o que houver de falha e problemas (T-204); nulo nos demais |
+| `meta_venda`, `proposito` | os do comando (T-270) | os do comando (T-270) |
 | evento: `veredito`, `total_*`, `diferenca_*` | presentes | **ausentes** |
+| evento: `meta_venda`, `proposito` | a meta, quando houve; o propósito, só `busca_meta` | o mesmo |
 
 O `indeterminado` é o veredito interno da T-066 e **nunca** é gravado nem publicado: o schema e a
 tabela o declaram nulo/ausente fora de `sucesso`, e a `api` lê `sucesso` + `indeterminado` como
@@ -97,6 +99,8 @@ comando que volta depois de a publicação falhar (ou de uma queda antes do `ack
 resultado já gravado; por isso a consulta vem **antes** de subir o container. Se há linha, o
 worker não executa de novo (60 s de container) nem grava outra: republica o evento e dá `ack`. A
 consulta ignora `erro_infra`, para um comando reenviado da DLQ executar de novo.
+
+"O mesmo comando" é o mesmo código no mesmo job, **na mesma meta e com o mesmo propósito** (T-270): a busca da meta maior (T-273) roda o mesmo código em várias metas candidatas, e cada candidata é uma execução com a própria linha. A consulta compara `meta_venda` com `IS NOT DISTINCT FROM`, então um comando sem meta só encontra a linha sem meta.
 
 Se o evento se perde (nenhuma fila ligada), as três tentativas encontram a mesma linha, o comando
 vai à DLQ e **a linha é uma só e continua consultável**. Religada a fila, o operador reenvia o

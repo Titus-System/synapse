@@ -28,7 +28,7 @@ from app.execucao.preparo import PayloadContainer
 from app.execucao.schema import Problema, validar_assercoes, validar_resultado
 from app.sandbox.assercoes import Desfecho
 from app.sandbox.envelope import SAIDA_POR_STATUS, VERSAO, Envelope, Falha
-from app.sandbox.resultado import ResultadoSimulacao
+from app.sandbox.resultado import PADRAO_ELEMENTO_REF, ResultadoSimulacao
 
 type Classe = Literal["sucesso", "assercao_violada", "erro_codigo", "erro_infra"]
 
@@ -49,6 +49,9 @@ type Motivo = Literal[
     # Atribuído no julgamento (T-066): o total do baseline que saiu do container não é o que o
     # worker tem congelado, ou os totais não fecham entre si.
     "baseline_divergente",
+    # Atribuído no julgamento (T-241): o comando exigiu um elemento que o código não declarou,
+    # ou o código atribuiu contribuição a um elemento que o comando não exige.
+    "cobertura_incompleta",
     "infra",
 ]
 
@@ -63,6 +66,9 @@ class DesfechoClassificado:
     assercoes: list[Desfecho] = field(default_factory=list, repr=False)
     # Só em sucesso, e é o objeto do envelope como veio: sem orçamento, sem recomposição.
     resultado: ResultadoSimulacao | None = field(default=None, repr=False)
+    # Só em sucesso: os elementos que o código gerado declarou implementar, cada um no espaço de
+    # elemento_ref. None quando ele não declarou nada; quem julga isso é a T-241, no veredito.
+    elementos_implementados: tuple[str, ...] | None = field(default=None, repr=False)
     # Só em erro_codigo com envelope: tipo, mensagem e quadros da regra. Texto para o
     # usuário, nunca instrução para um agente.
     erro: Falha | None = field(default=None, repr=False)
@@ -78,7 +84,7 @@ def classificar_falha_de_infra() -> DesfechoClassificado:
 
 
 def classificar(
-    saida: SaidaBruta, payload: PayloadContainer, orcamento: float
+    saida: SaidaBruta, payload: PayloadContainer, orcamento: float | None
 ) -> DesfechoClassificado:
     """Decide a classe de uma execução que chegou ao fim. A primeira regra que casa vence."""
     if saida.estourou_timeout:
@@ -123,7 +129,15 @@ def classificar(
             problemas=tuple(problemas),
             saida=saida,
         )
-    return DesfechoClassificado("sucesso", "ok", assercoes, resultado=resultado, saida=saida)
+    elementos = envelope["elementos_implementados"]
+    return DesfechoClassificado(
+        "sucesso",
+        "ok",
+        assercoes,
+        resultado=resultado,
+        elementos_implementados=tuple(elementos) if elementos is not None else None,
+        saida=saida,
+    )
 
 
 def _erro_codigo(motivo: Motivo, saida: SaidaBruta) -> DesfechoClassificado:
@@ -172,6 +186,7 @@ def _forma_valida(dados: Mapping[str, Any]) -> bool:
         return False
     violada = any(item["resultado"] == "violada" for item in assercoes)
     resultado, erro = dados["resultado"], dados["erro"]
+    elementos = dados["elementos_implementados"]
 
     if status == "sucesso":
         # Uma violação num envelope de sucesso se contradiz: o número não valeria.
@@ -180,10 +195,23 @@ def _forma_valida(dados: Mapping[str, Any]) -> bool:
             and erro is None
             and not violada
             and resultado.get("assercoes") == assercoes
+            and (elementos is None or _declaracao_valida(elementos))
         )
+    # A declaração só acompanha um resultado: sem ele não há o que conferir.
+    if elementos is not None:
+        return False
     if status == "assercao_violada":
         return resultado is None and erro is None and violada
     return resultado is None and _falha_valida(erro)
+
+
+def _declaracao_valida(elementos: object) -> bool:
+    """A lista que o harness confere antes de escrever: identificadores de ``elemento_ref``. Só
+    um identificador assim pode chegar ao diagnóstico ou ao log, nunca texto livre."""
+    return isinstance(elementos, list) and all(
+        isinstance(elemento, str) and PADRAO_ELEMENTO_REF.fullmatch(elemento)
+        for elemento in elementos
+    )
 
 
 def _falha_valida(erro: object) -> bool:

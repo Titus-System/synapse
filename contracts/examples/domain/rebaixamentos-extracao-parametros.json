@@ -1,0 +1,6 @@
+[
+  {"ref": "elem.1", "motivo": "codigo_fora_do_vocabulario"},
+  {"ref": "elem.2", "motivo": "termo_ambiguo"},
+  {"ref": "parametros.orcamento", "motivo": "valor_sem_lastro"},
+  {"ref": "parametros.competencias", "motivo": "periodo_nao_resolvido"}
+]

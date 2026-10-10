@@ -17,6 +17,7 @@ from app.extracao.modelos import (
     Rebaixamento,
     ResultadoExtracao,
 )
+from app.extracao.parametros import validar_parametros
 from app.extracao.registro import CONSTRUTOS_HABILITADOS
 from app.extracao.schema import schema_elemento, schema_envelope, schema_saida
 from app.graph.prompts.extraction import montar_prompt_extracao
@@ -38,7 +39,9 @@ def _texto_util(valor: object) -> str | None:
     return valor if isinstance(valor, str) and valor.strip() else None
 
 
-def _montar(conteudo: str, texto: str) -> tuple[RepresentacaoRegra, list[Rebaixamento]]:
+def _montar(
+    conteudo: str, texto: str
+) -> tuple[RepresentacaoRegra, list[Rebaixamento], dict[str, ValorRegra]]:
     rascunho = simplejson.loads(
         conteudo, use_decimal=True, allow_nan=False, object_pairs_hook=_objeto_sem_duplicatas
     )
@@ -85,7 +88,12 @@ def _montar(conteudo: str, texto: str) -> tuple[RepresentacaoRegra, list[Rebaixa
             "especificacoes": elementos,
         }
     )
-    return representacao, rebaixamentos
+    # O trecho só serve à conferência de lastro da T-210; o valor entra como o modelo o
+    # devolveu, sem checagem de lastro nesta tarefa.
+    parametros = validar_parametros(
+        {chave: campo["valor"] for chave, campo in rascunho["parametros"].items()}
+    )
+    return representacao, rebaixamentos, parametros
 
 
 async def extrair_regra(
@@ -125,10 +133,11 @@ async def extrair_regra(
         and isinstance(usage.get("output_tokens"), int)
     ):
         consumo = {"tokens_in": usage["input_tokens"], "tokens_out": usage["output_tokens"]}
-    representacao, rebaixamentos = montado
+    representacao, rebaixamentos, parametros = montado
     return ResultadoExtracao(
         representacao=representacao,
         rebaixamentos=rebaixamentos,
+        parametros=parametros,
         chamada=ChamadaExtracao(
             prompt=prompt,
             resposta=conteudo,

@@ -354,9 +354,12 @@ async def test_code_generation_conclui_depois_de_dois_503_com_um_unico_aviso(
 
     assert "def aplicar_regra" in update["resposta_bruta"]
     assert modelo.ainvoke.await_count == 3
-    producers.etapa_alterada.assert_awaited_once_with(
-        EtapaAlterada(job_id=job_id, etapa="geracao_codigo", status="aguardando_provedor")
-    )
+    # O nó anuncia a entrada da etapa e, depois, um único aviso de espera: as duas novas
+    # tentativas não republicam o aviso.
+    assert [chamada.args[0] for chamada in producers.etapa_alterada.await_args_list] == [
+        EtapaAlterada(job_id=job_id, etapa="geracao_codigo", status="iniciada"),
+        EtapaAlterada(job_id=job_id, etapa="geracao_codigo", status="aguardando_provedor"),
+    ]
     assert no_ctx.get() is None
 
 

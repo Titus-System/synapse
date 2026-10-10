@@ -12,6 +12,7 @@ from app.execucao.preparo import PayloadContainer
 from app.sandbox import executor
 from app.sandbox.envelope import (
     CAMPOS_PAYLOAD,
+    CAMPOS_PAYLOAD_OPCIONAIS,
     SAIDA_ASSERCAO_VIOLADA,
     SAIDA_ERRO_CODIGO,
     SAIDA_HARNESS,
@@ -19,7 +20,12 @@ from app.sandbox.envelope import (
     SAIDA_SUCESSO,
 )
 from app.sandbox.executor import PayloadInvalidoError, ler_payload, processar
-from tests.app.sandbox.test_harness import EXEMPLO, REGRA_SEM_EFEITO
+from tests.app.sandbox.test_harness import (
+    DECLARACAO_DO_EXEMPLO,
+    EXEMPLO,
+    EXEMPLO_SEM_DECLARACAO,
+    REGRA_SEM_EFEITO,
+)
 from tests.app.sandbox.test_resultado import com_orcamento, validar_no_contrato
 
 WORKER = Path(__file__).resolve().parents[3]
@@ -137,7 +143,66 @@ def test_orcamento_no_payload_e_recusado_sem_repetir_o_valor() -> None:
 
 def test_campos_do_payload_sao_os_de_payload_container() -> None:
     """A fronteira que o worker escreve e a que o sandbox lê têm de ser a mesma lista."""
-    assert {campo.name for campo in fields(PayloadContainer)} == CAMPOS_PAYLOAD
+    assert {
+        campo.name for campo in fields(PayloadContainer)
+    } == CAMPOS_PAYLOAD | CAMPOS_PAYLOAD_OPCIONAIS
+    assert not CAMPOS_PAYLOAD & CAMPOS_PAYLOAD_OPCIONAIS
+
+
+# ---- a meta de venda (T-270) ----
+
+# A soma de vlr_venda de 2025-11 é 13.271.681,51; a meta é 10% acima.
+META_2025_11 = 14598849.661
+
+
+def test_payload_sem_meta_e_lido_sem_meta() -> None:
+    assert ler_payload(bytes_do(payload())).meta_venda is None
+
+
+@pytest.mark.parametrize("meta", [META_2025_11, 26000000, 0.01])
+def test_payload_com_meta_e_lido_com_a_meta(meta: float) -> None:
+    lido = ler_payload(bytes_do(payload(meta_venda=meta)))
+
+    assert lido.meta_venda == meta and type(lido.meta_venda) is float
+
+
+@pytest.mark.parametrize(
+    "meta",
+    [0, 0.0, -1.0, True, "26000000", None, [1.0]],
+    ids=["zero", "zero_float", "negativa", "bool", "texto", "nula", "lista"],
+)
+def test_meta_invalida_e_recusada(meta: object) -> None:
+    """Só a ausência é "sem meta": um ``null`` rodaria sobre as vendas históricas uma execução
+    pedida na meta, e sairia com um número que ninguém pediu."""
+    with pytest.raises(PayloadInvalidoError, match="meta_venda"):
+        ler_payload(bytes_do(payload(meta_venda=meta)))
+
+
+@pytest.mark.parametrize("constante", [b"Infinity", b"NaN"])
+def test_meta_nao_finita_e_recusada(constante: bytes) -> None:
+    corpo = bytes_do(payload(meta_venda=1.0)).replace(b"1.0", constante)
+
+    with pytest.raises(PayloadInvalidoError, match="meta_venda"):
+        ler_payload(corpo)
+
+
+def test_na_meta_o_envelope_leva_o_baseline_reapurado_sobre_as_vendas_escaladas() -> None:
+    codigo, envelope = rodar_e_ler(payload(meta_venda=META_2025_11))
+
+    assert codigo == SAIDA_SUCESSO and envelope["status"] == "sucesso"
+    totais = envelope["resultado"]["totais"]
+    assert totais["baseline"] == 558870.26
+    # O exemplo paga 2,5% das vendas da marca 10 no cargo 100: o simulado também sai na meta.
+    _, historico = rodar_e_ler(payload())
+    assert totais["simulado"] > historico["resultado"]["totais"]["simulado"]
+    assert "meta_venda" not in envelope and "vendas_historicas" not in totais
+
+
+def test_meta_igual_ao_total_historico_produz_o_mesmo_envelope_que_sem_meta() -> None:
+    _, sem_meta = rodar(payload())
+    _, na_meta = rodar(payload(meta_venda=13271681.51))
+
+    assert na_meta == sem_meta
 
 
 # ---- sucesso ----
@@ -148,12 +213,42 @@ def test_exemplo_do_contrato_devolve_envelope_de_sucesso() -> None:
 
     assert codigo == SAIDA_SUCESSO
     assert envelope["status"] == "sucesso" and envelope["erro"] is None
-    assert envelope["versao"] == 1
+    assert envelope["versao"] == 2
     assert (envelope["job_id"], envelope["codigo_gerado_id"]) == (JOB_ID, CODIGO_ID)
     assert envelope["competencias"] == ["2025-11"]
     assert envelope["resultado"]["totais"]["baseline"] == 508382.32
     assert envelope["assercoes"] == envelope["resultado"]["assercoes"]
     assert [a["resultado"] for a in envelope["assercoes"]] == ["ok"]
+
+
+def test_o_envelope_de_sucesso_leva_a_declaracao_do_codigo() -> None:
+    _, envelope = rodar_e_ler(payload())
+
+    assert envelope["elementos_implementados"] == ["nucleo.percentual"]
+
+
+def test_codigo_sem_declaracao_e_sucesso_com_a_declaracao_nula() -> None:
+    """O código gerado antes da declaração continua executado como antes: quem decide se isso
+    basta é a conferência do worker."""
+    codigo, envelope = rodar_e_ler(payload(EXEMPLO_SEM_DECLARACAO))
+
+    assert codigo == SAIDA_SUCESSO
+    assert envelope["status"] == "sucesso"
+    assert envelope["elementos_implementados"] is None
+
+
+def test_declaracao_fora_do_contrato_e_erro_do_codigo() -> None:
+    fonte = EXEMPLO.replace(
+        DECLARACAO_DO_EXEMPLO, '        "elementos_implementados": "nucleo.percentual",\n'
+    )
+    assert fonte != EXEMPLO
+
+    codigo, envelope = rodar_e_ler(payload(fonte))
+
+    assert codigo == SAIDA_ERRO_CODIGO
+    assert envelope["status"] == "erro_codigo"
+    assert envelope["erro"]["tipo"] == "SaidaForaDoContratoError"
+    assert (envelope["resultado"], envelope["elementos_implementados"]) == (None, None)
 
 
 def test_o_resultado_nao_traz_orcamento_nem_linha_das_bases() -> None:

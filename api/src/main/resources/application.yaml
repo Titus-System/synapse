@@ -1,4 +1,16 @@
+server:
+  tomcat:
+    # Drena o upload recusado para entregar o JSON 413 antes de fechar a conexão.
+    # Vale para toda rota, então tem teto: sem ele, qualquer cliente prenderia uma
+    # thread enviando um corpo sem fim. Os limites de aceitação ficam em
+    # spring.servlet.multipart.
+    max-swallow-size: 10MB
+
 spring:
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
   main:
     banner-mode: off
   config:
@@ -36,11 +48,12 @@ spring:
     template:
       mandatory: true
   # O scheduler padrão tem uma thread só; o heartbeat SSE bloqueia enquanto envia a um
-  # cliente lento e atrasaria o poller do outbox.
+  # cliente lento, e o processador de transcrição espera o provedor por até a soma dos
+  # tempos limite. Uma thread para cada um mantém o poller do outbox em dia.
   task:
     scheduling:
       pool:
-        size: 2
+        size: 3
 
 # Único lugar que lê variável de ambiente. Todo o resto consome app.*.
 app:
@@ -89,10 +102,24 @@ app:
     enabled: ${KEYCLOAK_ENABLED:false}
     issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/synapse}
     jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8081/realms/synapse/protocol/openid-connect/certs}
+  transcription:
+    api-key: ${DEEPGRAM_API_KEY:}
+    base-url: ${TRANSCRIPTION_BASE_URL:https://api.eu.deepgram.com}
+    connect-timeout-ms: ${TRANSCRIPTION_CONNECT_TIMEOUT_MS:5000}
+    read-timeout-ms: ${TRANSCRIPTION_READ_TIMEOUT_MS:60000}
+    processor:
+      enabled: ${TRANSCRIPTION_PROCESSOR_ENABLED:true}
+      poll-interval: ${TRANSCRIPTION_POLL_INTERVAL:1s}
+      reservation-timeout: ${TRANSCRIPTION_RESERVATION_TIMEOUT:5m}
 
 logging:
   level:
     root: ${app.observability.log-level}
+    # Conversores MVC em DEBUG imprimem corpos; JDBC em TRACE imprime parâmetros.
+    org.springframework.web.servlet.mvc.method.annotation: INFO
+    org.springframework.jdbc.core.StatementCreatorUtils: INFO
+    # O transporte HTTP do JDK inclui Authorization nos logs de diagnóstico.
+    sun.net.www.protocol.http.HttpURLConnection: 'OFF'
 
 management:
   endpoints:

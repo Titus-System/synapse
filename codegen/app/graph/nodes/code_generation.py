@@ -4,11 +4,12 @@ No tools are bound here - the model only replies with text, never picks a next s
 """
 
 from typing import Any
+from uuid import UUID
 
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-from app.contratos.mensagens import NoGrafo
+from app.contratos.mensagens import EtapaAlterada, NoGrafo
 from app.core.logger import get_logger, no_ctx
 from app.falhas import FalhaDoJobError, ProvedorIndisponivelError
 from app.graph.core.llm.disponibilidade import chamar_com_espera_do_provedor, ganchos_da_espera
@@ -54,6 +55,9 @@ async def code_generation(state: AgentState, config: RunnableConfig) -> AgentSta
     `ProvedorIndisponivelGeracaoError` when the provider stays unavailable for the whole retry
     window. Any other provider error propagates as-is. No case leaves partial state (AGENTS.md).
     """
+    await config["configurable"]["producers"].etapa_alterada(
+        EtapaAlterada(job_id=UUID(state["job_id"]), etapa=NO_GERACAO_CODIGO, status="iniciada")
+    )
     rule = RepresentacaoRegra.model_validate(state["representacao_regra"])
     prompt = montar_prompt_geracao(rule)
 

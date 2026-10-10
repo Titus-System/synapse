@@ -25,11 +25,10 @@ class RegraInvalidaError(FalhaDoJobError):
     correlation ids, not artifact data. A redelivery does not make the rule valid, so this
     failure is permanent.
 
-    `load_rule` has no etapa of its own in the closed vocabulary: reading the rule is the
-    first step of the generation the job is already in (`gerando_regra`).
+    Reading the rule is the first step of domain validation.
     """
 
-    etapa = "geracao_codigo"
+    etapa = "validacao_dominio"
 
 
 def _como_objeto(valor: object) -> object:
