@@ -4,12 +4,13 @@ import subprocess
 from collections.abc import AsyncGenerator
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
 import simplejson
 from aio_pika import DeliveryMode, Message
-from aio_pika.abc import AbstractIncomingMessage
+from aio_pika.abc import AbstractIncomingMessage, AbstractQueue
 from aiormq.exceptions import ChannelNotFoundEntity
 
 from app.config import Settings
@@ -28,8 +29,9 @@ from app.mensageria.broker import (
     conectar,
 )
 from app.mensageria.consumers import Consumer
-from app.mensageria.roteamento import Entrada
+from app.mensageria.roteamento import Entrada, GraphRouter
 from tests.app.confirmacao_falsa import ConfirmacaoFalsa
+from tests.app.iteracao_falsa import NUCLEO, HistoricoFalso
 from tests.app.test_mensageria import SAIDAS, exemplo, oficial, sugestao_do_exemplo
 
 pytestmark = [
@@ -309,3 +311,95 @@ async def test_dispatch_execution_entrega_comando_persistente_e_valido(
     assert conclusao["regra_id"] == str(regra_id)
     assert "codigo_gerado_id" not in conclusao
     await trilha.ack()
+
+
+async def _proxima(fila: AbstractQueue, prazo: float = 30) -> AbstractIncomingMessage:
+    """A próxima mensagem da fila. `get` não espera por ela, então a consulta se repete."""
+    async with asyncio.timeout(prazo):
+        while True:
+            recebida = await fila.get(fail=False)
+            if recebida is not None:
+                return recebida
+            await asyncio.sleep(0.05)
+
+
+async def _ler(recebida: AbstractIncomingMessage, evento: str) -> dict[str, Any]:
+    payload: dict[str, Any] = simplejson.loads(recebida.body, use_decimal=True)
+    oficial(evento).validate(payload)
+    await recebida.ack()
+    return payload
+
+
+async def test_iteracao_da_taxa_nova_propoe_tres_taxas_e_encerra_sem_alternativa(
+    broker_real: ConexaoBroker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Consumers e producers reais no broker; o teste faz a api e o worker (T-271).
+
+    A cada ciclo, a api publica `regra-submetida` com o orçamento do job, e o worker lê o
+    comando e publica o resultado no fanout. Nenhuma das três taxas cabe em 1700, e depois da
+    terceira o codegen anuncia o fim da iteração em vez de uma quarta proposta.
+    """
+    ambiente = ConfirmacaoFalsa(monkeypatch)
+    historico = HistoricoFalso(uuid4(), Decimal("1700"), Decimal("1000"))
+    historico.instalar(monkeypatch)
+    roteador = GraphRouter(ambiente.banco, broker_real.producers, ambiente.limpeza)
+    await broker_real.iniciar_consumers(roteador)
+    fanout = await broker_real.canal.get_exchange(EXCHANGE_SIMULACAO)
+    job_id = str(historico.job_id)
+    regra_id = historico.gravar_versao({"nucleo": dict(NUCLEO), "especificacoes": []}, "extracao")
+    propostas: list[dict[str, Any]] = []
+
+    for comissao in ("2200", "1800", "1764", "1710"):
+        submetida = exemplo("regra-submetida-parametros") | {
+            "job_id": job_id,
+            "regra_id": str(regra_id),
+            "orcamento": Decimal("1700"),
+        }
+        await broker_real.canal.default_exchange.publish(
+            Message(body=simplejson.dumps(submetida, use_decimal=True).encode()),
+            routing_key="regra-submetida",
+        )
+        comando = await _ler(
+            await _proxima(broker_real.filas["executar-codigo"]), "executar-codigo"
+        )
+        assert comando["orcamento"] == Decimal("1700")
+        resultado_id = historico.gravar_resultado(regra_id, Decimal(comissao))
+        resultado = exemplo("simulacao-concluida") | {
+            "job_id": job_id,
+            "resultado_id": str(resultado_id),
+            "veredito": "inviavel",
+        }
+        await fanout.publish(
+            Message(body=simplejson.dumps(resultado, use_decimal=True).encode()), routing_key=""
+        )
+        if len(propostas) < 3:
+            proposta = await _ler(
+                await _proxima(broker_real.filas["sugestao-adaptacao-proposta"]),
+                "sugestao-adaptacao-proposta",
+            )
+            assert proposta["regra_origem_id"] == str(regra_id)
+            propostas.append(proposta)
+            regra_id = historico.gravar_proposta(proposta)
+
+    etapas: list[dict[str, Any]] = []
+    # Prazo do conjunto: um ciclo em laço de reentrega publica etapas sem nunca chegar ao fim.
+    async with asyncio.timeout(60):
+        while not etapas or etapas[-1]["status"] != "sem_alternativa":
+            recebida = await _proxima(broker_real.filas["etapa-alterada"])
+            etapas.append(await _ler(recebida, "etapa-alterada"))
+    assert etapas[-1] == {
+        "job_id": job_id,
+        "etapa": "sugestao_adaptacao",
+        "status": "sem_alternativa",
+    }
+    assert [p["tentativa"] for p in propostas] == [1, 2, 3]
+    assert all(e["status"] != "erro" for e in etapas)
+    assert await broker_real.filas["sugestao-adaptacao-proposta"].get(fail=False) is None
+    for nome in ("regra-submetida", FILA_SIMULACAO):
+        canal_verificacao = await broker_real.conexao.channel()
+        try:
+            fila = await canal_verificacao.declare_queue(nome, passive=True)
+            assert fila.declaration_result.message_count == 0
+        finally:
+            if not canal_verificacao.is_closed:
+                await canal_verificacao.close()

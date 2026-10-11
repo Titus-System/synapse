@@ -124,6 +124,7 @@ class SugestaoAdaptacaoProposta(ModeloContrato):
     regra_origem_id: UUID
     resultado_id: UUID
     representacao: RepresentacaoRegra
+    tentativa: int | None = Field(default=None, ge=1, le=3)
 
 
 class ExecutarCodigo(ModeloContrato):

@@ -121,6 +121,28 @@ for _parametro in PARAMETROS_DA_SIMULACAO:
     for _resultado in ("extraido", "ausente"):
         parametros_extracao.labels(parametro=_parametro, resultado=_resultado)
 
+# Uma contagem por tentativa de taxa nova no desfecho dela: o veredito da simulação da
+# alternativa, contado pela decisão, ou o motivo de não haver alternativa a propor, contado
+# pela sugestão. A proposta publicada ainda não é desfecho. Conta execuções do nó: a
+# reentrega de um resultado já processado não passa por ele.
+TENTATIVAS_DE_TAXA = ("1", "2", "3")
+DESFECHOS_DA_TENTATIVA = (
+    "viavel",
+    "inviavel",
+    "indeterminado",
+    "sem_margem",
+    "incoerente",
+    "nao_suportada",
+)
+tentativas_de_taxa = prometheus.register_counter(
+    "codegen_sugestao_adaptacao_tentativas_total",
+    "Tentativas de taxa nova por número da tentativa e desfecho",
+    ["tentativa", "desfecho"],
+)
+for _tentativa in TENTATIVAS_DE_TAXA:
+    for _desfecho in DESFECHOS_DA_TENTATIVA:
+        tentativas_de_taxa.labels(tentativa=_tentativa, desfecho=_desfecho)
+
 # Uma tentativa por job encerrado que ainda tinha checkpoints a remover. `adiada` é a tentativa
 # que esbarrou num processamento em andamento ou num ciclo à espera do resultado e será refeita
 # quando ele terminar; não é falha. Jobs não encerrados ou já limpos não contam.

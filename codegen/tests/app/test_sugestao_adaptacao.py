@@ -8,7 +8,9 @@ from app.sugestao_adaptacao import (
     MOTIVO_NAO_SUPORTADA,
     MOTIVO_PROPOSTA,
     MOTIVO_SEM_MARGEM,
+    TaxaSimulada,
     percentual_que_cabe,
+    percentual_refinado,
     propor_alternativa,
 )
 
@@ -153,3 +155,133 @@ def test_percentual_inteiro_do_json_tambem_pode_ser_adaptado() -> None:
     )
     assert alternativa.representacao is not None
     assert alternativa.representacao["nucleo"]["percentual"] == Decimal("0.5000")
+
+
+# Uma regra só de núcleo custa uma parte fixa mais a taxa vezes as vendas no escopo. Nas taxas
+# abaixo, a parte fixa é 1000 e as vendas no escopo, 40000: a comissão é 1000 + 40000 * taxa.
+ORIGINAL = TaxaSimulada(Decimal("0.025"), Decimal("2000"))
+PRIMEIRA = TaxaSimulada(Decimal("0.02"), Decimal("1800"))
+
+
+def test_refina_pela_reta_dos_pares_ja_simulados() -> None:
+    candidato = percentual_refinado([ORIGINAL, PRIMEIRA], Decimal("1700"))
+
+    assert candidato == Decimal("0.0175")
+    assert Decimal("1000") + Decimal("40000") * candidato <= Decimal("1700")
+
+
+def test_refinamento_trunca_para_baixo() -> None:
+    candidato = percentual_refinado([ORIGINAL, PRIMEIRA], Decimal("1701"))
+
+    assert candidato == Decimal("0.0175")
+    assert candidato.as_tuple().exponent == -4
+
+
+def test_refina_pelos_dois_pares_mais_proximos_do_orcamento() -> None:
+    distante = TaxaSimulada(Decimal("0.03"), Decimal("3000"))
+
+    candidato = percentual_refinado([distante, ORIGINAL, PRIMEIRA], Decimal("1700"))
+
+    assert candidato == Decimal("0.0175")
+
+
+def test_refinamento_preserva_a_precisao_decimal() -> None:
+    anteriores = [
+        TaxaSimulada(Decimal("0.0250"), Decimal("2000.000000000000000001")),
+        TaxaSimulada(Decimal("0.0200"), Decimal("1800.000000000000000001")),
+    ]
+
+    candidato = percentual_refinado(anteriores, Decimal("1700.000000000000000001"))
+
+    assert candidato == Decimal("0.0175")
+
+
+@pytest.mark.parametrize(
+    "anteriores,orcamento",
+    [
+        pytest.param([ORIGINAL], "1700", id="um-par-so"),
+        pytest.param([ORIGINAL, ORIGINAL], "1700", id="o-mesmo-percentual-duas-vezes"),
+        # Com orçamento acima de uma das comissões, só a inclinação barra a reta que sobe.
+        pytest.param(
+            [ORIGINAL, TaxaSimulada(Decimal("0.02"), Decimal("2100"))],
+            "2200",
+            id="inclinacao-negativa",
+        ),
+        pytest.param(
+            [ORIGINAL, TaxaSimulada(Decimal("0.02"), Decimal("2000"))], "1700", id="inclinacao-nula"
+        ),
+        pytest.param([ORIGINAL, PRIMEIRA], "900", id="parte-fixa-acima-do-orcamento"),
+        pytest.param([ORIGINAL, PRIMEIRA], "1800", id="nao-reduz-a-menor-taxa"),
+    ],
+)
+def test_nao_refina_sem_uma_reta_que_desca_ate_o_orcamento(
+    anteriores: list[TaxaSimulada], orcamento: str
+) -> None:
+    assert percentual_refinado(anteriores, Decimal(orcamento)) is None
+
+
+def test_a_partir_da_segunda_tentativa_propoe_pelos_pares_e_nao_pelo_baseline() -> None:
+    """Com baseline 1200, a estimativa inicial daria 0,0166; os pares dão a taxa que cabe."""
+    alternativa = propor_alternativa(
+        _representacao(nucleo={"percentual": Decimal("0.02")}),
+        Decimal("1800"),
+        Decimal("1700"),
+        baseline=Decimal("1200"),
+        anteriores=[ORIGINAL, PRIMEIRA],
+    )
+
+    assert alternativa.motivo == MOTIVO_PROPOSTA
+    assert alternativa.representacao is not None
+    assert alternativa.representacao["nucleo"]["percentual"] == Decimal("0.0175")
+
+
+@pytest.mark.parametrize(
+    "anteriores",
+    [
+        pytest.param([PRIMEIRA], id="so-a-regra-simulada"),
+        pytest.param([PRIMEIRA, PRIMEIRA], id="a-mesma-taxa-duas-vezes"),
+        pytest.param([], id="cadeia-vazia"),
+    ],
+)
+def test_com_menos_de_duas_taxas_simuladas_estima_pelos_totais(
+    anteriores: list[TaxaSimulada],
+) -> None:
+    """Sem reta a traçar, é a primeira taxa desta regra, mesmo que o job já tenha tentado outras."""
+    alternativa = propor_alternativa(
+        _representacao(nucleo={"percentual": Decimal("0.02")}),
+        Decimal("1800"),
+        Decimal("1700"),
+        baseline=Decimal("1200"),
+        anteriores=anteriores,
+    )
+
+    assert alternativa.motivo == MOTIVO_PROPOSTA
+    assert alternativa.representacao is not None
+    assert alternativa.representacao["nucleo"]["percentual"] == Decimal("0.0166")
+
+
+def test_com_duas_taxas_e_sem_reta_ate_o_orcamento_nao_propoe() -> None:
+    """Com duas taxas a estimativa é a da reta, e sem ela não se volta à dos totais."""
+    alternativa = propor_alternativa(
+        _representacao(nucleo={"percentual": Decimal("0.02")}),
+        Decimal("1800"),
+        Decimal("900"),
+        baseline=Decimal("0"),
+        anteriores=[ORIGINAL, PRIMEIRA],
+    )
+
+    assert alternativa.motivo == MOTIVO_SEM_MARGEM
+    assert alternativa.representacao is None
+
+
+def test_nao_propoe_taxa_refinada_que_nao_reduz_a_regra_simulada() -> None:
+    """A api só aceita a proposta abaixo da taxa da versão de origem."""
+    alternativa = propor_alternativa(
+        _representacao(nucleo={"percentual": Decimal("0.015")}),
+        Decimal("1600"),
+        Decimal("1700"),
+        baseline=Decimal("1200"),
+        anteriores=[ORIGINAL, PRIMEIRA],
+    )
+
+    assert alternativa.motivo == MOTIVO_SEM_MARGEM
