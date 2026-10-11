@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
@@ -9,6 +10,11 @@ from app.contratos.mensagens import EtapaAlterada
 from app.contratos.serializacao import serializar
 from app.graph.core.state import AgentState
 from app.graph.nodes import decision as modulo
+from app.repositorio.regras import TentativasDeTaxa
+from tests.app.graph.nodes.test_suggest_adaptation import (
+    tentativas_contadas,
+    variacao_das_tentativas,
+)
 from tests.app.test_mensageria import oficial
 
 JOB_ID = str(uuid4())
@@ -17,9 +23,9 @@ RESULTADO_ID = str(uuid4())
 
 
 @pytest.fixture(autouse=True)
-def consulta_sugestao(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
-    consulta = AsyncMock(return_value=False)
-    monkeypatch.setattr(modulo, "tem_sugestao", consulta)
+def consulta_tentativas(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    consulta = AsyncMock(return_value=TentativasDeTaxa(feitas=0, regra_e_tentativa=False))
+    monkeypatch.setattr(modulo, "contar_tentativas", consulta)
     return consulta
 
 
@@ -38,19 +44,49 @@ def _estado(**sobrescritas: Any) -> AgentState:
         "resultado_id": RESULTADO_ID,
         "status_simulacao": "sucesso",
         "veredito": "inviavel",
+        "representacao_regra": {
+            "nucleo": {"percentual": Decimal("0.025")},
+            "especificacoes": [],
+        },
     }
     estado.update(sobrescritas)  # type: ignore[typeddict-item]
     return estado
 
 
-async def test_encaminha_para_a_sugestao_quando_a_regra_nao_coube() -> None:
+async def test_encaminha_para_a_sugestao_quando_a_regra_nao_coube(
+    consulta_tentativas: AsyncMock,
+) -> None:
     producers = _producers()
 
     update = await modulo.decision(_estado(), _config(producers))
 
-    assert update == {"encaminhamento": "sugestao_adaptacao"}
+    assert update == {"encaminhamento": "sugestao_adaptacao", "tentativas_de_taxa": 0}
     [conclusao] = producers.no_concluido.await_args.args
     assert conclusao.conclusao.encaminhamento == "sugestao_adaptacao"
+    consulta_tentativas.assert_awaited_once_with(None, UUID(JOB_ID), UUID(REGRA_ID))
+
+
+@pytest.mark.parametrize("feitas", [1, 2, 3])
+async def test_a_alternativa_que_nao_coube_tambem_vai_a_sugestao_com_a_conta_das_tentativas(
+    feitas: int, consulta_tentativas: AsyncMock
+) -> None:
+    """Inclusive a terceira: o limite é aplicado pela sugestão, que anuncia o fim (T-271)."""
+    consulta_tentativas.return_value = TentativasDeTaxa(feitas=feitas, regra_e_tentativa=True)
+
+    update = await modulo.decision(_estado(), _config(_producers()))
+
+    assert update == {"encaminhamento": "sugestao_adaptacao", "tentativas_de_taxa": feitas}
+
+
+async def test_regra_com_especificacoes_nao_vai_a_sugestao() -> None:
+    estado = _estado()
+    estado["representacao_regra"]["especificacoes"] = [
+        {"ref": "elem.1", "construto": "bonus_fixo", "valor": Decimal("250")}
+    ]
+
+    update = await modulo.decision(estado, _config(_producers()))
+
+    assert update["encaminhamento"] == "fim"
 
 
 @pytest.mark.parametrize(
@@ -68,13 +104,13 @@ async def test_encerra_o_fluxo_nos_demais_desfechos(estado: dict[str, Any]) -> N
 
     update = await modulo.decision(_estado(**estado), _config(producers))
 
-    assert update == {"encaminhamento": "fim"}
+    assert update["encaminhamento"] == "fim"
     [conclusao] = producers.no_concluido.await_args.args
     assert conclusao.conclusao.encaminhamento == "fim"
 
 
 async def test_encerra_sem_sugestao_o_sucesso_sem_veredito_do_job_sem_orcamento(
-    consulta_sugestao: AsyncMock,
+    consulta_tentativas: AsyncMock,
 ) -> None:
     """Sem orçamento o worker devolve `sucesso` sem veredito (T-281), e a retomada não grava a
     chave. As duas sugestões dependem do orçamento, então não há o que propor."""
@@ -87,7 +123,7 @@ async def test_encerra_sem_sugestao_o_sucesso_sem_veredito_do_job_sem_orcamento(
     assert update == {"encaminhamento": "fim"}
     [conclusao] = producers.no_concluido.await_args.args
     assert conclusao.conclusao.encaminhamento == "fim"
-    consulta_sugestao.assert_not_awaited()
+    consulta_tentativas.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
@@ -161,13 +197,59 @@ async def test_recusa_decidir_sem_o_resultado_da_simulacao() -> None:
         await modulo.decision(estado, _config(_producers()))
 
 
-async def test_nao_propoe_outra_adaptacao_no_mesmo_job(consulta_sugestao: AsyncMock) -> None:
-    consulta_sugestao.return_value = True
-    update = await modulo.decision(_estado(), _config(_producers()))
-    assert update == {"encaminhamento": "fim"}
-
-
-async def test_falha_com_veredito_antigo_nao_gera_sugestao(consulta_sugestao: AsyncMock) -> None:
+async def test_falha_com_veredito_antigo_nao_gera_sugestao(consulta_tentativas: AsyncMock) -> None:
     update = await modulo.decision(_estado(status_simulacao="erro_codigo"), _config(_producers()))
     assert update == {"encaminhamento": "fim"}
-    consulta_sugestao.assert_not_awaited()
+    consulta_tentativas.assert_not_awaited()
+
+
+@pytest.mark.parametrize("veredito", ["viavel", "inviavel", "indeterminado"])
+async def test_conta_o_desfecho_da_alternativa_simulada(
+    veredito: str, consulta_tentativas: AsyncMock
+) -> None:
+    consulta_tentativas.return_value = TentativasDeTaxa(feitas=2, regra_e_tentativa=True)
+    antes = tentativas_contadas()
+
+    await modulo.decision(_estado(veredito=veredito), _config(_producers()))
+
+    assert variacao_das_tentativas(antes) == {("2", veredito): 1.0}
+
+
+async def test_a_regra_que_nao_veio_de_sugestao_nao_e_uma_tentativa_e_nao_conta(
+    consulta_tentativas: AsyncMock,
+) -> None:
+    """Uma correção depois de uma sugestão: o job já tentou uma taxa, mas não esta regra."""
+    consulta_tentativas.return_value = TentativasDeTaxa(feitas=1, regra_e_tentativa=False)
+    antes = tentativas_contadas()
+
+    await modulo.decision(_estado(veredito="viavel"), _config(_producers()))
+
+    assert variacao_das_tentativas(antes) == {}
+
+
+async def test_nao_conta_o_desfecho_quando_a_trilha_nao_foi_publicada(
+    consulta_tentativas: AsyncMock,
+) -> None:
+    """A mensagem volta à fila e o nó roda de novo: contar agora contaria duas vezes."""
+    consulta_tentativas.return_value = TentativasDeTaxa(feitas=1, regra_e_tentativa=True)
+    producers = _producers()
+    producers.no_concluido.side_effect = RuntimeError("broker fora")
+    antes = tentativas_contadas()
+
+    with pytest.raises(RuntimeError):
+        await modulo.decision(_estado(veredito="viavel"), _config(producers))
+
+    assert variacao_das_tentativas(antes) == {}
+
+
+async def test_registra_a_conta_das_tentativas(
+    consulta_tentativas: AsyncMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    consulta_tentativas.return_value = TentativasDeTaxa(feitas=1, regra_e_tentativa=True)
+
+    with caplog.at_level("INFO", logger="app.graph.nodes.decision"):
+        await modulo.decision(_estado(), _config(_producers()))
+
+    [publicado] = [r for r in caplog.records if r.getMessage() == "node conclusion published"]
+    assert publicado.tentativas_de_taxa == 1
+    assert publicado.encaminhamento == "sugestao_adaptacao"

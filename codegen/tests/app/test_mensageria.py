@@ -84,15 +84,13 @@ def exemplo(nome: str) -> dict[str, Any]:
     )
 
 
-def representacao_do_exemplo() -> RepresentacaoRegra:
+def representacao_do_exemplo(nome: str = "sugestao-adaptacao-proposta") -> RepresentacaoRegra:
     """A representação do exemplo com os números como Decimal, que é como o nó a monta.
 
     Este DTO não tem volta por texto JSON: o parser devolveria float, e os tipos da regra o
     recusam justamente para não perder precisão. O consumidor do evento é a `api`, em Java.
     """
-    return RepresentacaoRegra.model_validate(
-        exemplo("sugestao-adaptacao-proposta")["representacao"]
-    )
+    return RepresentacaoRegra.model_validate(exemplo(nome)["representacao"])
 
 
 def oficial(nome: str) -> Draft202012Validator:
@@ -271,21 +269,28 @@ async def test_producer_nao_publica_dto_adulterado(
     canal.default_exchange.publish.assert_not_awaited()
 
 
-def sugestao_do_exemplo() -> SugestaoAdaptacaoProposta:
-    payload = exemplo("sugestao-adaptacao-proposta")
-    return SugestaoAdaptacaoProposta(
+def sugestao_do_exemplo(nome: str = "sugestao-adaptacao-proposta") -> SugestaoAdaptacaoProposta:
+    payload = exemplo(nome)
+    sugestao = SugestaoAdaptacaoProposta(
         job_id=UUID(payload["job_id"]),
         regra_origem_id=UUID(payload["regra_origem_id"]),
         resultado_id=UUID(payload["resultado_id"]),
-        representacao=representacao_do_exemplo(),
+        representacao=representacao_do_exemplo(nome),
     )
+    # Atribuída só quando o exemplo a tem: a proposta anterior ao campo sai sem ele.
+    if "tentativa" in payload:
+        sugestao.tentativa = payload["tentativa"]
+    return sugestao
 
 
-async def test_producer_publica_a_sugestao_no_payload_oficial() -> None:
+@pytest.mark.parametrize(
+    "nome", ["sugestao-adaptacao-proposta", "sugestao-adaptacao-proposta-tentativa"]
+)
+async def test_producer_publica_a_sugestao_no_payload_oficial(nome: str) -> None:
     canal = MagicMock()
     canal.default_exchange.publish = AsyncMock()
 
-    await Producers(canal).sugestao_adaptacao_proposta(sugestao_do_exemplo())
+    await Producers(canal).sugestao_adaptacao_proposta(sugestao_do_exemplo(nome))
 
     args = canal.default_exchange.publish.call_args
     assert args.kwargs == {
@@ -294,7 +299,20 @@ async def test_producer_publica_a_sugestao_no_payload_oficial() -> None:
     }
     corpo = simplejson.loads(args.args[0].body, use_decimal=True)
     oficial("sugestao-adaptacao-proposta").validate(corpo)
-    assert corpo == exemplo("sugestao-adaptacao-proposta")
+    assert corpo == exemplo(nome)
+
+
+async def test_producer_publica_o_fim_da_iteracao_sem_alternativa() -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+    nome = "etapa-alterada-sem-alternativa"
+    dto = EtapaAlterada.model_validate_json(simplejson.dumps(exemplo(nome)))
+
+    await Producers(canal).etapa_alterada(dto)
+
+    corpo = simplejson.loads(canal.default_exchange.publish.call_args.args[0].body)
+    oficial("etapa-alterada").validate(corpo)
+    assert corpo == exemplo(nome)
 
 
 async def test_producer_nao_publica_sugestao_adulterada() -> None:

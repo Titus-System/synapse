@@ -59,3 +59,6 @@ class AgentState(TypedDict, total=False):
     # Para onde o nó de decisão encaminhou o fluxo. É o campo validado que a aresta
     # condicional lê - resposta de modelo nunca escolhe o próximo nó.
     encaminhamento: str
+    # Taxas novas que o job já tentou até a regra deste ciclo, inclusive (T-271). O nó de
+    # decisão a conta, e a sugestão a lê do checkpoint para numerar a tentativa seguinte.
+    tentativas_de_taxa: int

@@ -118,13 +118,14 @@ Em uma reentrega, o entrypoint continua do último checkpoint do ciclo `job_id:r
 | `etapa-alterada` `decisao`/`iniciada` | `decision`, antes de encaminhar | progresso |
 | `no-concluido` `decisao` | `decision`, com o `encaminhamento` | trilha |
 | `etapa-alterada` `sugestao_adaptacao`/`iniciada` | `suggest_adaptation`, antes de propor | progresso |
-| `sugestao-adaptacao-proposta` | `suggest_adaptation`, quando há alternativa | estrutural |
-| `no-concluido` `sugestao_adaptacao` | `suggest_adaptation`, depois da proposta | trilha |
+| `sugestao-adaptacao-proposta` | `suggest_adaptation`, quando há alternativa, com a `tentativa` de 1 a 3 | estrutural |
+| `etapa-alterada` `sugestao_adaptacao`/`sem_alternativa` | `suggest_adaptation`, quando não há taxa a propor ou a terceira não coube | estrutural |
+| `no-concluido` `sugestao_adaptacao` | `suggest_adaptation`, depois da proposta ou do `sem_alternativa` | trilha |
 | `etapa-alterada` `status: erro` | `GraphRouter`, em qualquer `FalhaDoJobError` | estrutural |
 
 **Estrutural** quer dizer que o fluxo quebra sem o evento. `delegacao_worker`/`iniciada` é o único caminho que move o job de `gerando_regra` para `simulando`; o `no-concluido` da geração é o que faz a `api` criar a linha de `simulacoes`, sem a qual o resultado do worker não tem a que se amarrar e o cliente nunca recebe o evento SSE `resultado`; e o `erro` é o que impede o job de ficar pendurado. Os outros dois alimentam progresso e trilha, e é por isso que ficaram para trás até serem cobrados: nada quebra quando faltam.
 
-Os dois `etapa-alterada` disparam na **entrada** da etapa e os dois `no-concluido` na **saída** do nó, como os contratos definem. Só `delegacao_worker`/`iniciada` e `erro` movem o job; os demais a `api` apenas repassa por SSE.
+Os `etapa-alterada` com `iniciada` disparam na **entrada** da etapa e os `no-concluido` na **saída** do nó, como os contratos definem; o `sem_alternativa` sai no fim da sugestão, antes do `no-concluido` dela. Só `delegacao_worker`/`iniciada`, `sem_alternativa` e `erro` movem o job; os demais a `api` apenas repassa por SSE.
 
 O `evento_id` de cada `no-concluido` é determinístico (UUID v5 de `job_id`, etapa e `codigo_gerado_id`), então uma reexecução do nó republica o mesmo evento e o índice único de `trilhas_auditoria.evento_id` reconhece a reentrega. A etapa entra na derivação, então as duas linhas da trilha de um mesmo job não colidem.
 
@@ -134,7 +135,7 @@ O `executar-codigo` leva só `codigo_gerado_id`, nunca o código (claim-check, A
 
 As demais cinco etapas do vocabulário não existem como nós e seguem sem publicar.
 
-A `sugestao-adaptacao-proposta` é estrutural pelo mesmo motivo da delegação: sem ela a alternativa não vira versão de regra e o job não volta a `gerando_regra`. Ela vai depois do `etapa-alterada` da etapa e antes do `no-concluido`, como em `dispatch_execution` e pela mesma razão. A proposta viaja no corpo, e não por referência, porque a linha em `regras` que a guardaria é justamente o que o evento pede para criar - quem grava é a `api`, dona da versão, do hash canônico e do estado do job.
+A `sugestao-adaptacao-proposta` é estrutural pelo mesmo motivo da delegação: sem ela a alternativa não vira versão de regra e o job não volta a `gerando_regra`. Ela vai depois do `etapa-alterada` da etapa e antes do `no-concluido`, como em `dispatch_execution` e pela mesma razão. O `sem_alternativa` ocupa o lugar dela quando não há taxa a propor, e é estrutural porque é o que encerra a iteração na `api`, que não espera outra tentativa depois dele. As até três tentativas estão em [`retomada-apos-execucao.md`](retomada-apos-execucao.md#até-três-taxas-novas-por-job). A proposta viaja no corpo, e não por referência, porque a linha em `regras` que a guardaria é justamente o que o evento pede para criar - quem grava é a `api`, dona da versão, do hash canônico e do estado do job.
 
 Em seguida, `await_execution` pausa o grafo com `interrupt()`, a `regra-submetida` recebe `ack` e o processo fica livre. O resultado do worker chega pela fila do fanout e `GraphRouter._retomar` o entrega ao `interrupt()` pendente por `app/graph/entrypoint.py::resume_to_completion`, que antes confere o checkpoint: job sem checkpoint é rejeitado sem requeue, grafo que ainda não pausou é reenfileirado, e grafo já concluído recebe `ack` sem retomar de novo. O desenho está em [`retomada-apos-execucao.md`](retomada-apos-execucao.md).
 
@@ -184,7 +185,7 @@ poetry run pytest -p no:cacheprovider -m rabbitmq
 Remove-Item Env:RUN_RABBITMQ_INTEGRATION
 ```
 
-Cada teste cria e remove somente seu próprio vhost `t049-<uuid>` no RabbitMQ real, usando `docker compose exec ... rabbitmqctl`; não há segundo ambiente RabbitMQ. As credenciais precisam permitir acesso a esse vhost. Os cenários cobrem entradas, encerramento, fanout e producers. O teste de `parametros-confirmados` publica mensagem válida, duplicata, mensagem sem contexto, contexto inválido e JSON malformado; passa pelo consumer, roteador e grafo reais, substituindo banco, modelo e produtores do grafo. Depois que os callbacks completam ACK/reject, consulta a fila passivamente e exige um consumer, profundidade zero e uma única delegação ao worker. Nenhum serviço API ou worker precisa ser iniciado. Sem `RUN_RABBITMQ_INTEGRATION=1`, esses testes são explicitamente pulados; habilitados, ausência de broker/Docker é falha, nunca aprovação simulada.
+Cada teste cria e remove somente seu próprio vhost `t049-<uuid>` no RabbitMQ real, usando `docker compose exec ... rabbitmqctl`; não há segundo ambiente RabbitMQ. As credenciais precisam permitir acesso a esse vhost. Os cenários cobrem entradas, encerramento, fanout e producers. O teste de `parametros-confirmados` publica mensagem válida, duplicata, mensagem sem contexto, contexto inválido e JSON malformado; passa pelo consumer, roteador e grafo reais, substituindo banco, modelo e produtores do grafo. Depois que os callbacks completam ACK/reject, consulta a fila passivamente e exige um consumer, profundidade zero e uma única delegação ao worker. O teste da taxa nova faz a api e o worker pelo broker: a cada ciclo publica `regra-submetida`, lê o `executar-codigo` e publica o resultado inviável no fanout, até as três propostas e o `sem_alternativa`, conferidos contra os schemas, sem quarta proposta e com as filas de entrada vazias. Nenhum serviço API ou worker precisa ser iniciado. Sem `RUN_RABBITMQ_INTEGRATION=1`, esses testes são explicitamente pulados; habilitados, ausência de broker/Docker é falha, nunca aprovação simulada.
 
 ## Indisponibilidade do provedor de LLM (T-268)
 

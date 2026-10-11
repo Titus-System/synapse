@@ -16,8 +16,10 @@ from app.codigo_gerado import CodigoInvalidoError
 from app.graph.core.engine import build_graph
 from app.graph.core.state import AgentState
 from app.prompts.geracao_codigo import montar_prompt_geracao
+from app.repositorio.regras import TentativasDeTaxa
 from app.repositorio.resultados import TotaisDaSimulacao
 from app.representacao_regra import RepresentacaoRegra
+from app.sugestao_adaptacao import TaxaSimulada
 from tests.app.banco_falso import BancoFalso
 from tests.app.graph.conftest import FakeChatModel
 
@@ -95,7 +97,10 @@ class _Execucao:
         regra: RepresentacaoRegra = _REGRA,
     ) -> None:
         monkeypatch.setattr("app.graph.nodes.load_rule.buscar_regra", AsyncMock(return_value=regra))
-        monkeypatch.setattr("app.graph.nodes.decision.tem_sugestao", AsyncMock(return_value=False))
+        monkeypatch.setattr(
+            "app.graph.nodes.decision.contar_tentativas",
+            AsyncMock(return_value=TentativasDeTaxa(feitas=0, regra_e_tentativa=False)),
+        )
         self.banco = banco or BancoFalso()
         self.producers = MagicMock(
             executar_codigo=AsyncMock(),
@@ -209,6 +214,11 @@ async def test_an_unaffordable_result_routes_to_the_adaptation_and_proposes_one(
                 Decimal("492100"), Decimal("485000"), baseline=Decimal("480312")
             )
         ),
+    )
+    # A regra ainda não foi adaptada: a cadeia dela tem só a taxa que acabou de ser simulada.
+    monkeypatch.setattr(
+        "app.graph.nodes.suggest_adaptation.buscar_taxas_simuladas",
+        AsyncMock(return_value=[TaxaSimulada(Decimal("0.025"), Decimal("492100"))]),
     )
     scripted_model([AIMessage(content=RESPOSTA_VALIDA)])
     execucao = _Execucao(monkeypatch, regra=regra)

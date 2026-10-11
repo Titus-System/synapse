@@ -18,6 +18,7 @@ from app.contratos.serializacao import serializar
 from app.graph.core.engine import build_graph
 from app.mensageria.consumers import Consumer
 from app.mensageria.roteamento import GraphRouter, thread_do_ciclo
+from app.repositorio.regras import TentativasDeTaxa
 from app.representacao_regra import RepresentacaoRegra
 from tests.app.banco_falso import BancoFalso
 from tests.app.graph.conftest import FakeChatModel
@@ -47,6 +48,10 @@ class ConfirmacaoFalsa:
 
         monkeypatch.setattr("app.graph.entrypoint.get_checkpointer", checkpointer)
         monkeypatch.setattr("app.graph.nodes.load_rule.buscar_regra", self.buscar_regra)
+        self.contar_tentativas = AsyncMock(
+            return_value=TentativasDeTaxa(feitas=0, regra_e_tentativa=False)
+        )
+        monkeypatch.setattr("app.graph.nodes.decision.contar_tentativas", self.contar_tentativas)
         monkeypatch.setattr("app.graph.nodes.code_generation.get_model", lambda _: self.modelo)
         self.producers = MagicMock()
         for metodo, evento in (

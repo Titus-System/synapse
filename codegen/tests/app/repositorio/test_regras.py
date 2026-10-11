@@ -7,7 +7,12 @@ from uuid import uuid4
 import pytest
 import simplejson
 
-from app.repositorio.regras import RegraInvalidaError, buscar_regra
+from app.repositorio.regras import (
+    RegraInvalidaError,
+    TentativasDeTaxa,
+    buscar_regra,
+    contar_tentativas,
+)
 
 JOB_ID = uuid4()
 REGRA_ID = uuid4()
@@ -21,6 +26,10 @@ class _ResultadoFalso:
         return self
 
     def one_or_none(self) -> dict[str, Any] | None:
+        return self._linha
+
+    def one(self) -> dict[str, Any]:
+        assert self._linha is not None
         return self._linha
 
 
@@ -104,3 +113,13 @@ async def test_buscar_regra_nao_expoe_o_conteudo_da_regra_no_erro() -> None:
         await buscar_regra(sessoes, JOB_ID, REGRA_ID)
 
     assert "conteudo-sensivel" not in str(erro.value)
+
+
+async def test_contar_tentativas_le_a_conta_e_se_a_regra_e_uma_delas() -> None:
+    sessoes = _sessionmaker({"feitas": 2, "regra_e_tentativa": True})
+
+    tentativas = await contar_tentativas(sessoes, JOB_ID, REGRA_ID)
+
+    assert tentativas == TentativasDeTaxa(feitas=2, regra_e_tentativa=True)
+    _, parametros = sessoes.sessao.executado_com  # type: ignore[attr-defined]
+    assert parametros == {"regra_id": str(REGRA_ID), "job_id": str(JOB_ID)}
