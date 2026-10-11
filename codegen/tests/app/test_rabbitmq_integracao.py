@@ -251,8 +251,23 @@ async def test_producer_real_entrega_a_sugestao_na_fila(broker_real: ConexaoBrok
     await recebido.ack()
 
 
+@pytest.mark.parametrize(
+    ("parametros", "esperados"),
+    [
+        (
+            {"orcamento": "485000.10", "meta_venda": "26000000.123456789012345"},
+            {
+                "orcamento": Decimal("485000.10"),
+                "meta_venda": Decimal("26000000.123456789012345"),
+            },
+        ),
+        # O job sem orçamento nem meta: o worker simula sobre o histórico, sem veredito (T-281).
+        ({}, {}),
+    ],
+    ids=["com-orcamento-e-meta", "sem-orcamento-e-meta"],
+)
 async def test_dispatch_execution_entrega_comando_persistente_e_valido(
-    broker_real: ConexaoBroker,
+    broker_real: ConexaoBroker, parametros: dict[str, str], esperados: dict[str, Decimal]
 ) -> None:
     job_id, codigo_gerado_id, regra_id = uuid4(), uuid4(), uuid4()
     estado = {
@@ -260,8 +275,9 @@ async def test_dispatch_execution_entrega_comando_persistente_e_valido(
         "regra_id": str(regra_id),
         "codigo_gerado_id": str(codigo_gerado_id),
         "competencias": ["2025-11"],
-        "orcamento": "485000.10",
+        "representacao_regra": {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []},
         "codigo_fonte": "def aplicar_regra(bases, apuracao_base, competencias): ...",
+        **parametros,
     }
 
     await dispatch_execution(estado, {"configurable": {"producers": broker_real.producers}})
@@ -273,7 +289,9 @@ async def test_dispatch_execution_entrega_comando_persistente_e_valido(
         "job_id": str(job_id),
         "codigo_gerado_id": str(codigo_gerado_id),
         "competencias": ["2025-11"],
-        "orcamento": Decimal("485000.10"),
+        "proposito": "simulacao",
+        "elementos_exigidos": ["nucleo.percentual"],
+        **esperados,
     }
     assert recebido.delivery_mode == DeliveryMode.PERSISTENT
     await recebido.ack()

@@ -81,6 +81,9 @@ class RegraSubmetida(ModeloContrato):
     submissao_id: UUID | None = None
     regra_id: UUID | None = None
     orcamento: Decimal | None = Field(default=None, ge=0)
+    # Sem limite inferior, como no contrato: a meta zero ou negativa chega ao grafo como foi
+    # dita, para a validação de domínio apontá-la como conflito (T-280).
+    meta_venda: Decimal | None = None
 
 
 class RegraExtraida(ModeloContrato):
@@ -94,6 +97,8 @@ class ParametrosConfirmados(ModeloContrato):
     regra_id: UUID
     competencias: list[str] | None = Field(default=None, min_length=1)
     orcamento: Decimal | None = Field(default=None, ge=0)
+    # Sem limite inferior pelo mesmo motivo de `RegraSubmetida.meta_venda`.
+    meta_venda: Decimal | None = None
 
 
 class SimulacaoConcluida(ModeloContrato):
@@ -125,7 +130,9 @@ class ExecutarCodigo(ModeloContrato):
     job_id: UUID
     codigo_gerado_id: UUID
     competencias: list[str] = Field(min_length=1)
-    orcamento: Decimal = Field(ge=0)
+    orcamento: Decimal | None = Field(default=None, ge=0)
+    meta_venda: Decimal | None = Field(default=None, gt=0)
+    proposito: Literal["simulacao", "busca_meta"] | None = None
     elementos_exigidos: list[ReferenciaDeElemento] | None = Field(default=None, min_length=1)
 
 

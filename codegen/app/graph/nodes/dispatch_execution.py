@@ -36,11 +36,13 @@ RESUMO_DA_TRILHA = (
 )
 
 
-class OrcamentoAusenteError(FalhaDoJobError):
-    """The job has no `orcamento`, which `executar-codigo` requires.
+class MetaVendaInvalidaError(FalhaDoJobError):
+    """The job's `meta_venda` is zero or negative, and `executar-codigo` requires a positive one.
 
-    The event carries it as an optional field, and its absence is never read as zero: the
-    budget is an input to the worker's verdict, not something this service may invent.
+    The entry events carry the meta as the user said it, so that domain validation can point it
+    out as a conflict (T-280). If it still gets here, the command would be refused with an error
+    that is not a `FalhaDoJobError`: the message would be requeued and every redelivery would
+    fail the same way.
     """
 
     etapa = ETAPA
@@ -59,10 +61,16 @@ class ElementosExigidosDuplicadosError(FalhaDoJobError):
 
 
 async def dispatch_execution(state: AgentState, config: RunnableConfig) -> AgentState:
-    """Publish the command with a reference to the recorded code, never the code itself."""
+    """Publish the command with a reference to the recorded code, never the code itself.
+
+    `orcamento` and `meta_venda` go only when the job has them, and their absence is never read
+    as zero: without the budget the worker simulates without the budget check (T-281), and
+    without the meta it simulates over the historical sales.
+    """
     orcamento = state.get("orcamento")
-    if orcamento is None:
-        raise OrcamentoAusenteError("executar-codigo requires the job's orcamento")
+    meta_venda = state.get("meta_venda")
+    if meta_venda is not None and Decimal(meta_venda) <= 0:
+        raise MetaVendaInvalidaError("executar-codigo requires a positive meta_venda")
 
     representacao = state["representacao_regra"]
     elementos_exigidos = ["nucleo.percentual"] if "percentual" in representacao["nucleo"] else []
@@ -78,9 +86,15 @@ async def dispatch_execution(state: AgentState, config: RunnableConfig) -> Agent
         job_id=job_id,
         codigo_gerado_id=codigo_gerado_id,
         competencias=list(state["competencias"]),
-        orcamento=Decimal(orcamento),
+        proposito="simulacao",
         elementos_exigidos=elementos_exigidos,
     )
+    # Atribuídos só quando presentes: a serialização omite o campo nunca atribuído, e o contrato
+    # recusa `null` explícito.
+    if orcamento is not None:
+        comando.orcamento = Decimal(orcamento)
+    if meta_venda is not None:
+        comando.meta_venda = Decimal(meta_venda)
     producers = config["configurable"]["producers"]
 
     # `etapa-alterada` primeiro, e a ordem importa. Do lado da `api` ele é idempotente (a
@@ -91,8 +105,14 @@ async def dispatch_execution(state: AgentState, config: RunnableConfig) -> Agent
     # o job ainda em `gerando_regra`, transição que a `api` recusa em silêncio.
     await producers.etapa_alterada(EtapaAlterada(job_id=job_id, etapa=ETAPA, status="iniciada"))
     await producers.executar_codigo(comando)
+    # A presença dos parâmetros como fato, nunca o valor: é o que o usuário disse.
     logger.info(
-        "execution command published", extra={"codigo_gerado_id": state["codigo_gerado_id"]}
+        "execution command published",
+        extra={
+            "codigo_gerado_id": state["codigo_gerado_id"],
+            "com_orcamento": orcamento is not None,
+            "com_meta_venda": meta_venda is not None,
+        },
     )
 
     # Por último, porque o nó conclui quando o comando foi entregue: anunciar a conclusão

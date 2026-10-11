@@ -19,7 +19,7 @@ Os DTOs canônicos ficam em `app/contratos/mensagens.py` e são reutilizados pel
 
 Cada DTO corresponde a `contracts/events/<mensagem>.schema.json`, inclusive o comando `executar-codigo`. A topologia é durável, não exclusiva, sem auto-delete e sem argumentos `x-*`. Cada lado declara as filas em que participa de forma idempotente. O codegen não declara nem consome `simulacao-concluida.api`.
 
-`RegraSubmetida` tem um campo opcional `orcamento` (`Decimal`, `>= 0`, vindo de `jobs.orcamento`), aditivo ao contrato existente. O estado do grafo o carrega como texto decimal (nunca `float`) e não o usa para decidir viabilidade - isso é apuração do worker sobre dados reais.
+`RegraSubmetida` e `ParametrosConfirmados` têm os campos opcionais `orcamento` (`Decimal`, `>= 0`, vindo de `jobs.orcamento`) e `meta_venda` (`Decimal`, vindo de `jobs.meta_venda`), aditivos ao contrato existente. A meta não tem limite inferior, como no contrato: zero ou negativa chega ao grafo como foi dita, para a validação de domínio apontá-la como conflito (T-280). O estado do grafo carrega os dois como texto decimal (nunca `float`), e `dispatch_execution` os repassa a `executar-codigo` quando presentes, com `proposito = simulacao`. O codegen não decide viabilidade com eles, que é apuração do worker sobre dados reais; a única decisão é recusar o despacho de uma meta zero ou negativa (`MetaVendaInvalidaError`, abaixo).
 
 `scripts/preparar_contratos.py` incorpora dinamicamente todos os schemas, mantendo os caminhos relativos e removendo cópias obsoletas. O Docker já copia `contracts/`. O runtime registra os schemas incorporados por `$id`, sem consulta ao monorepo nem download de referências. Os DTOs são independentes de `EstadoGrafo`.
 
@@ -46,9 +46,9 @@ A rejeição de mensagens inválidas e jobs desconhecidos é a decisão mínima 
 
 ## Confirmação de parâmetros (T-218)
 
-`parametros-confirmados` abre o ciclo da versão `regra_id`, com thread `thread_do_ciclo(job_id, regra_id)`, passando por `run_to_completion`. O estado inicial contém `job_id`, `regra_id`, `competencias` e, quando informado, `orcamento` como texto decimal. `origem` não é preenchida. O ciclo começa em `load_rule` e segue pelos nós existentes.
+`parametros-confirmados` abre o ciclo da versão `regra_id`, com thread `thread_do_ciclo(job_id, regra_id)`, passando por `run_to_completion`. O estado inicial contém `job_id`, `regra_id`, `competencias` e, quando informados, `orcamento` e `meta_venda` como texto decimal. `origem` não é preenchida. O ciclo começa em `load_rule` e segue pelos nós existentes.
 
-Campos opcionais ausentes preservam compatibilidade com a T-213. Sem competências, o roteador lança `ContextoAusenteError`, independente de `FalhaDoJobError`; o consumer descarta sem requeue e sem levar o job a erro. Sem orçamento, o ciclo começa e `dispatch_execution` mantém sua falha permanente. Depois de `job-encerrado`, confirmações recebem ACK sem criar checkpoints, inclusive quando a limpeza ainda está pendente.
+Campos opcionais ausentes preservam compatibilidade com a T-213. Sem competências, o roteador lança `ContextoAusenteError`, independente de `FalhaDoJobError`; o consumer descarta sem requeue e sem levar o job a erro. Sem orçamento ou sem meta, o ciclo segue normalmente e o comando sai sem o campo. Depois de `job-encerrado`, confirmações recebem ACK sem criar checkpoints, inclusive quando a limpeza ainda está pendente.
 
 O guard do entrypoint reutiliza o checkpoint da mesma versão. Ciclo incompleto continua com entrada `None`; finalizado não executa novamente; à espera do worker permanece pausado. `run_to_completion` informa se houve atualização de nó, desconsiderando o sinal `__interrupt__`, para distinguir processamento de duplicatas sem nova execução.
 
@@ -87,7 +87,7 @@ Toda mensagem de submissão, confirmação ou resultado é processada sob o lock
 | `RegraInvalidaError` | `app/repositorio/regras.py`, no nó `load_rule` | `geracao_codigo` | a regra referenciada por `regra_id` não existe para o `job_id`, ou falha o contrato de `RepresentacaoRegra`; reentregar não a torna válida |
 | `RespostaModeloInvalidaError` | `app/graph/nodes/code_generation.py` | `geracao_codigo` | a resposta veio vazia, bloqueada ou truncada; com `temperature=0` a chamada é determinística, e reentregar só pagaria a mesma resposta inútil de novo |
 | `CodigoInvalidoError` | `app/codigo_gerado.py`, no nó `extract_code` | `geracao_codigo` | a resposta já está gravada em `respostas_modelo` e a reentrega continua do checkpoint sobre ela, que seguiria sem um `regra.py` válido |
-| `OrcamentoAusenteError` | `app/graph/nodes/dispatch_execution.py` | `delegacao_worker` | o evento não trouxe o `orcamento`, que `executar-codigo` exige, e a ausência nunca é lida como zero |
+| `MetaVendaInvalidaError` | `app/graph/nodes/dispatch_execution.py` | `delegacao_worker` | a meta de venda é zero ou negativa, e `executar-codigo` exige meta positiva; a entrada a aceita como foi dita para a validação de domínio apontá-la (T-280); sem esta falha, o comando seria recusado com um erro que não é `FalhaDoJobError`, a mensagem voltaria à fila e cada reentrega falharia igual |
 
 Antes de rejeitar, o `GraphRouter` publica `etapa-alterada` com `status="erro"` e a etapa da exceção. **Sem esse aviso a `api` deixaria o job em `gerando_regra` para sempre**: a rejeição só afeta o broker. A `api` move o job para `erro` e grava a transição com motivo `erro_<etapa>`. Uma falha ao publicar o aviso não é tratada de propósito: ela sobe como falha comum, o consumer reenfileira e a reentrega tenta avisar de novo.
 

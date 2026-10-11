@@ -33,6 +33,7 @@ class AgentState(TypedDict, total=False):
     origem: str
     competencias: list[str]
     orcamento: str  # decimal text, never float - see `app/tipos_estado.py::Orcamento`
+    meta_venda: str  # decimal text, never float, like `orcamento` (T-272)
 
     # T-096 (this task)
     representacao_regra: dict[str, Any]

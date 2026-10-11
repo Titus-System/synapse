@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -10,6 +11,7 @@ from app.contratos.mensagens import (
     EtapaAlterada,
     JobEncerrado,
     OrigemJob,
+    ParametrosConfirmados,
     RegraSubmetida,
     SimulacaoConcluida,
     StatusSimulacao,
@@ -103,6 +105,47 @@ async def test_entregar_omite_regra_id_e_orcamento_quando_ausentes(
     assert "orcamento" not in estado
 
 
+def _confirmacao(**sobrescritas: object) -> ParametrosConfirmados:
+    valores: dict[str, object] = {
+        "job_id": JOB_ID,
+        "regra_id": REGRA_ID,
+        "competencias": ["2025-08", "2025-11"],
+    }
+    valores.update(sobrescritas)
+    return ParametrosConfirmados.model_validate(valores)
+
+
+@pytest.mark.parametrize("evento", [_regra_submetida, _confirmacao])
+@pytest.mark.parametrize(
+    "meta",
+    # Zero e negativa chegam como foram ditas: quem as aponta é a validação de domínio (T-280).
+    ["12000000.123456789012345", "0", "-5"],
+)
+async def test_entregar_leva_a_meta_de_venda_ao_estado_em_texto_decimal_exato(
+    monkeypatch: pytest.MonkeyPatch, evento: Any, meta: str
+) -> None:
+    run_to_completion = AsyncMock()
+    monkeypatch.setattr(modulo, "run_to_completion", run_to_completion)
+    roteador = GraphRouter(sessoes=object(), producers=object(), limpeza=LimpezaFalsa())
+
+    await roteador.entregar(JOB_ID, evento(meta_venda=Decimal(meta)))
+
+    assert run_to_completion.call_args.args[1]["meta_venda"] == meta
+
+
+@pytest.mark.parametrize("evento", [_regra_submetida, _confirmacao])
+async def test_entregar_omite_a_meta_de_venda_quando_o_evento_nao_a_traz(
+    monkeypatch: pytest.MonkeyPatch, evento: Any
+) -> None:
+    run_to_completion = AsyncMock()
+    monkeypatch.setattr(modulo, "run_to_completion", run_to_completion)
+    roteador = GraphRouter(sessoes=object(), producers=object(), limpeza=LimpezaFalsa())
+
+    await roteador.entregar(JOB_ID, evento())
+
+    assert "meta_venda" not in run_to_completion.call_args.args[1]
+
+
 async def test_entregar_avisa_a_api_e_repropaga_quando_o_job_falha(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -189,8 +232,6 @@ async def test_entregar_nao_avisa_erro_numa_falha_transitoria(
 
 
 async def test_entregar_recusa_confirmacao_sem_contexto_sem_falhar_o_job() -> None:
-    from app.contratos.mensagens import ParametrosConfirmados
-
     roteador = GraphRouter(sessoes=object(), producers=object(), limpeza=LimpezaFalsa())
     mensagem = ParametrosConfirmados(job_id=JOB_ID, regra_id=REGRA_ID)
 
