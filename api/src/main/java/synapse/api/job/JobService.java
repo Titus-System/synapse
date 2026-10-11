@@ -207,6 +207,12 @@ class JobService {
 	@Transactional
 	JobCriadoDto confirmar(UUID jobId, ConfirmarParametrosRequisicao requisicao) {
 		DadosDoJob dados = carregarJob(jobId);
+		JobStatus origem = JobStatus.deColuna(this.repository.buscarStatusComTrava(jobId));
+		// A volta de simulando para gerando_regra é da próxima proposta automática,
+		// não de uma confirmação do usuário durante a execução.
+		if (origem.emProcessamento()) {
+			throw new TransicaoDeStatusInvalidaException(origem, JobStatus.GERANDO_REGRA);
+		}
 		this.maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "usuario", null);
 
 		VersaoAnterior anterior = ultimaVersao(jobId);

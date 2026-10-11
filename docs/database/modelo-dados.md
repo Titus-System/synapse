@@ -203,6 +203,12 @@ Pela T-277, `regras.parametros` registra os parâmetros com que cada versão nas
 
 O hash SHA-256 cobre a serialização canônica da representação e, quando `parametros` não é `NULL`, também os parâmetros, inclusive `{}`. Com `NULL`, usa exatamente a serialização anterior. Assim, a correção que muda só os parâmetros gera uma versão nova com a mesma representação, e versões sem parâmetros preservam seus hashes.
 
+Pela T-275, `regras.tentativa` registra o número da tentativa de taxa nova, de 1 a 3, que o codegen informou na proposta que criou a versão. As alternativas de um job formam uma cadeia por `regra_origem_id`, cada uma derivada da anterior, e a coluna diz qual delas cada versão foi. A API não decide nada por ela: o limite de tentativas é do codegen, e o fim da iteração chega pelo `sem_alternativa`. A coluna é `NULL` nas demais origens e nas versões de sugestão anteriores a ela, que eram tentativa única, e fica fora de `GET /jobs/{id}`.
+
+O resultado inviável de uma alternativa é vinculado à simulação para auditoria, mas não produz desfecho nem evento SSE `resultado`: o job permanece em processamento. Uma proposta seguinte pode chegar antes da notificação desse resultado; ambas conferem a versão corrente sob trava do job, e uma notificação atrasada não encerra uma versão mais nova. `sem_alternativa` encerra a iteração em `simulacao_inviavel`, com motivo próprio; uma alternativa viável segue para a decisão do usuário. Erros de execução, asserções violadas e falhas na decisão ou sugestão terminam em `erro`, preservando o motivo da falha.
+
+`simulacao_concluida_consumo_total` distingue resultados intermediários das conclusões aplicadas. `sugestao_adaptacao_proposta_consumo_total` conta entregas por tentativa e resultado; só `aplicada` conta uma versão nova. `sugestao_adaptacao_encerramento_total` distingue o fim confirmado das reentregas sem efeito e separa `sem_alternativa` de `falha`. Os contadores são registrados depois da transação do serviço; os logs correspondentes carregam `job_id` e referências, sem representação, taxas ou valores financeiros.
+
 ### `job_transicoes`
 
 Uma linha por mudança de status do job. É a trilha da máquina de estados da API, diferente da trilha por nó do grafo. Só recebe `INSERT`. `motivo` guarda o código da razão; a API o traduz para a mensagem exibida. A exposição consistente desse motivo em consulta e SSE é parte da T-201.

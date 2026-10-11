@@ -276,6 +276,13 @@ antes da coluna, e o hash das versoes de formulario, de reprocessamento e anteri
 muda. Uma correcao que muda so os parametros gera hash novo e, por isso, versao nova com a
 mesma representacao, sem violar (job_id, hash).
 ''']
+  tentativa smallint [note: '''
+Numero da tentativa de taxa nova, de 1 a 3, que o codegen informou em
+sugestao-adaptacao-proposta.tentativa, gravado com a versao que a proposta cria. A api so o
+registra: o limite de tentativas e do codegen. CHECK de 1 a 3, a faixa do contrato.
+NULL nas demais origens e nas versoes de sugestao anteriores a coluna, que eram tentativa
+unica. Nao sai em GET /jobs/{id}.
+''']
   criada_em timestamptz [not null]
 
   indexes {

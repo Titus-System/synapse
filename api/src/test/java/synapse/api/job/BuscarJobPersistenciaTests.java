@@ -315,7 +315,8 @@ class BuscarJobPersistenciaTests {
 	void falhaAnteriorASimulacaoTemMotivoConsultavel(EtapaDoGrafo etapa) throws Exception {
 		UUID jobId = criarJobEmProcessamento();
 		criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
-		EventoEstadoDto evento = Objects.requireNonNull(eventos.aplicarEtapaAlterada(jobId, etapa, "erro", null));
+		EventoEstadoDto evento = Objects
+			.requireNonNull(eventos.aplicarEtapaAlterada(jobId, etapa, "erro", null).transicao());
 
 		JsonNode resposta = consultar(jobId);
 

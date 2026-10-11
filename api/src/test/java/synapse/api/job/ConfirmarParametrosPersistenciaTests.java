@@ -18,6 +18,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
@@ -241,10 +243,12 @@ class ConfirmarParametrosPersistenciaTests {
 		assertThat(percentual(jobId, 3)).isEqualTo("0.04");
 	}
 
-	@Test
-	void confirmarEmEstadoInvalidoERecusadoSemEfeito() {
+	@ParameterizedTest
+	@ValueSource(strings = { "gerando_regra", "simulando" })
+	void confirmarEmEstadoInvalidoERecusadoSemEfeito(String estado) {
 		UUID jobId = criarJob();
 		confirmar(jobId, corpo("0.03"));
+		jdbc.update("UPDATE jobs SET status = ? WHERE id = ?", estado, jobId);
 
 		int versoesAntes = versoes(jobId);
 		Integer outboxAntes = jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE job_id = ?", Integer.class,
@@ -256,8 +260,7 @@ class ConfirmarParametrosPersistenciaTests {
 		assertThat(versoes(jobId)).isEqualTo(versoesAntes);
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE job_id = ?", Integer.class, jobId))
 			.isEqualTo(outboxAntes);
-		assertThat(jdbc.queryForObject("SELECT status FROM jobs WHERE id = ?", String.class, jobId))
-			.isEqualTo("gerando_regra");
+		assertThat(jdbc.queryForObject("SELECT status FROM jobs WHERE id = ?", String.class, jobId)).isEqualTo(estado);
 	}
 
 	@Test

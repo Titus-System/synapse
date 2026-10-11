@@ -46,6 +46,19 @@ class MotivoDaParadaTests {
 	}
 
 	@Test
+	void fimDasTentativasTemRazaoPropriaSomenteNaSimulacaoInviavel() {
+		assertThat(MotivoDaParada.razaoLocalizada(JobStatus.SIMULACAO_INVIAVEL, MotivoDaParada.SEM_ALTERNATIVA))
+			.isEqualTo(MotivoDaParada.NENHUMA_TAXA_COUBE)
+			.isNotEqualTo(DesfechoDaSimulacao.INVIAVEL.razaoLocalizada());
+		for (JobStatus status : JobStatus.values()) {
+			if (status != JobStatus.SIMULACAO_INVIAVEL) {
+				assertThat(MotivoDaParada.razaoLocalizada(status, MotivoDaParada.SEM_ALTERNATIVA)).as("%s", status)
+					.isNull();
+			}
+		}
+	}
+
+	@Test
 	void ausenciaDeTokenNaoDaMotivo() {
 		for (JobStatus status : JobStatus.values()) {
 			assertThat(MotivoDaParada.razaoLocalizada(status, null)).isNull();

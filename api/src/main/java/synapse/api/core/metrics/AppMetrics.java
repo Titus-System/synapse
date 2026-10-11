@@ -144,13 +144,50 @@ public class AppMetrics {
 	 * {@code estado_incompativel}, nunca como outra {@code aplicada}. {@code desfecho} é
 	 * {@code viavel}, {@code inviavel}, {@code indeterminado}, {@code sem_orcamento},
 	 * {@code assercao_violada}, {@code erro_codigo}, {@code erro_infra} ou
-	 * {@code desconhecido}; {@code resultado} é {@code aplicada},
+	 * {@code desconhecido}; {@code resultado} é {@code aplicada}, {@code intermediaria},
 	 * {@code estado_incompativel}, {@code versao_anterior} ou {@code invalida}.
+	 * {@code intermediaria} é o resultado inviável de uma alternativa enquanto o codegen
+	 * pode tentar outra taxa: não move o job, e por isso a reentrega dele também sai
+	 * assim. As tentativas propriamente ditas estão em
+	 * {@link #sugestaoAdaptacaoConsumida} e {@link #fimDaIteracaoDaTaxa}.
 	 */
 	public Counter simulacaoConcluidaConsumida(String desfecho, String resultado) {
 		return Counter.builder("simulacao.concluida.consumo")
 			.description("Mensagens de simulacao-concluida por desfecho e resultado do consumo")
 			.tag("desfecho", desfecho)
+			.tag("resultado", resultado)
+			.register(this.registry);
+	}
+
+	/**
+	 * Entregas de {@code sugestao-adaptacao-proposta} consumidas, pela {@code tentativa}
+	 * que o codegen informou ({@code 1}, {@code 2}, {@code 3}, {@code ausente} ou
+	 * {@code invalida}, fora da faixa do contrato) e pelo resultado do consumo:
+	 * {@code aplicada}, {@code descartada}, {@code estado_incompativel}, {@code invalida}
+	 * ou {@code falha}, a que volta à fila. {@code aplicada} conta versões criadas: a
+	 * reentrega de uma proposta já aplicada encontra a versão nova e sai como
+	 * {@code descartada}.
+	 */
+	public Counter sugestaoAdaptacaoConsumida(String tentativa, String resultado) {
+		return Counter.builder("sugestao.adaptacao.proposta.consumo")
+			.description("Mensagens de sugestao-adaptacao-proposta por tentativa e resultado do consumo")
+			.tag("tentativa", tentativa)
+			.tag("resultado", resultado)
+			.register(this.registry);
+	}
+
+	/**
+	 * O fim das tentativas de taxa nova sem uma que caiba, pela {@code causa} -
+	 * {@code sem_alternativa} do codegen, ou {@code falha} dele na decisão ou na sugestão
+	 * durante a iteração - e pelo {@code resultado}. {@code aplicado} é a transição
+	 * confirmada para {@code simulacao_inviavel} ou {@code erro}, porque a máquina de
+	 * estados não a repete; {@code sem_efeito} é o {@code sem_alternativa} que encontra o
+	 * job fora da iteração, o da regra original e a reentrega.
+	 */
+	public Counter fimDaIteracaoDaTaxa(String causa, String resultado) {
+		return Counter.builder("sugestao.adaptacao.encerramento")
+			.description("Fim das tentativas de taxa nova sem alternativa, por causa e resultado")
+			.tag("causa", causa)
 			.tag("resultado", resultado)
 			.register(this.registry);
 	}
