@@ -30,7 +30,7 @@ from app.contratos.serializacao import serializar
 from app.core.logger import job_id_ctx
 from app.falhas import FalhaDoJobError
 from app.graph.nodes.code_generation import RespostaModeloInvalidaError
-from app.graph.nodes.dispatch_execution import OrcamentoAusenteError
+from app.graph.nodes.dispatch_execution import MetaVendaInvalidaError
 from app.mensageria import broker as modulo_broker
 from app.mensageria.broker import FILA_SIMULACAO, FILAS_SIMPLES, conectar, declarar_topologia
 from app.mensageria.consumers import Consumer
@@ -154,6 +154,46 @@ async def test_consumer_aceita_voz_sem_regra_id() -> None:
     dto = roteador.entregar.call_args.args[1]
     assert simplejson.loads(serializar(dto)) == payload
     mensagem.ack.assert_awaited_once_with()
+
+
+@pytest.mark.parametrize(
+    ("modelo", "fila", "nome"),
+    [
+        (RegraSubmetida, "regra-submetida", "regra-submetida-parametros"),
+        (ParametrosConfirmados, "parametros-confirmados", "parametros-confirmados-meta-venda"),
+    ],
+)
+async def test_consumer_entrega_a_meta_de_venda_do_evento(
+    modelo: type[Entrada], fila: str, nome: str
+) -> None:
+    roteador = MagicMock(entregar=AsyncMock())
+    payload = exemplo(nome)
+    mensagem = AsyncMock(body=simplejson.dumps(payload).encode())
+
+    await Consumer(modelo, fila, roteador).receber(mensagem)
+
+    mensagem.ack.assert_awaited_once_with()
+    dto = roteador.entregar.call_args.args[1]
+    assert simplejson.loads(serializar(dto), use_decimal=True) == payload
+
+
+@pytest.mark.parametrize(
+    "nome",
+    ["executar-codigo-meta-venda", "executar-codigo-sem-orcamento", "executar-codigo-busca-meta"],
+)
+async def test_producer_publica_o_comando_sem_orcamento_com_meta_e_com_proposito(
+    nome: str,
+) -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+    dto = ExecutarCodigo.model_validate_json(simplejson.dumps(exemplo(nome)))
+
+    await Producers(canal).executar_codigo(dto)
+
+    corpo = canal.default_exchange.publish.call_args.args[0].body
+    payload = simplejson.loads(corpo, use_decimal=True)
+    oficial("executar-codigo").validate(payload)
+    assert payload == exemplo(nome)
 
 
 async def test_producer_preserva_decimal_exato_no_corpo_json() -> None:
@@ -369,7 +409,7 @@ async def test_falha_ao_registrar_o_encerramento_reentrega_a_mensagem() -> None:
         (RegraInvalidaError, "validacao_dominio"),
         (RespostaModeloInvalidaError, "geracao_codigo"),
         (CodigoInvalidoError, "geracao_codigo"),
-        (OrcamentoAusenteError, "delegacao_worker"),
+        (MetaVendaInvalidaError, "delegacao_worker"),
     ],
 )
 async def test_falha_permanente_rejeitada_sem_requeue(

@@ -8,7 +8,7 @@ load_rule → code_generation → persist_response → extract_code → dispatch
                              ↘ fim
 ```
 
-`dispatch_execution` publica o comando com código, competências e orçamento. O nó `await_execution` só interrompe: efeitos anteriores ao `interrupt()` seriam repetidos quando o grafo fosse retomado. A retomada leva referências e status, nunca números gerados por modelo. O worker calcula os totais sobre os dados históricos.
+`dispatch_execution` publica o comando com código, competências e `proposito = simulacao`, e com o orçamento e a meta de venda quando o job os tem (T-272). Sem orçamento, o worker simula sem a verificação de orçamento e o resultado de sucesso volta sem veredito; com a meta, simula sobre as vendas escaladas até ela. O nó `await_execution` só interrompe: efeitos anteriores ao `interrupt()` seriam repetidos quando o grafo fosse retomado. A retomada leva referências e status, nunca números gerados por modelo. O worker calcula os totais sobre os dados históricos, escalados até a meta quando houver.
 
 ## Reentregas e falhas
 
@@ -22,10 +22,10 @@ Os artefatos e eventos de auditoria têm identificadores determinísticos. O wor
 
 ## Uma alternativa por job
 
-Só `status=sucesso` com `veredito=inviavel` e sem versão de sugestão existente encaminha para `suggest_adaptation`. O candidato altera exclusivamente o percentual do núcleo: `percentual × (orçamento − baseline) / (simulado − baseline)`, truncado em quatro casas decimais. A estimativa só se aplica a regras sem especificações e quando `0 ≤ baseline < orçamento < simulado`. Ela é conservadora quando já havia comissão nas linhas afetadas; o veredito só existe após nova execução no worker. Percentual sem margem positiva, representação incoerente ou regra fora desse recorte não produz proposta. Ausência de proposta significa ausência de estimativa suportada, não impossibilidade matemática de caber no orçamento. O resultado e o caminho de revisão originais permanecem.
+Só `status=sucesso` com `veredito=inviavel` e sem versão de sugestão existente encaminha para `suggest_adaptation`. O sucesso sem veredito, de um job sem orçamento, termina o fluxo sem sugestão, porque não há orçamento em que a regra precise caber. O candidato altera exclusivamente o percentual do núcleo: `percentual × (orçamento − baseline) / (simulado − baseline)`, truncado em quatro casas decimais. A estimativa só se aplica a regras sem especificações e quando `0 ≤ baseline < orçamento < simulado`. Ela é conservadora quando já havia comissão nas linhas afetadas; o veredito só existe após nova execução no worker. Percentual sem margem positiva, representação incoerente ou regra fora desse recorte não produz proposta. Ausência de proposta significa ausência de estimativa suportada, não impossibilidade matemática de caber no orçamento. O resultado e o caminho de revisão originais permanecem.
 
 
-O evento `sugestao-adaptacao-proposta` entrega a candidata à API, que valida sua procedência, cria a versão e publica `regra-submetida` com orçamento e competências. A confirmação direta e as versões corrigidas entram por `parametros-confirmados`, também com o contexto no evento: o codegen não consulta `jobs`. A API confere a tentativa única de sugestão sob trava do job, inclusive em reentregas tardias.
+O evento `sugestao-adaptacao-proposta` entrega a candidata à API, que valida sua procedência, cria a versão e publica `regra-submetida` com orçamento, meta de venda e competências do job. A confirmação direta e as versões corrigidas entram por `parametros-confirmados`, também com o contexto no evento: o codegen não consulta `jobs`. A API confere a tentativa única de sugestão sob trava do job, inclusive em reentregas tardias.
 
 O fluxo completo e sua apresentação estão em [`docs/SUGESTAO-ADAPTACAO.md`](../../docs/SUGESTAO-ADAPTACAO.md).
 
@@ -33,6 +33,6 @@ O fluxo completo e sua apresentação estão em [`docs/SUGESTAO-ADAPTACAO.md`](.
 
 O loop de correções por texto ou voz ainda precisa ser integrado. A pausa por inconsistência será condicional; uma regra processável seguirá automaticamente para geração. `parametros-confirmados` abre um ciclo por `job_id:regra_id`, em `load_rule`, usando `run_to_completion` e o mesmo guard de checkpoint de `regra-submetida`. Não retoma uma espera por confirmação nem acrescenta `interrupt()`.
 
-Sem `competencias`, o consumer rejeita a mensagem sem requeue, com causa `contexto_ausente`, sem abrir grafo nem publicar `etapa-alterada`. Orçamento ausente chega ao nó `dispatch_execution`, que mantém a falha permanente existente. A integração da T-217 deve garantir o envio do contexto; publicações anteriores sem competências são drenadas e descartadas.
+Sem `competencias`, o consumer rejeita a mensagem sem requeue, com causa `contexto_ausente`, sem abrir grafo nem publicar `etapa-alterada`. Orçamento e meta ausentes não são falha: o comando sai sem eles. A integração da T-217 deve garantir o envio do contexto; publicações anteriores sem competências são drenadas e descartadas.
 
 Os checkpoints de um job são removidos depois do `job-encerrado` da `api`, e o registro `jobs_grafo_encerrados` assume a deduplicação: depois da limpeza, uma reentrega de submissão, confirmação ou resultado é confirmada sem efeito. Uma confirmação também é recusada quando o encerramento está registrado e a limpeza ainda está pendente. Um ciclo pausado à espera do resultado não é removido antes de o resultado ser processado. Ver [mensageria](mensageria.md#encerramento-do-job-e-limpeza-dos-checkpoints) e a [DEC-095](../../docs/decisoes/dec-095.md).

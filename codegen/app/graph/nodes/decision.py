@@ -78,5 +78,15 @@ async def decision(state: AgentState, config: RunnableConfig) -> AgentState:
             regra_id=UUID(state["regra_id"]),
         )
     )
-    logger.info("node conclusion published", extra={"no": ETAPA})
+    # A presença dos parâmetros, nunca o valor que o usuário disse. A do orçamento explica o
+    # encaminhamento: sem ele não há veredito e o fluxo termina (T-281).
+    logger.info(
+        "node conclusion published",
+        extra={
+            "no": ETAPA,
+            "encaminhamento": encaminhamento,
+            "com_orcamento": state.get("orcamento") is not None,
+            "com_meta_venda": state.get("meta_venda") is not None,
+        },
+    )
     return {"encaminhamento": encaminhamento}

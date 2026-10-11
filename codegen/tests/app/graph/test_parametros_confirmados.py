@@ -195,6 +195,9 @@ async def test_job_encerrado_confirma_sem_recriar_checkpoint(
         ("orcamento", "100"),
         ("orcamento", -1),
         ("orcamento", True),
+        ("meta_venda", None),
+        ("meta_venda", "100"),
+        ("meta_venda", True),
     ],
 )
 async def test_schema_recusa_contexto_invalido_antes_do_grafo(
@@ -211,21 +214,13 @@ async def test_schema_recusa_contexto_invalido_antes_do_grafo(
     assert (await ambiente.estado(payload)).values == {}
 
 
-@pytest.mark.parametrize("sem_orcamento", [False, True])
 async def test_falha_permanente_do_ciclo_publica_erro_e_rejeita(
     monkeypatch: pytest.MonkeyPatch,
-    sem_orcamento: bool,
     logs: list[dict[str, Any]],
     cliente: AsyncClient,
 ) -> None:
-    ambiente = (
-        ConfirmacaoFalsa(monkeypatch)
-        if sem_orcamento
-        else ConfirmacaoFalsa(monkeypatch, "```python\nsegredo_da_resposta(\n```")
-    )
+    ambiente = ConfirmacaoFalsa(monkeypatch, "```python\nsegredo_da_resposta(\n```")
     payload = exemplo("parametros-confirmados")
-    if sem_orcamento:
-        del payload["orcamento"]
     recebida = mensagem(payload)
     antes = amostras((await cliente.get("/metrics")).text)
 
@@ -233,10 +228,9 @@ async def test_falha_permanente_do_ciclo_publica_erro_e_rejeita(
 
     recebida.reject.assert_awaited_once_with(requeue=False)
     recebida.nack.assert_not_awaited()
-    etapa = "delegacao_worker" if sem_orcamento else "geracao_codigo"
     assert ambiente.publicacoes[-1] == (
         "etapa-alterada",
-        {"job_id": payload["job_id"], "etapa": etapa, "status": "erro"},
+        {"job_id": payload["job_id"], "etapa": "geracao_codigo", "status": "erro"},
     )
     assert len(ambiente.modelo.seen_messages) == 1
     ambiente.producers.executar_codigo.assert_not_awaited()

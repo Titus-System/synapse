@@ -243,6 +243,8 @@ def _estado_inicial(mensagem: RegraSubmetida) -> AgentState:
         estado["submissao_id"] = str(mensagem.submissao_id)
     if mensagem.orcamento is not None:
         estado["orcamento"] = str(mensagem.orcamento)
+    if mensagem.meta_venda is not None:
+        estado["meta_venda"] = str(mensagem.meta_venda)
     return estado
 
 
@@ -256,4 +258,6 @@ def _estado_confirmado(mensagem: ParametrosConfirmados) -> AgentState:
     }
     if mensagem.orcamento is not None:
         estado["orcamento"] = str(mensagem.orcamento)
+    if mensagem.meta_venda is not None:
+        estado["meta_venda"] = str(mensagem.meta_venda)
     return estado
