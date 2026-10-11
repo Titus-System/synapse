@@ -206,6 +206,14 @@ final class MotivoDaParada {
 
 	static final String PROVEDOR_INDISPONIVEL = "O serviço de inteligência artificial ficou indisponível por muito tempo e a regra não foi processada. Envie a regra de novo mais tarde.";
 
+	/**
+	 * O token de {@code job_transicoes.motivo} do fim das tentativas de taxa nova sem uma
+	 * que caiba no orçamento, anunciado pelo {@code sem_alternativa} do codegen.
+	 */
+	static final String SEM_ALTERNATIVA = "sem_alternativa";
+
+	static final String NENHUMA_TAXA_COUBE = "Nenhuma das taxas de comissão testadas coube no orçamento do período.";
+
 	private static final String PREFIXO_FALHA_NA_ETAPA = "erro_";
 
 	private static final String MOTIVO_DA_TRILHA_PROVEDOR_INDISPONIVEL = PREFIXO_FALHA_NA_ETAPA
@@ -252,6 +260,9 @@ final class MotivoDaParada {
 		}
 		if (status == JobStatus.ERRO && FALHA_NA_TRANSCRICAO.equals(motivoDaTrilha)) {
 			return TRANSCRICAO_FALHOU;
+		}
+		if (status == JobStatus.SIMULACAO_INVIAVEL && SEM_ALTERNATIVA.equals(motivoDaTrilha)) {
+			return NENHUMA_TAXA_COUBE;
 		}
 		// Os dois tokens próprios vêm antes do ramo da etapa: ambos começam com o mesmo
 		// prefixo e nenhum nomeia um nó do grafo, então o ramo genérico não os alcança.

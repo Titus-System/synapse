@@ -287,17 +287,20 @@ class JobRepository {
 	/**
 	 * {@code parametrosJson} é o artefato bruto da versão de origem, carregado como veio
 	 * - {@code null} quando ela não tinha parâmetros, nunca reserializado a partir do
-	 * {@link ParametrosDaSimulacao} que produziu {@code hash}.
+	 * {@link ParametrosDaSimulacao} que produziu {@code hash}. {@code tentativa} só
+	 * existe na versão de uma sugestão de taxa nova que a informou.
 	 */
 	UUID inserirVersaoRegra(UUID jobId, int novaVersao, String origem, @Nullable UUID origemId,
-			RepresentacaoRegraDto representacao, @Nullable String parametrosJson, String hash, Timestamp timestamp) {
+			RepresentacaoRegraDto representacao, @Nullable String parametrosJson, String hash,
+			@Nullable Integer tentativa, Timestamp timestamp) {
 		return Objects.requireNonNull(this.jdbc.queryForObject("""
 				INSERT INTO regras (job_id, versao, origem, regra_origem_id, nucleo, especificacoes, parametros, hash,
-				    criada_em)
-				VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?) RETURNING id
+				    tentativa, criada_em)
+				VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, ?) RETURNING id
 				""", UUID.class, jobId, novaVersao, origem, origemId,
 				this.json.writeValueAsString(representacao.nucleo()),
-				this.json.writeValueAsString(representacao.especificacoes()), parametrosJson, hash, timestamp));
+				this.json.writeValueAsString(representacao.especificacoes()), parametrosJson, hash, tentativa,
+				timestamp));
 	}
 
 	@Nullable Integer buscarMaiorVersao(UUID jobId) {
@@ -448,17 +451,38 @@ class JobRepository {
 		this.jdbc.queryForList("SELECT id FROM jobs WHERE id = ? FOR UPDATE", jobId);
 	}
 
-	@Nullable Boolean resultadoPertenceAVersaoAtual(UUID jobId, UUID resultadoId) {
-		return this.jdbc.queryForObject("""
-				SELECT EXISTS (
-				    SELECT 1 FROM resultados_simulacao rs
-				    JOIN codigos_gerados c ON c.id = rs.codigo_gerado_id AND c.job_id = rs.job_id
-				    JOIN regras r ON r.id = c.regra_id AND r.job_id = rs.job_id
-				    WHERE rs.id = ? AND rs.job_id = ?
-				      AND NOT EXISTS (SELECT 1 FROM regras nova WHERE nova.job_id = r.job_id
-				          AND nova.versao > r.versao)
-				)
-				""", Boolean.class, resultadoId, jobId);
+	/**
+	 * A origem da versão que produziu o resultado, quando ela ainda é a versão atual do
+	 * job; vazio quando o resultado não é do job ou já existe versão mais nova. É o que
+	 * distingue a alternativa de uma sugestão da regra que o usuário pediu.
+	 */
+	List<String> origemDaVersaoAtualDoResultado(UUID jobId, UUID resultadoId) {
+		return this.jdbc.queryForList("""
+				SELECT r.origem FROM resultados_simulacao rs
+				JOIN codigos_gerados c ON c.id = rs.codigo_gerado_id AND c.job_id = rs.job_id
+				JOIN regras r ON r.id = c.regra_id AND r.job_id = rs.job_id
+				WHERE rs.id = ? AND rs.job_id = ?
+				  AND NOT EXISTS (SELECT 1 FROM regras nova WHERE nova.job_id = r.job_id
+				      AND nova.versao > r.versao)
+				""", String.class, resultadoId, jobId);
+	}
+
+	/**
+	 * O resultado inviável da versão atual do job quando ela é uma alternativa de
+	 * sugestão: vazio fora disso. Só o resultado da simulação conta, nunca uma execução
+	 * candidata da busca da meta, e o mais recente vem primeiro.
+	 */
+	List<UUID> buscarResultadoInviavelDaAlternativaAtual(UUID jobId) {
+		return this.jdbc.queryForList("""
+				SELECT rs.id FROM regras r
+				JOIN codigos_gerados c ON c.regra_id = r.id AND c.job_id = r.job_id
+				JOIN resultados_simulacao rs ON rs.codigo_gerado_id = c.id AND rs.job_id = r.job_id
+				WHERE r.job_id = ? AND r.origem = 'sugestao_adaptacao'
+				  AND NOT EXISTS (SELECT 1 FROM regras nova WHERE nova.job_id = r.job_id
+				      AND nova.versao > r.versao)
+				  AND rs.status = 'sucesso' AND rs.veredito = 'inviavel' AND rs.proposito = 'simulacao'
+				ORDER BY rs.criado_em DESC, rs.id DESC
+				""", UUID.class, jobId);
 	}
 
 	List<UUID> vincularResultado(UUID jobId, UUID resultadoId) {
@@ -529,6 +553,12 @@ class JobRepository {
 		return this.jdbc.queryForList("SELECT parametros::text FROM regras WHERE id = ?", String.class, regraId);
 	}
 
+	/**
+	 * A proposta parte da versão atual do job - a regra original ou a alternativa
+	 * anterior - e do resultado inviável dela, muda só o percentual, para menos, e não
+	 * repete uma versão do job. A reentrega encontra a versão que a primeira entrega
+	 * criou e é recusada aqui. A api não conta tentativas: o limite é do codegen.
+	 */
 	@Nullable Boolean sugestaoElegivel(UUID jobId, UUID regraOrigemId, UUID resultadoId, String hash, BigDecimal percentual,
 			RepresentacaoRegraDto representacao) {
 		return this.jdbc.queryForObject("""
@@ -538,9 +568,8 @@ class JobRepository {
 				    JOIN resultados_simulacao rs ON rs.codigo_gerado_id = c.id AND rs.job_id = r.job_id
 				    WHERE r.id = ? AND r.job_id = ? AND rs.id = ?
 				      AND rs.status = 'sucesso' AND rs.veredito = 'inviavel'
-				      AND r.origem <> 'sugestao_adaptacao'
 				      AND NOT EXISTS (SELECT 1 FROM regras outra WHERE outra.job_id = r.job_id
-				          AND (outra.versao > r.versao OR outra.origem = 'sugestao_adaptacao' OR outra.hash = ?))
+				          AND (outra.versao > r.versao OR outra.hash = ?))
 				      AND (r.nucleo->>'percentual')::numeric > ?
 				      AND r.nucleo - 'percentual' = ?::jsonb - 'percentual'
 				      AND r.especificacoes = ?::jsonb

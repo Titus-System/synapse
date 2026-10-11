@@ -21,16 +21,18 @@ import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
 import synapse.api.job.JobEventosService.DesfechoAplicado;
 import synapse.api.job.JobEventosService.DesfechoDaExtracao;
+import synapse.api.job.JobEventosService.EtapaAplicada;
 import synapse.api.job.JobEventosService.ExtracaoAplicada;
+import synapse.api.job.JobEventosService.FimDaIteracao;
 import synapse.api.job.JobEventosService.SugestaoAplicada;
 
 /**
  * Consome {@code etapa-alterada}, aplica a transição de estado que a etapa implica
  * ({@link JobEventosService}) e repassa ao stream SSE do job, traduzido para
  * {@link EventoEtapaDto}. Não deduplica por {@code message_id}, que este evento não
- * carrega: uma reentrega encontra o job já fora de {@code gerando_regra} e a transição
- * vira no-op. Nunca lança em entrada inválida: vira descarte com log {@code WARN}, porque
- * uma exceção aqui viraria requeue infinito.
+ * carrega: uma reentrega encontra o job já fora de {@code gerando_regra}, ou fora da
+ * iteração da taxa nova, e a transição vira no-op. Nunca lança em entrada inválida: vira
+ * descarte com log {@code WARN}, porque uma exceção aqui viraria requeue infinito.
  */
 @Component
 class EtapaAlteradaConsumidor {
@@ -43,10 +45,14 @@ class EtapaAlteradaConsumidor {
 
 	private final CorrelationContext correlacao;
 
-	EtapaAlteradaConsumidor(JobEventosService servico, EmissoresSse emissores, CorrelationContext correlacao) {
+	private final AppMetrics metricas;
+
+	EtapaAlteradaConsumidor(JobEventosService servico, EmissoresSse emissores, CorrelationContext correlacao,
+			AppMetrics metricas) {
 		this.servico = servico;
 		this.emissores = emissores;
 		this.correlacao = correlacao;
+		this.metricas = metricas;
 	}
 
 	@RabbitListener(queues = RabbitTopologyConfig.ETAPA_ALTERADA)
@@ -67,14 +73,15 @@ class EtapaAlteradaConsumidor {
 				return;
 			}
 
-			EventoEstadoDto transicao;
+			EtapaAplicada aplicada;
 			try {
-				transicao = this.servico.aplicarEtapaAlterada(jobId, etapa, status, evento.causa());
+				aplicada = this.servico.aplicarEtapaAlterada(jobId, etapa, status, evento.causa());
 			}
 			catch (EmptyResultDataAccessException ex) {
 				log.atWarn().setCause(ex).log("etapa-alterada de job desconhecido; evento descartado");
 				return;
 			}
+			EventoEstadoDto transicao = aplicada.transicao();
 
 			// "etapa" sai antes de "estado" (skill sse): um "estado" terminal fecha o
 			// stream.
@@ -84,8 +91,27 @@ class EtapaAlteradaConsumidor {
 				this.emissores.emitir(jobId,
 						terminal ? EventoSse.ultimo("estado", transicao) : EventoSse.de("estado", transicao));
 			}
+			registrarFimDaIteracao(etapa, aplicada.fim());
 			log.atDebug().addKeyValue("etapa", etapa.paraEvento()).log("etapa repassada ao stream SSE");
 		}
+	}
+
+	private void registrarFimDaIteracao(EtapaDoGrafo etapa, @Nullable FimDaIteracao fim) {
+		if (fim == null) {
+			return;
+		}
+		this.metricas.fimDaIteracaoDaTaxa(fim.causa(), fim.resultado()).increment();
+		if (fim == FimDaIteracao.SEM_ALTERNATIVA_SEM_EFEITO) {
+			log.atInfo()
+				.addKeyValue("etapa", etapa.paraEvento())
+				.log("sem_alternativa sem iteração em curso; estado do job mantido");
+			return;
+		}
+		log.atInfo()
+			.addKeyValue("etapa", etapa.paraEvento())
+			.addKeyValue("causa", fim.causa())
+			.log(fim == FimDaIteracao.FALHA ? "tentativas de taxa nova interrompidas por falha; job em erro"
+					: "tentativas de taxa nova encerradas sem alternativa; job inviável");
 	}
 
 }
@@ -223,12 +249,20 @@ class SimulacaoConcluidaConsumidor {
 					.log("resultado descartado: não pertence à versão atual do job");
 				return;
 			}
-			contar(desfecho, "aplicada");
-
+			if (aplicado.intermediario()) {
+				// O usuário não vê a alternativa que não coube: nem "resultado" nem
+				// "estado" saem até o codegen propor a próxima ou anunciar o fim.
+				contar(desfecho, "intermediaria");
+				log.atInfo()
+					.addKeyValue("resultado_id", resultadoId)
+					.log("resultado inviável de alternativa registrado; job aguarda a próxima tentativa ou o fim da iteração");
+				return;
+			}
 			if (aplicado.avancouDeGerandoRegra()) {
 				this.emissores.emitir(jobId, EventoSse.de("estado",
 						EventoEstadoDto.transicao(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO, null)));
 			}
+			contar(desfecho, "aplicada");
 
 			// "resultado" sai antes de "estado" (skill sse): um "estado" terminal fecha
 			// o stream, e o que viesse depois se perderia.
@@ -267,10 +301,26 @@ class SimulacaoConcluidaConsumidor {
 
 }
 
+/**
+ * Consome {@code sugestao-adaptacao-proposta}: grava a versão alternativa com a
+ * {@code tentativa} informada e reabre o ciclo do codegen
+ * ({@link JobEventosService#aplicarSugestaoAdaptacao}). A proposta pode partir da regra
+ * original ou da alternativa anterior que não coube; a reentrega encontra a versão já
+ * criada e é descartada. Só a regra original tem desfecho inviável anunciado ao usuário:
+ * a alternativa intermediária não sai no SSE. Nada da regra entra em log.
+ */
 @Component
 class SugestaoAdaptacaoConsumidor {
 
 	private static final Logger log = LoggerFactory.getLogger(SugestaoAdaptacaoConsumidor.class);
+
+	private static final int PRIMEIRA_TENTATIVA = 1;
+
+	private static final int ULTIMA_TENTATIVA = 3;
+
+	private static final String TENTATIVA_AUSENTE = "ausente";
+
+	private static final String TENTATIVA_INVALIDA = "invalida";
 
 	private final JobEventosService servico;
 
@@ -278,10 +328,14 @@ class SugestaoAdaptacaoConsumidor {
 
 	private final CorrelationContext correlacao;
 
-	SugestaoAdaptacaoConsumidor(JobEventosService servico, EmissoresSse emissores, CorrelationContext correlacao) {
+	private final AppMetrics metricas;
+
+	SugestaoAdaptacaoConsumidor(JobEventosService servico, EmissoresSse emissores, CorrelationContext correlacao,
+			AppMetrics metricas) {
 		this.servico = servico;
 		this.emissores = emissores;
 		this.correlacao = correlacao;
+		this.metricas = metricas;
 	}
 
 	@RabbitListener(queues = RabbitTopologyConfig.SUGESTAO_ADAPTACAO_PROPOSTA)
@@ -290,50 +344,90 @@ class SugestaoAdaptacaoConsumidor {
 		UUID regraOrigemId = evento.regra_origem_id();
 		UUID resultadoId = evento.resultado_id();
 		RepresentacaoRegraDto representacao = evento.representacao();
-		if (jobId == null || regraOrigemId == null || resultadoId == null || representacao == null
-				|| representacao.nucleo() == null || representacao.especificacoes() == null) {
-			log.atWarn().log("sugestao-adaptacao-proposta incompleta; evento descartado");
-			return;
-		}
-
-		try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
+		Integer tentativa = evento.tentativa();
+		String rotulo = rotuloDaTentativa(tentativa);
+		try (var escopo = this.correlacao.abrir(jobId == null ? null : jobId.toString(), null)) {
+			if (jobId == null || regraOrigemId == null || resultadoId == null || representacao == null
+					|| representacao.nucleo() == null || representacao.especificacoes() == null
+					|| TENTATIVA_INVALIDA.equals(rotulo)) {
+				contar(rotulo, "invalida");
+				log.atWarn()
+					.addKeyValue("tentativa", tentativa)
+					.log("sugestao-adaptacao-proposta incompleta ou fora do contrato; evento descartado");
+				return;
+			}
 			SugestaoAplicada aplicada;
 			try {
-				aplicada = this.servico.aplicarSugestaoAdaptacao(jobId, regraOrigemId, resultadoId, representacao);
+				aplicada = this.servico.aplicarSugestaoAdaptacao(jobId, regraOrigemId, resultadoId, representacao,
+						tentativa);
 			}
 			catch (TransicaoDeStatusInvalidaException ex) {
+				contar(rotulo, "estado_incompativel");
 				log.atWarn()
+					.addKeyValue("tentativa", tentativa)
 					.setCause(ex)
 					.log("sugestao-adaptacao-proposta não aplicada; job fora do estado de origem esperado (reentrega ou evento fora de ordem)");
 				return;
 			}
-
-			if (aplicada == null) {
-				log.atWarn()
-					.addKeyValue("resultado_id", resultadoId)
-					.log("sugestão descartada: origem inválida ou tentativa já realizada");
-				return;
+			catch (RuntimeException ex) {
+				contar(rotulo, "falha");
+				throw ex;
 			}
 
-			var original = aplicada.desfechoOriginal();
-			if (original != null) {
-				if (original.avancouDeGerandoRegra()) {
+			if (aplicada == null) {
+				contar(rotulo, "descartada");
+				log.atWarn()
+					.addKeyValue("resultado_id", resultadoId)
+					.addKeyValue("tentativa", tentativa)
+					.log("sugestão descartada: origem inválida ou proposta já aplicada");
+				return;
+			}
+			contar(rotulo, "aplicada");
+
+			var daOrigem = aplicada.desfechoDaOrigem();
+			if (daOrigem != null) {
+				if (daOrigem.avancouDeGerandoRegra()) {
 					this.emissores.emitir(jobId, EventoSse.de("estado",
 							EventoEstadoDto.transicao(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO, null)));
 				}
-				UUID simulacaoId = original.simulacaoId();
-				if (simulacaoId != null) {
-					this.emissores.emitir(jobId, EventoSse.de("resultado",
-							new EventoResultadoDto(jobId, simulacaoId, "sucesso", "inviavel")));
+				if (!daOrigem.intermediario()) {
+					UUID simulacaoId = daOrigem.simulacaoId();
+					if (simulacaoId != null) {
+						this.emissores.emitir(jobId, EventoSse.de("resultado",
+								new EventoResultadoDto(jobId, simulacaoId, "sucesso", "inviavel")));
+					}
+					this.emissores.emitir(jobId,
+							EventoSse.de("estado", EventoEstadoDto.transicao(jobId, daOrigem.origem(),
+									JobStatus.SIMULACAO_INVIAVEL, DesfechoDaSimulacao.INVIAVEL.razaoLocalizada())));
 				}
-				this.emissores.emitir(jobId, EventoSse.de("estado", EventoEstadoDto.transicao(jobId, original.origem(),
-						JobStatus.SIMULACAO_INVIAVEL, DesfechoDaSimulacao.INVIAVEL.razaoLocalizada())));
 			}
 
 			this.emissores.emitir(jobId, EventoSse.de("estado",
 					EventoEstadoDto.transicao(jobId, aplicada.origem(), JobStatus.GERANDO_REGRA, null)));
-			log.atDebug().addKeyValue("regra_id", aplicada.versao().id()).log("sugestao-adaptacao-proposta aplicada");
+			log.atInfo()
+				.addKeyValue("regra_id", aplicada.versao().id())
+				.addKeyValue("versao", aplicada.versao().versao())
+				.addKeyValue("tentativa", tentativa)
+				.log("sugestao-adaptacao-proposta aplicada; ciclo do codegen reaberto");
 		}
+	}
+
+	/**
+	 * A tag da métrica, de conjunto fechado. Fora da faixa do contrato é evento inválido:
+	 * a reentrega não o corrigiria.
+	 */
+	private static String rotuloDaTentativa(@Nullable Integer tentativa) {
+		if (tentativa == null) {
+			return TENTATIVA_AUSENTE;
+		}
+		if (tentativa < PRIMEIRA_TENTATIVA || tentativa > ULTIMA_TENTATIVA) {
+			return TENTATIVA_INVALIDA;
+		}
+		return tentativa.toString();
+	}
+
+	private void contar(String tentativa, String resultado) {
+		this.metricas.sugestaoAdaptacaoConsumida(tentativa, resultado).increment();
 	}
 
 }
