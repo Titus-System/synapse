@@ -4,6 +4,7 @@ Kept apart from `await_execution`: the paused node re-runs from its first line o
 publishing there would send the command again on every resume.
 """
 
+import time
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -17,9 +18,10 @@ from app.contratos.mensagens import (
     NoConcluido,
     NoGrafo,
 )
-from app.core.logger import get_logger
+from app.core.logger import get_logger, no_ctx
 from app.falhas import FalhaDoJobError
 from app.graph.core.state import AgentState
+from app.graph.nodes.search_sales_target import cancelada
 from app.repositorio.artefatos import id_do_evento_de_trilha
 
 logger = get_logger("app.graph.nodes.dispatch_execution")
@@ -68,7 +70,15 @@ async def dispatch_execution(state: AgentState, config: RunnableConfig) -> Agent
     without the meta it simulates over the historical sales.
     """
     orcamento = state.get("orcamento")
-    meta_venda = state.get("meta_venda")
+    busca = state.get("busca_meta")
+    if busca is not None:
+        token = no_ctx.set("search_sales_target")
+        try:
+            if await cancelada(state, config):
+                return {"busca_meta": {**busca, "encerrada": True, "pendente": None}}
+        finally:
+            no_ctx.reset(token)
+    meta_venda = busca["pendente"] if busca else state.get("meta_venda")
     if meta_venda is not None and Decimal(meta_venda) <= 0:
         raise MetaVendaInvalidaError("executar-codigo requires a positive meta_venda")
 
@@ -86,7 +96,7 @@ async def dispatch_execution(state: AgentState, config: RunnableConfig) -> Agent
         job_id=job_id,
         codigo_gerado_id=codigo_gerado_id,
         competencias=list(state["competencias"]),
-        proposito="simulacao",
+        proposito="busca_meta" if busca else "simulacao",
         elementos_exigidos=elementos_exigidos,
     )
     # Atribuídos só quando presentes: a serialização omite o campo nunca atribuído, e o contrato
@@ -96,6 +106,22 @@ async def dispatch_execution(state: AgentState, config: RunnableConfig) -> Agent
     if meta_venda is not None:
         comando.meta_venda = Decimal(meta_venda)
     producers = config["configurable"]["producers"]
+
+    if busca is not None:
+        enviada_em = time.time()
+        await producers.executar_codigo(comando)
+        token = no_ctx.set("search_sales_target")
+        try:
+            logger.info(
+                "sales target candidate published",
+                extra={
+                    "codigo_gerado_id": state["codigo_gerado_id"],
+                    "candidata": len(busca["pontos"]),
+                },
+            )
+        finally:
+            no_ctx.reset(token)
+        return {"busca_meta": {**busca, "enviada_em": enviada_em}}
 
     # `etapa-alterada` primeiro, e a ordem importa. Do lado da `api` ele é idempotente (a
     # transição só vale a partir de `gerando_regra`, então uma segunda cópia não faz nada),

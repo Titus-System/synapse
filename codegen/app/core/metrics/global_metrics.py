@@ -181,3 +181,33 @@ for _no in ("extracao_parametros", "geracao_codigo"):
     espera_do_provedor.labels(no=_no)
     for _desfecho in ("recuperado", "esgotado"):
         falhas_do_provedor.labels(no=_no, desfecho=_desfecho)
+
+
+# Contam publicações de desfecho e execuções de nós, não entrega duplicada já assentada.
+# Uma queda entre publicação e checkpoint pode repetir a publicação e sua observação.
+buscas_meta = prometheus.register_counter(
+    "codegen_busca_meta_total", "Desfechos publicados da busca de meta", ["desfecho", "motivo"]
+)
+busca_meta_candidatos = prometheus.register_histogram(
+    "codegen_busca_meta_candidatos",
+    "Candidatos por busca concluída",
+    [],
+    buckets=(1, 2, 4, 6, 8, 10, 12, float("inf")),
+)
+busca_meta_espera = prometheus.register_histogram(
+    "codegen_busca_meta_espera_seconds",
+    "Espera pelo resultado de uma candidata",
+    [],
+    buckets=(1, 5, 15, 30, 60, 120, 300, 720, float("inf")),
+)
+busca_meta_processamento = prometheus.register_histogram(
+    "codegen_busca_meta_processamento_seconds", "Processamento ativo da busca, inclusive falhas", []
+)
+for _desfecho, _motivo in (
+    ("sugerida", "encontrada"),
+    ("sem_solucao", "nao_monotonica"),
+    ("sem_solucao", "intervalo_esgotado"),
+    ("sem_solucao", "falha_execucao"),
+    ("cancelada", "job_encerrado"),
+):
+    buscas_meta.labels(desfecho=_desfecho, motivo=_motivo)

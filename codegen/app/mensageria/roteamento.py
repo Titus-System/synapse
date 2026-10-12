@@ -224,11 +224,14 @@ def thread_do_ciclo(job_id: UUID, regra_id: UUID | None) -> str:
 
 def _valor_da_retomada(mensagem: SimulacaoConcluida) -> dict[str, str | None]:
     """Só referências e campos de controle: os números ficam em `resultados_simulacao`."""
-    return {
+    valor = {
         "resultado_id": str(mensagem.resultado_id),
         "status": mensagem.status.value,
         "veredito": mensagem.veredito.value if mensagem.veredito is not None else None,
     }
+    if mensagem.proposito is not None:
+        valor["proposito"] = mensagem.proposito
+    return valor
 
 
 def _estado_inicial(mensagem: RegraSubmetida) -> AgentState:

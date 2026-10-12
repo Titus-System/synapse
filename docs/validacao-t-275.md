@@ -10,7 +10,7 @@ A confirmação de parâmetros recusa jobs em `gerando_regra` ou `simulando`, so
 
 O consumidor verifica se o resultado é intermediário antes de emitir qualquer estado SSE. Isso impede um anúncio atrasado de `simulando` depois do fim da iteração. Um teste intercala o consumo real de `sem_alternativa` entre o commit do resultado e a continuação do primeiro consumidor; outro confere a ausência de SSE, os logs e a métrica tanto a partir de `gerando_regra` quanto de `simulando`.
 
-A validação completa destas correções está em execução; o resultado abaixo registra o gate anterior à revisão.
+A validação completa das correções passou em `develop`, no commit de integração `f17079e` (PR #325), após recompilação limpa.
 
 ## Cobertura
 
@@ -28,6 +28,8 @@ Executados em `api/`, com Java 21 e Docker disponível:
 - `make fmt`: formatação aplicada.
 - `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./mvnw -Dtest=IteracaoDaTaxaNovaFimAFimTests,SugestaoAdaptacaoPersistenciaTests,SugestaoAdaptacaoConsumidorTests test`: **64 testes, sem falhas nem skips**. O cenário adicional de falha na sugestão foi incluído depois desta execução e passou no gate completo.
 - `make check`: **BUILD SUCCESS — 1073 testes, 0 falhas, 0 erros e 3 skips**, incluindo os 8 cenários de `IteracaoDaTaxaNovaFimAFimTests`. Formato, Error Prone e NullAway aprovados.
+- `make check` após as correções: a primeira execução terminou com 13 erros `NoClassDefFoundError` em auxiliares de testes de logging e transcrição.
+- `make clean && make check`: **BUILD SUCCESS — 1077 testes, 0 falhas, 0 erros e 3 skips**, incluindo os 9 cenários de `IteracaoDaTaxaNovaFimAFimTests` e as regressões das duas correções. A recompilação limpa eliminou os erros de classes ausentes sem mudanças nesses testes. Formato, Error Prone e NullAway aprovados.
 - `git diff --check`: sem erros na revisão final.
 
 Os três skips foram `TranscricaoRealTests` (variável `TRANSCRIPTION_REAL_TEST` ausente), `SubmissaoDeRegraFimAFimTests` (condição `ambienteCompleto` falsa) e `JobComErroFimAFimTests.falhaDeInfraestruturaNaExecucaoEncerraOJobDepoisDeGerarOCodigo` (condição `ambienteDeExecucao` falsa). Nenhum cenário da T-275 foi ignorado.
@@ -36,4 +38,4 @@ Os três skips foram `TranscricaoRealTests` (variável `TRANSCRIPTION_REAL_TEST`
 
 O teste da T-275 usa PostgreSQL e RabbitMQ reais em Testcontainers. Ele ocupa o lugar do codegen e do worker para persistir os artefatos e publicar os eventos, permitindo controlar a ordem das filas; não comprova sozinho a integração com os processos reais desses dois serviços. Não foi feita validação visual do frontend, que pertence à T-276, nem conferida a coleta externa por Prometheus/Grafana.
 
-Não havia PR aberto para `feature/t-275-iteracao-da-taxa-nova` na consulta feita nesta sessão. Este relatório está pronto para acompanhar o PR; o registro nele e a CI ainda precisam ocorrer. Nenhum commit ou push foi criado nesta sessão.
+Na retomada da validação, a implementação e as duas correções já estavam integradas em `develop` pelo PR #325 (`f17079e`). O gate local acima foi executado nesse estado; o resultado da CI não foi consultado nesta retomada. Este relatório foi atualizado localmente, sem criar commit ou push.

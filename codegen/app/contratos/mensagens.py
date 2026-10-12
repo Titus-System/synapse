@@ -106,6 +106,8 @@ class SimulacaoConcluida(ModeloContrato):
     resultado_id: UUID
     status: StatusSimulacao
     veredito: Veredito | None = None
+    meta_venda: Decimal | None = Field(default=None, gt=0)
+    proposito: Literal["simulacao", "busca_meta"] | None = None
     total_baseline: Decimal | None = None
     total_simulado: Decimal | None = None
     diferenca_abs: Decimal | None = None
@@ -155,3 +157,15 @@ class NoConcluido(ModeloContrato):
     prompt_id: UUID | None = None
     codigo_gerado_id: UUID | None = None
     explicacao_id: UUID | None = None
+
+
+class SemSolucaoMeta(ModeloContrato):
+    motivo: Literal["nao_monotonica", "intervalo_esgotado", "falha_execucao"]
+
+
+class MetaVendaSugerida(ModeloContrato):
+    job_id: UUID
+    regra_id: UUID
+    resultado_id: UUID | None = None
+    meta_venda: Decimal | None = Field(default=None, gt=0)
+    sem_solucao: SemSolucaoMeta | None = None

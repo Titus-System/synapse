@@ -53,6 +53,8 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
         "await_execution",
         "decision",
         "suggest_adaptation",
+        "search_sales_target",
+        "publish_sales_target",
         "__end__",
     }
     edges = {(edge.source, edge.target) for edge in drawable.edges}
@@ -72,6 +74,12 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
         ("decision", "suggest_adaptation"),
         ("decision", "__end__"),
         ("suggest_adaptation", "__end__"),
+        ("decision", "search_sales_target"),
+        ("search_sales_target", "dispatch_execution"),
+        ("search_sales_target", "publish_sales_target"),
+        ("publish_sales_target", "__end__"),
+        ("dispatch_execution", "__end__"),
+        ("await_execution", "search_sales_target"),
     }
     alcancados = {no for aresta in edges for no in aresta}
     assert set(drawable.nodes) == alcancados
@@ -200,7 +208,7 @@ async def test_resuming_records_the_result_reference_in_the_state(
 async def test_an_unaffordable_result_routes_to_the_adaptation_and_proposes_one(
     scripted_model: ScriptedModel, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A única ramificação do grafo: inviável por orçamento vai para a adaptação.
+    """Inviável por orçamento vai para a adaptação.
 
     A proposta sai do total apurado, não do modelo - o nó de sugestão não chama LLM.
     """

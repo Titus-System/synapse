@@ -12,6 +12,22 @@ class ConflitoDominio(TypedDict):
     motivo: str
 
 
+class PontoBusca(TypedDict):
+    meta: str
+    comissao: str
+    resultado_id: str
+
+
+class BuscaMeta(TypedDict):
+    pontos: list[PontoBusca]
+    pendente: str | None
+    motivo: str | None
+    vencedora: str | None
+    iniciada_em: float
+    enviada_em: float
+    encerrada: bool
+
+
 class AgentState(TypedDict, total=False):
     """Shared graph state - see `.agents/skills/graph/SKILL.md`.
 
@@ -62,3 +78,5 @@ class AgentState(TypedDict, total=False):
     # Taxas novas que o job já tentou até a regra deste ciclo, inclusive (T-271). O nó de
     # decisão a conta, e a sugestão a lê do checkpoint para numerar a tentativa seguinte.
     tentativas_de_taxa: int
+
+    busca_meta: BuscaMeta

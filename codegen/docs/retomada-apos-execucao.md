@@ -18,7 +18,7 @@ load_rule → code_generation → persist_response → extract_code → dispatch
 - Resultado já registrado e nós posteriores pendentes: continuar com entrada `None`. Isso recupera falhas transitórias na publicação da sugestão sem repetir a geração nem perder o resultado recebido.
 - Grafo concluído: confirmar a reentrega sem iniciar outro ciclo.
 
-Os artefatos e eventos de auditoria têm identificadores determinísticos. O worker deduplica pelo par job/código, preservando a independência entre a simulação original e a alternativa.
+Os artefatos e eventos de auditoria têm identificadores determinísticos. O worker deduplica por job, código, meta e propósito, preservando a independência entre a simulação original e as execuções candidatas.
 
 ## Até três taxas novas por job
 
@@ -43,3 +43,7 @@ O loop de correções por texto ou voz ainda precisa ser integrado. A pausa por 
 Sem `competencias`, o consumer rejeita a mensagem sem requeue, com causa `contexto_ausente`, sem abrir grafo nem publicar `etapa-alterada`. Orçamento e meta ausentes não são falha: o comando sai sem eles. A integração da T-217 deve garantir o envio do contexto; publicações anteriores sem competências são drenadas e descartadas.
 
 Os checkpoints de um job são removidos depois do `job-encerrado` da `api`, e o registro `jobs_grafo_encerrados` assume a deduplicação: depois da limpeza, uma reentrega de submissão, confirmação ou resultado é confirmada sem efeito. Uma confirmação também é recusada quando o encerramento está registrado e a limpeza ainda está pendente. Um ciclo pausado à espera do resultado não é removido antes de o resultado ser processado. Ver [mensageria](mensageria.md#encerramento-do-job-e-limpeza-dos-checkpoints) e a [DEC-095](../../docs/decisoes/dec-095.md).
+
+## Busca da meta maior
+
+Com `BUSCA_META_ENABLED=true`, o resultado viável com margem de uma regra só de núcleo pode seguir para `search_sales_target`. O nó alterna com `dispatch_execution` e `await_execution`, mantendo o mesmo código e a versão, mas identificando cada execução por propósito e meta. A reentrega de uma candidata anterior não satisfaz a espera da seguinte. A busca termina publicando `meta-venda-sugerida` e uma conclusão própria de `decisao`. O algoritmo, limites, ativação e semântica das medidas estão em [busca-meta.md](busca-meta.md).

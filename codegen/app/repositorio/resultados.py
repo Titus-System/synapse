@@ -158,3 +158,58 @@ async def buscar_regra_do_resultado(
     if linha is None or linha["regra_id"] is None:
         raise ResultadoDesconhecidoError("No rule version behind this simulation result")
     return UUID(str(linha["regra_id"]))
+
+
+class ExecucaoDaMeta:
+    """Identidade e totais da execução, lidos juntos para conferir a candidata esperada."""
+
+    def __init__(
+        self,
+        regra_id: UUID,
+        codigo_id: UUID,
+        proposito: str,
+        meta: Decimal | None,
+        status: str,
+        simulado: Decimal | None,
+        orcamento: Decimal | None,
+        vendas_historicas: Decimal | None,
+    ) -> None:
+        self.regra_id = regra_id
+        self.codigo_id = codigo_id
+        self.proposito = proposito
+        self.meta = meta
+        self.status = status
+        self.simulado = simulado
+        self.orcamento = orcamento
+        self.vendas_historicas = vendas_historicas
+
+
+async def buscar_execucao_da_meta(
+    sessoes: async_sessionmaker[AsyncSession],
+    job_id: UUID,
+    resultado_id: UUID,
+) -> ExecucaoDaMeta:
+    consulta = text(
+        "SELECT c.regra_id, r.codigo_gerado_id, r.proposito, r.meta_venda, r.status,"
+        " r.totais::text AS totais FROM resultados_simulacao r"
+        " JOIN codigos_gerados c ON c.id = r.codigo_gerado_id AND c.job_id = r.job_id"
+        " WHERE r.id = :resultado AND r.job_id = :job"
+    )
+    async with sessoes() as sessao:
+        resultado = await sessao.execute(consulta, {"resultado": resultado_id, "job": job_id})
+        linha = resultado.mappings().one_or_none()
+    if linha is None or linha["regra_id"] is None:
+        raise ResultadoDesconhecidoError("Execution not found for this job")
+    totais = _objeto(linha["totais"])
+    if not isinstance(totais, dict):
+        totais = {}
+    return ExecucaoDaMeta(
+        UUID(str(linha["regra_id"])),
+        UUID(str(linha["codigo_gerado_id"])),
+        linha["proposito"],
+        linha["meta_venda"],
+        linha["status"],
+        _decimal(totais.get("simulado")),
+        _decimal(totais.get("orcamento")),
+        _decimal(totais.get("vendas_historicas")),
+    )
