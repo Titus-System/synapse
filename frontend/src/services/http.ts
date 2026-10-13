@@ -40,7 +40,11 @@ export class HttpError extends Error {
   readonly code?: CodigoErro
   readonly fieldErrors: FieldError[]
 
-  constructor(status: number, message: string, options?: { code?: CodigoErro; fieldErrors?: FieldError[] }) {
+  constructor(
+    status: number,
+    message: string,
+    options?: { code?: CodigoErro; fieldErrors?: FieldError[] },
+  ) {
     super(message)
     this.name = 'HttpError'
     this.status = status
@@ -139,7 +143,10 @@ async function enviar(url: string, requestInit: RequestInit): Promise<Response> 
     response = await fetch(url, { ...requestInit, headers })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error
-    throw new HttpError(0, 'Não foi possível se conectar ao serviço. Verifique sua conexão e tente novamente.')
+    throw new HttpError(
+      0,
+      'Não foi possível se conectar ao serviço. Verifique sua conexão e tente novamente.',
+    )
   }
 
   if (response.status === 401) {
@@ -163,7 +170,8 @@ async function request<TResponse>(
   const headers = new Headers({ Accept: 'application/json' })
   const hasBody = options?.body !== undefined
 
-  if (hasBody) headers.set('Content-Type', 'application/json')
+  const multipart = options?.body instanceof FormData
+  if (hasBody && !multipart) headers.set('Content-Type', 'application/json')
 
   const requestInit: RequestInit =
     method === 'GET'
@@ -175,7 +183,9 @@ async function request<TResponse>(
       : {
           method: 'POST',
           headers,
-          ...(hasBody ? { body: JSON.stringify(options.body) } : {}),
+          ...(hasBody
+            ? { body: multipart ? (options.body as FormData) : JSON.stringify(options.body) }
+            : {}),
           signal: options?.signal,
         }
 

@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { HttpError } from '@/services/http'
+import { enviarTexto, enviarAudio } from '../services/submissoes.api'
+import { registrarEntrada } from '../services/observabilidade'
 import { apiClient } from '@/services/api'
 import type { JobResumo } from '@/types/api'
 import TheProcessHeader from '@/components/TheProcessHeader.vue'
@@ -8,6 +12,41 @@ import TheSidebar from '@/components/TheSidebar.vue'
 import EntradaTexto from '../components/EntradaTexto.vue'
 import EntradaVoz from '../components/EntradaVoz.vue'
 
+const router = useRouter()
+const enviando = ref(false)
+const erroEnvio = ref('')
+const jobCriado = ref<string | null>(null)
+async function enviar(audio?: Blob) {
+  if (enviando.value || jobCriado.value) return
+  if (!audio && (!descricao.value.trim() || descricao.value.length > 8000)) return
+  enviando.value = true
+  erroEnvio.value = ''
+  const inicio = performance.now()
+  const operacao = audio ? 'enviar_audio' : 'enviar_texto'
+  try {
+    const resposta = audio
+      ? await enviarAudio(audio, controlador.signal)
+      : await enviarTexto(descricao.value, controlador.signal)
+    jobCriado.value = resposta.job.id
+    registrarEntrada(operacao, 'sucesso', inicio, resposta.job.id)
+    if (!controlador.signal.aborted)
+      await router.push(`/jobs/${encodeURIComponent(resposta.job.id)}`)
+  } catch (erro) {
+    if (!jobCriado.value)
+      registrarEntrada(operacao, controlador.signal.aborted ? 'cancelado' : 'falha', inicio)
+    if (!controlador.signal.aborted)
+      erroEnvio.value =
+        audio && erro instanceof HttpError && erro.code === 'estado_invalido'
+          ? 'O envio por voz está indisponível. Você pode enviar a regra por texto.'
+          : erro instanceof HttpError && erro.code === 'audio_muito_grande'
+            ? 'A gravação ficou grande demais. Grave um áudio mais curto.'
+            : erro instanceof HttpError && erro.code === 'audio_invalido'
+              ? 'Não foi possível usar a gravação. Grave novamente ou envie por texto.'
+              : 'Não foi possível concluir o envio. Verifique sua conexão e tente novamente.'
+  } finally {
+    enviando.value = false
+  }
+}
 const modo = ref<'voz' | 'texto'>('voz')
 const descricao = ref('')
 const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
@@ -110,6 +149,7 @@ onBeforeUnmount(() => controlador.abort())
           >
             <button
               type="button"
+              :disabled="enviando || !!jobCriado"
               :aria-pressed="modo === 'voz'"
               class="flex min-w-28 items-center justify-center gap-2 rounded-full px-5 py-2 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-[#b65108]"
               :class="modo === 'voz' ? 'bg-white text-[#b65108] shadow-sm' : 'text-[#7b6559]'"
@@ -129,6 +169,7 @@ onBeforeUnmount(() => controlador.abort())
             </button>
             <button
               type="button"
+              :disabled="enviando || !!jobCriado"
               :aria-pressed="modo === 'texto'"
               class="flex min-w-28 items-center justify-center gap-2 rounded-full px-5 py-2 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-[#b65108]"
               :class="modo === 'texto' ? 'bg-white text-[#b65108] shadow-sm' : 'text-[#7b6559]'"
@@ -138,11 +179,24 @@ onBeforeUnmount(() => controlador.abort())
             </button>
           </div>
           <div class="mt-10 sm:mt-14">
-            <EntradaVoz v-if="modo === 'voz'" />
-            <EntradaTexto v-else v-model="descricao" />
+            <EntradaVoz
+              v-if="modo === 'voz'"
+              :enviando="enviando || !!jobCriado"
+              @enviar="enviar"
+            />
+            <EntradaTexto
+              v-else
+              v-model="descricao"
+              :enviando="enviando || !!jobCriado"
+              @enviar="enviar()"
+            />
           </div>
+          <p v-if="erroEnvio" role="alert">{{ erroEnvio }}</p>
+          <RouterLink v-if="jobCriado" :to="`/jobs/${encodeURIComponent(jobCriado)}`"
+            >Acompanhar processamento</RouterLink
+          >
           <p class="mt-6 text-xs text-[#9d8274]">
-            Prévia visual. A gravação e o envio ainda não estão disponíveis.
+            Descreva a regra e, se desejar, o orçamento, a meta de venda e o período.
           </p>
         </section>
       </div>

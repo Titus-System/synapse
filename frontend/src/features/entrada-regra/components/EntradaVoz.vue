@@ -1,24 +1,46 @@
+<script setup lang="ts">
+import { useGravacao } from '../composables/useGravacao'
+defineProps<{ enviando: boolean }>()
+const emit = defineEmits<{ enviar: [audio: Blob] }>()
+const { gravando, solicitando, audio, url, erro, iniciar, parar } = useGravacao()
+</script>
+
 <template>
-  <div class="flex flex-col items-center">
+  <div class="flex flex-col items-center gap-4">
     <button
       type="button"
-      disabled
-      aria-label="Iniciar gravação"
-      class="grid size-28 cursor-not-allowed place-items-center rounded-full bg-[#f97518] text-white shadow-[0_16px_40px_-16px_rgba(249,117,24,0.45)] sm:size-36"
+      :disabled="enviando || solicitando"
+      :aria-label="gravando ? 'Parar gravação' : 'Iniciar gravação'"
+      class="rounded-full bg-[#f97518] px-8 py-5 text-white disabled:opacity-50"
+      @click="gravando ? parar() : iniciar()"
     >
-      <svg
-        class="size-12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        aria-hidden="true"
-      >
-        <rect x="9" y="2" width="6" height="13" rx="3" />
-        <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3" />
-      </svg>
+      {{
+        solicitando
+          ? 'Aguardando microfone...'
+          : gravando
+            ? 'Parar gravação'
+            : audio
+              ? 'Gravar novamente'
+              : 'Iniciar gravação'
+      }}
     </button>
-    <p class="mt-6 text-sm text-[#8c7b72] sm:text-base">Clique para iniciar a gravação</p>
+    <p role="status">
+      {{
+        gravando
+          ? 'Gravando. A gravação para automaticamente em 3 minutos.'
+          : 'Grave até 3 minutos (máximo de 5 MB).'
+      }}
+    </p>
+    <audio v-if="url" :src="url" controls aria-label="Ouvir gravação" />
+    <button
+      v-if="audio && !gravando"
+      type="button"
+      :disabled="enviando"
+      class="rounded-lg bg-[#a34b00] px-7 py-3 text-white"
+      @click="emit('enviar', audio)"
+    >
+      {{ enviando ? 'Enviando...' : 'Enviar gravação' }}
+    </button>
+    <p v-if="erro" role="alert">{{ erro }}</p>
   </div>
 </template>

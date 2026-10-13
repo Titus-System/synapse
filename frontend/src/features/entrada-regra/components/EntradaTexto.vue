@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineProps<{ enviando: boolean }>()
+const emit = defineEmits<{ enviar: [] }>()
 const descricao = defineModel<string>({ required: true })
 </script>
 
@@ -17,10 +19,11 @@ const descricao = defineModel<string>({ required: true })
       />
       <button
         type="button"
-        disabled
-        class="h-16 cursor-not-allowed rounded-[1.25rem] bg-[#a34b00] px-7 font-medium text-white"
+        :disabled="enviando || !descricao.trim() || descricao.length > 8000"
+        @click="emit('enviar')"
+        class="h-16 disabled:cursor-not-allowed rounded-[1.25rem] bg-[#a34b00] px-7 font-medium text-white"
       >
-        Enviar
+        {{ enviando ? 'Enviando...' : 'Enviar' }}
       </button>
     </div>
     <p id="limite-descricao" class="mt-2 text-left text-xs text-[#9d8274]">
