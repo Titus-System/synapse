@@ -7,8 +7,13 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from app.config import get_settings
+from app.graph.core.llm import disponibilidade
 from app.graph.core.state import AgentState
-from app.graph.nodes.code_generation import RespostaModeloInvalidaError, code_generation
+from app.graph.nodes.code_generation import (
+    ProvedorIndisponivelGeracaoError,
+    RespostaModeloInvalidaError,
+    code_generation,
+)
 from app.prompts.geracao_codigo import montar_prompt_geracao
 from app.representacao_regra import RepresentacaoRegra
 from tests.app.graph.conftest import FakeChatModel
@@ -23,10 +28,24 @@ _REGRA: AgentState = {
 
 @pytest.mark.llm
 @pytest.mark.skipif(not get_settings().GOOGLE_API_KEY, reason="requer GOOGLE_API_KEY")
-async def test_code_generation_calls_the_real_provider_and_returns_one_python_block() -> None:
-    update = await code_generation(
-        _REGRA, {"configurable": {"producers": MagicMock(etapa_alterada=AsyncMock())}}
-    )
+async def test_code_generation_calls_the_real_provider_and_returns_one_python_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A espera de dez minutos é coberta pelos testes determinísticos de disponibilidade;
+    # a chamada real mede a resposta do modelo, não a duração de uma pane externa.
+    monkeypatch.setattr(disponibilidade, "JANELA_S", 0.0)
+    try:
+        update = await code_generation(
+            _REGRA,
+            {
+                "configurable": {
+                    "producers": MagicMock(etapa_alterada=AsyncMock()),
+                    "sessoes": MagicMock(),
+                }
+            },
+        )
+    except ProvedorIndisponivelGeracaoError:
+        pytest.skip("provedor indisponível na geração de código")
 
     assert re.findall(r"```python\b", update["resposta_bruta"]) == ["```python"]
     assert update["resposta_bruta"].count("```") == 2

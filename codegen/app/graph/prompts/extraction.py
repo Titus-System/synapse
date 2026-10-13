@@ -5,7 +5,11 @@ import simplejson
 
 
 def montar_prompt_extracao(
-    texto: str, competencias: Sequence[str], schema: dict[str, Any], instrucoes: Sequence[str]
+    texto: str,
+    competencias: Sequence[str],
+    schema: dict[str, Any],
+    instrucoes: Sequence[str],
+    vocabulario: dict[str, Any],
 ) -> str:
     return simplejson.dumps(
         {
@@ -28,11 +32,17 @@ def montar_prompt_extracao(
                     "Percentual é fração: 2,5% vira 0.025; "
                     "0.025 já em fração não é dividido de novo. "
                     "Vigência usa AAAA-MM; um único mês repete inicio e fim. "
-                    "Não invente ano ausente: "
-                    "preserve esse período como elemento. Preserve percentual negativo e período "
+                    "Se o ano estiver ausente, use o ano comum das competências publicadas; "
+                    "se houver mais de um ano publicado, preserve o trecho em elemento. "
+                    "Preserve percentual negativo e período "
                     "invertido, sem corrigir incoerências. "
-                    "Códigos são strings e só entram no núcleo "
-                    "quando citados numericamente no texto. Nome sem código vira elemento. "
+                    "Para cada valor de nucleo, use {valor, trecho} com trecho literal da fonte: "
+                    "percentual e vigencia usam esse objeto; loja/marca/cargo são listas "
+                    "de {valor, trecho}, um por código. Os nomes canônicos e aliases inequívocos "
+                    "resolvem para os códigos do vocabulário. Um nome ambíguo pode permanecer "
+                    "literal no valor para diagnóstico; não escolha um código por palpite. "
+                    "Todo campo numérico de um construto também exige {valor, trecho} literal. "
+                    "Toda evidência tem de estar literalmente no texto. Não invente trechos. "
                     "Matrícula nunca é núcleo. Tudo além do núcleo e de parametros vira "
                     "elemento, sem descartar nada. O pedido de simular um período, o orçamento e a "
                     "meta de venda nunca viram elemento. "
@@ -60,6 +70,7 @@ def montar_prompt_extracao(
                     "parametros."
                 ),
                 "construtos_habilitados": list(instrucoes),
+                "vocabulario_canonico": vocabulario,
                 "schema_saida": schema,
             },
             "dados_nao_confiaveis_da_regra": {"texto": texto, "competencias": list(competencias)},

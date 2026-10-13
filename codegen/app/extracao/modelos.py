@@ -5,7 +5,14 @@ from app.falhas import FalhaDoJobError
 from app.representacao_regra import RepresentacaoRegra
 from app.tipos_estado import ValorRegra
 
-type MotivoRebaixamento = Literal["construto_nao_habilitado", "campo_obrigatorio_ausente"]
+type MotivoRebaixamento = Literal[
+    "construto_nao_habilitado",
+    "campo_obrigatorio_ausente",
+    "valor_sem_lastro",
+    "codigo_fora_do_vocabulario",
+    "termo_ambiguo",
+    "periodo_nao_resolvido",
+]
 
 
 class FalhaExtracaoError(FalhaDoJobError):

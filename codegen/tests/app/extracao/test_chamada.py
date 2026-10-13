@@ -10,7 +10,10 @@ from tests.app.graph.conftest import FakeChatModel
 
 
 async def test_preserva_chamada_para_auditoria_sem_vincular_ferramentas() -> None:
-    bruto = '{"nucleo": {"percentual": 0.025}, "elementos": [], "parametros": {}}'
+    bruto = (
+        '{"nucleo": {"percentual": {"valor": 0.025, "trecho": "2,5%"}}, '
+        '"elementos": [], "parametros": {}}'
+    )
     resposta = AIMessage(
         content=[{"type": "text", "text": bruto}],
         usage_metadata={"input_tokens": 31, "output_tokens": 12, "total_tokens": 43},

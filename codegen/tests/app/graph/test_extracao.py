@@ -21,9 +21,16 @@ from tests.app.extracao_falsa import BancoExtracaoFalso
 from tests.app.graph.conftest import FakeChatModel
 from tests.app.test_mensageria import CONTRATOS
 
-TEXTO = "Pague 2,5% na loja 13. REGRA_PRIVADA"
+TEXTO = (
+    "Pague 2,5% na loja 13. orçamento de R$ 500 mil; "
+    "meta de 12 milhões entre setembro e novembro de 2025. REGRA_PRIVADA"
+)
 NUCLEO = {"percentual": Decimal("0.025"), "loja": ["13"]}
-SAIDA = {"nucleo": NUCLEO, "elementos": [], "parametros": {}}
+NUCLEO_RASCUNHO = {
+    "percentual": {"valor": Decimal("0.025"), "trecho": "2,5%"},
+    "loja": [{"valor": "13", "trecho": "loja 13"}],
+}
+SAIDA = {"nucleo": NUCLEO_RASCUNHO, "elementos": [], "parametros": {}}
 
 
 @pytest.fixture
@@ -128,7 +135,7 @@ async def test_parametros_ditos_no_texto_sao_gravados_na_extracao(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     saida = {
-        "nucleo": NUCLEO,
+        "nucleo": NUCLEO_RASCUNHO,
         "elementos": [],
         "parametros": {
             "orcamento": {"valor": Decimal("500000"), "trecho": "orçamento de R$ 500 mil"},
@@ -324,7 +331,7 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
         monkeypatch,
         [
             {
-                "nucleo": NUCLEO,
+                "nucleo": NUCLEO_RASCUNHO,
                 "elementos": [elemento, {"trecho": TEXTO}],
                 "parametros": parametros,
             }
@@ -572,28 +579,22 @@ async def test_duracao_longa_ocupa_buckets_finitos_em_sucesso_e_falha(
 
 
 @pytest.mark.parametrize(
-    "nucleo",
+    ("rascunho", "esperado"),
     [
-        {},
-        {"percentual": Decimal("0.025")},
-        {"vigencia": {"inicio": "2025-11", "fim": "2025-11"}},
-        {"vigencia": {"inicio": "2025-08", "fim": "2025-12"}},
-        {"vigencia": {"inicio": "2025-12", "fim": "2025-08"}, "percentual": Decimal("-0.1")},
-        {
-            "vigencia": {"inicio": "2025-11", "fim": "2025-11"},
-            "loja": ["13"],
-            "marca": ["10"],
-            "cargo": ["100"],
-            "percentual": Decimal("0.025000000000000000001"),
-        },
+        ({}, {}),
+        (
+            {"percentual": {"valor": Decimal("0.025"), "trecho": "2,5%"}},
+            {"percentual": Decimal("0.025")},
+        ),
+        ({"loja": [{"valor": "13", "trecho": "loja 13"}]}, {"loja": ["13"]}),
+        ({"percentual": {"valor": Decimal("0.04"), "trecho": "2,5%"}}, {}),
     ],
 )
-async def test_casos_de_nucleo_da_t203_chegam_ao_artefato_sem_alteracao(
-    monkeypatch: pytest.MonkeyPatch,
-    nucleo: dict[str, Any],
+async def test_nucleo_do_modelo_so_chega_ao_artefato_com_lastro(
+    monkeypatch: pytest.MonkeyPatch, rascunho: dict[str, Any], esperado: dict[str, Any]
 ) -> None:
     ambiente = AmbienteExtracao(
-        monkeypatch, [{"nucleo": nucleo, "elementos": [], "parametros": {}}]
+        monkeypatch, [{"nucleo": rascunho, "elementos": [], "parametros": {}}]
     )
     recebida = mensagem(ambiente.entrada())
 
@@ -602,7 +603,7 @@ async def test_casos_de_nucleo_da_t203_chegam_ao_artefato_sem_alteracao(
     recebida.ack.assert_awaited_once_with()
     [artefato] = ambiente.banco.tabela("extracoes_regras")
     assert simplejson.loads(artefato["representacao"], use_decimal=True) == {
-        "nucleo": nucleo,
+        "nucleo": esperado,
         "especificacoes": [],
     }
 

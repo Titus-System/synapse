@@ -30,7 +30,8 @@ def validar_conteudo(
         elementos: Any = regra["especificacoes"]
         refs = [r["ref"] for r in diagnosticos]
         genericos = {e["ref"] for e in elementos if e["construto"] == "generico"}
-        if len(refs) == len(set(refs)) and set(refs) == genericos:
+        refs_elementos = {ref for ref in refs if ref.startswith("elem.")}
+        if len(refs) == len(set(refs)) and refs_elementos == genericos:
             validado = regra, diagnosticos
     except (ValueError, TypeError, ErroSchema):
         pass
