@@ -152,7 +152,8 @@ class JobService {
 			SimulacaoDto simulacao = simulacoes.isEmpty() ? null : simulacoes.getLast();
 			return new JobDetalhadoDto(job.id(), job.status(), job.origem(), job.competencias(), job.orcamento(),
 					job.meta_venda(), job.criado_em(), job.iniciado_em(), job.finalizado_em(), job.submissao_id(),
-					job.job_origem_id(), job.motivo(), job.regras(), simulacao, simulacoes);
+					job.job_origem_id(), job.motivo(), job.regras(), simulacao, simulacoes,
+					this.repository.buscarMetaSugerida(jobId));
 		}
 		catch (EmptyResultDataAccessException ex) {
 			throw new JobNaoEncontradoException(jobId);
@@ -337,6 +338,14 @@ class JobService {
 
 	@Transactional
 	AcaoAplicada executarAcao(UUID jobId, AcaoJob acao) {
+		if (acao == AcaoJob.ACEITAR_META) {
+			JobStatus estado = this.maquina.statusAtual(jobId);
+			if (estado != JobStatus.AGUARDANDO_DECISAO_USUARIO || !this.repository.aceitarMetaSugerida(jobId)) {
+				throw ExecutarAcaoException.estadoInvalido(acao, estado);
+			}
+			this.repository.inserirAcao(jobId, acao.paraColuna(), Timestamp.from(Instant.now()));
+			return new AcaoAplicada(EventoEstadoDto.fotografia(jobId, estado), consultarJob(jobId));
+		}
 		JobStatus origem;
 		try {
 			origem = this.maquina.transicionar(jobId, acao.destino(), "usuario", null);

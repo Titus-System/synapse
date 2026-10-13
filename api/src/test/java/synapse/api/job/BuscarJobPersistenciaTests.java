@@ -122,7 +122,8 @@ class BuscarJobPersistenciaTests {
 		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
 		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
 		mvc = MockMvcBuilders
-			.standaloneSetup(new JobController(service, mock(EmissoresSse.class), new CorrelationContext()))
+			.standaloneSetup(new JobController(service, mock(EmissoresSse.class), new CorrelationContext(),
+					org.mockito.Mockito.mock(synapse.api.core.metrics.AppMetrics.class)))
 			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual,
 					new AutorizadorDeJob(contexto.getBean(JobRepository.class))))
 			.setControllerAdvice(new JobAdvice(), new AutorizacaoDeJobAdvice())

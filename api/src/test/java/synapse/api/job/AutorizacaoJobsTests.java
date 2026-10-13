@@ -62,7 +62,9 @@ class AutorizacaoJobsTests {
 		when(this.jdbc.queryForList(contains("FROM jobs"), eq(UUID.class), eq(JOB))).thenReturn(List.of(USUARIO));
 		UsuarioAtual usuario = new UsuarioAtual(this.jdbc, mock(AppProperties.class));
 		this.mvc = MockMvcBuilders
-			.standaloneSetup(new JobController(this.service, this.emissores, new CorrelationContext()),
+			.standaloneSetup(new JobController(this.service, this.emissores, new CorrelationContext(),
+					org.mockito.Mockito.mock(synapse.api.core.metrics.AppMetrics.class,
+							org.mockito.Mockito.RETURNS_DEEP_STUBS)),
 					new RotaSemPolitica())
 			.addInterceptors(
 					new AutorizacaoJobsInterceptor(usuario, new AutorizadorDeJob(new JobRepository(this.jdbc))))
@@ -123,7 +125,7 @@ class AutorizacaoJobsTests {
 
 	static Stream<String> rotas() {
 		return Stream.of("criar", "listar", "buscar", "events", "parameters", "reprocessar", "confirmar_liberar",
-				"cancelar", "salvar", "arquivar");
+				"cancelar", "salvar", "arquivar", "aceitar_meta");
 	}
 
 	@ParameterizedTest(name = "{0} papeis={1} dono={2}")

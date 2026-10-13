@@ -207,4 +207,26 @@ public class AppMetrics {
 			.register(this.registry);
 	}
 
+	/** Entregas candidatas, incluindo reentregas; nunca contam como desfecho do job. */
+	public Counter execucaoCandidataConsumida() {
+		return Counter.builder("simulacao.candidata.consumo")
+			.description("Execuções candidatas recebidas sem transição do job")
+			.register(this.registry);
+	}
+
+	/** Entregas por classe de resultado; reentrega não incrementa registrada. */
+	public Counter metaVendaSugeridaConsumida(String resultado) {
+		return Counter.builder("meta.venda.sugerida.consumo")
+			.description("Sugestões de meta por resultado do consumo")
+			.tag("resultado", resultado)
+			.register(this.registry);
+	}
+
+	/** Aceitações confirmadas, medidas no retorno do serviço transacional. */
+	public Counter metaVendaAceita() {
+		return Counter.builder("meta.venda.aceita")
+			.description("Metas sugeridas aceitas pelo usuário")
+			.register(this.registry);
+	}
+
 }

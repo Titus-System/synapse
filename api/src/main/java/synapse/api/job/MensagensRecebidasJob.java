@@ -48,7 +48,14 @@ record NoConcluidoDto(@Nullable UUID evento_id, @Nullable UUID job_id, @Nullable
  */
 record SimulacaoConcluidaDto(@Nullable UUID job_id, @Nullable UUID resultado_id, @Nullable String status,
 		@Nullable String veredito, @Nullable BigDecimal total_baseline, @Nullable BigDecimal total_simulado,
-		@Nullable BigDecimal diferenca_abs, @Nullable BigDecimal diferenca_pct) {
+		@Nullable BigDecimal diferenca_abs, @Nullable BigDecimal diferenca_pct, @Nullable String proposito,
+		@Nullable BigDecimal meta_venda) {
+	SimulacaoConcluidaDto(@Nullable UUID job_id, @Nullable UUID resultado_id, @Nullable String status,
+			@Nullable String veredito, @Nullable BigDecimal total_baseline, @Nullable BigDecimal total_simulado,
+			@Nullable BigDecimal diferenca_abs, @Nullable BigDecimal diferenca_pct) {
+		this(job_id, resultado_id, status, veredito, total_baseline, total_simulado, diferenca_abs, diferenca_pct, null,
+				null);
+	}
 }
 
 /**

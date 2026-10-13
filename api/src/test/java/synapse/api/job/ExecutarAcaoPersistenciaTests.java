@@ -190,7 +190,7 @@ class ExecutarAcaoPersistenciaTests {
 	 * mesmo DTO, mesmo contrato.
 	 */
 	@ParameterizedTest
-	@EnumSource(AcaoJob.class)
+	@EnumSource(value = AcaoJob.class, names = "ACEITAR_META", mode = EnumSource.Mode.EXCLUDE)
 	void aRespostaDaAcaoValidaContraJobDetalhado(AcaoJob acao) throws Exception {
 		UUID jobId = criarJobComRegra(JobStatus.AGUARDANDO_DECISAO_USUARIO);
 		EmissoresSse emissores = mock(EmissoresSse.class);
@@ -202,7 +202,9 @@ class ExecutarAcaoPersistenciaTests {
 					EventoEstadoDto.transicao(jobId, JobStatus.AGUARDANDO_DECISAO_USUARIO, acao.destino(), null)));
 			return null;
 		}).when(emissores).emitir(eq(jobId), any());
-		MockMvc mvc = MockMvcBuilders.standaloneSetup(new JobController(service, emissores, new CorrelationContext()))
+		MockMvc mvc = MockMvcBuilders
+			.standaloneSetup(new JobController(service, emissores, new CorrelationContext(),
+					org.mockito.Mockito.mock(synapse.api.core.metrics.AppMetrics.class)))
 			.setControllerAdvice(new JobAdvice())
 			.build();
 
@@ -321,7 +323,9 @@ class ExecutarAcaoPersistenciaTests {
 	void falhaNaConsultaFinalReverteAcaoETransicaoSemEmitirSse() throws Exception {
 		UUID jobId = criarJobComRegra(JobStatus.AGUARDANDO_DECISAO_USUARIO);
 		EmissoresSse emissores = mock(EmissoresSse.class);
-		MockMvc mvc = MockMvcBuilders.standaloneSetup(new JobController(service, emissores, new CorrelationContext()))
+		MockMvc mvc = MockMvcBuilders
+			.standaloneSetup(new JobController(service, emissores, new CorrelationContext(),
+					org.mockito.Mockito.mock(synapse.api.core.metrics.AppMetrics.class)))
 			.setControllerAdvice(new JobAdvice())
 			.build();
 		dono.execute("REVOKE SELECT ON simulacoes FROM synapse_api");

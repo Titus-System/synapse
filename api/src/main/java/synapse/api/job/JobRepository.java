@@ -158,7 +158,7 @@ class JobRepository {
 	List<SimulacaoDto> listarSimulacoes(UUID jobId) {
 		return this.jdbc.query("""
 				SELECT s.id, s.regra_id, s.criado_em, s.flag_baixa_rastreabilidade,
-				       r.status, r.veredito, r.totais, r.assercoes, r.decomposicao
+				       r.status, r.veredito, r.totais, r.assercoes, r.decomposicao, r.meta_venda
 				FROM simulacoes s
 				JOIN resultados_simulacao r ON r.id = s.resultado_id
 				WHERE s.job_id = ? ORDER BY s.criado_em, s.id
@@ -170,7 +170,8 @@ class JobRepository {
 		boolean sucesso = "sucesso".equals(status);
 		return new SimulacaoDto(rs.getObject("id", UUID.class), rs.getObject("regra_id", UUID.class),
 				rs.getTimestamp("criado_em").toInstant(), status, sucesso ? rs.getString("veredito") : null,
-				rs.getBoolean("flag_baixa_rastreabilidade"), sucesso ? resultado(rs) : null);
+				rs.getBoolean("flag_baixa_rastreabilidade"), sucesso ? resultado(rs) : null,
+				rs.getBigDecimal("meta_venda"));
 	}
 
 	private ResultadoSimulacaoDto resultado(ResultSet rs) throws SQLException {
@@ -421,13 +422,15 @@ class JobRepository {
 	 */
 	UUID registrarSimulacao(UUID jobId, UUID regraId, UUID codigoGeradoId, @Nullable UUID simulacaoId,
 			Instant concluidoEm) {
-		this.jdbc.update("""
-				INSERT INTO simulacoes (id, criado_em, regra_id, job_id, codigo_gerado_id, resultado_id)
-				VALUES (COALESCE(?, uuidv7()), ?, ?, ?, ?,
-					(SELECT id FROM resultados_simulacao WHERE job_id = ? AND codigo_gerado_id = ?
-						ORDER BY criado_em DESC, id DESC LIMIT 1))
-				ON CONFLICT DO NOTHING
-				""", simulacaoId, Timestamp.from(concluidoEm), regraId, jobId, codigoGeradoId, jobId, codigoGeradoId);
+		this.jdbc.update(
+				"""
+						INSERT INTO simulacoes (id, criado_em, regra_id, job_id, codigo_gerado_id, resultado_id)
+						VALUES (COALESCE(?, uuidv7()), ?, ?, ?, ?,
+							(SELECT id FROM resultados_simulacao WHERE job_id = ? AND codigo_gerado_id = ? AND proposito = 'simulacao'
+								ORDER BY criado_em DESC, id DESC LIMIT 1))
+						ON CONFLICT DO NOTHING
+						""",
+				simulacaoId, Timestamp.from(concluidoEm), regraId, jobId, codigoGeradoId, jobId, codigoGeradoId);
 		return Objects.requireNonNull(this.jdbc.queryForObject("SELECT id FROM simulacoes WHERE codigo_gerado_id = ?",
 				UUID.class, codigoGeradoId));
 	}
@@ -461,7 +464,7 @@ class JobRepository {
 				SELECT r.origem FROM resultados_simulacao rs
 				JOIN codigos_gerados c ON c.id = rs.codigo_gerado_id AND c.job_id = rs.job_id
 				JOIN regras r ON r.id = c.regra_id AND r.job_id = rs.job_id
-				WHERE rs.id = ? AND rs.job_id = ?
+				WHERE rs.id = ? AND rs.job_id = ? AND rs.proposito = 'simulacao'
 				  AND NOT EXISTS (SELECT 1 FROM regras nova WHERE nova.job_id = r.job_id
 				      AND nova.versao > r.versao)
 				""", String.class, resultadoId, jobId);
@@ -490,7 +493,7 @@ class JobRepository {
 				UPDATE simulacoes s SET resultado_id = r.id
 				FROM resultados_simulacao r
 				WHERE r.id = ? AND r.job_id = ? AND s.job_id = r.job_id
-				  AND s.codigo_gerado_id = r.codigo_gerado_id AND s.resultado_id IS NULL
+				  AND s.codigo_gerado_id = r.codigo_gerado_id AND s.resultado_id IS NULL AND r.proposito = 'simulacao'
 				RETURNING s.id
 				""", (linha, numero) -> linha.getObject("id", UUID.class), resultadoId, jobId);
 	}
@@ -542,6 +545,67 @@ class JobRepository {
 		this.jdbc.update("UPDATE jobs SET meta_venda = ? WHERE id = ?", nova, jobId);
 	}
 
+	boolean registrarMetaSugerida(MetaVendaSugeridaDto evento) {
+		return this.jdbc.update("""
+				INSERT INTO sugestoes_meta_venda (job_id, regra_id, resultado_id, motivo_sem_solucao)
+				SELECT r.job_id, r.id, ?, ? FROM regras r
+				JOIN jobs j ON j.id = r.job_id
+				WHERE r.job_id = ? AND r.id = ? AND j.status IN ('simulando', 'aguardando_decisao_usuario')
+				  AND NOT EXISTS (SELECT 1 FROM regras nova WHERE nova.job_id = r.job_id AND nova.versao > r.versao)
+				  AND ( ?::uuid IS NULL OR EXISTS (
+				      SELECT 1 FROM resultados_simulacao rs JOIN codigos_gerados c ON c.id = rs.codigo_gerado_id
+				      WHERE rs.id = ? AND rs.job_id = r.job_id AND c.job_id = r.job_id AND c.regra_id = r.id
+				        AND rs.proposito = 'busca_meta' AND rs.status = 'sucesso' AND rs.meta_venda = ?
+				        AND rs.meta_venda > j.meta_venda AND rs.veredito = 'viavel'
+				        AND (rs.totais ->> 'orcamento')::numeric = j.orcamento
+				        AND (rs.totais ->> 'simulado')::numeric <= (rs.totais ->> 'orcamento')::numeric
+				  ))
+				ON CONFLICT (job_id, regra_id) DO NOTHING
+				""", evento.resultado_id(), evento.sem_solucao() == null ? null : evento.sem_solucao().motivo(),
+				evento.job_id(), evento.regra_id(), evento.resultado_id(), evento.resultado_id(),
+				evento.meta_venda()) == 1;
+	}
+
+	@Nullable MetaSugeridaDto buscarMetaSugerida(UUID jobId) {
+		List<MetaSugeridaDto> sugestoes = this.jdbc.query("""
+				SELECT rs.meta_venda, (rs.totais ->> 'simulado')::numeric AS total_simulado,
+				    (rs.totais ->> 'orcamento')::numeric AS orcamento, m.motivo_sem_solucao
+				FROM sugestoes_meta_venda m
+				JOIN regras r ON r.id = m.regra_id
+				LEFT JOIN resultados_simulacao rs ON rs.id = m.resultado_id
+				WHERE m.job_id = ? AND m.aceita_em IS NULL
+				  AND NOT EXISTS (SELECT 1 FROM regras nova WHERE nova.job_id = r.job_id AND nova.versao > r.versao)
+				""",
+				(rs, numero) -> new MetaSugeridaDto(rs.getBigDecimal("meta_venda"), rs.getBigDecimal("total_simulado"),
+						rs.getBigDecimal("orcamento"), rs.getString("motivo_sem_solucao") == null ? null
+								: new SemSolucaoDto(rs.getString("motivo_sem_solucao"))),
+				jobId);
+		return sugestoes.isEmpty() ? null : sugestoes.getFirst();
+	}
+
+	boolean aceitarMetaSugerida(UUID jobId) {
+		int atualizadas = this.jdbc.update("""
+				UPDATE simulacoes s SET resultado_id = m.resultado_id
+				FROM sugestoes_meta_venda m, resultados_simulacao rs, regras r
+				WHERE m.job_id = ? AND m.aceita_em IS NULL AND m.resultado_id = rs.id
+				  AND r.id = m.regra_id AND s.job_id = m.job_id AND s.regra_id = m.regra_id
+				  AND s.codigo_gerado_id = rs.codigo_gerado_id AND s.resultado_id IS NOT NULL
+				  AND rs.proposito = 'busca_meta' AND rs.status = 'sucesso'
+				  AND s.id = (SELECT vigente.id FROM simulacoes vigente WHERE vigente.job_id = s.job_id
+				      ORDER BY vigente.criado_em DESC, vigente.id DESC LIMIT 1)
+				  AND NOT EXISTS (SELECT 1 FROM regras nova WHERE nova.job_id = r.job_id AND nova.versao > r.versao)
+				""", jobId);
+		if (atualizadas == 0) {
+			return false;
+		}
+		this.jdbc.update("""
+				UPDATE sugestoes_meta_venda m SET aceita_em = now()
+				WHERE job_id = ? AND aceita_em IS NULL AND resultado_id IS NOT NULL
+				  AND EXISTS (SELECT 1 FROM simulacoes s WHERE s.job_id = m.job_id AND s.resultado_id = m.resultado_id)
+				""", jobId);
+		return true;
+	}
+
 	/**
 	 * Os parâmetros da versão {@code regraId}, como {@code jsonb::text} - vazio quando a
 	 * versão não existe, com um elemento {@code null} quando ela existe e a coluna é
@@ -567,7 +631,7 @@ class JobRepository {
 				    JOIN codigos_gerados c ON c.regra_id = r.id AND c.job_id = r.job_id
 				    JOIN resultados_simulacao rs ON rs.codigo_gerado_id = c.id AND rs.job_id = r.job_id
 				    WHERE r.id = ? AND r.job_id = ? AND rs.id = ?
-				      AND rs.status = 'sucesso' AND rs.veredito = 'inviavel'
+				      AND rs.status = 'sucesso' AND rs.veredito = 'inviavel' AND rs.proposito = 'simulacao'
 				      AND NOT EXISTS (SELECT 1 FROM regras outra WHERE outra.job_id = r.job_id
 				          AND (outra.versao > r.versao OR outra.hash = ?))
 				      AND (r.nucleo->>'percentual')::numeric > ?
