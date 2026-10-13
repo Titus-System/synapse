@@ -1,5 +1,6 @@
 package synapse.api.job;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -9,13 +10,17 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.MDC;
 import tools.jackson.databind.json.JsonMapper;
 
+import org.springframework.dao.DataAccessResourceFailureException;
+
 import synapse.api.core.logging.CorrelationContext;
 import synapse.api.core.metrics.AppMetrics;
 import synapse.api.core.sse.EmissoresSse;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class MetaVendaSugeridaTests {
 
@@ -54,6 +59,35 @@ class MetaVendaSugeridaTests {
 			ContratoDeEvento.validar("meta-venda-sugerida", corpo);
 			assertThat(json.readValue(corpo, MetaVendaSugeridaDto.class).valida()).isTrue();
 		}
+	}
+
+	@Test
+	void falhaDePersistenciaContaTentativaSemAnunciarSugestaoNemExporDetalhe() throws Exception {
+		var servico = mock(JobEventosService.class);
+		var emissores = mock(EmissoresSse.class);
+		var registro = new SimpleMeterRegistry();
+		var consumidor = new MetaVendaSugeridaConsumidor(servico, emissores, new CorrelationContext(),
+				new AppMetrics(registro));
+		UUID jobId = UUID.randomUUID();
+		var evento = new MetaVendaSugeridaDto(jobId, UUID.randomUUID(), UUID.randomUUID(), new BigDecimal("2000"),
+				null);
+		var falha = new DataAccessResourceFailureException("detalhe-interno-proibido");
+		when(servico.registrarMetaSugerida(evento)).thenThrow(falha);
+		try (CapturaDeLog captura = new CapturaDeLog(MetaVendaSugeridaConsumidor.class)) {
+			assertThatThrownBy(() -> consumidor.receber(evento)).isSameAs(falha);
+			assertThat(captura.eventos()).hasSize(1);
+			String linha = CapturaDeLog.emJson(captura.eventos().getFirst());
+			ContratoDeEvento.validarLog(linha);
+			var log = new JsonMapper().readTree(linha);
+			assertThat(log.path("job_id").asString()).isEqualTo(jobId.toString());
+			assertThat(log.path("level").asString()).isEqualTo("WARN");
+			assertThat(linha).doesNotContain("detalhe-interno-proibido", "\"exception\"", "\"meta_venda\"");
+		}
+		verifyNoInteractions(emissores);
+		assertThat(registro.get("meta.venda.sugerida.consumo").tag("resultado", "falha").counter().count())
+			.isEqualTo(1);
+		assertThat(registro.find("meta.venda.sugerida.consumo").tag("resultado", "registrada").counter()).isNull();
+		assertThat(MDC.get(CorrelationContext.JOB_ID_KEY)).isNull();
 	}
 
 }

@@ -629,18 +629,23 @@ class SimulacaoConcluidaConsumidorTests {
 			.untilAsserted(() -> assertThat(statusPersistido(jobId)).isEqualTo("aguardando_decisao_usuario"));
 	}
 
-	@Test
-	void candidatasNaoMudamJobESugestaoAceitaSubstituiResultadoSemNovaSimulacao() throws Exception {
-		UUID jobId = criarJob(JobStatus.SIMULANDO);
+	@ParameterizedTest
+	@CsvSource({ "true,false", "false,false", "true,true", "false,true" })
+	void candidatasNaoMudamJobESugestaoAceitaSubstituiResultadoSemNovaSimulacao(boolean comMetaVenda,
+			boolean sugestaoAntecipada) throws Exception {
+		JobStatus estadoInicial = sugestaoAntecipada ? JobStatus.GERANDO_REGRA : JobStatus.SIMULANDO;
+		UUID jobId = criarJob(estadoInicial);
 		Simulacao simulacao = criarSimulacaoPendente(jobId);
 		UUID vigente = criarResultado(jobId, simulacao.codigoGeradoId(), "sucesso", "viavel");
 		UUID candidata = criarResultado(jobId, simulacao.codigoGeradoId(), "sucesso", "viavel");
 		UUID regraId;
 		try (Connection conexao = comoDono(); Statement sql = conexao.createStatement()) {
-			sql.execute("UPDATE jobs SET meta_venda = 1000 WHERE id = '%s'".formatted(jobId));
+			if (comMetaVenda) {
+				sql.execute("UPDATE jobs SET meta_venda = 1000 WHERE id = '%s'".formatted(jobId));
+			}
 			sql.execute(
-					"UPDATE resultados_simulacao SET meta_venda = 1000, totais = '{\"baseline\":10,\"simulado\":20,\"diferenca_abs\":10,\"diferenca_pct\":1,\"orcamento\":1000,\"vendas_historicas\":500}' WHERE id = '%s'"
-						.formatted(vigente));
+					"UPDATE resultados_simulacao SET meta_venda = %s, totais = '{\"baseline\":10,\"simulado\":20,\"diferenca_abs\":10,\"diferenca_pct\":1,\"orcamento\":1000,\"vendas_historicas\":500}' WHERE id = '%s'"
+						.formatted(comMetaVenda ? "1000" : "NULL", vigente));
 			sql.execute(
 					"UPDATE resultados_simulacao SET meta_venda = 2000, proposito = 'busca_meta', totais = '{\"baseline\":10,\"simulado\":40,\"diferenca_abs\":30,\"diferenca_pct\":3,\"orcamento\":1000,\"vendas_historicas\":500}' WHERE id = '%s'"
 						.formatted(candidata));
@@ -659,6 +664,15 @@ class SimulacaoConcluidaConsumidorTests {
 		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
 		var registro = contexto.getBean(io.micrometer.core.instrument.MeterRegistry.class);
 		double antes = contexto.getBean(synapse.api.core.metrics.AppMetrics.class).execucaoCandidataConsumida().count();
+		double registradasAntes = contexto.getBean(synapse.api.core.metrics.AppMetrics.class)
+			.metaVendaSugeridaConsumida("registrada")
+			.count();
+		long duracoesAntes = registro.find("spring.rabbitmq.listener")
+			.tag("queue", RabbitTopologyConfig.META_VENDA_SUGERIDA)
+			.timers()
+			.stream()
+			.mapToLong(io.micrometer.core.instrument.Timer::count)
+			.sum();
 		try (CapturaDeLog captura = new CapturaDeLog("synapse.api.job")) {
 			for (int i = 0; i < 3; i++) {
 				enviarCorpo(
@@ -670,26 +684,41 @@ class SimulacaoConcluidaConsumidorTests {
 			await().atMost(Duration.ofSeconds(10))
 				.untilAsserted(() -> assertThat(registro.get("simulacao.candidata.consumo").counter().count())
 					.isEqualTo(antes + 3));
-			assertThat(statusPersistido(jobId)).isEqualTo("simulando");
+			assertThat(statusPersistido(jobId)).isEqualTo(estadoInicial.paraColuna());
 			assertThat(resultadoIdDaSimulacao(simulacao.id())).isNull();
 			assertThat(cliente.conteudo()).doesNotContain("event:resultado").doesNotContain("status_anterior");
 			assertThat(ClienteDoJob.consultar(porta, jobId).has("simulacao")).isFalse();
-			publicar(jobId, vigente, "sucesso", "viavel");
-			cliente.aguardarBloco("event:resultado", Duration.ofSeconds(10));
-			JsonNode original = ClienteDoJob.consultar(porta, jobId);
-			assertThat(original.path("simulacao").path("meta_venda").asInt()).isEqualTo(1000);
-			assertThat(original.path("simulacao").path("resultado").path("totais").path("vendas_historicas").asInt())
-				.isEqualTo(500);
 			String proposta = """
 					{"job_id":"%s","regra_id":"%s","resultado_id":"%s","meta_venda":2000}
 					""".formatted(jobId, regraId, candidata);
-			publicarMeta(proposta);
+			if (sugestaoAntecipada) {
+				publicarMeta(proposta);
+				cliente.aguardarBloco("\"status\":\"meta_sugerida\"", Duration.ofSeconds(10));
+				assertThat(statusPersistido(jobId)).isEqualTo(estadoInicial.paraColuna());
+				assertThat(resultadoIdDaSimulacao(simulacao.id())).isNull();
+				assertThat(transicoesRegistradas(jobId)).isEmpty();
+				assertThat(executarAcao(jobId, "aceitar_meta").statusCode()).isEqualTo(409);
+			}
+			publicar(jobId, vigente, "sucesso", "viavel");
+			cliente.aguardarBloco("event:resultado", Duration.ofSeconds(10));
+			JsonNode original = ClienteDoJob.consultar(porta, jobId);
+			assertThat(original.path("simulacao").has("meta_venda")).isEqualTo(comMetaVenda);
+			if (comMetaVenda) {
+				assertThat(original.path("simulacao").path("meta_venda").asInt()).isEqualTo(1000);
+			}
+			assertThat(original.path("simulacao").path("resultado").path("totais").path("vendas_historicas").asInt())
+				.isEqualTo(500);
+			if (!sugestaoAntecipada) {
+				publicarMeta(proposta);
+			}
 			String bloco = cliente.aguardarBloco("\"status\":\"meta_sugerida\"", Duration.ofSeconds(10));
 			ContratoDeEvento.validarEventoDoStream("etapa", ClienteDoJob.dadosDoBloco(bloco).toString());
 			JsonNode sugerida = ClienteDoJob.consultar(porta, jobId).path("meta_sugerida");
 			assertThat(sugerida.path("meta_venda").asInt()).isEqualTo(2000);
 			assertThat(sugerida.path("total_simulado").asInt()).isEqualTo(40);
 			assertThat(sugerida.path("orcamento").asInt()).isEqualTo(1000);
+			assertThat(registro.get("meta.venda.sugerida.consumo").tag("resultado", "registrada").counter().count())
+				.isEqualTo(registradasAntes + 1);
 			double descartadas = contexto.getBean(synapse.api.core.metrics.AppMetrics.class)
 				.metaVendaSugeridaConsumida("descartada")
 				.count();
@@ -726,13 +755,16 @@ class SimulacaoConcluidaConsumidorTests {
 			assertThat(aceito.path("simulacao").path("meta_venda").asInt()).isEqualTo(2000);
 			assertThat(aceito.path("simulacao").path("resultado").path("totais").path("simulado").asInt())
 				.isEqualTo(40);
-			assertThat(aceito.path("meta_venda").asInt()).isEqualTo(1000);
+			assertThat(aceito.has("meta_venda")).isEqualTo(comMetaVenda);
+			if (comMetaVenda) {
+				assertThat(aceito.path("meta_venda").asInt()).isEqualTo(1000);
+			}
 			assertThat(acoesRegistradas(jobId)).containsExactly("aceitar_meta");
 			assertThat(resultadoIdDaSimulacao(simulacao.id())).isEqualTo(candidata);
 			await().atMost(Duration.ofSeconds(5))
 				.untilAsserted(() -> assertThat(cliente.contarOcorrencias("event:resultado")).isEqualTo(2));
 			assertThat(emissoresSse.conexoesAtivas()).isEqualTo(1);
-			assertThat(transicoesRegistradas(jobId)).hasSize(1);
+			assertThat(transicoesRegistradas(jobId)).hasSize(sugestaoAntecipada ? 2 : 1);
 			assertThat(executarAcao(jobId, "aceitar_meta").statusCode()).isEqualTo(409);
 			publicarMeta(proposta);
 			await().atMost(Duration.ofSeconds(10))
@@ -740,10 +772,22 @@ class SimulacaoConcluidaConsumidorTests {
 						registro.get("meta.venda.sugerida.consumo").tag("resultado", "descartada").counter().count())
 					.isEqualTo(descartadas + 2));
 			assertThat(ClienteDoJob.consultar(porta, jobId).has("meta_sugerida")).isFalse();
+			assertThat(registro.get("meta.venda.sugerida.consumo").tag("resultado", "registrada").counter().count())
+				.isEqualTo(registradasAntes + 1);
 			for (ILoggingEvent log : captura.eventos()) {
-				ContratoDeEvento.validarLog(CapturaDeLog.emJson(log));
+				String linha = CapturaDeLog.emJson(log);
+				ContratoDeEvento.validarLog(linha);
+				assertThat(JSON.readTree(linha).path("job_id").asString()).isEqualTo(jobId.toString());
+				assertThat(linha).doesNotContain("\"totais\"", "\"nucleo\"", "\"conteudo\"", "\"fonte\"");
 			}
 		}
+		await().atMost(Duration.ofSeconds(5))
+			.untilAsserted(() -> assertThat(registro.find("spring.rabbitmq.listener")
+				.tag("queue", RabbitTopologyConfig.META_VENDA_SUGERIDA)
+				.timers()
+				.stream()
+				.mapToLong(io.micrometer.core.instrument.Timer::count)
+				.sum()).isEqualTo(duracoesAntes + 3));
 		assertThat(registro.get("meta.venda.aceita").counter().count()).isGreaterThanOrEqualTo(1);
 		String metricas = HTTP
 			.send(HttpRequest.newBuilder(URI.create("http://localhost:" + porta + "/metrics")).GET().build(),
@@ -751,12 +795,25 @@ class SimulacaoConcluidaConsumidorTests {
 			.body();
 		assertThat(metricas).contains("simulacao_candidata_consumo_total", "meta_venda_sugerida_consumo_total",
 				"meta_venda_aceita_total");
+		double sugeridasExpostas = metricas.lines()
+			.filter(linha -> linha.startsWith("meta_venda_sugerida_consumo_total{")
+					&& linha.contains("resultado=\"registrada\""))
+			.mapToDouble(linha -> Double.parseDouble(linha.substring(linha.lastIndexOf(' ') + 1)))
+			.sum();
+		assertThat(sugeridasExpostas).isEqualTo(registradasAntes + 1);
+		double duracoesExpostas = metricas.lines()
+			.filter(linha -> linha.startsWith("spring_rabbitmq_listener_seconds_count{")
+					&& linha.contains("queue=\"" + RabbitTopologyConfig.META_VENDA_SUGERIDA + "\""))
+			.mapToDouble(linha -> Double.parseDouble(linha.substring(linha.lastIndexOf(' ') + 1)))
+			.sum();
+		assertThat(duracoesExpostas).isEqualTo(duracoesAntes + 3);
 		assertThat(executarAcao(jobId, "salvar").statusCode()).isEqualTo(200);
 	}
 
-	@Test
-	void desfechoSemSolucaoApareceNoJobESseSemPermitirAceitar() throws Exception {
-		UUID jobId = criarJob(JobStatus.AGUARDANDO_DECISAO_USUARIO);
+	@ParameterizedTest
+	@ValueSource(strings = { "gerando_regra", "simulando", "aguardando_decisao_usuario" })
+	void desfechoSemSolucaoApareceNoJobESseSemPermitirAceitar(String estadoInicial) throws Exception {
+		UUID jobId = criarJob(JobStatus.deColuna(estadoInicial));
 		UUID regraId = criarRegra(jobId);
 		assertThat(executarAcao(jobId, "aceitar_meta").statusCode()).isEqualTo(409);
 		StreamCliente cliente = conectar(jobId);
@@ -768,7 +825,78 @@ class SimulacaoConcluidaConsumidorTests {
 		JsonNode sugestao = ClienteDoJob.consultar(porta, jobId).path("meta_sugerida");
 		assertThat(sugestao.path("sem_solucao").path("motivo").asString()).isEqualTo("nao_monotonica");
 		assertThat(sugestao.has("meta_venda")).isFalse();
+		assertThat(statusPersistido(jobId)).isEqualTo(estadoInicial);
+		assertThat(transicoesRegistradas(jobId)).isEmpty();
 		assertThat(executarAcao(jobId, "aceitar_meta").statusCode()).isEqualTo(409);
+		assertThat(acoesRegistradas(jobId)).isEmpty();
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "400", "500" })
+	void sugestaoSemMetaInformadaExigeAumentoSobreVendasHistoricas(String metaCandidata) throws Exception {
+		UUID jobId = criarJob(JobStatus.AGUARDANDO_DECISAO_USUARIO);
+		Simulacao simulacao = criarSimulacaoPendente(jobId);
+		UUID candidata = criarResultado(jobId, simulacao.codigoGeradoId(), "sucesso", "viavel");
+		UUID regraId;
+		try (Connection conexao = comoDono(); Statement sql = conexao.createStatement()) {
+			sql.execute(
+					"""
+							UPDATE resultados_simulacao SET meta_venda = %s, proposito = 'busca_meta',
+							    totais = '{"baseline":10,"simulado":20,"diferenca_abs":10,"diferenca_pct":1,"orcamento":1000,"vendas_historicas":500}'
+							WHERE id = '%s'
+							"""
+						.formatted(metaCandidata, candidata));
+			try (ResultSet rs = sql
+				.executeQuery("SELECT regra_id FROM simulacoes WHERE id = '%s'".formatted(simulacao.id()))) {
+				assertThat(rs.next()).isTrue();
+				regraId = rs.getObject(1, UUID.class);
+			}
+		}
+		StreamCliente cliente = conectar(jobId);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
+		double antes = contexto.getBean(synapse.api.core.metrics.AppMetrics.class)
+			.metaVendaSugeridaConsumida("descartada")
+			.count();
+		publicarMeta("""
+				{"job_id":"%s","regra_id":"%s","resultado_id":"%s","meta_venda":%s}
+				""".formatted(jobId, regraId, candidata, metaCandidata));
+		await().atMost(Duration.ofSeconds(10))
+			.untilAsserted(() -> assertThat(contexto.getBean(synapse.api.core.metrics.AppMetrics.class)
+				.metaVendaSugeridaConsumida("descartada")
+				.count()).isEqualTo(antes + 1));
+		assertThat(ClienteDoJob.consultar(porta, jobId).has("meta_sugerida")).isFalse();
+		assertThat(cliente.conteudo()).doesNotContain("meta_sugerida");
+		assertThat(resultadoIdDaSimulacao(simulacao.id())).isNull();
+		assertThat(executarAcao(jobId, "aceitar_meta").statusCode()).isEqualTo(409);
+	}
+
+	@ParameterizedTest
+	@CsvSource({ "liberado,false", "cancelado,false", "arquivado,false", "gerando_regra,true" })
+	void sugestaoDeMetaDescartaJobEncerradoOuVersaoAnterior(String estadoInicial, boolean versaoAnterior)
+			throws Exception {
+		UUID jobId = criarJob(JobStatus.deColuna(estadoInicial));
+		UUID regraId = criarRegra(jobId);
+		if (versaoAnterior) {
+			try (Connection conexao = comoDono(); Statement sql = conexao.createStatement()) {
+				sql.execute("""
+						INSERT INTO regras (job_id, versao, origem, nucleo, especificacoes, hash, criada_em)
+						SELECT job_id, 2, origem, nucleo, especificacoes, '%s', now() FROM regras WHERE id = '%s'
+						""".formatted("1".repeat(64), regraId));
+			}
+		}
+		double antes = contexto.getBean(synapse.api.core.metrics.AppMetrics.class)
+			.metaVendaSugeridaConsumida("descartada")
+			.count();
+		publicarMeta("""
+				{"job_id":"%s","regra_id":"%s","sem_solucao":{"motivo":"intervalo_esgotado"}}
+				""".formatted(jobId, regraId));
+		await().atMost(Duration.ofSeconds(10))
+			.untilAsserted(() -> assertThat(contexto.getBean(synapse.api.core.metrics.AppMetrics.class)
+				.metaVendaSugeridaConsumida("descartada")
+				.count()).isEqualTo(antes + 1));
+		assertThat(ClienteDoJob.consultar(porta, jobId).has("meta_sugerida")).isFalse();
+		assertThat(statusPersistido(jobId)).isEqualTo(estadoInicial);
+		assertThat(transicoesRegistradas(jobId)).isEmpty();
 		assertThat(acoesRegistradas(jobId)).isEmpty();
 	}
 

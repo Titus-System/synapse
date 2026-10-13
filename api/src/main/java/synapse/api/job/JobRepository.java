@@ -546,22 +546,25 @@ class JobRepository {
 	}
 
 	boolean registrarMetaSugerida(MetaVendaSugeridaDto evento) {
-		return this.jdbc.update("""
-				INSERT INTO sugestoes_meta_venda (job_id, regra_id, resultado_id, motivo_sem_solucao)
-				SELECT r.job_id, r.id, ?, ? FROM regras r
-				JOIN jobs j ON j.id = r.job_id
-				WHERE r.job_id = ? AND r.id = ? AND j.status IN ('simulando', 'aguardando_decisao_usuario')
-				  AND NOT EXISTS (SELECT 1 FROM regras nova WHERE nova.job_id = r.job_id AND nova.versao > r.versao)
-				  AND ( ?::uuid IS NULL OR EXISTS (
-				      SELECT 1 FROM resultados_simulacao rs JOIN codigos_gerados c ON c.id = rs.codigo_gerado_id
-				      WHERE rs.id = ? AND rs.job_id = r.job_id AND c.job_id = r.job_id AND c.regra_id = r.id
-				        AND rs.proposito = 'busca_meta' AND rs.status = 'sucesso' AND rs.meta_venda = ?
-				        AND rs.meta_venda > j.meta_venda AND rs.veredito = 'viavel'
-				        AND (rs.totais ->> 'orcamento')::numeric = j.orcamento
-				        AND (rs.totais ->> 'simulado')::numeric <= (rs.totais ->> 'orcamento')::numeric
-				  ))
-				ON CONFLICT (job_id, regra_id) DO NOTHING
-				""", evento.resultado_id(), evento.sem_solucao() == null ? null : evento.sem_solucao().motivo(),
+		return this.jdbc.update(
+				"""
+						INSERT INTO sugestoes_meta_venda (job_id, regra_id, resultado_id, motivo_sem_solucao)
+						SELECT r.job_id, r.id, ?, ? FROM regras r
+						JOIN jobs j ON j.id = r.job_id
+						WHERE r.job_id = ? AND r.id = ? AND j.status IN ('gerando_regra', 'simulando', 'aguardando_decisao_usuario')
+						  AND NOT EXISTS (SELECT 1 FROM regras nova WHERE nova.job_id = r.job_id AND nova.versao > r.versao)
+						  AND ( ?::uuid IS NULL OR EXISTS (
+						      SELECT 1 FROM resultados_simulacao rs JOIN codigos_gerados c ON c.id = rs.codigo_gerado_id
+						      WHERE rs.id = ? AND rs.job_id = r.job_id AND c.job_id = r.job_id AND c.regra_id = r.id
+						        AND rs.proposito = 'busca_meta' AND rs.status = 'sucesso' AND rs.meta_venda = ?
+						        AND rs.meta_venda > COALESCE(j.meta_venda, (rs.totais ->> 'vendas_historicas')::numeric)
+						        AND rs.veredito = 'viavel'
+						        AND (rs.totais ->> 'orcamento')::numeric = j.orcamento
+						        AND (rs.totais ->> 'simulado')::numeric <= (rs.totais ->> 'orcamento')::numeric
+						  ))
+						ON CONFLICT (job_id, regra_id) DO NOTHING
+						""",
+				evento.resultado_id(), evento.sem_solucao() == null ? null : evento.sem_solucao().motivo(),
 				evento.job_id(), evento.regra_id(), evento.resultado_id(), evento.resultado_id(),
 				evento.meta_venda()) == 1;
 	}
