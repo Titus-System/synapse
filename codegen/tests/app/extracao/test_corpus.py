@@ -19,9 +19,7 @@ from app.extracao.motor import extrair_regra
 from app.graph.core.llm.registry import get_model, get_model_metadata
 
 ARQUIVO = Path(__file__).resolve().parents[2] / "fixtures" / "corpus_extracao.json"
-CORPUS: list[dict[str, Any]] = json.loads(
-    ARQUIVO.read_text(encoding="utf-8"), parse_float=Decimal
-)
+CORPUS: list[dict[str, Any]] = json.loads(ARQUIVO.read_text(encoding="utf-8"), parse_float=Decimal)
 
 
 def test_corpus_versionado_cobre_categorias_obrigatorias() -> None:
@@ -30,9 +28,18 @@ def test_corpus_versionado_cobre_categorias_obrigatorias() -> None:
     assert len(ids) == len(set(ids))
     assert len(ids) >= 11
     assert {
-        "cinco_campos", "sem_filtros", "vigencia_mes", "vigencia_intervalo", "virgula",
-        "extenso", "nomes_canonicos", "gerentes", "elemento_generico",
-        "instrucoes_maliciosas", "simulacao_completa", "sem_parametros"
+        "cinco_campos",
+        "sem_filtros",
+        "vigencia_mes",
+        "vigencia_intervalo",
+        "virgula",
+        "extenso",
+        "nomes_canonicos",
+        "gerentes",
+        "elemento_generico",
+        "instrucoes_maliciosas",
+        "simulacao_completa",
+        "sem_parametros",
     } <= set(ids)
     for caso in CORPUS:
         assert caso["texto"] and caso["competencias_publicadas"]
@@ -147,9 +154,7 @@ async def test_503_persistente_eh_reportado_como_nao_executado(
     assert chamadas == 2
 
 
-async def test_erro_nao_transitorio_nao_eh_ignorado(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_erro_nao_transitorio_nao_eh_ignorado(monkeypatch: pytest.MonkeyPatch) -> None:
     chamadas = 0
 
     async def chamada_falsa(*_args: Any, **_kwargs: Any) -> None:
@@ -182,9 +187,7 @@ async def modelo_corpus() -> AsyncGenerator[BaseChatModel, None]:
 
 
 @pytest.mark.llm
-@pytest.mark.skipif(
-    not get_settings().GOOGLE_API_KEY, reason="precisa de chave do provedor"
-)
+@pytest.mark.skipif(not get_settings().GOOGLE_API_KEY, reason="precisa de chave do provedor")
 @pytest.mark.parametrize("caso", CORPUS, ids=[caso["id"] for caso in CORPUS])
 @pytest.mark.asyncio(loop_scope="module")
 async def test_corpus_contra_modelo_real(
