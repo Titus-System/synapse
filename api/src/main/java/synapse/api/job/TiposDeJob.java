@@ -127,7 +127,11 @@ record TotaisSimulacaoDto(
 
 		BigDecimal diferenca_pct,
 
-		@Nullable BigDecimal orcamento) {
+		@Nullable BigDecimal orcamento, @Nullable BigDecimal vendas_historicas) {
+	TotaisSimulacaoDto(BigDecimal baseline, BigDecimal simulado, BigDecimal diferenca_abs, BigDecimal diferenca_pct,
+			@Nullable BigDecimal orcamento) {
+		this(baseline, simulado, diferenca_abs, diferenca_pct, orcamento, null);
+	}
 }
 
 record ResultadoAssercaoDto(

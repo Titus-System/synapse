@@ -52,6 +52,13 @@ class JobEventosService {
 		this.outbox = outbox;
 	}
 
+	@Transactional
+	boolean registrarMetaSugerida(MetaVendaSugeridaDto evento) {
+		UUID jobId = Objects.requireNonNull(evento.job_id());
+		this.repository.bloquearJob(jobId);
+		return this.repository.registrarMetaSugerida(evento);
+	}
+
 	/**
 	 * O evento {@code estado} da transição aplicada, nulo quando a combinação não move o
 	 * job ou ele já saiu de {@code gerando_regra}, e o fim da iteração da taxa nova que o

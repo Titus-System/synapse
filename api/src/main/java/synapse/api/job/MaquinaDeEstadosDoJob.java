@@ -110,7 +110,7 @@ public class MaquinaDeEstadosDoJob {
 	 * ação do usuário disputando o mesmo job serializam em vez de correr sobre o mesmo
 	 * status atual.
 	 */
-	private JobStatus statusAtual(UUID jobId) {
+	JobStatus statusAtual(UUID jobId) {
 		String status = this.repository.buscarStatusComTrava(jobId);
 		return JobStatus.deColuna(status);
 	}

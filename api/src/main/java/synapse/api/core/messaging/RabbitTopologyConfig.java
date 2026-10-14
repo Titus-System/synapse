@@ -36,6 +36,8 @@ public class RabbitTopologyConfig {
 
 	public static final String SUGESTAO_ADAPTACAO_PROPOSTA = "sugestao-adaptacao-proposta";
 
+	public static final String META_VENDA_SUGERIDA = "meta-venda-sugerida";
+
 	public static final String REGRA_EXTRAIDA = "regra-extraida";
 
 	public static final String JOB_ENCERRADO = "job-encerrado";
@@ -58,7 +60,8 @@ public class RabbitTopologyConfig {
 				QueueBuilder.durable(PARAMETROS_CONFIRMADOS).build(), QueueBuilder.durable(ETAPA_ALTERADA).build(),
 				QueueBuilder.durable(NO_CONCLUIDO).build(), QueueBuilder.durable(SUGESTAO_ADAPTACAO_PROPOSTA).build(),
 				QueueBuilder.durable(REGRA_EXTRAIDA).build(), QueueBuilder.durable(JOB_ENCERRADO).build(),
-				simulacaoConcluida, simulacaoConcluidaApi, simulacaoConcluidaBinding);
+				QueueBuilder.durable(META_VENDA_SUGERIDA).build(), simulacaoConcluida, simulacaoConcluidaApi,
+				simulacaoConcluidaBinding);
 	}
 
 	/**
@@ -79,7 +82,7 @@ public class RabbitTopologyConfig {
 			log.atInfo()
 				.addKeyValue("filas",
 						List.of(REGRA_SUBMETIDA, PARAMETROS_CONFIRMADOS, ETAPA_ALTERADA, NO_CONCLUIDO, REGRA_EXTRAIDA,
-								JOB_ENCERRADO, SIMULACAO_CONCLUIDA_API))
+								JOB_ENCERRADO, META_VENDA_SUGERIDA, SIMULACAO_CONCLUIDA_API))
 				.addKeyValue("exchange", SIMULACAO_CONCLUIDA_EXCHANGE)
 				.log("topologia do RabbitMQ declarada");
 		};

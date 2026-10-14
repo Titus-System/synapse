@@ -4,6 +4,8 @@ import java.net.URI;
 import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import synapse.api.core.logging.CorrelationContext;
+import synapse.api.core.metrics.AppMetrics;
 import synapse.api.core.security.AcessoDoUsuario;
 import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
@@ -27,13 +30,18 @@ import synapse.api.job.JobService.AcaoAplicada;
 @RestController
 class JobController {
 
+	private static final Logger log = LoggerFactory.getLogger(JobController.class);
+
 	private final JobService service;
 
 	private final EmissoresSse emissores;
 
 	private final CorrelationContext correlacao;
 
-	JobController(JobService service, EmissoresSse emissores, CorrelationContext correlacao) {
+	private final AppMetrics metricas;
+
+	JobController(JobService service, EmissoresSse emissores, CorrelationContext correlacao, AppMetrics metricas) {
+		this.metricas = metricas;
 		this.service = service;
 		this.emissores = emissores;
 		this.correlacao = correlacao;
@@ -91,7 +99,21 @@ class JobController {
 		// Os três destinos das ações de finalização (liberado, cancelado, arquivado) são
 		// terminais: emitir depois do commit fecha o stream do job, como a skill sse
 		// pede.
-		this.emissores.emitir(id, EventoSse.ultimo("estado", aplicada.evento()));
+		if (acao == AcaoJob.ACEITAR_META) {
+			this.metricas.metaVendaAceita().increment();
+			try (var escopo = this.correlacao.abrir(id.toString(), null)) {
+				log.atInfo().log("meta sugerida aceita; resultado vigente substituído");
+			}
+			SimulacaoDto simulacao = aplicada.job().simulacao();
+			if (simulacao != null) {
+				this.emissores.emitir(id, EventoSse.de("resultado",
+						new EventoResultadoDto(id, simulacao.id(), simulacao.status(), simulacao.veredito())));
+			}
+			this.emissores.emitir(id, EventoSse.de("estado", aplicada.evento()));
+		}
+		else {
+			this.emissores.emitir(id, EventoSse.ultimo("estado", aplicada.evento()));
+		}
 		return aplicada.job();
 	}
 

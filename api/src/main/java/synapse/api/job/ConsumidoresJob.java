@@ -218,6 +218,18 @@ class SimulacaoConcluidaConsumidor {
 		}
 
 		try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
+			if ("busca_meta".equals(evento.proposito())) {
+				this.metricas.execucaoCandidataConsumida().increment();
+				log.atInfo()
+					.addKeyValue("resultado_id", resultadoId)
+					.log("execução candidata consumida; simulação vigente e estado preservados");
+				return;
+			}
+			if (evento.proposito() != null && !"simulacao".equals(evento.proposito())) {
+				contar(null, INVALIDA);
+				log.atWarn().log("simulacao-concluida com propósito desconhecido; evento descartado");
+				return;
+			}
 			DesfechoDaSimulacao desfecho = DesfechoDaSimulacao.de(evento.status(), evento.veredito());
 			if (desfecho == null) {
 				contar(null, INVALIDA);

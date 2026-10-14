@@ -53,7 +53,8 @@ class CriarJobControllerTests {
 	void preparar() {
 		when(this.usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
 		this.mvc = MockMvcBuilders
-			.standaloneSetup(new JobController(this.service, mock(EmissoresSse.class), new CorrelationContext()))
+			.standaloneSetup(new JobController(this.service, mock(EmissoresSse.class), new CorrelationContext(),
+					org.mockito.Mockito.mock(synapse.api.core.metrics.AppMetrics.class)))
 			.addInterceptors(
 					new AutorizacaoJobsInterceptor(this.usuarioAtual, new AutorizadorDeJob(mock(JobRepository.class))))
 			.setControllerAdvice(new JobAdvice())

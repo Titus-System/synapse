@@ -217,14 +217,31 @@ class ExemplosDeContratoTests {
 
 	@Test
 	void desserializaOEventoDeSimulacaoConcluida() throws IOException {
-		SimulacaoConcluidaDto evento = desserializar("events/simulacao-concluida.json", SimulacaoConcluidaDto.class);
+		// proposito e meta_venda são opcionais; o exemplo histórico não os traz.
+		SimulacaoConcluidaDto evento = this.objectMapper.readerFor(SimulacaoConcluidaDto.class)
+			.with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+			.readValue(Files.readString(exemplo("events/simulacao-concluida.json")));
 
 		assertThat(evento.job_id()).isEqualTo(UUID.fromString("3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"));
 		assertThat(evento.resultado_id()).isEqualTo(UUID.fromString("b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"));
 		assertThat(evento.status()).isEqualTo("sucesso");
 		assertThat(evento.veredito()).isEqualTo("inviavel");
+		assertThat(evento.proposito()).isNull();
+		assertThat(evento.meta_venda()).isNull();
 
 		ContratoDeEvento.validar("simulacao-concluida", Files.readString(exemplo("events/simulacao-concluida.json")));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "simulacao-concluida-busca-meta", "simulacao-concluida-meta-venda" })
+	void desserializaMetadadosDaExecucaoNaMeta(String nome) throws IOException {
+		String corpo = Files.readString(exemplo("events/" + nome + ".json"));
+		SimulacaoConcluidaDto evento = this.objectMapper.readerFor(SimulacaoConcluidaDto.class)
+			.with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+			.readValue(corpo);
+		assertThat(evento.meta_venda()).isPositive();
+		assertThat(evento.proposito()).isEqualTo(nome.endsWith("busca-meta") ? "busca_meta" : null);
+		ContratoDeEvento.validar("simulacao-concluida", corpo);
 	}
 
 	/**

@@ -9,16 +9,17 @@ import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
 
 /**
- * As quatro ações de finalização do contrato HTTP ({@code AcaoJob}), no mesmo vocabulário
- * da coluna {@code job_acoes.acao}. {@code SALVAR} é sinônimo de
- * {@code CONFIRMAR_LIBERAR}: não existe estado "salvo" na máquina de estados, e as duas
- * levam a {@link JobStatus#LIBERADO} sob a mesma recusa quando a simulação é inviável. Um
- * resultado sem orçamento não tem veredito e não é recusado.
+ * As ações do contrato HTTP ({@code AcaoJob}), no mesmo vocabulário da coluna
+ * {@code job_acoes.acao}. {@code SALVAR} é sinônimo de {@code CONFIRMAR_LIBERAR}: não
+ * existe estado "salvo" na máquina de estados, e as duas levam a
+ * {@link JobStatus#LIBERADO} sob a mesma recusa quando a simulação é inviável. Um
+ * resultado sem orçamento não tem veredito e não é recusado. {@code ACEITAR_META} mantém
+ * o job aguardando decisão: troca somente o resultado vigente, sem transição.
  */
 enum AcaoJob {
 
 	CONFIRMAR_LIBERAR(JobStatus.LIBERADO), CANCELAR(JobStatus.CANCELADO), SALVAR(JobStatus.LIBERADO),
-	ARQUIVAR(JobStatus.ARQUIVADO);
+	ARQUIVAR(JobStatus.ARQUIVADO), ACEITAR_META(JobStatus.AGUARDANDO_DECISAO_USUARIO);
 
 	private final JobStatus destino;
 

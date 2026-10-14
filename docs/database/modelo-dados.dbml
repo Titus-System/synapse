@@ -535,3 +535,16 @@ Table jobs_grafo_encerrados {
     (job_id) [name: 'idx_jobs_grafo_encerrados_pendentes', note: 'na migration e PARCIAL - WHERE limpo_em IS NULL - para a retomada na subida do codegen; o DBML nao expressa indice parcial']
   }
 }
+
+Table sugestoes_meta_venda {
+  job_id uuid [not null, ref: > jobs.id]
+  regra_id uuid [not null, ref: > regras.id]
+  resultado_id uuid [ref: > resultados_simulacao.id, note: 'Candidata da busca da meta; ausente no desfecho sem solução. Artefato somente lido pela api.']
+  motivo_sem_solucao text [note: 'nao_monotonica | intervalo_esgotado | falha_execucao']
+  criada_em timestamptz [not null, default: `now()`]
+  aceita_em timestamptz [note: 'Aceitação troca simulacoes.resultado_id; mantém esta linha para impedir reentrega da sugestão.']
+  indexes {
+    (job_id, regra_id) [pk, name: 'pk_sugestoes_meta_venda']
+  }
+  Note: 'api escreve e lê; codegen e worker não têm acesso. Uma conclusão por versão, incluído o desfecho sem solução. A aceitação não cria regra nem simulação.'
+}
