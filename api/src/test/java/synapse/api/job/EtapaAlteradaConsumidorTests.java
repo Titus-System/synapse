@@ -23,6 +23,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.MDC;
 import tools.jackson.databind.json.JsonMapper;
@@ -249,6 +250,57 @@ class EtapaAlteradaConsumidorTests {
 			.isEqualTo(ClienteDoJob.dadosDoBloco(blocoEstado).path("motivo").asString())
 			.isNotBlank();
 		assertThat(job.propertyNames()).contains("finalizado_em").doesNotContain("simulacao");
+	}
+
+	@Test
+	void aguardandoProvedorChegaAoClienteSemMudarOEstadoDoJob() throws Exception {
+		UUID jobId = criarJob(JobStatus.GERANDO_REGRA);
+		StreamCliente cliente = conectar(jobId);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
+
+		publicar(jobId, "geracao_codigo", "aguardando_provedor");
+
+		String bloco = cliente.aguardarBloco("\"status\":\"aguardando_provedor\"", Duration.ofSeconds(10));
+		assertThat(bloco).contains("\"etapa\":\"geracao_codigo\"").doesNotContain("causa");
+		assertThat(statusPersistido(jobId)).isEqualTo("gerando_regra");
+		assertThat(contarTransicoes(jobId)).isZero();
+		assertThat(cliente.contarOcorrencias("event:estado")).isEqualTo(1);
+	}
+
+	@Test
+	void erroComCausaProvedorIndisponivelGravaOMotivoProprioEExplicaNaConsulta() throws Exception {
+		UUID jobId = criarJob(JobStatus.GERANDO_REGRA);
+		StreamCliente cliente = conectar(jobId);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
+
+		publicar(jobId, "geracao_codigo", "erro", "provedor_indisponivel");
+
+		String blocoEstado = cliente.aguardarBloco("\"status_anterior\":\"gerando_regra\"", Duration.ofSeconds(10));
+		cliente.aguardarFimDoStream(Duration.ofSeconds(10));
+		assertThat(statusPersistido(jobId)).isEqualTo("erro");
+		assertThat(motivoDaUltimaTransicao(jobId)).isEqualTo("erro_provedor_indisponivel");
+		String razao = ClienteDoJob.dadosDoBloco(blocoEstado).path("motivo").asString();
+		assertThat(razao).isEqualTo(MotivoDaParada.PROVEDOR_INDISPONIVEL);
+
+		criarRegra(jobId);
+		JsonNode job = ClienteDoJob.consultar(porta, jobId);
+		assertThat(job.path("motivo").asString()).isEqualTo(razao);
+	}
+
+	@Test
+	void erroSemCausaOuComCausaDesconhecidaMantemOMotivoGenerico() throws Exception {
+		UUID semCausa = criarJob(JobStatus.GERANDO_REGRA);
+		UUID desconhecida = criarJob(JobStatus.GERANDO_REGRA);
+
+		publicar(semCausa, "geracao_codigo", "erro");
+		publicar(desconhecida, "geracao_codigo", "erro", "causa_futura");
+
+		await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+			assertThat(statusPersistido(semCausa)).isEqualTo("erro");
+			assertThat(statusPersistido(desconhecida)).isEqualTo("erro");
+		});
+		assertThat(motivoDaUltimaTransicao(semCausa)).isEqualTo("erro_geracao_codigo");
+		assertThat(motivoDaUltimaTransicao(desconhecida)).isEqualTo("erro_geracao_codigo");
 	}
 
 	@Test
@@ -570,7 +622,7 @@ class EtapaAlteradaConsumidorTests {
 			}
 			java.util.concurrent.Callable<EtapaAplicada> consumir = () -> {
 				iniciadas.countDown();
-				return servico.aplicarEtapaAlterada(job, EtapaDoGrafo.CONFIRMACAO, "aguardando_correcao", regra,
+				return servico.aplicarEtapaAlterada(job, EtapaDoGrafo.CONFIRMACAO, "aguardando_correcao", null, regra,
 						JSON.readTree(CONFLITOS));
 			};
 			var a = executor.submit(consumir);
@@ -638,6 +690,134 @@ class EtapaAlteradaConsumidorTests {
 			dono.execute("DROP FUNCTION t215_falhar_uma_vez()");
 			dono.execute("DROP SEQUENCE t215_tentativa");
 		}
+	}
+
+	@ParameterizedTest
+	@CsvSource({ "sugestao_adaptacao,sem_alternativa,,SIMULANDO", "decisao,erro,,SIMULANDO",
+			"decisao,erro,provedor_indisponivel,GERANDO_REGRA", "sugestao_adaptacao,erro,,GERANDO_REGRA",
+			"sugestao_adaptacao,erro,provedor_indisponivel,SIMULANDO" })
+	void fimDaIteracaoCoexisteComCorrecaoPelaFila(String etapa, String sinal, @Nullable String causa, JobStatus inicial)
+			throws Exception {
+		UUID correcao = criarJob(JobStatus.GERANDO_REGRA);
+		ObjectNode pedido = pausa(correcao, regra(correcao, 1));
+		publicarEEsperar(pedido, "rodada_aberta");
+		publicarEEsperar(pedido, "duplicada");
+		double correcoesAntes = registry.find("etapa.alterada.correcao")
+			.counters()
+			.stream()
+			.mapToDouble(io.micrometer.core.instrument.Counter::count)
+			.sum();
+		boolean semAlternativa = "sem_alternativa".equals(sinal);
+		String causaFim = semAlternativa ? "sem_alternativa" : "falha";
+		double finaisAntes = contagemFim(causaFim, "aplicado");
+		UUID job = criarJob(inicial);
+		UUID resultado = alternativaInviavel(job);
+		StreamCliente cliente = conectar(job);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
+		try (CapturaDeLog captura = new CapturaDeLog(EtapaAlteradaConsumidor.class)) {
+			publicar(job, etapa, sinal, causa);
+			cliente.aguardarBloco("\"status_anterior\"", Duration.ofSeconds(10));
+			if (!semAlternativa) {
+				cliente.aguardarFimDoStream(Duration.ofSeconds(10));
+			}
+			await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+				assertThat(contagemFim(causaFim, "aplicado")).isEqualTo(finaisAntes + 1);
+				assertThat(captura.eventos()).anySatisfy(evento -> {
+					String linha = CapturaDeLog.emJson(evento);
+					assertThat(linha).contains("\"causa\":\"" + causaFim + "\"");
+				});
+			});
+			for (var evento : captura.eventos()) {
+				String linha = CapturaDeLog.emJson(evento);
+				ContratoDeEvento.validarLog(linha);
+				assertThat(JSON.readTree(linha).path("job_id").asString()).isEqualTo(job.toString());
+				assertThat(linha).doesNotContain("conflito reservado", "fixture", "conteudo");
+			}
+		}
+		String destino = semAlternativa ? "simulacao_inviavel" : "erro";
+		assertThat(statusPersistido(job)).isEqualTo(destino);
+		String motivo = semAlternativa ? "sem_alternativa" : "erro_" + (causa == null ? etapa : causa);
+		assertThat(motivoDaUltimaTransicao(job)).isEqualTo(motivo);
+		assertThat(contarTransicoes(job)).isEqualTo(inicial == JobStatus.GERANDO_REGRA ? 2 : 1);
+		assertThat(dono.queryForObject("SELECT resultado_id FROM simulacoes WHERE job_id = ?", UUID.class, job))
+			.isEqualTo(resultado);
+		assertThat(rodadas(job)).isEmpty();
+		String blocoEtapa = cliente.aguardarBloco("event:etapa", Duration.ofSeconds(5));
+		String blocoEstado = cliente.aguardarBloco("\"status_anterior\"", Duration.ofSeconds(5));
+		JsonNode dados = ClienteDoJob.dadosDoBloco(blocoEtapa);
+		assertThat(dados.has("conflitos")).isFalse();
+		assertThat(dados.has("regra_id")).isFalse();
+		ContratoDeEvento.validarEventoDoStream("etapa", dados.toString());
+		ContratoDeEvento.validarEventoDoStream("estado", ClienteDoJob.dadosDoBloco(blocoEstado).toString());
+		assertThat(cliente.conteudo().indexOf("event:etapa"))
+			.isLessThan(cliente.conteudo().indexOf("\"status_anterior\""));
+		assertThat(registry.find("etapa.alterada.correcao")
+			.counters()
+			.stream()
+			.mapToDouble(io.micrometer.core.instrument.Counter::count)
+			.sum()).isEqualTo(correcoesAntes);
+		assertThat(statusPersistido(correcao)).isEqualTo("aguardando_confirmacao_parametros");
+		assertThat(rodadas(correcao)).hasSize(1);
+		verificarScrape("rodada_aberta", "duplicada");
+		var scrape = HTTP.send(
+				HttpRequest.newBuilder(URI.create("http://localhost:" + porta + "/metrics")).GET().build(),
+				HttpResponse.BodyHandlers.ofString());
+		assertThat(scrape.body()).contains("sugestao_adaptacao_encerramento_total{causa=\"" + causaFim
+				+ "\",resultado=\"aplicado\"} " + (finaisAntes + 1));
+		assertThat(registry.get("sugestao.adaptacao.encerramento").counters()).allSatisfy(contador -> {
+			assertThat(contador.getId().getTags()).hasSize(2);
+			assertThat(contador.getId().getTag("causa")).isIn("sem_alternativa", "falha");
+			assertThat(contador.getId().getTag("resultado")).isIn("aplicado", "sem_efeito");
+		});
+		if (semAlternativa) {
+			double semEfeitoAntes = contagemFim(causaFim, "sem_efeito");
+			publicar(job, etapa, sinal, causa);
+			await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+				assertThat(contagemFim(causaFim, "sem_efeito")).isEqualTo(semEfeitoAntes + 1);
+				assertThat(cliente.contarOcorrencias("event:etapa")).isEqualTo(2);
+			});
+			assertThat(cliente.contarOcorrencias("event:estado")).isEqualTo(2);
+			assertThat(contagemFim(causaFim, "aplicado")).isEqualTo(finaisAntes + 1);
+			assertThat(contarTransicoes(job)).isEqualTo(1);
+		}
+	}
+
+	private static double contagemFim(String causa, String resultado) {
+		var contador = registry.find("sugestao.adaptacao.encerramento")
+			.tags("causa", causa, "resultado", resultado)
+			.counter();
+		return contador == null ? 0 : contador.count();
+	}
+
+	private static UUID alternativaInviavel(UUID job) {
+		UUID original = regra(job, 1);
+		UUID alternativa = regra(job, 2);
+		dono.update("UPDATE regras SET origem = 'sugestao_adaptacao', regra_origem_id = ? WHERE id = ?", original,
+				alternativa);
+		UUID prompt = UUID.randomUUID();
+		UUID codigo = UUID.randomUUID();
+		UUID resultado = UUID.randomUUID();
+		dono.update("""
+				INSERT INTO prompts (id, job_id, no, conteudo, modelo, criado_em)
+				VALUES (?, ?, 'geracao_codigo', 'fixture', '{}'::jsonb, now())
+				""", prompt, job);
+		dono.update("""
+				INSERT INTO codigos_gerados (id, job_id, regra_id, linguagem, fonte, prompt_id, criado_em)
+				VALUES (?, ?, ?, 'python', 'fixture', ?, now())
+				""", codigo, job, alternativa, prompt);
+		dono.update(
+				"""
+						INSERT INTO resultados_simulacao (id, job_id, codigo_gerado_id, status, veredito, totais, assercoes, criado_em)
+						VALUES (?, ?, ?, 'sucesso', 'inviavel',
+						'{"baseline":900,"simulado":1100,"diferenca_abs":200,"diferenca_pct":22.22,"orcamento":1000}'::jsonb,
+						'[]'::jsonb, now())
+						""",
+				resultado, job, codigo);
+		dono.update("""
+				INSERT INTO simulacoes (criado_em, regra_id, job_id, codigo_gerado_id)
+				VALUES (now(), ?, ?, ?)
+				""", alternativa, job, codigo);
+		return resultado;
 	}
 
 	private static UUID regra(UUID job, int versao) {
@@ -742,9 +922,14 @@ class EtapaAlteradaConsumidorTests {
 	// --- Apoio ----------------------------------------------------------------------
 
 	private static void publicar(UUID jobId, String etapa, String status) {
+		publicar(jobId, etapa, status, null);
+	}
+
+	private static void publicar(UUID jobId, String etapa, String status, @Nullable String causa) {
+		String campoCausa = (causa != null) ? ",\"causa\":\"%s\"".formatted(causa) : "";
 		String corpo = """
-				{"job_id":"%s","etapa":"%s","status":"%s"}
-				""".formatted(jobId, etapa, status).strip();
+				{"job_id":"%s","etapa":"%s","status":"%s"%s}
+				""".formatted(jobId, etapa, status, campoCausa).strip();
 		Message mensagem = MessageBuilder.withBody(corpo.getBytes(StandardCharsets.UTF_8))
 			.setContentType(MessageProperties.CONTENT_TYPE_JSON)
 			.setContentEncoding("utf-8")

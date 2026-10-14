@@ -17,10 +17,10 @@ from collections.abc import Mapping
 from typing import Literal, TypedDict
 
 from app.sandbox.assercoes import Desfecho
-from app.sandbox.resultado import ResultadoSimulacao
+from app.sandbox.resultado import LinhasResultado, ResultadoSimulacao
 
-# 2: o envelope passou a levar ``elementos_implementados`` (T-241).
-VERSAO = 2
+# 3: detalhamento separado do resultado, obrigatório em sucesso (T-259).
+VERSAO = 3
 
 # O payload que o worker escreve no stdin: exatamente os campos de PayloadContainer
 # (app/execucao/preparo.py), os obrigatórios sempre e os opcionais só quando o comando os traz.
@@ -79,6 +79,7 @@ class Envelope(TypedDict):
     # Só em sucesso. Válido contra resultado-simulacao.schema.json quando o worker
     # acrescenta totais.orcamento.
     resultado: ResultadoSimulacao | None
+    linhas: LinhasResultado | None
     # Só em sucesso, e nulo também quando o código gerado não declarou nada: a lista que ele
     # devolveu em aplicar_regra, para a conferência de cobertura do worker (T-241).
     elementos_implementados: list[str] | None

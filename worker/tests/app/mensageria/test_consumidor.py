@@ -1774,3 +1774,124 @@ async def test_a_mesma_meta_e_o_mesmo_proposito_republicam_sem_executar(
     (evento,) = _publicados(broker)
     assert (evento["meta_venda"], evento["proposito"]) == (META, "busca_meta")
     assert _amostra(METRICA_NA_META, proposito="busca_meta", desfecho="sem_orcamento") == antes
+
+
+@pytest.mark.parametrize("status", ["sucesso", "erro_codigo", "assercao_violada"])
+async def test_envelope_medido_no_consumidor_e_exposto_em_metrics(
+    status: str,
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    client: AsyncClient,
+    banco: BancoDeResultadosFalso,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    from prometheus_client.parser import text_string_to_metric_families
+
+    def amostra(texto: str, sufixo: str) -> float:
+        return next(
+            s.value
+            for familia in text_string_to_metric_families(texto)
+            for s in familia.samples
+            if s.name == "sandbox_envelope_bytes_" + sufixo and s.labels == {"status": status}
+        )
+
+    antes = (await client.get("/metrics")).text
+    respostas = []
+
+    def responder(payload: PayloadContainer) -> SaidaBruta:
+        resposta = saida_para(payload, status)
+        respostas.append(resposta)
+        return resposta
+
+    sandbox.resposta = responder
+    mensagem = MensagemFalsa(body=_corpo_comando())
+    broker, _ = _preparar(monkeypatch, [mensagem], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    depois = (await client.get("/metrics")).text
+    assert amostra(depois, "count") == amostra(antes, "count") + 1
+    assert amostra(depois, "sum") == amostra(antes, "sum") + len(respostas[0].stdout)
+    registros = linhas_de_log()
+    assert all(erros_do_log(r) == [] for r in registros)
+    gravacao = next(r for r in registros if r["message"] == "resultado gravado")
+    assert gravacao["job_id"] == json.loads(mensagem.body)["job_id"]
+    assert gravacao["extra"]["status"] == status
+    assert gravacao["extra"]["competencias_detalhadas"] == (1 if status == "sucesso" else 0)
+    assert gravacao["extra"]["linhas_detalhadas"] == (1 if status == "sucesso" else 0)
+    assert "MATRIC-1" not in json.dumps(registros)
+    linhas = json.loads(respostas[0].stdout)["linhas"]
+    assert banco.gravados[0]["linhas"] == linhas
+    assert "linhas" not in json.loads(broker.exchange.publicadas[0].body)
+
+    # A republicação não executa o sandbox e não observa novamente o envelope.
+    banco.existente = banco.retornados[0]
+    broker, _ = _preparar(monkeypatch, [mensagem], _codigo())
+    await consumir_fila_execucao(broker)
+    assert amostra((await client.get("/metrics")).text, "count") == amostra(depois, "count")
+
+
+async def test_recusa_do_detalhamento_na_coleta_nao_expoe_chaves_nem_valores(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    segredo = "DETALHAMENTO-PRIVADO"
+    sandbox.resposta = lambda p: saida_para(p, linhas={"2025-08": {segredo: segredo}})
+    mensagem = MensagemFalsa(body=_corpo_comando())
+    broker, _ = _preparar(monkeypatch, [mensagem], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    registros = linhas_de_log()
+    assert all(erros_do_log(r) == [] for r in registros)
+    recusa = next(r for r in registros if r["message"] == "detalhamento recusado")
+    assert recusa["job_id"] == json.loads(mensagem.body)["job_id"]
+    assert recusa["extra"] == {
+        "status": "erro_codigo",
+        "motivo": "resultado_fora_do_schema",
+        "classes": ["type"],
+    }
+    assert segredo not in json.dumps(registros)
+    assert banco.gravados[0]["linhas"] is None
+    assert segredo not in json.dumps(banco.gravados[0]["diagnostico"])
+
+
+async def test_a_classificacao_do_envelope_nao_bloqueia_o_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    """Conferir o envelope contra os schemas é CPU pura e cresce com o detalhamento: no loop
+    pararia o heartbeat do RabbitMQ por todo esse tempo.
+
+    `liberar` só é acionado pelo loop, depois de a classificação ter começado: se ela estivesse
+    no loop, a espera de dentro dela terminaria por timeout e não por progresso.
+    """
+    entrou, liberar = threading.Event(), threading.Event()
+    progrediu: list[bool] = []
+    real = consumidor.classificar
+
+    def classificar_devagar(*args: Any, **kwargs: Any) -> DesfechoClassificado:
+        entrou.set()
+        progrediu.append(liberar.wait(2))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(consumidor, "classificar", classificar_devagar)
+    mensagem = MensagemFalsa(body=_corpo_comando())
+    broker, _ = _preparar(monkeypatch, [mensagem], _codigo())
+
+    consumo = asyncio.create_task(consumir_fila_execucao(broker))
+    await asyncio.to_thread(entrou.wait, 5)
+    liberar.set()
+    await consumo
+
+    assert progrediu == [True]
+    assert banco.gravados[0]["status"] == "sucesso"
+    # O contexto do job acompanha a thread: sem isso o log sairia sem correlação.
+    registros = linhas_de_log()
+    julgada = next(r for r in registros if r["message"] == "execução julgada")
+    assert julgada["job_id"] == json.loads(mensagem.body)["job_id"]
+    assert all(erros_do_log(r) == [] for r in registros)

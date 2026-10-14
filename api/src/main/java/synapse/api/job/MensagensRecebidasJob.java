@@ -48,7 +48,14 @@ record NoConcluidoDto(@Nullable UUID evento_id, @Nullable UUID job_id, @Nullable
  */
 record SimulacaoConcluidaDto(@Nullable UUID job_id, @Nullable UUID resultado_id, @Nullable String status,
 		@Nullable String veredito, @Nullable BigDecimal total_baseline, @Nullable BigDecimal total_simulado,
-		@Nullable BigDecimal diferenca_abs, @Nullable BigDecimal diferenca_pct) {
+		@Nullable BigDecimal diferenca_abs, @Nullable BigDecimal diferenca_pct, @Nullable String proposito,
+		@Nullable BigDecimal meta_venda) {
+	SimulacaoConcluidaDto(@Nullable UUID job_id, @Nullable UUID resultado_id, @Nullable String status,
+			@Nullable String veredito, @Nullable BigDecimal total_baseline, @Nullable BigDecimal total_simulado,
+			@Nullable BigDecimal diferenca_abs, @Nullable BigDecimal diferenca_pct) {
+		this(job_id, resultado_id, status, veredito, total_baseline, total_simulado, diferenca_abs, diferenca_pct, null,
+				null);
+	}
 }
 
 /**
@@ -62,9 +69,10 @@ record SimulacaoConcluidaDto(@Nullable UUID job_id, @Nullable UUID resultado_id,
  * {@code representacao} vem no corpo, e não por referência, porque a linha de
  * {@code regras} que a guardaria é justamente o que este evento pede para criar. A api é
  * dona da numeração da versão, do hash canônico e do estado do job (AGENTS.md).
+ * {@code tentativa} só é registrada com a versão: o limite de tentativas é do codegen.
  */
 record SugestaoAdaptacaoPropostaDto(@Nullable UUID job_id, @Nullable UUID regra_origem_id, @Nullable UUID resultado_id,
-		@Nullable RepresentacaoRegraDto representacao) {
+		@Nullable RepresentacaoRegraDto representacao, @Nullable Integer tentativa) {
 }
 
 /**

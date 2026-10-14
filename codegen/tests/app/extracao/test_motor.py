@@ -30,28 +30,47 @@ async def extrair(modelo: FakeChatModel, texto: str = TEXTO) -> ResultadoExtraca
 
 
 @pytest.mark.parametrize(
-    "nucleo",
+    ("texto", "rascunho", "esperado"),
     [
-        {},
-        {"percentual": Decimal("0.025")},
-        {"vigencia": {"inicio": "2025-11", "fim": "2025-11"}},
-        {"vigencia": {"inicio": "2025-08", "fim": "2025-12"}},
-        {"vigencia": {"inicio": "2025-12", "fim": "2025-08"}, "percentual": Decimal("-0.1")},
-        {
-            "vigencia": {"inicio": "2025-11", "fim": "2025-11"},
-            "loja": ["13"],
-            "marca": ["10"],
-            "cargo": ["100"],
-            "percentual": Decimal("0.025000000000000000001"),
-        },
+        (
+            "Pague 2,5% na loja 13",
+            {
+                "percentual": {"valor": Decimal("0.025"), "trecho": "2,5%"},
+                "loja": [{"valor": "13", "trecho": "loja 13"}],
+            },
+            {"percentual": Decimal("0.025"), "loja": ["13"]},
+        ),
+        (
+            "Comissão em novembro de 2025",
+            {
+                "vigencia": {
+                    "valor": {"inicio": "2025-11", "fim": "2025-11"},
+                    "trecho": "novembro de 2025",
+                },
+            },
+            {"vigencia": {"inicio": "2025-11", "fim": "2025-11"}},
+        ),
+        (
+            "Pague -10% de dezembro a agosto de 2025",
+            {
+                "vigencia": {
+                    "valor": {"inicio": "2025-12", "fim": "2025-08"},
+                    "trecho": "de dezembro a agosto de 2025",
+                },
+                "percentual": {"valor": Decimal("-0.1"), "trecho": "-10%"},
+            },
+            {"vigencia": {"inicio": "2025-12", "fim": "2025-08"}, "percentual": Decimal("-0.1")},
+        ),
     ],
 )
-async def test_preserva_nucleo_sem_inventar_campos_ou_corrigir_coerencia(
-    nucleo: dict[str, Any],
+async def test_preserva_apenas_nucleo_com_lastro(
+    texto: str, rascunho: dict[str, Any], esperado: dict[str, Any]
 ) -> None:
-    resultado = await extrair(modelo_falso({"nucleo": nucleo, "elementos": [], "parametros": {}}))
+    resultado = await extrair(
+        modelo_falso({"nucleo": rascunho, "elementos": [], "parametros": {}}), texto
+    )
 
-    assert resultado.representacao.para_contrato() == {"nucleo": nucleo, "especificacoes": []}
+    assert resultado.representacao.para_contrato() == {"nucleo": esperado, "especificacoes": []}
     assert resultado.rebaixamentos == []
 
 
@@ -126,6 +145,11 @@ async def test_campo_extra_no_elemento_e_rebaixado_sem_ser_copiado() -> None:
     assert resultado.rebaixamentos[0].motivo == "construto_nao_habilitado"
 
 
+TEXTO_PARAMETROS = (
+    TEXTO + " orçamento de R$ 500 mil, meta de vender R$ 12 milhões "
+    "entre setembro e novembro de 2025."
+)
+
 PARAMETROS_BRUTOS = {
     "orcamento": {"valor": Decimal("500000"), "trecho": "orçamento de R$ 500 mil"},
     "meta_venda": {"valor": Decimal("12000000"), "trecho": "meta de vender R$ 12 milhões"},
@@ -138,7 +162,8 @@ PARAMETROS_BRUTOS = {
 
 async def test_parametros_completos_entram_com_valor_e_trecho_auditavel() -> None:
     resultado = await extrair(
-        modelo_falso({"nucleo": {}, "elementos": [], "parametros": PARAMETROS_BRUTOS})
+        modelo_falso({"nucleo": {}, "elementos": [], "parametros": PARAMETROS_BRUTOS}),
+        TEXTO_PARAMETROS,
     )
 
     assert resultado.parametros == {
@@ -161,7 +186,8 @@ async def test_parametro_isolado_nao_afeta_os_demais(campo: str) -> None:
     resultado = await extrair(
         modelo_falso(
             {"nucleo": {}, "elementos": [], "parametros": {campo: PARAMETROS_BRUTOS[campo]}}
-        )
+        ),
+        TEXTO_PARAMETROS,
     )
 
     assert resultado.parametros == {campo: PARAMETROS_BRUTOS[campo]["valor"]}
@@ -170,6 +196,30 @@ async def test_parametro_isolado_nao_afeta_os_demais(campo: str) -> None:
 async def test_preserva_orcamento_negativo_sem_corrigir() -> None:
     bruto = {"orcamento": {"valor": Decimal("-100"), "trecho": "orçamento de -100 reais"}}
 
-    resultado = await extrair(modelo_falso({"nucleo": {}, "elementos": [], "parametros": bruto}))
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [], "parametros": bruto}),
+        "orçamento de -100 reais",
+    )
 
     assert resultado.parametros == {"orcamento": Decimal("-100")}
+
+
+async def test_condicao_de_meta_dentro_da_regra_fica_em_elemento_sem_virar_meta_venda() -> None:
+    """Quem separa a condição de meta da meta de venda é o modelo, instruído pelo prompt, e o caso
+    real está em test_llm.py. Aqui se fixa a montagem: o elemento não perde nem cede nada aos
+    parâmetros."""
+    texto = "Pague 2% na loja 13 e um bônus de R$ 300 para quem bater a meta de R$ 50 mil."
+    elemento = {
+        "construto_pretendido": "bonus_por_meta",
+        "descricao": "bônus de R$ 300 para quem bater a meta de R$ 50 mil",
+        "trecho": "um bônus de R$ 300 para quem bater a meta de R$ 50 mil",
+    }
+
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [elemento], "parametros": {}}), texto
+    )
+
+    assert resultado.parametros == {}
+    assert resultado.representacao.para_contrato()["especificacoes"] == [
+        {"ref": "elem.1", "construto": "generico", "descricao": elemento["descricao"]}
+    ]

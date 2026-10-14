@@ -11,7 +11,9 @@ import java.util.Set;
  * o único predecessor de {@code liberado} é {@code aguardando_decisao_usuario},
  * alcançável apenas por uma simulação concluída ({@code simulando}). Uma nova tentativa
  * após adaptação da regra volta a {@code gerando_regra} e precisa passar de novo por uma
- * simulação; não há atalho.
+ * simulação; não há atalho. A primeira sai de {@code simulacao_inviavel}, o desfecho da
+ * regra original; as seguintes saem de {@code simulando}, porque a alternativa que não
+ * coube não é desfecho enquanto o codegen pode propor outra taxa.
  */
 public enum JobStatus {
 
@@ -26,7 +28,7 @@ public enum JobStatus {
 
 			GERANDO_REGRA, Set.of(SIMULANDO, ERRO, AGUARDANDO_CONFIRMACAO_PARAMETROS),
 
-			SIMULANDO, Set.of(AGUARDANDO_DECISAO_USUARIO, SIMULACAO_INVIAVEL, ERRO),
+			SIMULANDO, Set.of(AGUARDANDO_DECISAO_USUARIO, SIMULACAO_INVIAVEL, ERRO, GERANDO_REGRA),
 
 			SIMULACAO_INVIAVEL, Set.of(GERANDO_REGRA, AGUARDANDO_CONFIRMACAO_PARAMETROS, CANCELADO, ARQUIVADO),
 

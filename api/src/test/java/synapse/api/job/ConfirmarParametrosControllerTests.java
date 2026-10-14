@@ -49,7 +49,8 @@ class ConfirmarParametrosControllerTests {
 	@BeforeEach
 	void preparar() {
 		this.mvc = MockMvcBuilders
-			.standaloneSetup(new JobController(this.service, mock(EmissoresSse.class), new CorrelationContext()))
+			.standaloneSetup(new JobController(this.service, mock(EmissoresSse.class), new CorrelationContext(),
+					org.mockito.Mockito.mock(synapse.api.core.metrics.AppMetrics.class)))
 			.setControllerAdvice(new JobAdvice())
 			.build();
 	}

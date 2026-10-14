@@ -162,8 +162,19 @@ def test_regra_com_especificacoes_roda_na_meta_e_devolve_o_resultado_completo(
     assert julgamento.resultado is not None
     decomposicao = julgamento.resultado["decomposicao"]
     assert set(decomposicao["elemento"]) == {"nucleo.percentual", "elem.1"}
-    assert set(decomposicao) == {"elemento", "loja", "marca", "cargo", "competencia"}
+    # As cinco quebras da diferença e as três absolutas da T-259, na meta como fora dela.
+    assert set(decomposicao) == {
+        "elemento",
+        "loja",
+        "marca",
+        "cargo",
+        "competencia",
+        "matricula",
+        "loja_absoluto",
+        "competencia_absoluto",
+    }
     assert list(decomposicao["competencia"]) == competencias
+    assert list(decomposicao["competencia_absoluto"]) == competencias
     linha = linha_do_julgamento(julgamento)
     assert (
         erros_do_dominio(

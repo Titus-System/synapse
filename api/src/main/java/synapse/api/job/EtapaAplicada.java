@@ -4,11 +4,17 @@ import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
 
+import synapse.api.job.JobEventosService.FimDaIteracao;
+
 record EtapaAplicada(DesfechoCorrecao desfecho, @Nullable EventoEstadoDto transicao, @Nullable UUID regraId,
-		@Nullable UUID rodadaId, int numeroConflitos) {
+		@Nullable UUID rodadaId, int numeroConflitos, @Nullable FimDaIteracao fim) {
 
 	static EtapaAplicada comum(@Nullable EventoEstadoDto transicao) {
-		return new EtapaAplicada(DesfechoCorrecao.COMUM, transicao, null, null, 0);
+		return comum(transicao, null);
+	}
+
+	static EtapaAplicada comum(@Nullable EventoEstadoDto transicao, @Nullable FimDaIteracao fim) {
+		return new EtapaAplicada(DesfechoCorrecao.COMUM, transicao, null, null, 0, fim);
 	}
 
 	boolean emitirEtapa() {

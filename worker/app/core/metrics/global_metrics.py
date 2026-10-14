@@ -1,5 +1,17 @@
 from .prometheus import prometheus
 
+# Uma observação por stdout com envelope reconhecido na coleta, incluindo a quebra
+# de linha. O status é o do envelope, mesmo se o detalhamento for recusado depois.
+# Sem envelope válido (timeout, OOM, truncamento, infra) não há status a atribuir.
+sandbox_envelope_bytes = prometheus.register_histogram(
+    "sandbox_envelope_bytes",
+    "Tamanho em bytes do stdout do envelope coletado, por status do sandbox",
+    ["status"],
+    buckets=(1024, 16384, 65536, 262144, 524288, 786432, 943718, 1048576),
+)
+for _status in ("sucesso", "assercao_violada", "erro_codigo"):
+    sandbox_envelope_bytes.labels(status=_status)
+
 request_count = prometheus.register_counter(
     "app_requests_total", "Total HTTP requests", ["method", "endpoint", "status"]
 )

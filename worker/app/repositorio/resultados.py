@@ -23,11 +23,11 @@ _INSERT = text(
     """
     INSERT INTO resultados_simulacao
         (job_id, codigo_gerado_id, status, totais, veredito, assercoes, decomposicao,
-         diagnostico, meta_venda, proposito, criado_em)
+         diagnostico, linhas, meta_venda, proposito, criado_em)
     VALUES
         (:job_id, :codigo_gerado_id, :status, CAST(:totais AS jsonb), :veredito,
          CAST(:assercoes AS jsonb), CAST(:decomposicao AS jsonb), CAST(:diagnostico AS jsonb),
-         CAST(:meta_venda AS numeric), :proposito, now())
+         CAST(:linhas AS jsonb), CAST(:meta_venda AS numeric), :proposito, now())
     RETURNING id
     """
 )
@@ -86,6 +86,7 @@ async def gravar_resultado(
     assercoes: list[Any],
     decomposicao: dict[str, Any] | None,
     diagnostico: Mapping[str, object] | None,
+    linhas: Mapping[str, object] | None,
     meta_venda: float | None,
     proposito: str,
 ) -> ResultadoGravado:
@@ -101,6 +102,7 @@ async def gravar_resultado(
             "assercoes": _json(assercoes),
             "decomposicao": _json(decomposicao),
             "diagnostico": _json(diagnostico),
+            "linhas": _json(linhas) if status == "sucesso" else None,
             "meta_venda": _numeric(meta_venda),
             "proposito": proposito,
         },

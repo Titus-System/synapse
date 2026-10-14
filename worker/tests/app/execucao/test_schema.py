@@ -110,7 +110,9 @@ def test_sem_contracts_o_carregamento_falha_alto(tmp_path: Path) -> None:
     primeiro job descobrir. O módulo é copiado para uma árvore sem `contracts/` acima dele."""
     pasta = tmp_path / "app" / "execucao"
     pasta.mkdir(parents=True)
-    (pasta / "schema.py").write_text(CAMINHO_DO_MODULO.read_text(encoding="utf-8"))
+    (pasta / "schema.py").write_text(
+        CAMINHO_DO_MODULO.read_text(encoding="utf-8"), encoding="utf-8"
+    )
 
     resultado = subprocess.run(
         [sys.executable, "-c", "import schema; schema.carregar_contratos()"],

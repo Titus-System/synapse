@@ -133,7 +133,7 @@ def _sem(campo: str) -> dict[str, Any]:
         pytest.param(json.dumps(envelope()).replace("11788.0", "Infinity").encode(), id="Infinity"),
         # A versão de antes de elementos_implementados: uma imagem que não foi reconstruída.
         pytest.param(envelope(versao=1), id="versao anterior"),
-        pytest.param(envelope(versao=3), id="versao 3"),
+        pytest.param(envelope(versao=4), id="versao futura"),
         pytest.param(envelope(versao=True), id="versao booleana"),
         pytest.param(envelope(status="ok"), id="status desconhecido"),
         pytest.param(envelope(status=["sucesso"]), id="status nao hashavel"),

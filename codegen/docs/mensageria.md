@@ -19,7 +19,7 @@ Os DTOs canônicos ficam em `app/contratos/mensagens.py` e são reutilizados pel
 
 Cada DTO corresponde a `contracts/events/<mensagem>.schema.json`, inclusive o comando `executar-codigo`. A topologia é durável, não exclusiva, sem auto-delete e sem argumentos `x-*`. Cada lado declara as filas em que participa de forma idempotente. O codegen não declara nem consome `simulacao-concluida.api`.
 
-`RegraSubmetida` tem um campo opcional `orcamento` (`Decimal`, `>= 0`, vindo de `jobs.orcamento`), aditivo ao contrato existente. O estado do grafo o carrega como texto decimal (nunca `float`) e não o usa para decidir viabilidade - isso é apuração do worker sobre dados reais.
+`RegraSubmetida` e `ParametrosConfirmados` têm os campos opcionais `orcamento` (`Decimal`, `>= 0`, vindo de `jobs.orcamento`) e `meta_venda` (`Decimal`, vindo de `jobs.meta_venda`), aditivos ao contrato existente. A meta não tem limite inferior, como no contrato: zero ou negativa chega ao grafo como foi dita, para a validação de domínio apontá-la como conflito (T-280). O estado do grafo carrega os dois como texto decimal (nunca `float`), e `dispatch_execution` os repassa a `executar-codigo` quando presentes, com `proposito = simulacao`. O codegen não decide viabilidade com eles, que é apuração do worker sobre dados reais; a única decisão é recusar o despacho de uma meta zero ou negativa (`MetaVendaInvalidaError`, abaixo).
 
 `scripts/preparar_contratos.py` incorpora dinamicamente todos os schemas, mantendo os caminhos relativos e removendo cópias obsoletas. O Docker já copia `contracts/`. O runtime registra os schemas incorporados por `$id`, sem consulta ao monorepo nem download de referências. Os DTOs são independentes de `EstadoGrafo`.
 
@@ -42,13 +42,13 @@ Cada producer recebe um DTO pronto, serializa e valida o corpo serializado pelo 
 | `FalhaDoJobError` do roteador | `reject(requeue=False)`, log correlacionado e `etapa-alterada` com `erro` |
 | Cancelamento | sem ACK; fechamento da conexão devolve mensagens não confirmadas |
 
-A rejeição de mensagens inválidas e jobs desconhecidos é a decisão mínima local para falhas não recuperáveis. **As filas de entrada do codegen não têm DLQ; essas rejeições descartam a mensagem.** Ausência de roteador configurado não é job desconhecido: nesse caso nenhum consumer é iniciado e as mensagens ficam nas filas. Falhas transitórias usam a reentrega do broker, sem republicação/retry manual. Sem backoff configurado, uma falha persistente pode causar reentregas repetidas.
+A rejeição de mensagens inválidas e jobs desconhecidos é a decisão mínima local para falhas não recuperáveis. **As filas de entrada do codegen não têm DLQ; essas rejeições descartam a mensagem.** Ausência de roteador configurado não é job desconhecido: nesse caso nenhum consumer é iniciado e as mensagens ficam nas filas. Falhas transitórias usam a reentrega do broker, sem republicação/retry manual. Sem backoff configurado, uma falha persistente pode causar reentregas repetidas. A indisponibilidade do provedor de LLM é a exceção: ver *Indisponibilidade do provedor* abaixo.
 
 ## Confirmação de parâmetros (T-218)
 
-`parametros-confirmados` abre o ciclo da versão `regra_id`, com thread `thread_do_ciclo(job_id, regra_id)`, passando por `run_to_completion`. O estado inicial contém `job_id`, `regra_id`, `competencias` e, quando informado, `orcamento` como texto decimal. `origem` não é preenchida. O ciclo começa em `load_rule` e segue pelos nós existentes.
+`parametros-confirmados` abre o ciclo da versão `regra_id`, com thread `thread_do_ciclo(job_id, regra_id)`, passando por `run_to_completion`. O estado inicial contém `job_id`, `regra_id`, `competencias` e, quando informados, `orcamento` e `meta_venda` como texto decimal. `origem` não é preenchida. O ciclo começa em `load_rule` e segue pelos nós existentes.
 
-Campos opcionais ausentes preservam compatibilidade com a T-213. Sem competências, o roteador lança `ContextoAusenteError`, independente de `FalhaDoJobError`; o consumer descarta sem requeue e sem levar o job a erro. Sem orçamento, o ciclo começa e `dispatch_execution` mantém sua falha permanente. Depois de `job-encerrado`, confirmações recebem ACK sem criar checkpoints, inclusive quando a limpeza ainda está pendente.
+Campos opcionais ausentes preservam compatibilidade com a T-213. Sem competências, o roteador lança `ContextoAusenteError`, independente de `FalhaDoJobError`; o consumer descarta sem requeue e sem levar o job a erro. Sem orçamento ou sem meta, o ciclo segue normalmente e o comando sai sem o campo. Depois de `job-encerrado`, confirmações recebem ACK sem criar checkpoints, inclusive quando a limpeza ainda está pendente.
 
 O guard do entrypoint reutiliza o checkpoint da mesma versão. Ciclo incompleto continua com entrada `None`; finalizado não executa novamente; à espera do worker permanece pausado. `run_to_completion` informa se houve atualização de nó, desconsiderando o sinal `__interrupt__`, para distinguir processamento de duplicatas sem nova execução.
 
@@ -87,13 +87,13 @@ Toda mensagem de submissão, confirmação ou resultado é processada sob o lock
 | `RegraInvalidaError` | `app/repositorio/regras.py`, no nó `load_rule` | `geracao_codigo` | a regra referenciada por `regra_id` não existe para o `job_id`, ou falha o contrato de `RepresentacaoRegra`; reentregar não a torna válida |
 | `RespostaModeloInvalidaError` | `app/graph/nodes/code_generation.py` | `geracao_codigo` | a resposta veio vazia, bloqueada ou truncada; com `temperature=0` a chamada é determinística, e reentregar só pagaria a mesma resposta inútil de novo |
 | `CodigoInvalidoError` | `app/codigo_gerado.py`, no nó `extract_code` | `geracao_codigo` | a resposta já está gravada em `respostas_modelo` e a reentrega continua do checkpoint sobre ela, que seguiria sem um `regra.py` válido |
-| `OrcamentoAusenteError` | `app/graph/nodes/dispatch_execution.py` | `delegacao_worker` | o evento não trouxe o `orcamento`, que `executar-codigo` exige, e a ausência nunca é lida como zero |
+| `MetaVendaInvalidaError` | `app/graph/nodes/dispatch_execution.py` | `delegacao_worker` | a meta de venda é zero ou negativa, e `executar-codigo` exige meta positiva; a entrada a aceita como foi dita para a validação de domínio apontá-la (T-280); sem esta falha, o comando seria recusado com um erro que não é `FalhaDoJobError`, a mensagem voltaria à fila e cada reentrega falharia igual |
 
 Antes de rejeitar, o `GraphRouter` publica `etapa-alterada` com `status="erro"` e a etapa da exceção. **Sem esse aviso a `api` deixaria o job em `gerando_regra` para sempre**: a rejeição só afeta o broker. A `api` move o job para `erro` e grava a transição com motivo `erro_<etapa>`. Uma falha ao publicar o aviso não é tratada de propósito: ela sobe como falha comum, o consumer reenfileira e a reentrega tenta avisar de novo.
 
 Nenhuma dessas exceções carrega conteúdo de artefato, e a mensagem delas nunca vai para log nem para evento — só a etapa e a correlação do job.
 
-Falha transitória (banco ou broker indisponível, erro de rede do provedor) não é `FalhaDoJobError`: continua em `nack(requeue=True)`, porque a reentrega é a resposta certa.
+Falha transitória (banco ou broker indisponível) não é `FalhaDoJobError`: continua em `nack(requeue=True)`, porque a reentrega é a resposta certa. O erro de rede do provedor de LLM é tratado antes disso, pela espera dentro do próprio processamento (ver *Indisponibilidade do provedor* abaixo); só o esgotamento da janela vira `FalhaDoJobError`.
 
 Para o comando de saída `executar-codigo`, a [DEC-091](../../docs/decisoes/dec-091.md) define retry gerenciado pela aplicação no **worker, lado consumidor**. O producer do codegen apenas publica o comando inicial. O worker usa o header AMQP `synapse_retry_count` (ausente = zero), com até três tentativas totais, sem alterar o payload ou o schema. Somente falhas de infraestrutura permitem retry automático; falhas permanentes e tentativas esgotadas vão para `executar-codigo.dlq`, declarada pelo worker, sem consumidor automático. O worker republica uma cópia persistente, aguarda publisher confirm e só então confirma a original; se a publicação falhar, devolve a original com requeue. As filas permanecem sem argumentos `x-*`, conforme DEC-089, e não há backoff, TTL ou plugins. A classificação completa da T-065 e a persistência/publicação de resultado da T-067 permanecem fora desta camada.
 
@@ -118,13 +118,14 @@ Em uma reentrega, o entrypoint continua do último checkpoint do ciclo `job_id:r
 | `etapa-alterada` `decisao`/`iniciada` | `decision`, antes de encaminhar | progresso |
 | `no-concluido` `decisao` | `decision`, com o `encaminhamento` | trilha |
 | `etapa-alterada` `sugestao_adaptacao`/`iniciada` | `suggest_adaptation`, antes de propor | progresso |
-| `sugestao-adaptacao-proposta` | `suggest_adaptation`, quando há alternativa | estrutural |
-| `no-concluido` `sugestao_adaptacao` | `suggest_adaptation`, depois da proposta | trilha |
+| `sugestao-adaptacao-proposta` | `suggest_adaptation`, quando há alternativa, com a `tentativa` de 1 a 3 | estrutural |
+| `etapa-alterada` `sugestao_adaptacao`/`sem_alternativa` | `suggest_adaptation`, quando não há taxa a propor ou a terceira não coube | estrutural |
+| `no-concluido` `sugestao_adaptacao` | `suggest_adaptation`, depois da proposta ou do `sem_alternativa` | trilha |
 | `etapa-alterada` `status: erro` | `GraphRouter`, em qualquer `FalhaDoJobError` | estrutural |
 
 **Estrutural** quer dizer que o fluxo quebra sem o evento. `delegacao_worker`/`iniciada` é o único caminho que move o job de `gerando_regra` para `simulando`; o `no-concluido` da geração é o que faz a `api` criar a linha de `simulacoes`, sem a qual o resultado do worker não tem a que se amarrar e o cliente nunca recebe o evento SSE `resultado`; e o `erro` é o que impede o job de ficar pendurado. Os outros dois alimentam progresso e trilha, e é por isso que ficaram para trás até serem cobrados: nada quebra quando faltam.
 
-Os dois `etapa-alterada` disparam na **entrada** da etapa e os dois `no-concluido` na **saída** do nó, como os contratos definem. Só `delegacao_worker`/`iniciada` e `erro` movem o job; os demais a `api` apenas repassa por SSE.
+Os `etapa-alterada` com `iniciada` disparam na **entrada** da etapa e os `no-concluido` na **saída** do nó, como os contratos definem; o `sem_alternativa` sai no fim da sugestão, antes do `no-concluido` dela. Só `delegacao_worker`/`iniciada`, `sem_alternativa` e `erro` movem o job; os demais a `api` apenas repassa por SSE.
 
 O `evento_id` de cada `no-concluido` é determinístico (UUID v5 de `job_id`, etapa e `codigo_gerado_id`), então uma reexecução do nó republica o mesmo evento e o índice único de `trilhas_auditoria.evento_id` reconhece a reentrega. A etapa entra na derivação, então as duas linhas da trilha de um mesmo job não colidem.
 
@@ -134,7 +135,7 @@ O `executar-codigo` leva só `codigo_gerado_id`, nunca o código (claim-check, A
 
 As demais cinco etapas do vocabulário não existem como nós e seguem sem publicar.
 
-A `sugestao-adaptacao-proposta` é estrutural pelo mesmo motivo da delegação: sem ela a alternativa não vira versão de regra e o job não volta a `gerando_regra`. Ela vai depois do `etapa-alterada` da etapa e antes do `no-concluido`, como em `dispatch_execution` e pela mesma razão. A proposta viaja no corpo, e não por referência, porque a linha em `regras` que a guardaria é justamente o que o evento pede para criar - quem grava é a `api`, dona da versão, do hash canônico e do estado do job.
+A `sugestao-adaptacao-proposta` é estrutural pelo mesmo motivo da delegação: sem ela a alternativa não vira versão de regra e o job não volta a `gerando_regra`. Ela vai depois do `etapa-alterada` da etapa e antes do `no-concluido`, como em `dispatch_execution` e pela mesma razão. O `sem_alternativa` ocupa o lugar dela quando não há taxa a propor, e é estrutural porque é o que encerra a iteração na `api`, que não espera outra tentativa depois dele. As até três tentativas estão em [`retomada-apos-execucao.md`](retomada-apos-execucao.md#até-três-taxas-novas-por-job). A proposta viaja no corpo, e não por referência, porque a linha em `regras` que a guardaria é justamente o que o evento pede para criar - quem grava é a `api`, dona da versão, do hash canônico e do estado do job.
 
 Em seguida, `await_execution` pausa o grafo com `interrupt()`, a `regra-submetida` recebe `ack` e o processo fica livre. O resultado do worker chega pela fila do fanout e `GraphRouter._retomar` o entrega ao `interrupt()` pendente por `app/graph/entrypoint.py::resume_to_completion`, que antes confere o checkpoint: job sem checkpoint é rejeitado sem requeue, grafo que ainda não pausou é reenfileirado, e grafo já concluído recebe `ack` sem retomar de novo. O desenho está em [`retomada-apos-execucao.md`](retomada-apos-execucao.md).
 
@@ -184,4 +185,15 @@ poetry run pytest -p no:cacheprovider -m rabbitmq
 Remove-Item Env:RUN_RABBITMQ_INTEGRATION
 ```
 
-Cada teste cria e remove somente seu próprio vhost `t049-<uuid>` no RabbitMQ real, usando `docker compose exec ... rabbitmqctl`; não há segundo ambiente RabbitMQ. As credenciais precisam permitir acesso a esse vhost. Os cenários cobrem entradas, encerramento, fanout e producers. O teste de `parametros-confirmados` publica mensagem válida, duplicata, mensagem sem contexto, contexto inválido e JSON malformado; passa pelo consumer, roteador e grafo reais, substituindo banco, modelo e produtores do grafo. Depois que os callbacks completam ACK/reject, consulta a fila passivamente e exige um consumer, profundidade zero e uma única delegação ao worker. Nenhum serviço API ou worker precisa ser iniciado. Sem `RUN_RABBITMQ_INTEGRATION=1`, esses testes são explicitamente pulados; habilitados, ausência de broker/Docker é falha, nunca aprovação simulada.
+Cada teste cria e remove somente seu próprio vhost `t049-<uuid>` no RabbitMQ real, usando `docker compose exec ... rabbitmqctl`; não há segundo ambiente RabbitMQ. As credenciais precisam permitir acesso a esse vhost. Os cenários cobrem entradas, encerramento, fanout e producers. O teste de `parametros-confirmados` publica mensagem válida, duplicata, mensagem sem contexto, contexto inválido e JSON malformado; passa pelo consumer, roteador e grafo reais, substituindo banco, modelo e produtores do grafo. Depois que os callbacks completam ACK/reject, consulta a fila passivamente e exige um consumer, profundidade zero e uma única delegação ao worker. O teste da taxa nova faz a api e o worker pelo broker: a cada ciclo publica `regra-submetida`, lê o `executar-codigo` e publica o resultado inviável no fanout, até as três propostas e o `sem_alternativa`, conferidos contra os schemas, sem quarta proposta e com as filas de entrada vazias. Nenhum serviço API ou worker precisa ser iniciado. Sem `RUN_RABBITMQ_INTEGRATION=1`, esses testes são explicitamente pulados; habilitados, ausência de broker/Docker é falha, nunca aprovação simulada.
+
+## Indisponibilidade do provedor de LLM (T-268)
+
+Falhas da chamada ao modelo que indicam provedor indisponível (HTTP 429, 500, 502, 503 e 504, timeout e erro de conexão, inclusive embrulhados pelo `langchain_google_genai`) não sobem como falha transitória. `app/graph/core/llm/disponibilidade.py` espera dentro do processamento da mensagem, antes do `ack`, nos nós `geracao_codigo` e `extracao_parametros`:
+
+- A primeira falha publica `etapa-alterada` com `status = aguardando_provedor`, uma vez por chamada. O aviso não muda o estado do job.
+- As esperas são de 30, 60 e 120 segundos e depois 120 segundos, dentro de uma janela de 10 minutos contada da primeira falha, que fica abaixo do `consumer_timeout` de 30 minutos do RabbitMQ. O `max_retries=2` do SDK não muda.
+- Antes de cada nova tentativa o codegen consulta `jobs_grafo_encerrados`. Um job cancelado ou arquivado na espera lança `JobEncerradoDuranteEsperaError`, que o roteador converte em `JobEncerradoError` (ACK, sem aviso de erro).
+- Esgotada a janela, o nó lança `ProvedorIndisponivelError` (`FalhaDoJobError`): o roteador publica `etapa-alterada` com `erro` e `causa = provedor_indisponivel`, e o consumer rejeita sem requeue.
+- Logs (`causa = provedor_indisponivel`, sem a mensagem do provedor) e métricas `llm_provider_failures_total{no,desfecho}` e `llm_provider_wait_seconds{no}`. O contador conta chamadas com falha de provedor por desfecho (`recuperado` ou `esgotado`), não cada tentativa.
+- Uma reentrega depois de queda do processo reinicia a janela e pode repetir o aviso.

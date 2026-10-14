@@ -24,6 +24,7 @@ FILAS_SIMPLES = (
     "etapa-alterada",
     "no-concluido",
     "sugestao-adaptacao-proposta",
+    "meta-venda-sugerida",
     "job-encerrado",
 )
 EXCHANGE_SIMULACAO = "simulacao-concluida"

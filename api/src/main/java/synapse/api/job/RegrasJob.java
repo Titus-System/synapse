@@ -126,6 +126,8 @@ class VersoesDaRegra {
 
 	static final String ORIGEM_EXTRACAO = "extracao";
 
+	static final String ORIGEM_SUGESTAO = "sugestao_adaptacao";
+
 	private final JobRepository repository;
 
 	VersoesDaRegra(JobRepository repository) {
@@ -141,7 +143,17 @@ class VersoesDaRegra {
 	VersaoRegra resolver(UUID jobId, RepresentacaoRegraDto representacao, @Nullable String parametrosJson, String hash,
 			String origem, @Nullable UUID origemId, Timestamp timestamp, Instant agora) {
 		return resolver(jobId, hash, origem, agora, (novaVersao) -> this.repository.inserirVersaoRegra(jobId,
-				novaVersao, origem, origemId, representacao, parametrosJson, hash, timestamp));
+				novaVersao, origem, origemId, representacao, parametrosJson, hash, null, timestamp));
+	}
+
+	/**
+	 * A versão de uma sugestão de taxa nova, com a {@code tentativa} que o codegen
+	 * informou - nula nas propostas anteriores ao campo.
+	 */
+	VersaoRegra resolverSugestao(UUID jobId, RepresentacaoRegraDto representacao, @Nullable String parametrosJson,
+			String hash, UUID origemId, @Nullable Integer tentativa, Timestamp timestamp, Instant agora) {
+		return resolver(jobId, hash, ORIGEM_SUGESTAO, agora, (novaVersao) -> this.repository.inserirVersaoRegra(jobId,
+				novaVersao, ORIGEM_SUGESTAO, origemId, representacao, parametrosJson, hash, tentativa, timestamp));
 	}
 
 	/**

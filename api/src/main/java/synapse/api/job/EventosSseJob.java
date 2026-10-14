@@ -32,6 +32,10 @@ record EventoEstadoDto(UUID job_id, String status, @Nullable String status_anter
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 record EventoEtapaDto(UUID job_id, String etapa, String status, @Nullable JsonNode conflitos) {
+
+	EventoEtapaDto(UUID job_id, String etapa, String status) {
+		this(job_id, etapa, status, null);
+	}
 }
 
 /**

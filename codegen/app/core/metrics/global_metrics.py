@@ -121,6 +121,28 @@ for _parametro in PARAMETROS_DA_SIMULACAO:
     for _resultado in ("extraido", "ausente"):
         parametros_extracao.labels(parametro=_parametro, resultado=_resultado)
 
+# Uma contagem por tentativa de taxa nova no desfecho dela: o veredito da simulação da
+# alternativa, contado pela decisão, ou o motivo de não haver alternativa a propor, contado
+# pela sugestão. A proposta publicada ainda não é desfecho. Conta execuções do nó: a
+# reentrega de um resultado já processado não passa por ele.
+TENTATIVAS_DE_TAXA = ("1", "2", "3")
+DESFECHOS_DA_TENTATIVA = (
+    "viavel",
+    "inviavel",
+    "indeterminado",
+    "sem_margem",
+    "incoerente",
+    "nao_suportada",
+)
+tentativas_de_taxa = prometheus.register_counter(
+    "codegen_sugestao_adaptacao_tentativas_total",
+    "Tentativas de taxa nova por número da tentativa e desfecho",
+    ["tentativa", "desfecho"],
+)
+for _tentativa in TENTATIVAS_DE_TAXA:
+    for _desfecho in DESFECHOS_DA_TENTATIVA:
+        tentativas_de_taxa.labels(tentativa=_tentativa, desfecho=_desfecho)
+
 # Uma tentativa por job encerrado que ainda tinha checkpoints a remover. `adiada` é a tentativa
 # que esbarrou num processamento em andamento ou num ciclo à espera do resultado e será refeita
 # quando ele terminar; não é falha. Jobs não encerrados ou já limpos não contam.
@@ -135,3 +157,57 @@ limpeza_de_checkpoint_duracao = prometheus.register_histogram(
     "Duração de uma tentativa de limpeza dos checkpoints de um job encerrado, por resultado",
     ["resultado"],
 )
+
+# Uma contagem por chamada ao modelo que teve falha de provedor (429, 5xx, timeout ou conexão),
+# no desfecho dela: `recuperado` quando uma nova tentativa funcionou, `esgotado` quando a janela
+# acabou. Não conta cada tentativa nem a espera interrompida por um job encerrado.
+falhas_do_provedor = prometheus.register_counter(
+    "llm_provider_failures_total",
+    "Chamadas ao modelo com falha de provedor, por nó e desfecho",
+    ["no", "desfecho"],
+)
+
+# Tempo entre a primeira falha de provedor de uma chamada e o fim da espera, em qualquer
+# desfecho. É espera por um terceiro, e não o tempo de execução do nó (`job_duration_seconds`).
+# A contagem é maior que a soma de `llm_provider_failures_total`: a espera encerrada por um job
+# encerrado, ou por uma falha que não é do provedor, é medida aqui e não tem desfecho lá.
+espera_do_provedor = prometheus.register_histogram(
+    "llm_provider_wait_seconds",
+    "Tempo de espera pelo provedor indisponível, por nó",
+    ["no"],
+    buckets=(30, 60, 120, 240, 360, 480, 600, 720, float("inf")),
+)
+for _no in ("extracao_parametros", "geracao_codigo"):
+    espera_do_provedor.labels(no=_no)
+    for _desfecho in ("recuperado", "esgotado"):
+        falhas_do_provedor.labels(no=_no, desfecho=_desfecho)
+
+
+# Contam publicações de desfecho e execuções de nós, não entrega duplicada já assentada.
+# Uma queda entre publicação e checkpoint pode repetir a publicação e sua observação.
+buscas_meta = prometheus.register_counter(
+    "codegen_busca_meta_total", "Desfechos publicados da busca de meta", ["desfecho", "motivo"]
+)
+busca_meta_candidatos = prometheus.register_histogram(
+    "codegen_busca_meta_candidatos",
+    "Candidatos por busca concluída",
+    [],
+    buckets=(1, 2, 4, 6, 8, 10, 12, float("inf")),
+)
+busca_meta_espera = prometheus.register_histogram(
+    "codegen_busca_meta_espera_seconds",
+    "Espera pelo resultado de uma candidata",
+    [],
+    buckets=(1, 5, 15, 30, 60, 120, 300, 720, float("inf")),
+)
+busca_meta_processamento = prometheus.register_histogram(
+    "codegen_busca_meta_processamento_seconds", "Processamento ativo da busca, inclusive falhas", []
+)
+for _desfecho, _motivo in (
+    ("sugerida", "encontrada"),
+    ("sem_solucao", "nao_monotonica"),
+    ("sem_solucao", "intervalo_esgotado"),
+    ("sem_solucao", "falha_execucao"),
+    ("cancelada", "job_encerrado"),
+):
+    buscas_meta.labels(desfecho=_desfecho, motivo=_motivo)

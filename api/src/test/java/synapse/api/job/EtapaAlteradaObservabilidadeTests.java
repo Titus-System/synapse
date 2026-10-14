@@ -46,9 +46,9 @@ class EtapaAlteradaObservabilidadeTests {
 	@ParameterizedTest
 	@EnumSource(value = DesfechoCorrecao.class, mode = EnumSource.Mode.EXCLUDE, names = "COMUM")
 	void resultadoRestauraContextoEContabilizaSemConteudo(DesfechoCorrecao desfecho) throws Exception {
-		given(this.servico.aplicarEtapaAlterada(this.job, EtapaDoGrafo.CONFIRMACAO, "aguardando_correcao", this.regra,
-				null))
-			.willReturn(new EtapaAplicada(desfecho, null, this.regra, UUID.randomUUID(), 2));
+		given(this.servico.aplicarEtapaAlterada(this.job, EtapaDoGrafo.CONFIRMACAO, "aguardando_correcao",
+				"texto reservado", this.regra, null))
+			.willReturn(new EtapaAplicada(desfecho, null, this.regra, UUID.randomUUID(), 2, null));
 		MDC.put("job_id", "anterior");
 		MDC.put("user_id", "usuario-anterior");
 		try (CapturaDeLog captura = new CapturaDeLog(EtapaAlteradaConsumidor.class)) {
@@ -77,8 +77,8 @@ class EtapaAlteradaObservabilidadeTests {
 
 	@Test
 	void falhaTransitoriaPropagaSemContarSucessoERestauraMdc() throws Exception {
-		given(this.servico.aplicarEtapaAlterada(this.job, EtapaDoGrafo.CONFIRMACAO, "aguardando_correcao", this.regra,
-				null))
+		given(this.servico.aplicarEtapaAlterada(this.job, EtapaDoGrafo.CONFIRMACAO, "aguardando_correcao", null,
+				this.regra, null))
 			.willThrow(new DataAccessResourceFailureException("payload reservado credencial"));
 		MDC.put("job_id", "anterior");
 		try (CapturaDeLog captura = new CapturaDeLog(EtapaAlteradaConsumidor.class)) {
@@ -100,7 +100,7 @@ class EtapaAlteradaObservabilidadeTests {
 
 	@Test
 	void eventoComumNaoContaComoCorrecao() {
-		given(this.servico.aplicarEtapaAlterada(this.job, EtapaDoGrafo.EXTRACAO_PARAMETROS, "erro", null, null))
+		given(this.servico.aplicarEtapaAlterada(this.job, EtapaDoGrafo.EXTRACAO_PARAMETROS, "erro", null, null, null))
 			.willReturn(EtapaAplicada.comum(null));
 		this.consumidor.receber(new EtapaAlteradaDto(this.job, "extracao_parametros", "erro", null, null, null));
 		assertThat(this.registry.find("etapa.alterada.correcao").counters()).isEmpty();

@@ -5,19 +5,23 @@ from app.extracao.registro import Construto
 
 _TEXTO = {"type": "string", "minLength": 1}
 _COMPETENCIA = {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$"}
-_CODIGOS = {"type": "array", "minItems": 1, "items": _TEXTO}
-_MONETARIO = {"type": "number"}
 
 
-def _schema_parametro(valor: dict[str, Any]) -> dict[str, Any]:
-    # O trecho só serve à conferência de lastro da T-210; até lá, o valor entra como o
-    # modelo o devolveu, sem checar o trecho contra o texto.
+def _com_lastro(valor: dict[str, Any]) -> dict[str, Any]:
     return {
         "type": "object",
         "additionalProperties": False,
         "required": ["valor", "trecho"],
         "properties": {"valor": valor, "trecho": _TEXTO},
     }
+
+
+_CODIGOS = {"type": "array", "minItems": 1, "items": _com_lastro(_TEXTO)}
+_MONETARIO = {"type": "number"}
+
+
+def _schema_parametro(valor: dict[str, Any]) -> dict[str, Any]:
+    return _com_lastro(valor)
 
 
 PARAMETROS: dict[str, Any] = {
@@ -34,16 +38,18 @@ NUCLEO: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "vigencia": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["inicio", "fim"],
-            "properties": {"inicio": _COMPETENCIA, "fim": _COMPETENCIA},
-        },
+        "vigencia": _com_lastro(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["inicio", "fim"],
+                "properties": {"inicio": _COMPETENCIA, "fim": _COMPETENCIA},
+            }
+        ),
         "loja": _CODIGOS,
         "marca": _CODIGOS,
         "cargo": _CODIGOS,
-        "percentual": {"type": "number"},
+        "percentual": _com_lastro({"type": "number"}),
     },
 }
 
@@ -52,7 +58,16 @@ def schema_elemento(construto: Construto | None = None) -> dict[str, Any]:
     propriedades = {"construto_pretendido": _TEXTO, "descricao": _TEXTO, "trecho": _TEXTO}
     obrigatorios = list(propriedades)
     if construto is not None:
-        propriedades.update(construto.propriedades)
+        propriedades.update(
+            {
+                nome: (
+                    _com_lastro(definicao)
+                    if definicao.get("type") in ("number", "integer")
+                    else definicao
+                )
+                for nome, definicao in construto.propriedades.items()
+            }
+        )
         obrigatorios.extend(construto.obrigatorios)
     return deepcopy(
         {
@@ -71,10 +86,12 @@ def schema_envelope() -> dict[str, Any]:
             "type": "object",
             "additionalProperties": False,
             "required": ["nucleo", "elementos", "parametros"],
+            # O modelo gera as chaves na ordem de `properties`. Decidindo os parâmetros antes dos
+            # elementos, ele não faz do pedido de simular um período um elemento.
             "properties": {
                 "nucleo": NUCLEO,
-                "elementos": {"type": "array", "items": {"type": "object"}},
                 "parametros": PARAMETROS,
+                "elementos": {"type": "array", "items": {"type": "object"}},
             },
         }
     )

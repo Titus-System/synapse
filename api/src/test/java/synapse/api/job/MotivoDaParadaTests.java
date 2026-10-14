@@ -46,6 +46,19 @@ class MotivoDaParadaTests {
 	}
 
 	@Test
+	void fimDasTentativasTemRazaoPropriaSomenteNaSimulacaoInviavel() {
+		assertThat(MotivoDaParada.razaoLocalizada(JobStatus.SIMULACAO_INVIAVEL, MotivoDaParada.SEM_ALTERNATIVA))
+			.isEqualTo(MotivoDaParada.NENHUMA_TAXA_COUBE)
+			.isNotEqualTo(DesfechoDaSimulacao.INVIAVEL.razaoLocalizada());
+		for (JobStatus status : JobStatus.values()) {
+			if (status != JobStatus.SIMULACAO_INVIAVEL) {
+				assertThat(MotivoDaParada.razaoLocalizada(status, MotivoDaParada.SEM_ALTERNATIVA)).as("%s", status)
+					.isNull();
+			}
+		}
+	}
+
+	@Test
 	void ausenciaDeTokenNaoDaMotivo() {
 		for (JobStatus status : JobStatus.values()) {
 			assertThat(MotivoDaParada.razaoLocalizada(status, null)).isNull();
@@ -70,6 +83,41 @@ class MotivoDaParadaTests {
 		assertThat(MotivoDaParada.razaoLocalizada(JobStatus.SIMULACAO_INVIAVEL,
 				MotivoDaParada.falhaNaEtapa(EtapaDoGrafo.GERACAO_CODIGO)))
 			.isNull();
+	}
+
+	@Test
+	void provedorIndisponivelTemMotivoProprioNaTrilhaEUmaRazaoLocalizadaSoEmErro() {
+		String token = MotivoDaParada.falhaNaEtapa(EtapaDoGrafo.GERACAO_CODIGO, "provedor_indisponivel");
+
+		assertThat(token).isEqualTo("erro_provedor_indisponivel");
+		assertThat(MotivoDaParada.razaoLocalizada(JobStatus.ERRO, token))
+			.isEqualTo(MotivoDaParada.PROVEDOR_INDISPONIVEL)
+			.isNotEqualTo(MotivoDaParada.FALHA_ANTES_DA_SIMULACAO);
+		assertThat(MotivoDaParada.razaoDaFalha("provedor_indisponivel"))
+			.isEqualTo(MotivoDaParada.PROVEDOR_INDISPONIVEL);
+		for (JobStatus status : JobStatus.values()) {
+			if (status != JobStatus.ERRO) {
+				assertThat(MotivoDaParada.razaoLocalizada(status, token)).as("em %s", status).isNull();
+			}
+		}
+	}
+
+	@ParameterizedTest
+	@EnumSource(EtapaDoGrafo.class)
+	void semCausaOuComCausaDesconhecidaValeOMotivoGenericoDaEtapa(EtapaDoGrafo etapa) {
+		assertThat(MotivoDaParada.falhaNaEtapa(etapa, null)).isEqualTo(MotivoDaParada.falhaNaEtapa(etapa));
+		assertThat(MotivoDaParada.falhaNaEtapa(etapa, "causa_futura")).isEqualTo(MotivoDaParada.falhaNaEtapa(etapa));
+		assertThat(MotivoDaParada.razaoDaFalha(null)).isEqualTo(MotivoDaParada.FALHA_ANTES_DA_SIMULACAO);
+		assertThat(MotivoDaParada.razaoDaFalha("causa_futura")).isEqualTo(MotivoDaParada.FALHA_ANTES_DA_SIMULACAO);
+	}
+
+	@Test
+	void aRazaoDoProvedorNaoMostraEtapaEstadoCodigoHttpNemNomeDoProvedor() {
+		assertThat(MotivoDaParada.PROVEDOR_INDISPONIVEL).doesNotContainIgnoringCase("gemini")
+			.doesNotContainIgnoringCase("google")
+			.doesNotContain("503")
+			.doesNotContain("geracao_codigo")
+			.doesNotContain("gerando_regra");
 	}
 
 }

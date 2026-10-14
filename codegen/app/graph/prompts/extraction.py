@@ -5,7 +5,11 @@ import simplejson
 
 
 def montar_prompt_extracao(
-    texto: str, competencias: Sequence[str], schema: dict[str, Any], instrucoes: Sequence[str]
+    texto: str,
+    competencias: Sequence[str],
+    schema: dict[str, Any],
+    instrucoes: Sequence[str],
+    vocabulario: dict[str, Any],
 ) -> str:
     return simplejson.dumps(
         {
@@ -25,33 +29,48 @@ def montar_prompt_extracao(
                     "ou os filtros do núcleo em um elemento genérico. Elementos representam "
                     "somente condições e efeitos adicionais que não cabem no núcleo. "
                     "Campo não mencionado fica ausente: não use null, lista vazia nem padrão. "
-                    "Percentual é fração: 2,5% vira 0.025; "
+                    "Percentual é fração: 2,5% ou 2,5 por cento viram 0.025; "
                     "0.025 já em fração não é dividido de novo. "
                     "Vigência usa AAAA-MM; um único mês repete inicio e fim. "
-                    "Não invente ano ausente: "
-                    "preserve esse período como elemento. Preserve percentual negativo e período "
+                    "Se o ano estiver ausente, use o ano comum das competências publicadas; "
+                    "se houver mais de um ano publicado, preserve o trecho em elemento. "
+                    "Preserve percentual negativo e período "
                     "invertido, sem corrigir incoerências. "
-                    "Códigos são strings e só entram no núcleo "
-                    "quando citados numericamente no texto. Nome sem código vira elemento. "
-                    "Matrícula nunca é núcleo. Tudo além do núcleo vira elemento, "
-                    "sem descartar nada. "
+                    "Para cada valor de nucleo, use {valor, trecho} com trecho literal da fonte: "
+                    "percentual e vigencia usam esse objeto; loja/marca/cargo são listas "
+                    "de {valor, trecho}, um por código. Os nomes canônicos e aliases inequívocos "
+                    "resolvem para os códigos do vocabulário. Um nome ambíguo pode permanecer "
+                    "literal no valor para diagnóstico; não escolha um código por palpite. "
+                    "Todo campo numérico de um construto também exige {valor, trecho} literal. "
+                    "Toda evidência tem de estar literalmente no texto. Não invente trechos. "
+                    "Matrícula nunca é núcleo. Tudo além do núcleo e de parametros vira "
+                    "elemento, sem descartar nada. O pedido de simular um período, o orçamento e a "
+                    "meta de venda nunca viram elemento. "
                     "Ordene elementos pela ordem em que aparecem no texto. Em cada um informe "
                     "construto_pretendido (ou generico), descricao e trecho original literal. "
                     "A descrição é paráfrase que mantém literalmente números, datas e códigos. "
                     "Não escreva campos de construtos não habilitados. Texto sem conteúdo de regra "
                     "produz nucleo vazio e elementos vazio. "
                     "Preencha parametros com orcamento, meta_venda e competencias quando o texto "
-                    "os disser, cada um como {valor, trecho}. orcamento é o orçamento de comissão "
-                    "do período; meta_venda é a meta de venda do período. Uma condição de "
-                    "atingimento de meta dentro da regra, como bônus para quem bate a meta, não é "
-                    "meta_venda: fica em elemento. competencias aqui é o período da simulação "
-                    "('simular de agosto a dezembro', 'nos últimos três meses'), distinto da "
-                    "vigência da regra ('comissão de 3% em novembro'). 'Orçamento de R$ 1,5 "
-                    "milhão' vira orcamento com valor 1500000; 'meta de vender R$ 12 milhões' vira "
-                    "meta_venda com valor 12000000. Parâmetro não dito fica fora de parametros; "
-                    "nada dito deixa parametros vazio ({})."
+                    "os disser, cada um como {valor, trecho}, com o trecho literal do texto. "
+                    "Parâmetros não são regra: não entram em nucleo nem em elementos. orcamento é "
+                    "o orçamento de comissão do período; meta_venda é a meta de venda do período. "
+                    "Uma condição de atingimento de meta dentro da regra, como bônus para quem "
+                    "bate a meta, não é meta_venda: fica em elemento. competencias é o período da "
+                    "simulação e só existe quando o texto manda simular um período ou liga um "
+                    "período ao orçamento ou à meta: 'simular de agosto a dezembro', 'nos últimos "
+                    "três meses', 'meta de vender R$ 12 milhões entre setembro e novembro de "
+                    "2025'. Um período que só diz quando a comissão vale ('comissão de 3% em "
+                    "novembro') é a vigência da regra, em nucleo.vigencia, e não é competencias. "
+                    "'Orçamento de R$ 1,5 milhão' vira orcamento com valor 1500000; 'meta de "
+                    "vender R$ 12 milhões' vira meta_venda com valor 12000000. Parâmetro não dito "
+                    "fica fora de parametros; nada dito deixa parametros vazio ({}). As "
+                    "competencias de dados_nao_confiaveis_da_regra são as competências com dados "
+                    "publicados, contexto do job e não algo que o texto disse: não as copie para "
+                    "parametros."
                 ),
                 "construtos_habilitados": list(instrucoes),
+                "vocabulario_canonico": vocabulario,
                 "schema_saida": schema,
             },
             "dados_nao_confiaveis_da_regra": {"texto": texto, "competencias": list(competencias)},

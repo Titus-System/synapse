@@ -47,7 +47,8 @@ class ExecutarAcaoControllerTests {
 	@BeforeEach
 	void preparar() {
 		this.mvc = MockMvcBuilders
-			.standaloneSetup(new JobController(this.service, this.emissores, new CorrelationContext()))
+			.standaloneSetup(new JobController(this.service, this.emissores, new CorrelationContext(),
+					org.mockito.Mockito.mock(synapse.api.core.metrics.AppMetrics.class)))
 			.setControllerAdvice(new JobAdvice())
 			.build();
 	}

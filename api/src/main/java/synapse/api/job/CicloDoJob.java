@@ -9,16 +9,17 @@ import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
 
 /**
- * As quatro ações de finalização do contrato HTTP ({@code AcaoJob}), no mesmo vocabulário
- * da coluna {@code job_acoes.acao}. {@code SALVAR} é sinônimo de
- * {@code CONFIRMAR_LIBERAR}: não existe estado "salvo" na máquina de estados, e as duas
- * levam a {@link JobStatus#LIBERADO} sob a mesma recusa quando a simulação é inviável. Um
- * resultado sem orçamento não tem veredito e não é recusado.
+ * As ações do contrato HTTP ({@code AcaoJob}), no mesmo vocabulário da coluna
+ * {@code job_acoes.acao}. {@code SALVAR} é sinônimo de {@code CONFIRMAR_LIBERAR}: não
+ * existe estado "salvo" na máquina de estados, e as duas levam a
+ * {@link JobStatus#LIBERADO} sob a mesma recusa quando a simulação é inviável. Um
+ * resultado sem orçamento não tem veredito e não é recusado. {@code ACEITAR_META} mantém
+ * o job aguardando decisão: troca somente o resultado vigente, sem transição.
  */
 enum AcaoJob {
 
 	CONFIRMAR_LIBERAR(JobStatus.LIBERADO), CANCELAR(JobStatus.CANCELADO), SALVAR(JobStatus.LIBERADO),
-	ARQUIVAR(JobStatus.ARQUIVADO);
+	ARQUIVAR(JobStatus.ARQUIVADO), ACEITAR_META(JobStatus.AGUARDANDO_DECISAO_USUARIO);
 
 	private final JobStatus destino;
 
@@ -202,7 +203,22 @@ final class MotivoDaParada {
 
 	static final String TRANSCRICAO_FALHOU = "Não foi possível transcrever a gravação. Envie a regra de novo, por texto ou por voz.";
 
+	static final String CAUSA_PROVEDOR_INDISPONIVEL = "provedor_indisponivel";
+
+	static final String PROVEDOR_INDISPONIVEL = "O serviço de inteligência artificial ficou indisponível por muito tempo e a regra não foi processada. Envie a regra de novo mais tarde.";
+
+	/**
+	 * O token de {@code job_transicoes.motivo} do fim das tentativas de taxa nova sem uma
+	 * que caiba no orçamento, anunciado pelo {@code sem_alternativa} do codegen.
+	 */
+	static final String SEM_ALTERNATIVA = "sem_alternativa";
+
+	static final String NENHUMA_TAXA_COUBE = "Nenhuma das taxas de comissão testadas coube no orçamento do período.";
+
 	private static final String PREFIXO_FALHA_NA_ETAPA = "erro_";
+
+	private static final String MOTIVO_DA_TRILHA_PROVEDOR_INDISPONIVEL = PREFIXO_FALHA_NA_ETAPA
+			+ CAUSA_PROVEDOR_INDISPONIVEL;
 
 	private MotivoDaParada() {
 	}
@@ -210,6 +226,22 @@ final class MotivoDaParada {
 	/** O token de {@code job_transicoes.motivo} de uma falha anterior à simulação. */
 	static String falhaNaEtapa(EtapaDoGrafo etapa) {
 		return PREFIXO_FALHA_NA_ETAPA + etapa.paraEvento();
+	}
+
+	/**
+	 * O token de uma falha anterior à simulação com a {@code causa} do evento. A causa
+	 * conhecida troca o token por um próprio, que não nomeia a etapa; sem causa, ou com
+	 * uma causa que esta api não conhece, vale o token da etapa.
+	 */
+	static String falhaNaEtapa(EtapaDoGrafo etapa, @Nullable String causa) {
+		return CAUSA_PROVEDOR_INDISPONIVEL.equals(causa) ? MOTIVO_DA_TRILHA_PROVEDOR_INDISPONIVEL : falhaNaEtapa(etapa);
+	}
+
+	/**
+	 * A razão localizada de uma falha anterior à simulação, a mesma da consulta e do SSE.
+	 */
+	static String razaoDaFalha(@Nullable String causa) {
+		return CAUSA_PROVEDOR_INDISPONIVEL.equals(causa) ? PROVEDOR_INDISPONIVEL : FALHA_ANTES_DA_SIMULACAO;
 	}
 
 	/**
@@ -229,6 +261,14 @@ final class MotivoDaParada {
 		}
 		if (status == JobStatus.ERRO && FALHA_NA_TRANSCRICAO.equals(motivoDaTrilha)) {
 			return TRANSCRICAO_FALHOU;
+		}
+		if (status == JobStatus.SIMULACAO_INVIAVEL && SEM_ALTERNATIVA.equals(motivoDaTrilha)) {
+			return NENHUMA_TAXA_COUBE;
+		}
+		// Os dois tokens próprios vêm antes do ramo da etapa: ambos começam com o mesmo
+		// prefixo e nenhum nomeia um nó do grafo, então o ramo genérico não os alcança.
+		if (status == JobStatus.ERRO && MOTIVO_DA_TRILHA_PROVEDOR_INDISPONIVEL.equals(motivoDaTrilha)) {
+			return PROVEDOR_INDISPONIVEL;
 		}
 		if (status == JobStatus.ERRO && motivoDaTrilha.startsWith(PREFIXO_FALHA_NA_ETAPA)
 				&& EtapaDoGrafo.deEvento(motivoDaTrilha.substring(PREFIXO_FALHA_NA_ETAPA.length())) != null) {

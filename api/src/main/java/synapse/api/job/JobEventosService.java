@@ -34,6 +34,10 @@ class JobEventosService {
 
 	private static final String STATUS_ERRO = "erro";
 
+	private static final String STATUS_SEM_ALTERNATIVA = "sem_alternativa";
+
+	private static final String MOTIVO_ANTECIPADA = "simulacao_concluida_antecipada";
+
 	private final JobRepository repository;
 
 	private final MaquinaDeEstadosDoJob maquina;
@@ -54,13 +58,20 @@ class JobEventosService {
 	}
 
 	@Transactional
-	@Nullable EventoEstadoDto aplicarEtapaAlterada(UUID jobId, EtapaDoGrafo etapa, String status) {
-		return aplicarEtapaAlterada(jobId, etapa, status, null, null).transicao();
+	boolean registrarMetaSugerida(MetaVendaSugeridaDto evento) {
+		UUID jobId = Objects.requireNonNull(evento.job_id());
+		this.repository.bloquearJob(jobId);
+		return this.repository.registrarMetaSugerida(evento);
 	}
 
 	@Transactional
-	EtapaAplicada aplicarEtapaAlterada(UUID jobId, EtapaDoGrafo etapa, String status, @Nullable UUID regraId,
-			@Nullable JsonNode conflitos) {
+	EtapaAplicada aplicarEtapaAlterada(UUID jobId, EtapaDoGrafo etapa, String status, @Nullable String causa) {
+		return aplicarEtapaAlterada(jobId, etapa, status, causa, null, null);
+	}
+
+	@Transactional
+	EtapaAplicada aplicarEtapaAlterada(UUID jobId, EtapaDoGrafo etapa, String status, @Nullable String causa,
+			@Nullable UUID regraId, @Nullable JsonNode conflitos) {
 		List<ContextoDoJob> contextos = this.repository.buscarContextoComTrava(jobId);
 		if (contextos.isEmpty()) {
 			return resultadoCorrecao(DesfechoCorrecao.JOB_INEXISTENTE, regraId, null, conflitos);
@@ -76,12 +87,25 @@ class JobEventosService {
 				&& atual == JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS) {
 			return falharReextracao(jobId, regraId);
 		}
+		if (etapa == EtapaDoGrafo.SUGESTAO_ADAPTACAO && STATUS_SEM_ALTERNATIVA.equals(status)) {
+			EventoEstadoDto encerrada = encerrarIteracao(jobId, atual, JobStatus.SIMULACAO_INVIAVEL,
+					MotivoDaParada.SEM_ALTERNATIVA, MotivoDaParada.NENHUMA_TAXA_COUBE);
+			return (encerrada != null) ? EtapaAplicada.comum(encerrada, FimDaIteracao.SEM_ALTERNATIVA)
+					: EtapaAplicada.comum(null, FimDaIteracao.SEM_ALTERNATIVA_SEM_EFEITO);
+		}
+		if (STATUS_ERRO.equals(status) && (etapa == EtapaDoGrafo.DECISAO || etapa == EtapaDoGrafo.SUGESTAO_ADAPTACAO)) {
+			EventoEstadoDto encerrada = encerrarIteracao(jobId, atual, JobStatus.ERRO,
+					MotivoDaParada.falhaNaEtapa(etapa, causa), MotivoDaParada.razaoDaFalha(causa));
+			if (encerrada != null) {
+				return EtapaAplicada.comum(encerrada, FimDaIteracao.FALHA);
+			}
+		}
 		if (etapa == EtapaDoGrafo.DELEGACAO_WORKER && STATUS_INICIADA.equals(status)) {
 			return EtapaAplicada.comum(avancarDeGerandoRegra(jobId, JobStatus.SIMULANDO, null, null));
 		}
 		if (STATUS_ERRO.equals(status)) {
-			return EtapaAplicada.comum(avancarDeGerandoRegra(jobId, JobStatus.ERRO, MotivoDaParada.falhaNaEtapa(etapa),
-					MotivoDaParada.FALHA_ANTES_DA_SIMULACAO));
+			return EtapaAplicada.comum(avancarDeGerandoRegra(jobId, JobStatus.ERRO,
+					MotivoDaParada.falhaNaEtapa(etapa, causa), MotivoDaParada.razaoDaFalha(causa)));
 		}
 		return EtapaAplicada.comum(null);
 	}
@@ -116,7 +140,7 @@ class JobEventosService {
 				ultimas.isEmpty() ? null : ultimas.getFirst(), agora);
 		return new EtapaAplicada(DesfechoCorrecao.RODADA_ABERTA, EventoEstadoDto.transicao(jobId,
 				JobStatus.GERANDO_REGRA, JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS, null), regraId, rodadaId,
-				conflitos.size());
+				conflitos.size(), null);
 	}
 
 	private EtapaAplicada falharReextracao(UUID jobId, @Nullable UUID regraId) {
@@ -137,7 +161,62 @@ class JobEventosService {
 	private static EtapaAplicada resultadoCorrecao(DesfechoCorrecao desfecho, @Nullable UUID regraId,
 			@Nullable UUID rodadaId, @Nullable JsonNode conflitos) {
 		return new EtapaAplicada(desfecho, null, regraId, rodadaId,
-				conflitos != null && conflitos.isArray() ? conflitos.size() : 0);
+				conflitos != null && conflitos.isArray() ? conflitos.size() : 0, null);
+	}
+
+	/**
+	 * Encerra o job em iteração e amarra o resultado da última alternativa, que pode
+	 * ainda não ter chegado pela {@code simulacao-concluida}: as filas não têm ordem
+	 * entre si. {@code null}, sem nada gravado, quando o job não está em iteração - a
+	 * versão atual não é uma alternativa com resultado inviável, ou o job já saiu do
+	 * processamento.
+	 */
+	private @Nullable EventoEstadoDto encerrarIteracao(UUID jobId, JobStatus status, JobStatus destino, String motivo,
+			String razao) {
+		if (!status.emProcessamento()) {
+			return null;
+		}
+		List<UUID> resultados = this.repository.buscarResultadoInviavelDaAlternativaAtual(jobId);
+		if (resultados.isEmpty()) {
+			return null;
+		}
+		this.maquina.avancarSeEm(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO, ATOR, MOTIVO_ANTECIPADA);
+		this.maquina.transicionar(jobId, destino, ATOR, motivo);
+		this.repository.vincularResultado(jobId, resultados.getFirst());
+		return EventoEstadoDto.transicao(jobId, JobStatus.SIMULANDO, destino, razao);
+	}
+
+	/**
+	 * Como um {@code etapa-alterada} terminou a iteração da taxa nova: a {@code causa} e
+	 * o {@code resultado} que vão para log e métrica, de conjunto fechado.
+	 * {@code sem_efeito} é o {@code sem_alternativa} que encontra o job fora da iteração:
+	 * o da regra original, que não teve alternativa, e a reentrega.
+	 */
+	enum FimDaIteracao {
+
+		SEM_ALTERNATIVA("sem_alternativa", "aplicado"),
+
+		SEM_ALTERNATIVA_SEM_EFEITO("sem_alternativa", "sem_efeito"),
+
+		FALHA("falha", "aplicado");
+
+		private final String causa;
+
+		private final String resultado;
+
+		FimDaIteracao(String causa, String resultado) {
+			this.causa = causa;
+			this.resultado = resultado;
+		}
+
+		String causa() {
+			return this.causa;
+		}
+
+		String resultado() {
+			return this.resultado;
+		}
+
 	}
 
 	private @Nullable EventoEstadoDto avancarDeGerandoRegra(UUID jobId, JobStatus destino,
@@ -169,15 +248,34 @@ class JobEventosService {
 	private @Nullable DesfechoAplicado aplicarDesfecho(UUID jobId, UUID resultadoId, DesfechoDaSimulacao desfecho) {
 		// A trava também protege o ciclo atual contra resultados de versões anteriores.
 		this.repository.bloquearJob(jobId);
-		Boolean atual = this.repository.resultadoPertenceAVersaoAtual(jobId, resultadoId);
-		if (!Boolean.TRUE.equals(atual)) {
+		List<String> origens = this.repository.origemDaVersaoAtualDoResultado(jobId, resultadoId);
+		if (origens.isEmpty()) {
 			return null;
 		}
 		boolean avancouDeGerandoRegra = this.maquina.avancarSeEm(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO,
-				"evento", "simulacao_concluida_antecipada");
-		JobStatus origem = this.maquina.transicionar(jobId, desfecho.destino(), "evento", desfecho.motivoDaTrilha());
+				ATOR, MOTIVO_ANTECIPADA);
+		if (desfecho == DesfechoDaSimulacao.INVIAVEL && VersoesDaRegra.ORIGEM_SUGESTAO.equals(origens.getFirst())) {
+			return absorverAlternativaInviavel(jobId, resultadoId, avancouDeGerandoRegra);
+		}
+		JobStatus origem = this.maquina.transicionar(jobId, desfecho.destino(), ATOR, desfecho.motivoDaTrilha());
 		UUID simulacaoId = amarrarResultado(jobId, resultadoId);
-		return new DesfechoAplicado(origem, simulacaoId, avancouDeGerandoRegra);
+		return new DesfechoAplicado(origem, simulacaoId, avancouDeGerandoRegra, false);
+	}
+
+	/**
+	 * A alternativa que não coube não é desfecho: o codegen ainda propõe outra taxa ou
+	 * anuncia que não há. O job fica em {@code simulando} e o resultado é amarrado para a
+	 * auditoria, sem transição. Depois do fim da iteração, a reentrega ou o resultado
+	 * atrasado encontram o job fora do processamento e são recusados como qualquer
+	 * desfecho fora de ordem.
+	 */
+	private DesfechoAplicado absorverAlternativaInviavel(UUID jobId, UUID resultadoId, boolean avancouDeGerandoRegra) {
+		JobStatus status = JobStatus.deColuna(this.repository.buscarStatusComTrava(jobId));
+		if (status != JobStatus.SIMULANDO) {
+			throw new TransicaoDeStatusInvalidaException(status, JobStatus.SIMULANDO);
+		}
+		this.repository.vincularResultado(jobId, resultadoId);
+		return DesfechoAplicado.intermediario(avancouDeGerandoRegra);
 	}
 
 	/**
@@ -203,12 +301,22 @@ class JobEventosService {
 		return amarradas.getFirst();
 	}
 
-	record DesfechoAplicado(JobStatus origem, @Nullable UUID simulacaoId, boolean avancouDeGerandoRegra) {
+	/**
+	 * {@code intermediario} é o resultado inviável de uma alternativa enquanto o codegen
+	 * pode tentar outra taxa: não houve transição, e o usuário não o vê.
+	 */
+	record DesfechoAplicado(JobStatus origem, @Nullable UUID simulacaoId, boolean avancouDeGerandoRegra,
+			boolean intermediario) {
+
+		static DesfechoAplicado intermediario(boolean avancouDeGerandoRegra) {
+			return new DesfechoAplicado(JobStatus.SIMULANDO, null, avancouDeGerandoRegra, true);
+		}
+
 	}
 
 	@Transactional
 	@Nullable SugestaoAplicada aplicarSugestaoAdaptacao(UUID jobId, UUID regraOrigemId, UUID resultadoId,
-			RepresentacaoRegraDto representacao) {
+			RepresentacaoRegraDto representacao, @Nullable Integer tentativa) {
 		var percentual = representacao.nucleo().percentual();
 		if (percentual == null || percentual.signum() <= 0) {
 			return null;
@@ -240,32 +348,33 @@ class JobEventosService {
 			return null;
 		}
 		// As filas não têm ordem entre si: a proposta pode anteceder o evento do
-		// resultado.
-		DesfechoAplicado desfechoOriginal = null;
+		// resultado. Na regra original, ele é o desfecho inviável; na alternativa, é
+		// absorvido sem desfecho, e o job segue de simulando para a tentativa seguinte.
+		DesfechoAplicado desfechoDaOrigem = null;
 		if (contexto.status() != JobStatus.SIMULACAO_INVIAVEL) {
-			desfechoOriginal = aplicarDesfecho(jobId, resultadoId, DesfechoDaSimulacao.INVIAVEL);
-			if (desfechoOriginal == null) {
+			desfechoDaOrigem = aplicarDesfecho(jobId, resultadoId, DesfechoDaSimulacao.INVIAVEL);
+			if (desfechoDaOrigem == null) {
 				return null;
 			}
-			if (desfechoOriginal.simulacaoId() == null) {
+			if (!desfechoDaOrigem.intermediario() && desfechoDaOrigem.simulacaoId() == null) {
 				// no-concluido pode ter vinculado o resultado antes de sua notificação.
 				List<UUID> simulacoes = this.repository.buscarSimulacaoPorResultado(jobId, resultadoId);
 				if (!simulacoes.isEmpty()) {
-					desfechoOriginal = new DesfechoAplicado(desfechoOriginal.origem(), simulacoes.getFirst(),
-							desfechoOriginal.avancouDeGerandoRegra());
+					desfechoDaOrigem = new DesfechoAplicado(desfechoDaOrigem.origem(), simulacoes.getFirst(),
+							desfechoDaOrigem.avancouDeGerandoRegra(), false);
 				}
 			}
 		}
-		JobStatus origem = this.maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "evento",
+		JobStatus origem = this.maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, ATOR,
 				"sugestao_adaptacao_proposta");
 		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
-		VersaoRegra versao = this.versoes.resolver(jobId, representacao, parametrosJson, hash, "sugestao_adaptacao",
-				regraOrigemId, Timestamp.from(agora), agora);
+		VersaoRegra versao = this.versoes.resolverSugestao(jobId, representacao, parametrosJson, hash, regraOrigemId,
+				tentativa, Timestamp.from(agora), agora);
 		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, contexto.regraSubmetida(versao.id()));
-		return new SugestaoAplicada(origem, versao, desfechoOriginal);
+		return new SugestaoAplicada(origem, versao, desfechoDaOrigem);
 	}
 
-	record SugestaoAplicada(JobStatus origem, VersaoRegra versao, @Nullable DesfechoAplicado desfechoOriginal) {
+	record SugestaoAplicada(JobStatus origem, VersaoRegra versao, @Nullable DesfechoAplicado desfechoDaOrigem) {
 	}
 
 	/**

@@ -215,6 +215,7 @@ async def _gravar(comando: ExecutarCodigo, julgamento: Julgamento) -> ResultadoG
                 assercoes=linha.assercoes,
                 decomposicao=linha.decomposicao,
                 diagnostico=linha.diagnostico,
+                linhas=linha.linhas,
                 meta_venda=comando.meta_venda,
                 proposito=comando.proposito,
             )
@@ -224,6 +225,8 @@ async def _gravar(comando: ExecutarCodigo, julgamento: Julgamento) -> ResultadoG
             "resultado_id": str(gravado.id),
             "status": gravado.status,
             "com_diagnostico": linha.diagnostico is not None,
+            "competencias_detalhadas": len(linha.linhas or {}),
+            "linhas_detalhadas": sum(len(mes) for mes in (linha.linhas or {}).values()),
             "com_meta_venda": gravado.meta_venda is not None,
             "proposito": gravado.proposito,
         },
@@ -297,7 +300,14 @@ async def _processar(mensagem: AbstractIncomingMessage, broker: ConexaoBroker) -
                 )
                 baseline_na_meta = await _baseline_na_meta(execucao)
                 saida = await _executar_no_container(execucao.payload)
-                desfecho = classificar(saida, execucao.payload, execucao.orcamento)
+                # Numa thread, como o container: conferir o envelope contra os schemas é CPU
+                # pura e cresce com o detalhamento (perto de 1 s no período inteiro, contra 22 ms
+                # do resultado sozinho), e no loop pararia o heartbeat do RabbitMQ e o `/metrics`
+                # por todo esse tempo. O contexto do job acompanha a thread, então o log da
+                # recusa continua correlacionado.
+                desfecho = await asyncio.to_thread(
+                    classificar, saida, execucao.payload, execucao.orcamento
+                )
                 # Aqui, no processo do worker: nem o orçamento nem os elementos exigidos entraram
                 # no container.
                 julgamento = julgar(

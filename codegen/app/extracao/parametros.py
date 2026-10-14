@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema.exceptions import ValidationError as ErroSchema
 from referencing import Registry, Resource
 
 from app.tipos_estado import ValorRegra
@@ -35,5 +36,14 @@ def _validador_parametros() -> Draft202012Validator:
 
 
 def validar_parametros(parametros: dict[str, Any]) -> dict[str, ValorRegra]:
-    _validador_parametros().validate(parametros)
+    valido = False
+    try:
+        _validador_parametros().validate(parametros)
+        valido = True
+    except ErroSchema:
+        pass
+    # Fora do except: a exceção do jsonschema traz o valor reprovado, que é o que o texto disse,
+    # e ficaria em __context__.
+    if not valido:
+        raise ValueError("Parâmetros da simulação inválidos")
     return parametros

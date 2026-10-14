@@ -71,17 +71,33 @@ class ExemplosDeContratoTests {
 		assertThat(decomposicao.competencia_absoluto()).containsEntry("2025-11", new BigDecimal("253200"));
 	}
 
-	@Test
-	void desserializaOEventoDeEtapaAlterada() throws IOException {
+	/**
+	 * {@code causa} é opcional no schema e ausente nos exemplos antigos, então os eventos
+	 * de {@code etapa-alterada} são lidos sem {@code FAIL_ON_MISSING_CREATOR_PROPERTIES}
+	 * (ver {@link #desserializaOEventoDeRegraSubmetidaDeOrigemVoz()}).
+	 */
+	@ParameterizedTest
+	@ValueSource(strings = { "etapa-alterada", "etapa-alterada-aguardando-provedor",
+			"etapa-alterada-erro-provedor-indisponivel" })
+	void desserializaOEventoDeEtapaAlterada(String exemplo) throws IOException {
+		String json = Files.readString(exemplo("events/" + exemplo + ".json"));
 		EtapaAlteradaDto evento = this.objectMapper.readerFor(EtapaAlteradaDto.class)
 			.with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-			.readValue(Files.readString(exemplo("events/etapa-alterada.json")));
+			.readValue(json);
 		assertThat(evento.regra_id()).isNull();
 		assertThat(evento.conflitos()).isNull();
 
 		assertThat(evento.job_id()).isEqualTo(UUID.fromString("3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"));
 		assertThat(evento.etapa()).isEqualTo("geracao_codigo");
-		assertThat(evento.status()).isEqualTo("iniciada");
+		assertThat(evento.status()).isEqualTo(switch (exemplo) {
+			case "etapa-alterada" -> "iniciada";
+			case "etapa-alterada-aguardando-provedor" -> "aguardando_provedor";
+			default -> "erro";
+		});
+		assertThat(evento.causa())
+			.isEqualTo(exemplo.endsWith("provedor-indisponivel") ? "provedor_indisponivel" : null);
+
+		ContratoDeEvento.validar("etapa-alterada", json);
 	}
 
 	@ParameterizedTest
@@ -220,14 +236,31 @@ class ExemplosDeContratoTests {
 
 	@Test
 	void desserializaOEventoDeSimulacaoConcluida() throws IOException {
-		SimulacaoConcluidaDto evento = desserializar("events/simulacao-concluida.json", SimulacaoConcluidaDto.class);
+		// proposito e meta_venda são opcionais; o exemplo histórico não os traz.
+		SimulacaoConcluidaDto evento = this.objectMapper.readerFor(SimulacaoConcluidaDto.class)
+			.with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+			.readValue(Files.readString(exemplo("events/simulacao-concluida.json")));
 
 		assertThat(evento.job_id()).isEqualTo(UUID.fromString("3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"));
 		assertThat(evento.resultado_id()).isEqualTo(UUID.fromString("b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"));
 		assertThat(evento.status()).isEqualTo("sucesso");
 		assertThat(evento.veredito()).isEqualTo("inviavel");
+		assertThat(evento.proposito()).isNull();
+		assertThat(evento.meta_venda()).isNull();
 
 		ContratoDeEvento.validar("simulacao-concluida", Files.readString(exemplo("events/simulacao-concluida.json")));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "simulacao-concluida-busca-meta", "simulacao-concluida-meta-venda" })
+	void desserializaMetadadosDaExecucaoNaMeta(String nome) throws IOException {
+		String corpo = Files.readString(exemplo("events/" + nome + ".json"));
+		SimulacaoConcluidaDto evento = this.objectMapper.readerFor(SimulacaoConcluidaDto.class)
+			.with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+			.readValue(corpo);
+		assertThat(evento.meta_venda()).isPositive();
+		assertThat(evento.proposito()).isEqualTo(nome.endsWith("busca-meta") ? "busca_meta" : null);
+		ContratoDeEvento.validar("simulacao-concluida", corpo);
 	}
 
 	/**

@@ -47,9 +47,11 @@ class MigrationTests {
 	private static final List<String> TABELAS = List.of("usuarios", "submissoes", "jobs", "job_transicoes", "job_acoes",
 			"regras", "prompts", "respostas_modelo", "codigos_gerados", "resultados_simulacao", "explicacoes",
 			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras",
-			"rodadas_correcao", "trabalhos_transcricao");
+			"rodadas_correcao", "trabalhos_transcricao", "sugestoes_meta_venda");
 
-	private static final int CHANGESETS = 26;
+	private static final int CHANGESETS = 28;
+
+	private static final int CHANGESETS_ANTES_DA_TENTATIVA = 26;
 
 	private static final int CHANGESETS_ANTES_DA_META_NO_RESULTADO = 25;
 
@@ -76,6 +78,14 @@ class MigrationTests {
 
 	private static final String CONFLITOS = """
 			[{"elementos": ["nucleo.percentual"], "motivo": "percentual ausente"}]
+			""";
+
+	/** Uma versão de sugestão com a tentativa dada, sobre a regra semeada. */
+	private static final String INSERE_SUGESTAO = """
+			INSERT INTO regras (id, job_id, versao, origem, regra_origem_id, nucleo, especificacoes, hash, tentativa,
+			    criada_em)
+			VALUES ('%s', '%s', %d, 'sugestao_adaptacao', '55555555-5555-4555-8555-555555555555', '{}'::jsonb,
+			        '[]'::jsonb, md5(random()::text) || md5(random()::text), %d, now())
 			""";
 
 	/**
@@ -438,7 +448,7 @@ class MigrationTests {
 			}
 		}
 
-		reverter(1);
+		reverter(CHANGESETS - CHANGESETS_ANTES_DA_META_NO_RESULTADO);
 
 		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DA_META_NO_RESULTADO);
 		assertThat(colunasDeResultados()).doesNotContain("meta_venda", "proposito")
@@ -446,6 +456,118 @@ class MigrationTests {
 		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
 			assertThat(linhaSemDiagnostico(statement, anterior)).isEqualTo(linhaAntes);
 		}
+	}
+
+	/**
+	 * A tentativa nasce nulável e sem default, porque só a versão de uma sugestão de taxa
+	 * nova a tem, e o banco recusa um número fora da faixa do contrato.
+	 */
+	@Test
+	void criaATentativaDaVersaoNulavelESoNaFaixaDoContrato() throws Exception {
+		atualizar();
+
+		assertThat(coluna("regras", "tentativa")).containsExactly("smallint", "YES", null);
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearCodigoGerado(statement);
+			for (int tentativa = 1; tentativa <= 3; tentativa++) {
+				statement.execute(INSERE_SUGESTAO.formatted(UUID.randomUUID(), JOB_ID, tentativa + 1, tentativa));
+			}
+			for (int tentativa : new int[] { 0, 4 }) {
+				assertThatExceptionOfType(SQLException.class)
+					.isThrownBy(
+							() -> statement.execute(INSERE_SUGESTAO.formatted(UUID.randomUUID(), JOB_ID, 9, tentativa)))
+					.withMessageContaining("ck_regras_tentativa");
+			}
+		}
+	}
+
+	/**
+	 * A versão gravada antes da coluna fica como estava, sem tentativa; o INSERT que não
+	 * conhece a coluna continua valendo; e o rollback remove só ela.
+	 */
+	@Test
+	void versaoGravadaAntesDaTentativaFicaSemElaEORollbackRemoveSoAColuna() throws Exception {
+		atualizar(CHANGESETS_ANTES_DA_TENTATIVA);
+		String linhaAntes;
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearCodigoGerado(statement);
+			linhaAntes = linhaDaRegraSemTentativa(statement);
+		}
+
+		atualizar();
+
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			assertThat(linhaDaRegraSemTentativa(statement)).isEqualTo(linhaAntes);
+			statement.execute("""
+					INSERT INTO regras (job_id, versao, origem, nucleo, especificacoes, hash, criada_em)
+					VALUES ('%s', 2, 'confirmacao_usuario', '{}'::jsonb, '[]'::jsonb, repeat('b', 64), now())
+					""".formatted(JOB_ID));
+			try (ResultSet rs = statement.executeQuery("SELECT tentativa FROM regras ORDER BY versao")) {
+				for (int linha = 0; linha < 2; linha++) {
+					assertThat(rs.next()).isTrue();
+					assertThat(rs.getObject("tentativa")).isNull();
+				}
+				assertThat(rs.next()).isFalse();
+			}
+		}
+
+		reverter(CHANGESETS - CHANGESETS_ANTES_DA_TENTATIVA);
+
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DA_TENTATIVA);
+		assertThat(nulidadeDasColunas("regras")).doesNotContainKey("tentativa").containsKey("parametros");
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			assertThat(linhaDaRegraSemTentativa(statement)).isEqualTo(linhaAntes);
+		}
+	}
+
+	/** A regra semeada sem a coluna de tentativa, para comparar antes e depois dela. */
+	private static String linhaDaRegraSemTentativa(Statement statement) throws Exception {
+		try (ResultSet rs = statement.executeQuery(
+				"SELECT (to_jsonb(regras) - 'tentativa')::text FROM regras WHERE id = '55555555-5555-4555-8555-555555555555'")) {
+			assertThat(rs.next()).isTrue();
+			return rs.getString(1);
+		}
+	}
+
+	@Test
+	void sugestoesDeMetaTemGrantsMinimosERollbackPreservaBancoAnterior() throws Exception {
+		atualizar(27);
+		try (Connection connection = abrir(); Statement sql = connection.createStatement()) {
+			semearCodigoGerado(sql);
+		}
+		atualizar();
+		assertThat(tabelasExistentes()).contains("sugestoes_meta_venda");
+		try (Connection connection = abrir(); Statement sql = connection.createStatement()) {
+			try (ResultSet rs = sql.executeQuery(
+					"""
+							SELECT has_table_privilege('synapse_api', 'sugestoes_meta_venda', 'SELECT') AS le,
+							    has_table_privilege('synapse_api', 'sugestoes_meta_venda', 'INSERT') AS insere,
+							    has_column_privilege('synapse_api', 'sugestoes_meta_venda', 'aceita_em', 'UPDATE') AS aceita,
+							    has_column_privilege('synapse_api', 'sugestoes_meta_venda', 'resultado_id', 'UPDATE') AS altera_resultado,
+							    has_table_privilege('synapse_api', 'sugestoes_meta_venda', 'DELETE') AS apaga,
+							    has_table_privilege('synapse_codegen', 'sugestoes_meta_venda', 'SELECT') AS codegen,
+							    has_table_privilege('synapse_worker', 'sugestoes_meta_venda', 'SELECT') AS worker
+							""")) {
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getBoolean("le")).isTrue();
+				assertThat(rs.getBoolean("insere")).isTrue();
+				assertThat(rs.getBoolean("aceita")).isTrue();
+				assertThat(rs.getBoolean("altera_resultado")).isFalse();
+				assertThat(rs.getBoolean("apaga")).isFalse();
+				assertThat(rs.getBoolean("codegen")).isFalse();
+				assertThat(rs.getBoolean("worker")).isFalse();
+			}
+		}
+		reverter(1);
+		assertThat(tabelasExistentes()).doesNotContain("sugestoes_meta_venda").contains("jobs", "resultados_simulacao");
+		try (Connection connection = abrir();
+				Statement sql = connection.createStatement();
+				ResultSet rs = sql.executeQuery("SELECT count(*) FROM codigos_gerados")) {
+			assertThat(rs.next()).isTrue();
+			assertThat(rs.getInt(1)).isEqualTo(1);
+		}
+		atualizar();
+		assertThat(tabelasExistentes()).contains("sugestoes_meta_venda");
 	}
 
 	@Test
@@ -736,7 +858,8 @@ class MigrationTests {
 
 		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DAS_RODADAS);
 		assertThat(tabelasExistentes()).containsExactlyInAnyOrderElementsOf(TABELAS.stream()
-			.filter(t -> !t.equals("rodadas_correcao") && !t.equals("trabalhos_transcricao"))
+			.filter(t -> !t.equals("sugestoes_meta_venda") && !t.equals("rodadas_correcao")
+					&& !t.equals("trabalhos_transcricao"))
 			.toList());
 		assertThat(dadosAnterioresAsRodadas()).isEqualTo(dadosAntes);
 		assertThat(permissoesAnterioresAsRodadas()).isEqualTo(permissoesAntes);
@@ -834,18 +957,23 @@ class MigrationTests {
 		assertThat(dadosAntesDosTrabalhos()).isEqualTo(antes);
 		reverter(CHANGESETS - CHANGESETS_ANTES_DOS_TRABALHOS);
 		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DOS_TRABALHOS);
-		assertThat(tabelasExistentes()).containsExactlyInAnyOrderElementsOf(
-				TABELAS.stream().filter(t -> !t.equals("trabalhos_transcricao")).toList());
+		assertThat(tabelasExistentes()).containsExactlyInAnyOrderElementsOf(TABELAS.stream()
+			.filter(t -> !t.equals("sugestoes_meta_venda") && !t.equals("trabalhos_transcricao"))
+			.toList());
 		assertThat(dadosAntesDosTrabalhos()).isEqualTo(antes);
 	}
 
+	/**
+	 * As linhas de todas as tabelas menos a dos trabalhos, sem a tentativa da versão, que
+	 * um changeset posterior acrescenta.
+	 */
 	private static Map<String, String> dadosAntesDosTrabalhos() throws Exception {
 		Map<String, String> dados = new HashMap<>();
 		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
 			for (String tabela : TABELAS) {
-				if (!tabela.equals("trabalhos_transcricao")) {
+				if (!tabela.equals("sugestoes_meta_venda") && !tabela.equals("trabalhos_transcricao")) {
 					try (ResultSet rs = statement.executeQuery(
-							"SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM "
+							"SELECT COALESCE(jsonb_agg(to_jsonb(t) - 'tentativa' ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM "
 									+ tabela + " t")) {
 						assertThat(rs.next()).isTrue();
 						dados.put(tabela, rs.getString(1));
@@ -880,18 +1008,19 @@ class MigrationTests {
 	}
 
 	/**
-	 * As linhas de todas as tabelas menos a das rodadas, sem as colunas que o changeset
-	 * dos parâmetros acrescenta: é o que permite comparar a mesma linha antes e depois de
-	 * um upgrade ou rollback que atravessa os dois changesets.
+	 * As linhas de todas as tabelas menos a das rodadas, sem as colunas que os changesets
+	 * dos parâmetros e da tentativa acrescentam: é o que permite comparar a mesma linha
+	 * antes e depois de um upgrade ou rollback que os atravessa.
 	 */
 	private static Map<String, String> dadosAnterioresAsRodadas() throws Exception {
 		Map<String, String> dados = new HashMap<>();
 		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
 			for (String tabela : TABELAS) {
-				if (!tabela.equals("rodadas_correcao") && !tabela.equals("trabalhos_transcricao")) {
-					try (ResultSet rs = statement
-						.executeQuery("SELECT COALESCE(jsonb_agg(to_jsonb(t) - 'meta_venda' - 'parametros' "
-								+ "ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM " + tabela + " t")) {
+				if (!tabela.equals("sugestoes_meta_venda") && !tabela.equals("rodadas_correcao")
+						&& !tabela.equals("trabalhos_transcricao")) {
+					try (ResultSet rs = statement.executeQuery(
+							"SELECT COALESCE(jsonb_agg(to_jsonb(t) - 'meta_venda' - 'parametros' - 'tentativa' "
+									+ "ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM " + tabela + " t")) {
 						assertThat(rs.next()).isTrue();
 						dados.put(tabela, rs.getString(1));
 					}
@@ -909,7 +1038,7 @@ class MigrationTests {
 						"""
 								SELECT (table_name, grantee, privilege_type, is_grantable)::text
 								FROM information_schema.table_privileges
-								WHERE table_schema = 'public' AND table_name NOT IN ('rodadas_correcao', 'trabalhos_transcricao') ORDER BY 1
+								WHERE table_schema = 'public' AND table_name NOT IN ('rodadas_correcao', 'trabalhos_transcricao', 'sugestoes_meta_venda') ORDER BY 1
 								""")) {
 			while (rs.next()) {
 				permissoes.add(rs.getString(1));

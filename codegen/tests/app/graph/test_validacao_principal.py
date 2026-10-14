@@ -428,7 +428,6 @@ async def test_reentrega_apos_fim_nao_revalida_nem_conta_execucao(
         "app.mensageria.roteamento.buscar_regra_do_resultado",
         AsyncMock(return_value=UUID(payload["regra_id"])),
     )
-    monkeypatch.setattr("app.graph.nodes.decision.tem_sugestao", AsyncMock(return_value=False))
     resultado = exemplo("simulacao-concluida") | {"job_id": payload["job_id"], "veredito": "viavel"}
     await Consumer(SimulacaoConcluida, "simulacao-concluida", ambiente.roteador).receber(
         mensagem(resultado)

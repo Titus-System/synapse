@@ -81,6 +81,9 @@ class RegraSubmetida(ModeloContrato):
     submissao_id: UUID | None = None
     regra_id: UUID | None = None
     orcamento: Decimal | None = Field(default=None, ge=0)
+    # Sem limite inferior, como no contrato: a meta zero ou negativa chega ao grafo como foi
+    # dita, para a validação de domínio apontá-la como conflito (T-280).
+    meta_venda: Decimal | None = None
 
 
 class RegraExtraida(ModeloContrato):
@@ -94,6 +97,8 @@ class ParametrosConfirmados(ModeloContrato):
     regra_id: UUID
     competencias: list[str] | None = Field(default=None, min_length=1)
     orcamento: Decimal | None = Field(default=None, ge=0)
+    # Sem limite inferior pelo mesmo motivo de `RegraSubmetida.meta_venda`.
+    meta_venda: Decimal | None = None
 
 
 class SimulacaoConcluida(ModeloContrato):
@@ -101,6 +106,8 @@ class SimulacaoConcluida(ModeloContrato):
     resultado_id: UUID
     status: StatusSimulacao
     veredito: Veredito | None = None
+    meta_venda: Decimal | None = Field(default=None, gt=0)
+    proposito: Literal["simulacao", "busca_meta"] | None = None
     total_baseline: Decimal | None = None
     total_simulado: Decimal | None = None
     diferenca_abs: Decimal | None = None
@@ -119,13 +126,16 @@ class SugestaoAdaptacaoProposta(ModeloContrato):
     regra_origem_id: UUID
     resultado_id: UUID
     representacao: RepresentacaoRegra
+    tentativa: int | None = Field(default=None, ge=1, le=3)
 
 
 class ExecutarCodigo(ModeloContrato):
     job_id: UUID
     codigo_gerado_id: UUID
     competencias: list[str] = Field(min_length=1)
-    orcamento: Decimal = Field(ge=0)
+    orcamento: Decimal | None = Field(default=None, ge=0)
+    meta_venda: Decimal | None = Field(default=None, gt=0)
+    proposito: Literal["simulacao", "busca_meta"] | None = None
     elementos_exigidos: list[ReferenciaDeElemento] | None = Field(default=None, min_length=1)
 
 
@@ -133,6 +143,7 @@ class EtapaAlterada(ModeloContrato):
     job_id: UUID
     etapa: NoGrafo
     status: str = Field(min_length=1)
+    causa: Literal["provedor_indisponivel"] | None = None
 
 
 class NoConcluido(ModeloContrato):
@@ -146,3 +157,15 @@ class NoConcluido(ModeloContrato):
     prompt_id: UUID | None = None
     codigo_gerado_id: UUID | None = None
     explicacao_id: UUID | None = None
+
+
+class SemSolucaoMeta(ModeloContrato):
+    motivo: Literal["nao_monotonica", "intervalo_esgotado", "falha_execucao"]
+
+
+class MetaVendaSugerida(ModeloContrato):
+    job_id: UUID
+    regra_id: UUID
+    resultado_id: UUID | None = None
+    meta_venda: Decimal | None = Field(default=None, gt=0)
+    sem_solucao: SemSolucaoMeta | None = None

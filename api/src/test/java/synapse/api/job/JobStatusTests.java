@@ -44,6 +44,11 @@ class JobStatusTests {
 	}
 
 	@Test
+	void permiteATentativaSeguinteAPartirDaAlternativaQueNaoCoube() {
+		assertThat(JobStatus.SIMULANDO.permiteTransicaoPara(JobStatus.GERANDO_REGRA)).isTrue();
+	}
+
+	@Test
 	void permiteCancelarOuArquivarNosPontosDeDecisao() {
 		assertThat(JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS.permiteTransicaoPara(JobStatus.CANCELADO)).isTrue();
 		assertThat(JobStatus.SIMULACAO_INVIAVEL.permiteTransicaoPara(JobStatus.CANCELADO)).isTrue();

@@ -112,6 +112,10 @@ class ExecutarAcaoException extends RuntimeException {
 	}
 
 	static ExecutarAcaoException estadoInvalido(AcaoJob acao, JobStatus origem) {
+		if (acao == AcaoJob.ACEITAR_META) {
+			return new ExecutarAcaoException(HttpStatus.CONFLICT, "estado_invalido",
+					"A ação aceitar_meta exige uma meta sugerida pendente e o job aguardando a decisão do usuário.");
+		}
 		Set<JobStatus> origensPermitidas = JobStatus.origensPermitidasPara(acao.destino());
 		String estados = origensPermitidas.stream()
 			.map(JobStatus::paraColuna)

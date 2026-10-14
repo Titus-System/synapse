@@ -4,7 +4,9 @@ Everything under `app/graph/core/` is internal.
 """
 
 from collections.abc import AsyncIterator, Iterable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
@@ -20,6 +22,7 @@ from app.graph.core.checkpointer import get_checkpointer
 from app.graph.core.engine import AWAIT_EXECUTION, build_graph
 from app.graph.core.state import AgentState
 from app.mensageria.producers import Producers
+from app.repositorio.resultados import buscar_execucao_da_meta
 
 logger = get_logger("app.graph.entrypoint")
 
@@ -46,6 +49,7 @@ class ResumeOutcome(StrEnum):
     NO_CHECKPOINT = "no_checkpoint"
     NOT_PAUSED_YET = "not_paused_yet"
     ALREADY_FINISHED = "already_finished"
+    IGNORED = "ignored"
 
 
 class SituacaoDoCiclo(StrEnum):
@@ -102,6 +106,22 @@ def _config(
     }
 
 
+@asynccontextmanager
+async def _travar_ciclo(checkpointer: object, thread_id: str) -> AsyncIterator[None]:
+    # A conexão pertence a esta chamada, então a trava também é liberada se ela cair.
+    # Checkpointers em memória não são compartilhados entre processos.
+    conexao = getattr(checkpointer, "conn", None)
+    if not isinstance(conexao, AsyncConnection):
+        yield
+        return
+    chave = f"synapse.codegen.ciclo:{thread_id}"
+    await conexao.execute("SELECT pg_advisory_lock(hashtextextended(%s, 0))", (chave,))
+    try:
+        yield
+    finally:
+        await conexao.execute("SELECT pg_advisory_unlock(hashtextextended(%s, 0))", (chave,))
+
+
 async def _checkpoint_do_ciclo(
     graph: Grafo, config: RunnableConfig
 ) -> tuple[RunnableConfig, StateSnapshot]:
@@ -154,7 +174,7 @@ async def run(
     """
     config = _config(thread_id, sessoes=sessoes, producers=producers)
 
-    async with get_checkpointer() as checkpointer:
+    async with get_checkpointer() as checkpointer, _travar_ciclo(checkpointer, thread_id):
         graph = build_graph(checkpointer)
         # LangGraph starts a new run from START for any non-None input, even on a thread that
         # already has checkpoints. `None` continues from the last one instead: after a
@@ -181,16 +201,45 @@ async def resume_to_completion(
     """
     config = _config(thread_id, sessoes=sessoes, producers=producers)
 
-    async with get_checkpointer() as checkpointer:
+    async with get_checkpointer() as checkpointer, _travar_ciclo(checkpointer, thread_id):
         graph = build_graph(checkpointer)
         config, estado = await _checkpoint_do_ciclo(graph, config)
         if not estado.values:
             return ResumeOutcome.NO_CHECKPOINT
         if not estado.next:
             return ResumeOutcome.ALREADY_FINISHED
-        if estado.values.get("resultado_id") == valor.get("resultado_id"):
-            entrada: Entrada = None
+        busca = estado.values.get("busca_meta")
+        mesmo_resultado = estado.values.get("resultado_id") == valor.get("resultado_id")
+        if busca is not None:
+            processados = {p["resultado_id"] for p in busca["pontos"]}
+            if mesmo_resultado and estado.next != (AWAIT_EXECUTION,):
+                # O resultado foi assentado, mas a publicação seguinte ainda não terminou.
+                entrada: Entrada = None
+            elif mesmo_resultado or valor.get("resultado_id") in processados:
+                logger.info("sales target duplicate result ignored")
+                return ResumeOutcome.IGNORED
+            else:
+                execucao = await buscar_execucao_da_meta(
+                    sessoes, UUID(estado.values["job_id"]), UUID(valor["resultado_id"])
+                )
+                if (
+                    execucao.regra_id != UUID(estado.values["regra_id"])
+                    or execucao.codigo_id != UUID(estado.values["codigo_gerado_id"])
+                    or execucao.proposito != "busca_meta"
+                    or busca["pendente"] is None
+                    or execucao.meta != Decimal(busca["pendente"])
+                ):
+                    logger.info("sales target unexpected result ignored")
+                    return ResumeOutcome.IGNORED
+                if estado.next != (AWAIT_EXECUTION,):
+                    return ResumeOutcome.NOT_PAUSED_YET
+                entrada = Command(resume=valor)
+        elif mesmo_resultado:
+            entrada = None
         elif estado.next == (AWAIT_EXECUTION,):
+            # A candidata nunca pode tomar o lugar da simulação original, mesmo em legado.
+            if valor.get("proposito") == "busca_meta":
+                return ResumeOutcome.IGNORED
             entrada = Command(resume=valor)
         else:
             return ResumeOutcome.NOT_PAUSED_YET
