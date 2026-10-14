@@ -16,6 +16,15 @@ import org.springframework.web.multipart.support.MissingServletRequestPartExcept
 @Order(-1)
 class SubmissoesAdvice {
 
+	@ExceptionHandler(synapse.api.job.JobsDeSubmissoes.CorrecaoRecusada.class)
+	ResponseEntity<ErroSubmissao> correcao(synapse.api.job.JobsDeSubmissoes.CorrecaoRecusada ex,
+			HttpServletRequest request) {
+		if (ex.rodadaId() != null) {
+			request.setAttribute("submissao.rodada", ex.rodadaId().toString());
+		}
+		return ResponseEntity.status(ex.status()).body(new ErroSubmissao(ex.codigo(), ex.getMessage()));
+	}
+
 	@ExceptionHandler(SubmissaoException.class)
 	ResponseEntity<ErroSubmissao> recusa(SubmissaoException ex) {
 		return ResponseEntity.status(ex.status()).body(new ErroSubmissao(ex.codigo(), ex.getMessage()));

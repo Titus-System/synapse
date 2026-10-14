@@ -39,3 +39,8 @@ record ParametrosConfirmadosDto(UUID job_id, UUID regra_id) {
  */
 record JobEncerradoDto(UUID evento_id, UUID job_id, String status, Instant encerrado_em) {
 }
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
+record CorrecaoSubmetidaDto(UUID job_id, UUID regra_origem_id, UUID submissao_id, List<String> competencias,
+		@Nullable BigDecimal orcamento, @Nullable BigDecimal meta_venda) {
+}

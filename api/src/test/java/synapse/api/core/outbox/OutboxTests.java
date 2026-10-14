@@ -154,6 +154,29 @@ class OutboxTests {
 		admin.purgeQueue(FILA, false);
 	}
 
+	@Test
+	void publicaCorrecaoNaFilaSomentePeloPoller() throws Exception {
+		String fila = RabbitTopologyConfig.CORRECAO_SUBMETIDA;
+		admin.purgeQueue(fila, false);
+		UUID job = Objects.requireNonNull(transacao.execute(status -> {
+			UUID id = inserirJob();
+			outbox.registrar(id, EventoOutbox.CORRECAO_SUBMETIDA, Map.of("job_id", id, "regra_origem_id",
+					UUID.randomUUID(), "submissao_id", UUID.randomUUID(), "competencias", List.of("2025-11")));
+			return id;
+		}));
+		assertThat(rabbit.receive(fila)).isNull();
+		publicador.publicarPendentes();
+		Message mensagem = Objects.requireNonNull(rabbit.receive(fila, 5000));
+		synapse.api.job.ContratoDeEvento.validar("correcao-submetida",
+				new String(mensagem.getBody(), java.nio.charset.StandardCharsets.UTF_8));
+		assertThat(mensagem.getMessageProperties().getType()).isEqualTo(fila);
+		assertThat(mensagem.getMessageProperties().getCorrelationId()).isEqualTo(job.toString());
+		assertThat(mensagem.getMessageProperties().getReceivedDeliveryMode()).isEqualTo(MessageDeliveryMode.PERSISTENT);
+		assertThat(evento(job).get("publicado_em")).isNotNull();
+		publicador.publicarPendentes();
+		assertThat(rabbit.receive(fila)).isNull();
+	}
+
 	// --- Mesma transação --------------------------------------------------------------
 
 	@Test
