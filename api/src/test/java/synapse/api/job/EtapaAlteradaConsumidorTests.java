@@ -31,7 +31,6 @@ import tools.jackson.databind.node.ObjectNode;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.springframework.dao.DataAccessException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -489,15 +488,15 @@ class EtapaAlteradaConsumidorTests {
 		assertThat(rodadas(job).getLast().get("rodada_anterior_id")).isEqualTo(b);
 	}
 
-	@ParameterizedTest
-	@ValueSource(booleans = { true, false })
-	void falhaReextracaoReabreUmaVezComOuSemRegraLegada(boolean comRegra) throws Exception {
+	@Test
+	void falhaReextracaoIdentificadaReabreUmaVez() throws Exception {
 		UUID job = criarJob(JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS);
 		UUID regra = regra(job, 1);
 		UUID anterior = historico(job, regra, "em_reextracao", null, "2026-01-01T00:00:00Z");
+		UUID submissao = iniciarTentativa(anterior);
 		StreamCliente cliente = conectar(job);
 		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
-		ObjectNode evento = falha(job, comRegra ? regra : null);
+		ObjectNode evento = falha(job, regra).put("submissao_id", submissao.toString());
 		try (CapturaDeLog captura = new CapturaDeLog(EtapaAlteradaConsumidor.class)) {
 			publicarEEsperar(evento, "reextracao_falhou");
 			String etapa = cliente.aguardarBloco("event:etapa", Duration.ofSeconds(10));
@@ -514,15 +513,105 @@ class EtapaAlteradaConsumidorTests {
 			assertThat(nova.get("conflitos")).isEqualTo(antiga.get("conflitos"));
 			assertThat(nova.get("criada_em")).isEqualTo(nova.get("atualizada_em"))
 				.isEqualTo(antiga.get("atualizada_em"));
-			publicarEEsperar(evento, "descartada");
-			verificarLogs(captura, job, "reextracao_falhou", "descartada");
+			publicarEEsperar(evento, "duplicada");
+			verificarLogs(captura, job, "reextracao_falhou", "duplicada");
 		}
 		assertThat(rodadas(job)).hasSize(2);
 		assertThat(contarTransicoes(job)).isZero();
 		assertThat(statusPersistido(job)).isEqualTo("aguardando_confirmacao_parametros");
 		assertThat(cliente.contarOcorrencias("event:estado")).isEqualTo(1);
 		assertThat(cliente.contarOcorrencias("event:etapa")).isEqualTo(1);
-		verificarScrape("reextracao_falhou");
+		verificarScrape("reextracao_falhou", "duplicada");
+	}
+
+	@Test
+	void reentregaDaTentativaANaoEncerraTentativaBDaMesmaRegra() throws Exception {
+		UUID job = criarJob(JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS);
+		UUID regra = regra(job, 1);
+		UUID rodadaA = historico(job, regra, "em_reextracao", null, "2026-01-01T00:00:00Z");
+		UUID submissaoA = iniciarTentativa(rodadaA);
+		ObjectNode eventoA = falha(job, regra).put("submissao_id", submissaoA.toString());
+		StreamCliente cliente = conectar(job);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
+		publicarEEsperar(eventoA, "reextracao_falhou");
+		cliente.aguardarBloco("event:etapa", Duration.ofSeconds(10));
+		UUID rodadaB = (UUID) rodadas(job).getLast().get("id");
+		UUID submissaoB = iniciarTentativa(Objects.requireNonNull(rodadaB));
+		var antes = rodadas(job);
+		double falhas = contagem("reextracao_falhou");
+		double descartadas = contagem("descartada");
+		publicarEEsperar(eventoA, "duplicada");
+		assertThat(rodadas(job)).isEqualTo(antes).hasSize(2);
+		assertThat(rodadas(job).getLast()).containsEntry("estado", "em_reextracao")
+			.containsEntry("submissao_correcao_id", submissaoB);
+		assertThat(contagem("reextracao_falhou")).isEqualTo(falhas);
+		assertThat(contagem("descartada")).isEqualTo(descartadas);
+		assertThat(statusPersistido(job)).isEqualTo("aguardando_confirmacao_parametros");
+		assertThat(contarTransicoes(job)).isZero();
+		assertThat(cliente.contarOcorrencias("event:etapa")).isEqualTo(1);
+		assertThat(cliente.contarOcorrencias("event:estado")).isEqualTo(1);
+		verificarScrape("reextracao_falhou", "duplicada");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "identificada", "legada", "sem_regra" })
+	void erroDaVersaoSuperadaNaoEncerraVersaoNova(String formato) throws Exception {
+		UUID job = criarJob(JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS);
+		UUID antiga = regra(job, 1);
+		UUID rodada = historico(job, antiga, "em_reextracao", null, "2026-01-01T00:00:00Z");
+		UUID submissao = iniciarTentativa(rodada);
+		UUID nova = regra(job, 2);
+		dono.update("UPDATE rodadas_correcao SET estado = 'corrigida', regra_resultante_id = ? WHERE id = ?", nova,
+				rodada);
+		dono.update("UPDATE jobs SET status = 'gerando_regra' WHERE id = ?", job);
+		StreamCliente cliente = conectar(job);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
+		ObjectNode evento = falha(job, "sem_regra".equals(formato) ? null : antiga);
+		if ("identificada".equals(formato)) {
+			evento.put("submissao_id", submissao.toString());
+		}
+		var antes = rodadas(job);
+		publicarEEsperar(evento, "descartada");
+		assertThat(statusPersistido(job)).isEqualTo("gerando_regra");
+		assertThat(contarTransicoes(job)).isZero();
+		assertThat(rodadas(job)).isEqualTo(antes);
+		assertThat(cliente.contarOcorrencias("event:etapa")).isZero();
+		assertThat(cliente.contarOcorrencias("event:estado")).isEqualTo(1);
+		verificarScrape("descartada");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "sem_submissao", "sem_identificadores", "desconhecida", "outra_regra", "outro_job",
+			"sem_regra", "ambigua", "pendente", "abandonada" })
+	void falhaSemTentativaCorrespondenteNaoAlteraRodadas(String caso) throws Exception {
+		UUID job = criarJob(JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS);
+		UUID regra = regra(job, 1);
+		UUID rodada = historico(job, regra, "em_reextracao", null, "2026-01-01T00:00:00Z");
+		UUID submissao = iniciarTentativa(rodada);
+		ObjectNode evento = falha(job, regra).put("submissao_id", submissao.toString());
+		switch (caso) {
+			case "sem_submissao" -> evento.remove("submissao_id");
+			case "sem_identificadores" -> {
+				evento.remove("submissao_id");
+				evento.remove("regra_id");
+			}
+			case "desconhecida" -> evento.put("submissao_id", UUID.randomUUID().toString());
+			case "outra_regra" -> evento.put("regra_id", UUID.randomUUID().toString());
+			case "outro_job" -> evento.put("job_id", criarJob(JobStatus.GERANDO_REGRA).toString());
+			case "sem_regra" -> evento.remove("regra_id");
+			case "ambigua" -> {
+				UUID fechada = historico(job, regra, "reextracao_falhou", null, "2025-12-01T00:00:00Z");
+				dono.update("UPDATE rodadas_correcao SET submissao_correcao_id = ? WHERE id = ?", submissao, fechada);
+			}
+			case "pendente", "abandonada" ->
+				dono.update("UPDATE rodadas_correcao SET estado = ? WHERE id = ?", caso, rodada);
+			default -> throw new AssertionError(caso);
+		}
+		var antes = rodadas(job);
+		publicarEEsperar(evento, "descartada");
+		assertThat(rodadas(job)).isEqualTo(antes);
+		assertThat(contarTransicoes(job)).isZero();
+		assertThat(statusPersistido(job)).isEqualTo("aguardando_confirmacao_parametros");
 	}
 
 	@Test
@@ -536,16 +625,18 @@ class EtapaAlteradaConsumidorTests {
 		assertThat(contarTransicoes(job)).isZero();
 	}
 
-	@Test
-	void falhaDaExtracaoInicialContinuaTerminalSemRodadas() throws Exception {
+	@ParameterizedTest
+	@ValueSource(booleans = { false, true })
+	void falhaDaExtracaoInicialContinuaTerminalSemRodadas(boolean provedorIndisponivel) throws Exception {
 		UUID job = criarJob(JobStatus.GERANDO_REGRA);
 		StreamCliente cliente = conectar(job);
 		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
-		publicar(job, "extracao_parametros", "erro");
+		publicar(job, "extracao_parametros", "erro", provedorIndisponivel ? "provedor_indisponivel" : null);
 		cliente.aguardarFimDoStream(Duration.ofSeconds(10));
 		assertThat(statusPersistido(job)).isEqualTo("erro");
 		assertThat(rodadas(job)).isEmpty();
-		assertThat(motivoDaUltimaTransicao(job)).isEqualTo("erro_extracao_parametros");
+		assertThat(motivoDaUltimaTransicao(job))
+			.isEqualTo(provedorIndisponivel ? "erro_provedor_indisponivel" : "erro_extracao_parametros");
 		assertThat(cliente.conteudo()).contains("event:etapa", "\"status\":\"erro\"");
 	}
 
@@ -567,9 +658,8 @@ class EtapaAlteradaConsumidorTests {
 	void falhaNoInsertDesfazTodaOperacaoSemSseOuContadorDeSucesso(boolean reextracao) throws Exception {
 		UUID job = criarJob(reextracao ? JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS : JobStatus.GERANDO_REGRA);
 		UUID regra = regra(job, 1);
-		if (reextracao) {
-			historico(job, regra, "em_reextracao", null, "2026-01-01T00:00:00Z");
-		}
+		UUID submissao = reextracao
+				? iniciarTentativa(historico(job, regra, "em_reextracao", null, "2026-01-01T00:00:00Z")) : null;
 		String status = statusPersistido(job);
 		StreamCliente cliente = conectar(job);
 		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
@@ -579,10 +669,16 @@ class EtapaAlteradaConsumidorTests {
 				"CREATE TRIGGER t215_recusar BEFORE INSERT ON rodadas_correcao FOR EACH ROW EXECUTE FUNCTION t215_recusar_insert()");
 		double sucesso = contagem(reextracao ? "reextracao_falhou" : "rodada_aberta");
 		ObjectNode evento = reextracao ? falha(job, regra) : pausa(job, regra);
+		if (submissao != null) {
+			evento.put("submissao_id", submissao.toString());
+		}
 		MDC.put("job_id", "contexto-anterior");
 		try (CapturaDeLog captura = new CapturaDeLog(EtapaAlteradaConsumidor.class)) {
 			assertThatThrownBy(() -> contexto.getBean(EtapaAlteradaConsumidor.class)
-				.receber(JSON.treeToValue(evento, EtapaAlteradaDto.class))).isInstanceOf(DataAccessException.class);
+				.receber(JSON.treeToValue(evento, EtapaAlteradaDto.class))).isInstanceOf(RuntimeException.class)
+				.hasMessage("falha de persistência ao consumir etapa-alterada")
+				.hasNoCause()
+				.satisfies(ex -> assertThat(ex.getSuppressed()).isEmpty());
 			assertThat(MDC.get("job_id")).isEqualTo("contexto-anterior");
 			assertThat(captura.eventos()).hasSize(1);
 			String linha = CapturaDeLog.emJson(captura.eventos().getFirst());
@@ -670,25 +766,68 @@ class EtapaAlteradaConsumidorTests {
 	void falhaTransitoriaNaFilaSofreRollbackEReentregaAteCommit() throws Exception {
 		UUID job = criarJob(JobStatus.GERANDO_REGRA);
 		UUID regra = regra(job, 1);
+		StreamCliente cliente = conectar(job);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
 		dono.execute("CREATE SEQUENCE t215_tentativa");
 		dono.execute("GRANT USAGE ON SEQUENCE t215_tentativa TO " + USUARIO_API);
+		dono.execute("CREATE TABLE t215_bloqueio (ativo boolean NOT NULL)");
+		dono.execute("INSERT INTO t215_bloqueio VALUES (true)");
+		dono.execute("GRANT SELECT ON t215_bloqueio TO " + USUARIO_API);
 		dono.execute("""
 				CREATE FUNCTION t215_falhar_uma_vez() RETURNS trigger LANGUAGE plpgsql AS $$
-				BEGIN IF nextval('t215_tentativa') = 1 THEN RAISE EXCEPTION 'falha de teste'; END IF;
+				BEGIN PERFORM nextval('t215_tentativa');
+				IF (SELECT ativo FROM t215_bloqueio) THEN
+				  PERFORM pg_sleep(0.05);
+				  RAISE EXCEPTION 'linha rejeitada: %', NEW.conflitos->0->>'motivo' USING ERRCODE = '40001';
+				END IF;
 				RETURN NEW; END $$
 				""");
 		dono.execute(
 				"CREATE TRIGGER t215_falhar_uma_vez BEFORE INSERT ON rodadas_correcao FOR EACH ROW EXECUTE FUNCTION t215_falhar_uma_vez()");
-		try {
-			publicarEEsperar(pausa(job, regra), "rodada_aberta");
-			assertThat(dono.queryForObject("SELECT last_value FROM t215_tentativa", Long.class)).isEqualTo(2L);
+		double abertas = contagem("rodada_aberta");
+		try (CapturaDeLog consumidor = new CapturaDeLog(EtapaAlteradaConsumidor.class);
+				CapturaDeLog framework = new CapturaDeLog("org.springframework.amqp")) {
+			Message mensagem = MessageBuilder.withBody(pausa(job, regra).toString().getBytes(StandardCharsets.UTF_8))
+				.setContentType(MessageProperties.CONTENT_TYPE_JSON)
+				.build();
+			rabbitTemplate.send("", RabbitTopologyConfig.ETAPA_ALTERADA, mensagem);
+			await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+				assertThat(dono.queryForObject("SELECT last_value FROM t215_tentativa", Long.class)).isGreaterThan(1L);
+				assertThat(framework.eventos()).anySatisfy(
+						evento -> assertThat(evento.getLoggerName()).contains("ConditionalRejectingErrorHandler"));
+			});
+			assertThat(statusPersistido(job)).isEqualTo("gerando_regra");
+			assertThat(contarTransicoes(job)).isZero();
+			assertThat(rodadas(job)).isEmpty();
+			assertThat(contagem("rodada_aberta")).isEqualTo(abertas);
+			assertThat(cliente.contarOcorrencias("event:etapa")).isZero();
+			dono.update("UPDATE t215_bloqueio SET ativo = false");
+			await().atMost(Duration.ofSeconds(10))
+				.untilAsserted(() -> assertThat(contagem("rodada_aberta")).isEqualTo(abertas + 1));
+			cliente.aguardarBloco("event:etapa", Duration.ofSeconds(10));
 			assertThat(rodadas(job)).hasSize(1);
 			assertThat(contarTransicoes(job)).isEqualTo(1);
+			assertThat(statusPersistido(job)).isEqualTo("aguardando_confirmacao_parametros");
+			assertThat(cliente.contarOcorrencias("event:etapa")).isEqualTo(1);
+			for (var captura : List.of(consumidor, framework)) {
+				assertThat(captura.eventos()).isNotEmpty();
+				for (var evento : captura.eventos()) {
+					String linha = CapturaDeLog.emJson(evento);
+					ContratoDeEvento.validarLog(linha);
+					assertThat(linha).doesNotContain("conflito reservado T215", "linha rejeitada", "NEW.conflitos",
+							"INSERT INTO rodadas_correcao");
+				}
+			}
+			assertThat(registry.get("etapa.alterada.consumo.duracao").tag("resultado", "falha").timer().count())
+				.isPositive();
+			verificarScrape("rodada_aberta");
 		}
 		finally {
+			dono.update("UPDATE t215_bloqueio SET ativo = false");
 			dono.execute("DROP TRIGGER t215_falhar_uma_vez ON rodadas_correcao");
 			dono.execute("DROP FUNCTION t215_falhar_uma_vez()");
 			dono.execute("DROP SEQUENCE t215_tentativa");
+			dono.execute("DROP TABLE t215_bloqueio");
 		}
 	}
 
@@ -829,6 +968,16 @@ class EtapaAlteradaConsumidorTests {
 						'[]'::jsonb, ?, now()) RETURNING id
 						""",
 				UUID.class, job, versao, String.valueOf(versao).repeat(64)));
+	}
+
+	private static UUID iniciarTentativa(UUID rodada) {
+		UUID submissao = Objects.requireNonNull(dono.queryForObject("""
+				INSERT INTO submissoes (usuario_id, tipo, transcricao, criado_em)
+				VALUES (?::uuid, 'texto', 'correcao reservada T215', now()) RETURNING id
+				""", UUID.class, USUARIO_ID));
+		dono.update("UPDATE rodadas_correcao SET estado = 'em_reextracao', submissao_correcao_id = ? WHERE id = ?",
+				submissao, rodada);
+		return submissao;
 	}
 
 	private static UUID historico(UUID job, UUID regra, String estado, @Nullable UUID anterior, String criada) {

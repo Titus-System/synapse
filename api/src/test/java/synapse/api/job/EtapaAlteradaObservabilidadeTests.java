@@ -47,7 +47,7 @@ class EtapaAlteradaObservabilidadeTests {
 	@EnumSource(value = DesfechoCorrecao.class, mode = EnumSource.Mode.EXCLUDE, names = "COMUM")
 	void resultadoRestauraContextoEContabilizaSemConteudo(DesfechoCorrecao desfecho) throws Exception {
 		given(this.servico.aplicarEtapaAlterada(this.job, EtapaDoGrafo.CONFIRMACAO, "aguardando_correcao",
-				"texto reservado", this.regra, null))
+				"texto reservado", this.regra, null, null))
 			.willReturn(new EtapaAplicada(desfecho, null, this.regra, UUID.randomUUID(), 2, null));
 		MDC.put("job_id", "anterior");
 		MDC.put("user_id", "usuario-anterior");
@@ -75,16 +75,24 @@ class EtapaAlteradaObservabilidadeTests {
 			.count()).isEqualTo(1);
 	}
 
-	@Test
-	void falhaTransitoriaPropagaSemContarSucessoERestauraMdc() throws Exception {
+	@ParameterizedTest
+	@org.junit.jupiter.params.provider.ValueSource(booleans = { false, true })
+	void falhaDePersistenciaPropagaSanitizadaSemContarSucessoERestauraMdc(boolean noCommit) throws Exception {
+		RuntimeException original = noCommit
+				? new org.springframework.transaction.TransactionSystemException("payload reservado credencial")
+				: new DataAccessResourceFailureException("payload reservado credencial");
+		original.addSuppressed(new IllegalStateException("conteudo suprimido reservado"));
 		given(this.servico.aplicarEtapaAlterada(this.job, EtapaDoGrafo.CONFIRMACAO, "aguardando_correcao", null,
-				this.regra, null))
-			.willThrow(new DataAccessResourceFailureException("payload reservado credencial"));
+				this.regra, null, null))
+			.willThrow(original);
 		MDC.put("job_id", "anterior");
 		try (CapturaDeLog captura = new CapturaDeLog(EtapaAlteradaConsumidor.class)) {
 			assertThatThrownBy(() -> this.consumidor
 				.receber(new EtapaAlteradaDto(this.job, "confirmacao", "aguardando_correcao", null, this.regra, null)))
-				.isInstanceOf(DataAccessResourceFailureException.class);
+				.isInstanceOf(FalhaPersistenciaEtapaException.class)
+				.hasMessage("falha de persistência ao consumir etapa-alterada")
+				.hasNoCause()
+				.satisfies(ex -> assertThat(ex.getSuppressed()).isEmpty());
 			assertThat(MDC.get("job_id")).isEqualTo("anterior");
 			assertThat(captura.eventos()).hasSize(1);
 			String linha = CapturaDeLog.emJson(captura.eventos().getFirst());
@@ -100,7 +108,8 @@ class EtapaAlteradaObservabilidadeTests {
 
 	@Test
 	void eventoComumNaoContaComoCorrecao() {
-		given(this.servico.aplicarEtapaAlterada(this.job, EtapaDoGrafo.EXTRACAO_PARAMETROS, "erro", null, null, null))
+		given(this.servico.aplicarEtapaAlterada(this.job, EtapaDoGrafo.EXTRACAO_PARAMETROS, "erro", null, null, null,
+				null))
 			.willReturn(EtapaAplicada.comum(null));
 		this.consumidor.receber(new EtapaAlteradaDto(this.job, "extracao_parametros", "erro", null, null, null));
 		assertThat(this.registry.find("etapa.alterada.correcao").counters()).isEmpty();

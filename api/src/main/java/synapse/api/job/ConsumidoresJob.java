@@ -71,15 +71,17 @@ class EtapaAlteradaConsumidor {
 			EtapaAplicada aplicada;
 			try {
 				aplicada = this.servico.aplicarEtapaAlterada(jobId, etapa, status, evento.causa(), evento.regra_id(),
-						evento.conflitos());
+						evento.conflitos(), evento.submissao_id());
 			}
-			catch (org.springframework.dao.DataAccessException ex) {
+			catch (org.springframework.dao.DataAccessException
+					| org.springframework.transaction.TransactionException ex) {
 				log.atWarn()
 					.addKeyValue("resultado", "falha")
 					.addKeyValue("regra_id", evento.regra_id())
+					.addKeyValue("submissao_id", evento.submissao_id())
 					.addKeyValue("classe_falha", "banco")
 					.log("falha no consumo de etapa-alterada; mensagem será reentregue");
-				throw ex;
+				throw new FalhaPersistenciaEtapaException();
 			}
 			resultado = aplicada.desfecho().resultado();
 			if (aplicada.desfecho() != DesfechoCorrecao.COMUM) {

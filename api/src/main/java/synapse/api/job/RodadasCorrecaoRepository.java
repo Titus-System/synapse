@@ -36,15 +36,14 @@ class RodadasCorrecaoRepository {
 				(rs, numero) -> Objects.requireNonNull(rs.getObject("id", UUID.class)), jobId);
 	}
 
-	List<RodadaEmReextracao> buscarEmReextracao(UUID jobId) {
+	List<TentativaDeCorrecao> buscarPorSubmissao(UUID jobId, UUID submissaoId) {
 		return this.jdbc.query("""
-				SELECT id, regra_analisada_id, conflitos::text FROM rodadas_correcao
-				WHERE job_id = ? AND estado = 'em_reextracao'
-				""",
-				(rs, numero) -> new RodadaEmReextracao(Objects.requireNonNull(rs.getObject("id", UUID.class)),
-						Objects.requireNonNull(rs.getObject("regra_analisada_id", UUID.class)),
-						this.mapper.readTree(rs.getString("conflitos"))),
-				jobId);
+				SELECT id, regra_analisada_id, conflitos::text, estado FROM rodadas_correcao
+				WHERE job_id = ? AND submissao_correcao_id = ?
+				""", (rs, numero) -> new TentativaDeCorrecao(Objects.requireNonNull(rs.getObject("id", UUID.class)),
+				Objects.requireNonNull(rs.getObject("regra_analisada_id", UUID.class)),
+				this.mapper.readTree(rs.getString("conflitos")), Objects.requireNonNull(rs.getString("estado"))), jobId,
+				submissaoId);
 	}
 
 	boolean regraPertenceAVersaoAtual(UUID jobId, UUID regraId) {
@@ -68,7 +67,7 @@ class RodadasCorrecaoRepository {
 				agora, rodadaId);
 	}
 
-	record RodadaEmReextracao(UUID id, UUID regraId, JsonNode conflitos) {
+	record TentativaDeCorrecao(UUID id, UUID regraId, JsonNode conflitos, String estado) {
 	}
 
 }

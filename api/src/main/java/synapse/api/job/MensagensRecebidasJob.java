@@ -15,7 +15,13 @@ import tools.jackson.databind.JsonNode;
  * desserialização.
  */
 record EtapaAlteradaDto(@Nullable UUID job_id, @Nullable String etapa, @Nullable String status, @Nullable String causa,
-		@Nullable UUID regra_id, @Nullable JsonNode conflitos) {
+		@Nullable UUID regra_id, @Nullable JsonNode conflitos, @Nullable UUID submissao_id) {
+
+	EtapaAlteradaDto(@Nullable UUID job_id, @Nullable String etapa, @Nullable String status, @Nullable String causa,
+			@Nullable UUID regra_id, @Nullable JsonNode conflitos) {
+		this(job_id, etapa, status, causa, regra_id, conflitos, null);
+	}
+
 }
 
 /**

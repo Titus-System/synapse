@@ -72,6 +72,12 @@ class JobEventosService {
 	@Transactional
 	EtapaAplicada aplicarEtapaAlterada(UUID jobId, EtapaDoGrafo etapa, String status, @Nullable String causa,
 			@Nullable UUID regraId, @Nullable JsonNode conflitos) {
+		return aplicarEtapaAlterada(jobId, etapa, status, causa, regraId, conflitos, null);
+	}
+
+	@Transactional
+	EtapaAplicada aplicarEtapaAlterada(UUID jobId, EtapaDoGrafo etapa, String status, @Nullable String causa,
+			@Nullable UUID regraId, @Nullable JsonNode conflitos, @Nullable UUID submissaoId) {
 		List<ContextoDoJob> contextos = this.repository.buscarContextoComTrava(jobId);
 		if (contextos.isEmpty()) {
 			return resultadoCorrecao(DesfechoCorrecao.JOB_INEXISTENTE, regraId, null, conflitos);
@@ -83,9 +89,13 @@ class JobEventosService {
 			}
 			return pausarPorConflitos(jobId, atual, regraId, conflitos);
 		}
-		if (etapa == EtapaDoGrafo.EXTRACAO_PARAMETROS && STATUS_ERRO.equals(status)
-				&& atual == JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS) {
-			return falharReextracao(jobId, regraId);
+		if (etapa == EtapaDoGrafo.EXTRACAO_PARAMETROS && STATUS_ERRO.equals(status)) {
+			// Sem referências, só a ausência de histórico permite reconhecer a extração
+			// inicial.
+			if (regraId != null || submissaoId != null || atual == JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS
+					|| !this.rodadas.buscarUltima(jobId).isEmpty()) {
+				return falharReextracao(jobId, atual, regraId, submissaoId);
+			}
 		}
 		if (etapa == EtapaDoGrafo.SUGESTAO_ADAPTACAO && STATUS_SEM_ALTERNATIVA.equals(status)) {
 			EventoEstadoDto encerrada = encerrarIteracao(jobId, atual, JobStatus.SIMULACAO_INVIAVEL,
@@ -143,14 +153,39 @@ class JobEventosService {
 				conflitos.size(), null);
 	}
 
-	private EtapaAplicada falharReextracao(UUID jobId, @Nullable UUID regraId) {
-		var encontradas = this.rodadas.buscarEmReextracao(jobId);
+	private EtapaAplicada falharReextracao(UUID jobId, JobStatus atual, @Nullable UUID regraId,
+			@Nullable UUID submissaoId) {
+		if (submissaoId == null) {
+			return resultadoCorrecao(
+					regraId != null && !this.rodadas.regraPertenceAVersaoAtual(jobId, regraId)
+							? DesfechoCorrecao.REGRA_NAO_ATUAL : DesfechoCorrecao.TENTATIVA_AUSENTE,
+					regraId, null, null);
+		}
+		if (regraId == null) {
+			return resultadoCorrecao(DesfechoCorrecao.REGRA_AUSENTE, null, null, null);
+		}
+		var encontradas = this.rodadas.buscarPorSubmissao(jobId, submissaoId);
 		if (encontradas.isEmpty()) {
-			return resultadoCorrecao(DesfechoCorrecao.SEM_REEXTRACAO, regraId, null, null);
+			return resultadoCorrecao(DesfechoCorrecao.TENTATIVA_DESCONHECIDA, regraId, null, null);
+		}
+		if (encontradas.size() != 1) {
+			return resultadoCorrecao(DesfechoCorrecao.TENTATIVA_AMBIGUA, regraId, null, null);
 		}
 		var rodada = encontradas.getFirst();
-		if (regraId != null && !regraId.equals(rodada.regraId())) {
+		if (!regraId.equals(rodada.regraId())) {
 			return resultadoCorrecao(DesfechoCorrecao.REGRA_DIVERGENTE, regraId, rodada.id(), null);
+		}
+		if ("reextracao_falhou".equals(rodada.estado())) {
+			return resultadoCorrecao(DesfechoCorrecao.DUPLICADA, regraId, rodada.id(), rodada.conflitos());
+		}
+		if (!this.rodadas.regraPertenceAVersaoAtual(jobId, regraId)) {
+			return resultadoCorrecao(DesfechoCorrecao.REGRA_NAO_ATUAL, regraId, rodada.id(), null);
+		}
+		if (atual != JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS) {
+			return resultadoCorrecao(DesfechoCorrecao.ESTADO_INCOMPATIVEL, regraId, rodada.id(), null);
+		}
+		if (!"em_reextracao".equals(rodada.estado())) {
+			return resultadoCorrecao(DesfechoCorrecao.SEM_REEXTRACAO, regraId, rodada.id(), null);
 		}
 		Timestamp agora = Timestamp.from(Instant.now().truncatedTo(ChronoUnit.MICROS));
 		this.rodadas.fecharReextracao(rodada.id(), agora);

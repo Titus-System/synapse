@@ -31,7 +31,10 @@ enum DesfechoCorrecao {
 	EVENTO_INVALIDO("descartada", "evento_invalido"), JOB_INEXISTENTE("descartada", "job_inexistente"),
 	ESTADO_INCOMPATIVEL("descartada", "estado_incompativel"), REGRA_AUSENTE("descartada", "regra_ausente"),
 	REGRA_NAO_ATUAL("descartada", "regra_nao_atual"), CONFLITOS_INVALIDOS("descartada", "conflitos_invalidos"),
-	SEM_REEXTRACAO("descartada", "sem_reextracao"), REGRA_DIVERGENTE("descartada", "regra_divergente");
+	SEM_REEXTRACAO("descartada", "sem_reextracao"), REGRA_DIVERGENTE("descartada", "regra_divergente"),
+	TENTATIVA_AUSENTE("descartada", "tentativa_ausente"),
+	TENTATIVA_DESCONHECIDA("descartada", "tentativa_desconhecida"),
+	TENTATIVA_AMBIGUA("descartada", "tentativa_ambigua");
 
 	private final String resultado;
 

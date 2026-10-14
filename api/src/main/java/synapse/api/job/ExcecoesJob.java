@@ -7,6 +7,15 @@ import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
 
+class FalhaPersistenciaEtapaException extends RuntimeException {
+
+	FalhaPersistenciaEtapaException() {
+		// O container registra a cadeia inteira; não retenha a exceção com artefatos.
+		super("falha de persistência ao consumir etapa-alterada", null, false, true);
+	}
+
+}
+
 class CriarJobException extends RuntimeException {
 
 	private final HttpStatus status;

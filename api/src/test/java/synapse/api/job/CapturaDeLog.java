@@ -54,6 +54,7 @@ public final class CapturaDeLog implements AutoCloseable {
 
 	public CapturaDeLog(String nome) {
 		this.logger = (Logger) LoggerFactory.getLogger(nome);
+		this.appender.list = new java.util.concurrent.CopyOnWriteArrayList<>();
 		this.appender.setContext(this.logger.getLoggerContext());
 		this.appender.start();
 		this.logger.addAppender(this.appender);
