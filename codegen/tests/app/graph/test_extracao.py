@@ -21,9 +21,16 @@ from tests.app.extracao_falsa import BancoExtracaoFalso
 from tests.app.graph.conftest import FakeChatModel
 from tests.app.test_mensageria import CONTRATOS
 
-TEXTO = "Pague 2,5% na loja 13. REGRA_PRIVADA"
+TEXTO = (
+    "Pague 2,5% na loja 13. orçamento de R$ 500 mil; "
+    "meta de 12 milhões entre setembro e novembro de 2025. REGRA_PRIVADA"
+)
 NUCLEO = {"percentual": Decimal("0.025"), "loja": ["13"]}
-SAIDA = {"nucleo": NUCLEO, "elementos": [], "parametros": {}}
+NUCLEO_RASCUNHO = {
+    "percentual": {"valor": Decimal("0.025"), "trecho": "2,5%"},
+    "loja": [{"valor": "13", "trecho": "loja 13"}],
+}
+SAIDA = {"nucleo": NUCLEO_RASCUNHO, "elementos": [], "parametros": {}}
 
 
 @pytest.fixture
@@ -79,12 +86,24 @@ class AmbienteExtracao(ConfirmacaoFalsa):
 
 
 @pytest.mark.parametrize("origem", ["voz", "texto"])
+@pytest.mark.parametrize("trecho_percentual", ["2,5%", "2,5 por cento"])
 async def test_extracao_persiste_publica_ids_e_termina_ciclo(
     monkeypatch: pytest.MonkeyPatch,
     origem: str,
+    trecho_percentual: str,
 ) -> None:
-    ambiente = AmbienteExtracao(monkeypatch)
+    saida = {
+        **SAIDA,
+        "nucleo": {
+            **NUCLEO_RASCUNHO,
+            "percentual": {"valor": Decimal("0.025"), "trecho": trecho_percentual},
+        },
+    }
+    ambiente = AmbienteExtracao(monkeypatch, [saida])
     payload = ambiente.entrada(origem)
+    ambiente.banco.transcricoes[UUID(payload["submissao_id"])] = TEXTO.replace(
+        "2,5%", trecho_percentual
+    )
     recebida = mensagem(payload)
 
     await ambiente.consumer.receber(recebida)
@@ -128,7 +147,7 @@ async def test_parametros_ditos_no_texto_sao_gravados_na_extracao(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     saida = {
-        "nucleo": NUCLEO,
+        "nucleo": NUCLEO_RASCUNHO,
         "elementos": [],
         "parametros": {
             "orcamento": {"valor": Decimal("500000"), "trecho": "orçamento de R$ 500 mil"},
@@ -296,6 +315,7 @@ def amostra(texto: str, nome: str, rotulos: dict[str, str]) -> float:
     )
 
 
+@pytest.mark.parametrize("trecho_percentual", ["2,5%", "2,5 por cento"])
 @pytest.mark.parametrize(
     "falha",
     [
@@ -313,24 +333,30 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
     cliente: AsyncClient,
     logs: list[dict[str, Any]],
     falha: str | None,
+    trecho_percentual: str,
 ) -> None:
+    texto = TEXTO.replace("2,5%", trecho_percentual)
     elemento = {
         "construto_pretendido": "FORMA_PRIVADA",
         "descricao": "PARAFRASE_PRIVADA",
-        "trecho": TEXTO,
+        "trecho": texto,
     }
-    parametros = {"orcamento": {"valor": Decimal("500000"), "trecho": TEXTO}}
+    parametros = {"orcamento": {"valor": Decimal("500000"), "trecho": texto}}
     ambiente = AmbienteExtracao(
         monkeypatch,
         [
             {
-                "nucleo": NUCLEO,
-                "elementos": [elemento, {"trecho": TEXTO}],
+                "nucleo": {
+                    **NUCLEO_RASCUNHO,
+                    "percentual": {"valor": Decimal("0.025"), "trecho": trecho_percentual},
+                },
+                "elementos": [elemento, {"trecho": texto}],
                 "parametros": parametros,
             }
         ],
     )
     payload = ambiente.entrada()
+    ambiente.banco.transcricoes[UUID(payload["submissao_id"])] = texto
     aguardando = asyncio.Event()
     if falha == "transcricao_indisponivel":
         ambiente.banco.transcricoes[UUID(payload["submissao_id"])] = ""
@@ -373,6 +399,7 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
         antes, "job_duration_seconds_sum", rotulos
     )
     for nome, label, valor in (
+        ("codegen_extracao_elementos_total", "construto", "nucleo"),
         ("codegen_extracao_elementos_total", "construto", "generico"),
         ("codegen_extracao_rebaixamentos_total", "motivo", "construto_nao_habilitado"),
         ("codegen_extracao_rebaixamentos_total", "motivo", "campo_obrigatorio_ausente"),
@@ -401,6 +428,8 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
             == 1
         )
     else:
+        [extracao] = ambiente.banco.tabela("extracoes_regras")
+        assert simplejson.loads(extracao["representacao"], use_decimal=True)["nucleo"] == NUCLEO
         anteriores = depois
         await ambiente.consumer.receber(mensagem(payload))
         posteriores = (await cliente.get("/metrics")).text
@@ -421,7 +450,7 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
     if not falha:
         assert do_no[-1]["extra"]["parametros_extraidos"] == ["orcamento"]
     for privado in (
-        TEXTO,
+        texto,
         "PARAFRASE_PRIVADA",
         "FORMA_PRIVADA",
         "RESPOSTA_PRIVADA",
@@ -572,28 +601,22 @@ async def test_duracao_longa_ocupa_buckets_finitos_em_sucesso_e_falha(
 
 
 @pytest.mark.parametrize(
-    "nucleo",
+    ("rascunho", "esperado"),
     [
-        {},
-        {"percentual": Decimal("0.025")},
-        {"vigencia": {"inicio": "2025-11", "fim": "2025-11"}},
-        {"vigencia": {"inicio": "2025-08", "fim": "2025-12"}},
-        {"vigencia": {"inicio": "2025-12", "fim": "2025-08"}, "percentual": Decimal("-0.1")},
-        {
-            "vigencia": {"inicio": "2025-11", "fim": "2025-11"},
-            "loja": ["13"],
-            "marca": ["10"],
-            "cargo": ["100"],
-            "percentual": Decimal("0.025000000000000000001"),
-        },
+        ({}, {}),
+        (
+            {"percentual": {"valor": Decimal("0.025"), "trecho": "2,5%"}},
+            {"percentual": Decimal("0.025")},
+        ),
+        ({"loja": [{"valor": "13", "trecho": "loja 13"}]}, {"loja": ["13"]}),
+        ({"percentual": {"valor": Decimal("0.04"), "trecho": "2,5%"}}, {}),
     ],
 )
-async def test_casos_de_nucleo_da_t203_chegam_ao_artefato_sem_alteracao(
-    monkeypatch: pytest.MonkeyPatch,
-    nucleo: dict[str, Any],
+async def test_nucleo_do_modelo_so_chega_ao_artefato_com_lastro(
+    monkeypatch: pytest.MonkeyPatch, rascunho: dict[str, Any], esperado: dict[str, Any]
 ) -> None:
     ambiente = AmbienteExtracao(
-        monkeypatch, [{"nucleo": nucleo, "elementos": [], "parametros": {}}]
+        monkeypatch, [{"nucleo": rascunho, "elementos": [], "parametros": {}}]
     )
     recebida = mensagem(ambiente.entrada())
 
@@ -602,7 +625,7 @@ async def test_casos_de_nucleo_da_t203_chegam_ao_artefato_sem_alteracao(
     recebida.ack.assert_awaited_once_with()
     [artefato] = ambiente.banco.tabela("extracoes_regras")
     assert simplejson.loads(artefato["representacao"], use_decimal=True) == {
-        "nucleo": nucleo,
+        "nucleo": esperado,
         "especificacoes": [],
     }
 

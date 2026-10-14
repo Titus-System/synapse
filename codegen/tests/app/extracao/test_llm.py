@@ -3,8 +3,10 @@ from decimal import Decimal
 import pytest
 
 from app.config import get_settings
+from app.extracao.modelos import ResultadoExtracao
 from app.extracao.motor import extrair_regra
 from app.graph.core.llm.registry import get_model, get_model_metadata
+from tests.app.apoio_provedor_real import executar_com_retentativa_503
 
 # O job nasce com todas as competências publicadas (T-277). Passar só as do período esperado
 # esconderia um modelo que as copia para parametros em vez de ler o período no texto.
@@ -21,15 +23,23 @@ def _cliente_real_no_loop_do_teste() -> None:
     get_model.cache_clear()
 
 
+async def _extrair(texto: str) -> ResultadoExtracao:
+    return await executar_com_retentativa_503(
+        lambda: extrair_regra(
+            texto,
+            PUBLICADAS,
+            modelo=get_model("extraction"),
+            metadados_modelo=get_model_metadata("extraction"),
+        )
+    )
+
+
 @pytest.mark.llm
 @pytest.mark.skipif(not get_settings().GOOGLE_API_KEY, reason="requer GOOGLE_API_KEY")
 async def test_modelo_real_extrai_nucleo_sem_duplicar_como_elemento() -> None:
-    resultado = await extrair_regra(
+    resultado = await _extrair(
         "Comissão de 2,5% de agosto de 2025 a dezembro de 2025, "
         "para a loja de código 13, marca de código 10 e cargo de código 100.",
-        PUBLICADAS,
-        modelo=get_model("extraction"),
-        metadados_modelo=get_model_metadata("extraction"),
     )
 
     assert resultado.representacao.para_contrato() == {
@@ -48,12 +58,9 @@ async def test_modelo_real_extrai_nucleo_sem_duplicar_como_elemento() -> None:
 @pytest.mark.llm
 @pytest.mark.skipif(not get_settings().GOOGLE_API_KEY, reason="requer GOOGLE_API_KEY")
 async def test_modelo_real_extrai_orcamento_meta_e_periodo_da_simulacao() -> None:
-    resultado = await extrair_regra(
+    resultado = await _extrair(
         "Comissão de 2,5% para os vendedores da marca 10, com orçamento de R$ 500 mil e "
         "meta de vender R$ 12 milhões entre setembro e novembro de 2025.",
-        PUBLICADAS,
-        modelo=get_model("extraction"),
-        metadados_modelo=get_model_metadata("extraction"),
     )
 
     assert resultado.parametros == {
@@ -66,11 +73,8 @@ async def test_modelo_real_extrai_orcamento_meta_e_periodo_da_simulacao() -> Non
 @pytest.mark.llm
 @pytest.mark.skipif(not get_settings().GOOGLE_API_KEY, reason="requer GOOGLE_API_KEY")
 async def test_modelo_real_le_milhao_e_milhoes_como_valor_inteiro() -> None:
-    resultado = await extrair_regra(
+    resultado = await _extrair(
         "Comissão de 3% para a marca 10, com orçamento de R$ 1,5 milhão e meta de 12 milhões.",
-        PUBLICADAS,
-        modelo=get_model("extraction"),
-        metadados_modelo=get_model_metadata("extraction"),
     )
 
     assert resultado.parametros == {
@@ -82,11 +86,8 @@ async def test_modelo_real_le_milhao_e_milhoes_como_valor_inteiro() -> None:
 @pytest.mark.llm
 @pytest.mark.skipif(not get_settings().GOOGLE_API_KEY, reason="requer GOOGLE_API_KEY")
 async def test_modelo_real_deixa_a_condicao_de_meta_na_regra_e_fora_da_meta_venda() -> None:
-    resultado = await extrair_regra(
+    resultado = await _extrair(
         "Comissão de 2% para a loja 13 e bônus de R$ 300 para quem bater a meta de vendas do mês.",
-        PUBLICADAS,
-        modelo=get_model("extraction"),
-        metadados_modelo=get_model_metadata("extraction"),
     )
 
     assert "meta_venda" not in resultado.parametros
@@ -96,11 +97,8 @@ async def test_modelo_real_deixa_a_condicao_de_meta_na_regra_e_fora_da_meta_vend
 @pytest.mark.llm
 @pytest.mark.skipif(not get_settings().GOOGLE_API_KEY, reason="requer GOOGLE_API_KEY")
 async def test_modelo_real_nao_preenche_parametro_que_o_texto_nao_diz() -> None:
-    resultado = await extrair_regra(
+    resultado = await _extrair(
         "Comissão de 2,5% para a loja 13.",
-        PUBLICADAS,
-        modelo=get_model("extraction"),
-        metadados_modelo=get_model_metadata("extraction"),
     )
 
     assert resultado.parametros == {}
@@ -109,11 +107,8 @@ async def test_modelo_real_nao_preenche_parametro_que_o_texto_nao_diz() -> None:
 @pytest.mark.llm
 @pytest.mark.skipif(not get_settings().GOOGLE_API_KEY, reason="requer GOOGLE_API_KEY")
 async def test_modelo_real_le_vigencia_da_comissao_sem_fazer_dela_o_periodo() -> None:
-    resultado = await extrair_regra(
+    resultado = await _extrair(
         "Comissão de 3% em novembro de 2025 para a loja 13.",
-        PUBLICADAS,
-        modelo=get_model("extraction"),
-        metadados_modelo=get_model_metadata("extraction"),
     )
 
     assert resultado.parametros == {}
@@ -138,11 +133,8 @@ async def test_modelo_real_le_vigencia_da_comissao_sem_fazer_dela_o_periodo() ->
 async def test_modelo_real_le_o_periodo_mandado_simular_sem_fazer_dele_elemento(
     periodo: str, competencias: list[str]
 ) -> None:
-    resultado = await extrair_regra(
+    resultado = await _extrair(
         f"Comissão de 3% em novembro de 2025 para a loja 13; simular de {periodo}.",
-        PUBLICADAS,
-        modelo=get_model("extraction"),
-        metadados_modelo=get_model_metadata("extraction"),
     )
 
     assert resultado.parametros == {"competencias": competencias}
