@@ -3,6 +3,10 @@ package synapse.api.submissoes;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
+import java.util.function.Consumer;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -11,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import synapse.api.core.security.AcessoDoUsuario;
 import synapse.api.job.JobsDeSubmissoes;
 import synapse.api.job.JobsDeSubmissoes.TipoEntrada;
+import synapse.api.job.JobsDeSubmissoes.Rodada;
 
 @Service
 class SubmissoesService {
@@ -28,8 +33,17 @@ class SubmissoesService {
 	}
 
 	@Transactional
-	SubmissaoCriada texto(EntradaSubmissao entrada, AcessoDoUsuario acesso) {
+	SubmissaoCriada texto(EntradaSubmissao entrada, AcessoDoUsuario acesso, Consumer<UUID> rodadaIdentificada) {
 		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		UUID jobId = entrada.jobId();
+		if (jobId != null) {
+			var recebida = this.jobs.corrigir(jobId, acesso, rodada -> {
+				rodadaIdentificada.accept(rodada);
+				return this.repository.inserirTexto(acesso.usuarioId(), entrada.texto(), agora);
+			}, agora);
+			return new SubmissaoCriada(recebida.submissaoId(), "texto", "correcao", agora, recebida.job(),
+					recebida.rodada());
+		}
 		UUID id = this.repository.inserirTexto(acesso.usuarioId(), entrada.texto(), agora);
 		var job = this.jobs.criar(id, TipoEntrada.TEXTO, acesso, agora);
 		return new SubmissaoCriada(id, "texto", "entrada_inicial", agora, job);
@@ -50,5 +64,9 @@ class SubmissoesService {
 
 }
 
-record SubmissaoCriada(UUID id, String tipo, String finalidade, Instant criado_em, JobsDeSubmissoes.JobCriado job) {
+record SubmissaoCriada(UUID id, String tipo, String finalidade, Instant criado_em, JobsDeSubmissoes.JobCriado job,
+		@JsonInclude(JsonInclude.Include.NON_NULL) @Nullable Rodada rodada) {
+	SubmissaoCriada(UUID id, String tipo, String finalidade, Instant criadoEm, JobsDeSubmissoes.JobCriado job) {
+		this(id, tipo, finalidade, criadoEm, job, null);
+	}
 }

@@ -13,7 +13,7 @@ import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.HandlerMapping;
 
-@RestControllerAdvice(assignableTypes = JobController.class)
+@RestControllerAdvice(assignableTypes = { JobController.class, RodadasController.class })
 class JobAdvice {
 
 	@ExceptionHandler(CriarJobException.class)

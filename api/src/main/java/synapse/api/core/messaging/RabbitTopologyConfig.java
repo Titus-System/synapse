@@ -26,6 +26,8 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class RabbitTopologyConfig {
 
+	public static final String CORRECAO_SUBMETIDA = "correcao-submetida";
+
 	public static final String REGRA_SUBMETIDA = "regra-submetida";
 
 	public static final String PARAMETROS_CONFIRMADOS = "parametros-confirmados";
@@ -56,12 +58,12 @@ public class RabbitTopologyConfig {
 		Queue simulacaoConcluidaApi = QueueBuilder.durable(SIMULACAO_CONCLUIDA_API).build();
 		Binding simulacaoConcluidaBinding = BindingBuilder.bind(simulacaoConcluidaApi).to(simulacaoConcluida);
 
-		return new Declarables(QueueBuilder.durable(REGRA_SUBMETIDA).build(),
-				QueueBuilder.durable(PARAMETROS_CONFIRMADOS).build(), QueueBuilder.durable(ETAPA_ALTERADA).build(),
-				QueueBuilder.durable(NO_CONCLUIDO).build(), QueueBuilder.durable(SUGESTAO_ADAPTACAO_PROPOSTA).build(),
-				QueueBuilder.durable(REGRA_EXTRAIDA).build(), QueueBuilder.durable(JOB_ENCERRADO).build(),
-				QueueBuilder.durable(META_VENDA_SUGERIDA).build(), simulacaoConcluida, simulacaoConcluidaApi,
-				simulacaoConcluidaBinding);
+		return new Declarables(QueueBuilder.durable(CORRECAO_SUBMETIDA).build(),
+				QueueBuilder.durable(REGRA_SUBMETIDA).build(), QueueBuilder.durable(PARAMETROS_CONFIRMADOS).build(),
+				QueueBuilder.durable(ETAPA_ALTERADA).build(), QueueBuilder.durable(NO_CONCLUIDO).build(),
+				QueueBuilder.durable(SUGESTAO_ADAPTACAO_PROPOSTA).build(), QueueBuilder.durable(REGRA_EXTRAIDA).build(),
+				QueueBuilder.durable(JOB_ENCERRADO).build(), QueueBuilder.durable(META_VENDA_SUGERIDA).build(),
+				simulacaoConcluida, simulacaoConcluidaApi, simulacaoConcluidaBinding);
 	}
 
 	/**
@@ -81,8 +83,9 @@ public class RabbitTopologyConfig {
 			admin.initialize();
 			log.atInfo()
 				.addKeyValue("filas",
-						List.of(REGRA_SUBMETIDA, PARAMETROS_CONFIRMADOS, ETAPA_ALTERADA, NO_CONCLUIDO, REGRA_EXTRAIDA,
-								JOB_ENCERRADO, META_VENDA_SUGERIDA, SIMULACAO_CONCLUIDA_API))
+						List.of(CORRECAO_SUBMETIDA, REGRA_SUBMETIDA, PARAMETROS_CONFIRMADOS, ETAPA_ALTERADA,
+								NO_CONCLUIDO, REGRA_EXTRAIDA, JOB_ENCERRADO, META_VENDA_SUGERIDA,
+								SIMULACAO_CONCLUIDA_API))
 				.addKeyValue("exchange", SIMULACAO_CONCLUIDA_EXCHANGE)
 				.log("topologia do RabbitMQ declarada");
 		};

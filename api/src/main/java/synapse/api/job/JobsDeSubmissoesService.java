@@ -3,6 +3,7 @@ package synapse.api.job;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.concurrent.TimeUnit;
 
 import org.jspecify.annotations.Nullable;
@@ -43,8 +44,12 @@ class JobsDeSubmissoesService implements JobsDeSubmissoes {
 
 	private final EmissoresSse emissores;
 
+	private final RodadasRepository rodadas;
+
 	JobsDeSubmissoesService(JobRepository repository, MaquinaDeEstadosDoJob maquina, AutorizadorDeJob autorizador,
-			Outbox outbox, CorrelationContext correlacao, AppMetrics metrics, EmissoresSse emissores) {
+			Outbox outbox, CorrelationContext correlacao, AppMetrics metrics, EmissoresSse emissores,
+			RodadasRepository rodadas) {
+		this.rodadas = rodadas;
 		this.repository = repository;
 		this.maquina = maquina;
 		this.autorizador = autorizador;
@@ -68,6 +73,42 @@ class JobsDeSubmissoesService implements JobsDeSubmissoes {
 			}
 		}
 		return new JobCriado(id, status.paraColuna());
+	}
+
+	@Override
+	public CorrecaoRecebida corrigir(UUID jobId, AcessoDoUsuario acesso, Function<UUID, UUID> gravarSubmissao,
+			Instant agora) {
+		try {
+			this.autorizador.exigir(OperacaoJob.CONFIRMAR_PARAMETROS, jobId, acesso);
+		}
+		catch (SemPermissaoNoJobException ex) {
+			throw new CorrecaoRecusada(403, "sem_permissao", "Você não tem permissão para esta ação.", null);
+		}
+		catch (JobNaoEncontradoException ex) {
+			throw new CorrecaoRecusada(404, "job_nao_encontrado", "Job não encontrado.", null);
+		}
+		var encontrados = this.repository.buscarContextoComTrava(jobId);
+		if (encontrados.isEmpty()) {
+			throw new CorrecaoRecusada(404, "job_nao_encontrado", "Job não encontrado.", null);
+		}
+		var job = encontrados.getFirst();
+		var abertas = this.rodadas.abertas(jobId);
+		UUID rodadaId = abertas.isEmpty() ? null : abertas.getFirst().id();
+		if (job.status() != JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS) {
+			throw new CorrecaoRecusada(409, "estado_invalido", "O job não está aguardando correção de parâmetros.",
+					rodadaId);
+		}
+		if (abertas.isEmpty() || !EstadoRodada.PENDENTE.paraColuna().equals(abertas.getFirst().estado())) {
+			throw new CorrecaoRecusada(409, "estado_invalido", "O job não tem uma rodada pendente de correção.",
+					rodadaId);
+		}
+		var rodada = abertas.getFirst();
+		UUID submissaoId = gravarSubmissao.apply(rodada.id());
+		this.rodadas.receber(rodada.id(), submissaoId, agora);
+		this.outbox.registrar(jobId, EventoOutbox.CORRECAO_SUBMETIDA, new CorrecaoSubmetidaDto(jobId,
+				rodada.regra_analisada_id(), submissaoId, job.competencias(), job.orcamento(), job.metaVenda()));
+		return new CorrecaoRecebida(submissaoId, new JobCriado(jobId, job.status().paraColuna()),
+				this.rodadas.buscar(rodada.id()));
 	}
 
 	@Override
