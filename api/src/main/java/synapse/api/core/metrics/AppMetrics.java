@@ -22,10 +22,15 @@ public class AppMetrics {
 		this.registry = registry;
 	}
 
-	/**
-	 * Criações confirmadas e recusas de submissão, por tipo e classe fechada de
-	 * resultado.
-	 */
+	/** Correções com desfecho HTTP; rollback nunca conta como aceita. */
+	public Counter correcaoSubmetida(String resultado) {
+		return Counter.builder("submissoes.correcoes")
+			.description("Correções aceitas após commit ou recusadas, por classe de resultado HTTP")
+			.tag("resultado", resultado)
+			.register(this.registry);
+	}
+
+	/** Criações confirmadas e recusas de entrada inicial, por tipo e resultado. */
 	public Counter submissaoCriacao(String tipo, String resultado) {
 		return Counter.builder("submissoes.criacao")
 			.description("Criações confirmadas e recusas de submissão; rollback não conta como aceita")

@@ -50,17 +50,28 @@ class ObservabilidadeSubmissoes extends OncePerRequestFilter {
 		}
 		finally {
 			String resultado = falhou ? "falha_interna" : resultado(response.getStatus());
-			this.metrics.submissaoCriacao(tipo, resultado).increment();
+			boolean correcao = Boolean.TRUE.equals(request.getAttribute("submissao.correcao"));
+			if (correcao) {
+				this.metrics.correcaoSubmetida(resultado).increment();
+			}
+			else {
+				this.metrics.submissaoCriacao(tipo, resultado).increment();
+			}
 			try (var escopo = this.correlacao.abrir(atributo(request, "submissao.job"),
 					atributo(request, "submissao.usuario"))) {
 				var evento = "falha_interna".equals(resultado) ? log.atError() : log.atInfo();
 				evento = evento.addKeyValue("tipo", tipo).addKeyValue("resultado", resultado);
+				if (correcao) {
+					evento = evento.addKeyValue("rodada_id", atributo(request, "submissao.rodada"))
+						.addKeyValue("motivo", resultado);
+				}
 				if ("voz".equals(tipo)) {
 					evento = evento.addKeyValue("formato", atributo(request, "submissao.formato"))
 						.addKeyValue("faixa_tamanho", resultado.equals("audio_muito_grande") ? "acima_5_mb"
 								: atributo(request, "submissao.faixa"));
 				}
-				evento.log("aceita".equals(resultado) ? "submissão e job criados" : "submissão recusada");
+				evento.log(correcao ? ("aceita".equals(resultado) ? "correção aceita" : "correção recusada")
+						: ("aceita".equals(resultado) ? "submissão e job criados" : "submissão recusada"));
 			}
 		}
 	}
@@ -71,6 +82,7 @@ class ObservabilidadeSubmissoes extends OncePerRequestFilter {
 			case 400, 415 -> "requisicao_invalida";
 			case 401 -> "nao_autenticado";
 			case 403 -> "sem_permissao";
+			case 404 -> "job_nao_encontrado";
 			case 409 -> "estado_invalido";
 			case 413 -> "audio_muito_grande";
 			case 422 -> "audio_invalido";
