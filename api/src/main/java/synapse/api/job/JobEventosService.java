@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.jackson.databind.JsonNode;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,27 +42,102 @@ class JobEventosService {
 
 	private final Outbox outbox;
 
-	JobEventosService(JobRepository repository, MaquinaDeEstadosDoJob maquina, VersoesDaRegra versoes, Outbox outbox) {
+	private final RodadasCorrecaoRepository rodadas;
+
+	JobEventosService(JobRepository repository, MaquinaDeEstadosDoJob maquina, VersoesDaRegra versoes, Outbox outbox,
+			RodadasCorrecaoRepository rodadas) {
 		this.repository = repository;
 		this.maquina = maquina;
 		this.versoes = versoes;
 		this.outbox = outbox;
+		this.rodadas = rodadas;
 	}
 
-	/**
-	 * O evento {@code estado} da transição aplicada, ou {@code null} quando a combinação
-	 * não move o job ou ele já saiu de {@code gerando_regra}.
-	 */
 	@Transactional
 	@Nullable EventoEstadoDto aplicarEtapaAlterada(UUID jobId, EtapaDoGrafo etapa, String status) {
+		return aplicarEtapaAlterada(jobId, etapa, status, null, null).transicao();
+	}
+
+	@Transactional
+	EtapaAplicada aplicarEtapaAlterada(UUID jobId, EtapaDoGrafo etapa, String status, @Nullable UUID regraId,
+			@Nullable JsonNode conflitos) {
+		List<ContextoDoJob> contextos = this.repository.buscarContextoComTrava(jobId);
+		if (contextos.isEmpty()) {
+			return resultadoCorrecao(DesfechoCorrecao.JOB_INEXISTENTE, regraId, null, conflitos);
+		}
+		JobStatus atual = contextos.getFirst().status();
+		if ("aguardando_correcao".equals(status)) {
+			if (etapa != EtapaDoGrafo.CONFIRMACAO) {
+				return resultadoCorrecao(DesfechoCorrecao.EVENTO_INVALIDO, regraId, null, conflitos);
+			}
+			return pausarPorConflitos(jobId, atual, regraId, conflitos);
+		}
+		if (etapa == EtapaDoGrafo.EXTRACAO_PARAMETROS && STATUS_ERRO.equals(status)
+				&& atual == JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS) {
+			return falharReextracao(jobId, regraId);
+		}
 		if (etapa == EtapaDoGrafo.DELEGACAO_WORKER && STATUS_INICIADA.equals(status)) {
-			return avancarDeGerandoRegra(jobId, JobStatus.SIMULANDO, null, null);
+			return EtapaAplicada.comum(avancarDeGerandoRegra(jobId, JobStatus.SIMULANDO, null, null));
 		}
 		if (STATUS_ERRO.equals(status)) {
-			return avancarDeGerandoRegra(jobId, JobStatus.ERRO, MotivoDaParada.falhaNaEtapa(etapa),
-					MotivoDaParada.FALHA_ANTES_DA_SIMULACAO);
+			return EtapaAplicada.comum(avancarDeGerandoRegra(jobId, JobStatus.ERRO, MotivoDaParada.falhaNaEtapa(etapa),
+					MotivoDaParada.FALHA_ANTES_DA_SIMULACAO));
 		}
-		return null;
+		return EtapaAplicada.comum(null);
+	}
+
+	private EtapaAplicada pausarPorConflitos(UUID jobId, JobStatus atual, @Nullable UUID regraId,
+			@Nullable JsonNode conflitos) {
+		if (regraId != null) {
+			List<UUID> existentes = this.rodadas.buscarPorRegra(jobId, regraId);
+			if (!existentes.isEmpty()) {
+				return resultadoCorrecao(DesfechoCorrecao.DUPLICADA, regraId, existentes.getFirst(), conflitos);
+			}
+		}
+		if (atual != JobStatus.GERANDO_REGRA) {
+			return resultadoCorrecao(DesfechoCorrecao.ESTADO_INCOMPATIVEL, regraId, null, conflitos);
+		}
+		if (regraId == null) {
+			return resultadoCorrecao(DesfechoCorrecao.REGRA_AUSENTE, null, null, conflitos);
+		}
+		if (!this.rodadas.regraPertenceAVersaoAtual(jobId, regraId)) {
+			return resultadoCorrecao(DesfechoCorrecao.REGRA_NAO_ATUAL, regraId, null, conflitos);
+		}
+		if (conflitos == null || !conflitos.isArray() || conflitos.isEmpty()) {
+			return resultadoCorrecao(DesfechoCorrecao.CONFLITOS_INVALIDOS, regraId, null, conflitos);
+		}
+		List<UUID> ultimas = this.rodadas.buscarUltima(jobId);
+		if (!this.maquina.avancarSeEm(jobId, JobStatus.GERANDO_REGRA, JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS, ATOR,
+				"validacao_com_conflitos")) {
+			return resultadoCorrecao(DesfechoCorrecao.ESTADO_INCOMPATIVEL, regraId, null, conflitos);
+		}
+		Timestamp agora = Timestamp.from(Instant.now().truncatedTo(ChronoUnit.MICROS));
+		UUID rodadaId = this.rodadas.inserirPendente(jobId, regraId, conflitos,
+				ultimas.isEmpty() ? null : ultimas.getFirst(), agora);
+		return new EtapaAplicada(DesfechoCorrecao.RODADA_ABERTA, EventoEstadoDto.transicao(jobId,
+				JobStatus.GERANDO_REGRA, JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS, null), regraId, rodadaId,
+				conflitos.size());
+	}
+
+	private EtapaAplicada falharReextracao(UUID jobId, @Nullable UUID regraId) {
+		var encontradas = this.rodadas.buscarEmReextracao(jobId);
+		if (encontradas.isEmpty()) {
+			return resultadoCorrecao(DesfechoCorrecao.SEM_REEXTRACAO, regraId, null, null);
+		}
+		var rodada = encontradas.getFirst();
+		if (regraId != null && !regraId.equals(rodada.regraId())) {
+			return resultadoCorrecao(DesfechoCorrecao.REGRA_DIVERGENTE, regraId, rodada.id(), null);
+		}
+		Timestamp agora = Timestamp.from(Instant.now().truncatedTo(ChronoUnit.MICROS));
+		this.rodadas.fecharReextracao(rodada.id(), agora);
+		UUID sucessora = this.rodadas.inserirPendente(jobId, rodada.regraId(), rodada.conflitos(), rodada.id(), agora);
+		return resultadoCorrecao(DesfechoCorrecao.REEXTRACAO_FALHOU, rodada.regraId(), sucessora, rodada.conflitos());
+	}
+
+	private static EtapaAplicada resultadoCorrecao(DesfechoCorrecao desfecho, @Nullable UUID regraId,
+			@Nullable UUID rodadaId, @Nullable JsonNode conflitos) {
+		return new EtapaAplicada(desfecho, null, regraId, rodadaId,
+				conflitos != null && conflitos.isArray() ? conflitos.size() : 0);
 	}
 
 	private @Nullable EventoEstadoDto avancarDeGerandoRegra(UUID jobId, JobStatus destino,

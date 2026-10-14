@@ -71,8 +71,16 @@ class JobStatusTests {
 	}
 
 	@Test
-	void recusaVoltarDeGerandoRegraParaAguardandoConfirmacao() {
-		assertThat(JobStatus.GERANDO_REGRA.permiteTransicaoPara(JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS)).isFalse();
+	void permitePausaERetomadaSemSaltosIlegais() {
+		assertThat(JobStatus.GERANDO_REGRA.permiteTransicaoPara(JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS)).isTrue();
+		assertThat(JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS.terminal()).isFalse();
+		for (JobStatus destino : JobStatus.values()) {
+			assertThat(JobStatus.GERANDO_REGRA.permiteTransicaoPara(destino))
+				.isEqualTo(Set.of(JobStatus.SIMULANDO, JobStatus.ERRO, JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS)
+					.contains(destino));
+			assertThat(JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS.permiteTransicaoPara(destino))
+				.isEqualTo(Set.of(JobStatus.GERANDO_REGRA, JobStatus.CANCELADO).contains(destino));
+		}
 	}
 
 	@ParameterizedTest

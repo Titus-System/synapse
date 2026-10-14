@@ -24,14 +24,7 @@ import synapse.api.job.JobEventosService.DesfechoDaExtracao;
 import synapse.api.job.JobEventosService.ExtracaoAplicada;
 import synapse.api.job.JobEventosService.SugestaoAplicada;
 
-/**
- * Consome {@code etapa-alterada}, aplica a transição de estado que a etapa implica
- * ({@link JobEventosService}) e repassa ao stream SSE do job, traduzido para
- * {@link EventoEtapaDto}. Não deduplica por {@code message_id}, que este evento não
- * carrega: uma reentrega encontra o job já fora de {@code gerando_regra} e a transição
- * vira no-op. Nunca lança em entrada inválida: vira descarte com log {@code WARN}, porque
- * uma exceção aqui viraria requeue infinito.
- */
+/** Consome etapas e anuncia somente os efeitos confirmados pelo serviço transacional. */
 @Component
 class EtapaAlteradaConsumidor {
 
@@ -43,49 +36,89 @@ class EtapaAlteradaConsumidor {
 
 	private final CorrelationContext correlacao;
 
-	EtapaAlteradaConsumidor(JobEventosService servico, EmissoresSse emissores, CorrelationContext correlacao) {
+	private final AppMetrics metricas;
+
+	EtapaAlteradaConsumidor(JobEventosService servico, EmissoresSse emissores, CorrelationContext correlacao,
+			AppMetrics metricas) {
 		this.servico = servico;
 		this.emissores = emissores;
 		this.correlacao = correlacao;
+		this.metricas = metricas;
 	}
 
 	@RabbitListener(queues = RabbitTopologyConfig.ETAPA_ALTERADA)
 	void receber(EtapaAlteradaDto evento) {
 		UUID jobId = evento.job_id();
-		if (jobId == null) {
-			log.atWarn().log("etapa-alterada sem job_id; evento descartado");
-			return;
-		}
-
-		try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
+		long inicio = System.nanoTime();
+		String resultado = "falha";
+		try (var escopo = this.correlacao.abrir(jobId == null ? null : jobId.toString(), null)) {
 			EtapaDoGrafo etapa = EtapaDoGrafo.deEvento(evento.etapa());
 			String status = evento.status();
-			if (etapa == null || !StringUtils.hasText(status)) {
-				log.atWarn()
-					.addKeyValue("etapa", evento.etapa())
-					.log("etapa-alterada com etapa desconhecida; evento descartado");
+			boolean correcao = "aguardando_correcao".equals(status)
+					|| (etapa == EtapaDoGrafo.EXTRACAO_PARAMETROS && "erro".equals(status));
+			if (jobId == null || etapa == null || !StringUtils.hasText(status)) {
+				resultado = "descartada";
+				if (correcao) {
+					registrar(new EtapaAplicada(DesfechoCorrecao.EVENTO_INVALIDO, null, evento.regra_id(), null, 0));
+				}
+				else {
+					log.atWarn().log("etapa-alterada inválida; evento descartado");
+				}
 				return;
 			}
-
-			EventoEstadoDto transicao;
+			EtapaAplicada aplicada;
 			try {
-				transicao = this.servico.aplicarEtapaAlterada(jobId, etapa, status);
+				aplicada = this.servico.aplicarEtapaAlterada(jobId, etapa, status, evento.regra_id(),
+						evento.conflitos());
 			}
-			catch (EmptyResultDataAccessException ex) {
-				log.atWarn().setCause(ex).log("etapa-alterada de job desconhecido; evento descartado");
+			catch (org.springframework.dao.DataAccessException ex) {
+				log.atWarn()
+					.addKeyValue("resultado", "falha")
+					.addKeyValue("regra_id", evento.regra_id())
+					.addKeyValue("classe_falha", "banco")
+					.log("falha no consumo de etapa-alterada; mensagem será reentregue");
+				throw ex;
+			}
+			resultado = aplicada.desfecho().resultado();
+			if (aplicada.desfecho() != DesfechoCorrecao.COMUM) {
+				if (correcao) {
+					registrar(aplicada);
+				}
+				else {
+					log.atWarn().log("etapa-alterada de job desconhecido; evento descartado");
+				}
+			}
+			if (!aplicada.emitirEtapa()) {
 				return;
 			}
-
-			// "etapa" sai antes de "estado" (skill sse): um "estado" terminal fecha o
-			// stream.
-			this.emissores.emitir(jobId, EventoSse.de("etapa", new EventoEtapaDto(jobId, etapa.paraEvento(), status)));
+			JsonNode conflitos = aplicada.desfecho() == DesfechoCorrecao.RODADA_ABERTA ? evento.conflitos() : null;
+			this.emissores.emitir(jobId,
+					EventoSse.de("etapa", new EventoEtapaDto(jobId, etapa.paraEvento(), status, conflitos)));
+			EventoEstadoDto transicao = aplicada.transicao();
 			if (transicao != null) {
 				boolean terminal = JobStatus.deColuna(transicao.status()).terminal();
 				this.emissores.emitir(jobId,
 						terminal ? EventoSse.ultimo("estado", transicao) : EventoSse.de("estado", transicao));
 			}
-			log.atDebug().addKeyValue("etapa", etapa.paraEvento()).log("etapa repassada ao stream SSE");
+			if (aplicada.desfecho() == DesfechoCorrecao.COMUM) {
+				log.atDebug().addKeyValue("etapa", etapa.paraEvento()).log("etapa repassada ao stream SSE");
+			}
 		}
+		finally {
+			this.metricas.etapaAlteradaDuracao(resultado).record(Duration.ofNanos(System.nanoTime() - inicio));
+		}
+	}
+
+	private void registrar(EtapaAplicada aplicada) {
+		DesfechoCorrecao desfecho = aplicada.desfecho();
+		var registro = "descartada".equals(desfecho.resultado()) ? log.atWarn() : log.atInfo();
+		registro.addKeyValue("regra_id", aplicada.regraId())
+			.addKeyValue("rodada_id", aplicada.rodadaId())
+			.addKeyValue("resultado", desfecho.resultado())
+			.addKeyValue("numero_conflitos", aplicada.numeroConflitos())
+			.addKeyValue("motivo_descarte", desfecho.motivo())
+			.log("etapa-alterada de correção processada");
+		this.metricas.etapaAlteradaCorrecao(desfecho.resultado()).increment();
 	}
 
 }

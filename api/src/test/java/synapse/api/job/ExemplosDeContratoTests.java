@@ -73,11 +73,32 @@ class ExemplosDeContratoTests {
 
 	@Test
 	void desserializaOEventoDeEtapaAlterada() throws IOException {
-		EtapaAlteradaDto evento = desserializar("events/etapa-alterada.json", EtapaAlteradaDto.class);
+		EtapaAlteradaDto evento = this.objectMapper.readerFor(EtapaAlteradaDto.class)
+			.with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+			.readValue(Files.readString(exemplo("events/etapa-alterada.json")));
+		assertThat(evento.regra_id()).isNull();
+		assertThat(evento.conflitos()).isNull();
 
 		assertThat(evento.job_id()).isEqualTo(UUID.fromString("3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"));
 		assertThat(evento.etapa()).isEqualTo("geracao_codigo");
 		assertThat(evento.status()).isEqualTo("iniciada");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "etapa-alterada-conflitos", "etapa-alterada-falha-reextracao" })
+	void desserializaOsEventosDeCorrecaoSemPerderCampos(String nome) throws IOException {
+		String json = Files.readString(exemplo("events/" + nome + ".json"));
+		EtapaAlteradaDto evento = this.objectMapper.readerFor(EtapaAlteradaDto.class)
+			.with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+			.readValue(json);
+		assertThat(evento.regra_id()).isEqualTo(UUID.fromString("9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"));
+		if (nome.endsWith("conflitos")) {
+			assertThat(evento.conflitos()).isEqualTo(this.objectMapper.readTree(json).path("conflitos"));
+		}
+		else {
+			assertThat(evento.conflitos()).isNull();
+		}
+		ContratoDeEvento.validar("etapa-alterada", json);
 	}
 
 	/**

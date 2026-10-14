@@ -4,6 +4,7 @@ import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import org.jspecify.annotations.Nullable;
+import tools.jackson.databind.JsonNode;
 
 /**
  * Forma do evento {@code estado} do contrato HTTP ({@code EventoEstado}). A mesma forma
@@ -27,12 +28,10 @@ record EventoEstadoDto(UUID job_id, String status, @Nullable String status_anter
 
 /**
  * Forma do evento {@code etapa} do contrato HTTP ({@code EventoEtapa}), entregue ao
- * stream SSE. Mesmos três campos de {@link EtapaAlteradaDto}, e ainda assim um record
- * separado: são dois contratos distintos - fila de entrada e HTTP de saída -, e é a
- * separação que impede um campo novo publicado pelo codegen de vazar sozinho para o
- * navegador.
+ * stream SSE. O contrato HTTP recebe os conflitos, mas não a referência da regra.
  */
-record EventoEtapaDto(UUID job_id, String etapa, String status) {
+@JsonInclude(JsonInclude.Include.NON_NULL)
+record EventoEtapaDto(UUID job_id, String etapa, String status, @Nullable JsonNode conflitos) {
 }
 
 /**
