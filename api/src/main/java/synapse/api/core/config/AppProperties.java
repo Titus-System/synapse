@@ -16,6 +16,7 @@ import jakarta.validation.constraints.Positive;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 
@@ -78,10 +79,33 @@ public record AppProperties(@NotBlank String environment, @NotNull @Valid Servic
 		 * seguinte
 		 * @param reservationTimeout prazo de exclusividade de um trabalho reservado;
 		 * vencido, o trabalho volta a ser elegível
+		 * @param maxAttempts máximo de chamadas, incluindo reservas vencidas
+		 * @param initialBackoff espera após a primeira falha transitória
+		 * @param backoffMultiplier multiplicador da espera a cada falha
+		 * @param maxBackoff teto da espera local; não reduz o Retry-After do provedor
+		 * @param concurrency máximo de transcrições simultâneas por instância
 		 */
 		public record Processor(@DefaultValue("true") boolean enabled,
 				@DefaultValue("1s") @NotNull Duration pollInterval,
-				@DefaultValue("5m") @NotNull Duration reservationTimeout) {
+				@DefaultValue("5m") @NotNull Duration reservationTimeout, @DefaultValue("3") @Positive int maxAttempts,
+				@DefaultValue("10s") @NotNull Duration initialBackoff,
+				@DefaultValue("3") @jakarta.validation.constraints.Min(2) int backoffMultiplier,
+				@DefaultValue("5m") @NotNull Duration maxBackoff, @DefaultValue("2") @Positive int concurrency) {
+
+			@ConstructorBinding
+			public Processor {
+			}
+
+			public Processor(boolean enabled, Duration pollInterval, Duration reservationTimeout) {
+				this(enabled, pollInterval, reservationTimeout, 3, Duration.ofSeconds(10), 3, Duration.ofMinutes(5), 2);
+			}
+
+			@AssertTrue(
+					message = "os intervalos devem ser positivos e max-backoff não pode ser menor que initial-backoff")
+			public boolean isIntervalosValidos() {
+				return this.pollInterval.isPositive() && this.reservationTimeout.isPositive()
+						&& this.initialBackoff.isPositive() && this.maxBackoff.compareTo(this.initialBackoff) >= 0;
+			}
 		}
 
 	}

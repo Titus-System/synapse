@@ -52,27 +52,42 @@ class SubmissoesRepository {
 	 * É uma instrução só, e portanto a transação curta da reserva: quem chama está em
 	 * autocommit, e nada da chamada ao provedor acontece com esta linha travada.
 	 */
-	List<TrabalhoReservado> reservarTrabalho(Instant agora, Duration prazo) {
-		return this.jdbc.query("""
-				WITH alvo AS (
-				    SELECT id, estado FROM trabalhos_transcricao
-				    WHERE finalidade = 'entrada_inicial'
-				      AND (estado = 'pendente' OR (estado = 'em_andamento' AND reservado_ate < ?))
-				    ORDER BY criado_em, id
-				    LIMIT 1
-				    FOR UPDATE SKIP LOCKED
-				)
-				UPDATE trabalhos_transcricao t
-				SET estado = 'em_andamento', tentativas = t.tentativas + 1, reservado_ate = ?, atualizado_em = ?
-				FROM alvo WHERE t.id = alvo.id
-				RETURNING t.id, t.job_id, t.submissao_id, t.tentativas, t.criado_em, alvo.estado AS estado_anterior
-				""",
+	List<TrabalhoReservado> reservarTrabalho(Instant agora, Duration prazo, int limite) {
+		return this.jdbc.query(
+				"""
+						WITH alvo AS (
+						    SELECT id, estado, tentativas FROM trabalhos_transcricao
+						    WHERE finalidade = 'entrada_inicial'
+						      AND ((estado = 'pendente' AND (proxima_tentativa_em IS NULL OR proxima_tentativa_em <= ?))
+						           OR (estado = 'em_andamento' AND reservado_ate <= ?))
+						    ORDER BY criado_em, id
+						    LIMIT 1
+						    FOR UPDATE SKIP LOCKED
+						)
+						UPDATE trabalhos_transcricao t
+						SET estado = 'em_andamento', tentativas = CASE WHEN t.tentativas >= ? THEN t.tentativas ELSE t.tentativas + 1 END,
+						    reservado_ate = ?, atualizado_em = ?
+						FROM alvo WHERE t.id = alvo.id
+						RETURNING t.id, t.job_id, t.submissao_id, t.tentativas, t.criado_em, t.resposta_invalida, t.reservado_ate,
+						    alvo.estado AS estado_anterior, alvo.tentativas AS tentativas_anteriores
+						""",
 				(rs, numero) -> new TrabalhoReservado(Objects.requireNonNull(rs.getObject("id", UUID.class)),
 						Objects.requireNonNull(rs.getObject("job_id", UUID.class)),
 						Objects.requireNonNull(rs.getObject("submissao_id", UUID.class)), rs.getInt("tentativas"),
 						Objects.requireNonNull(rs.getTimestamp("criado_em")).toInstant(),
-						"em_andamento".equals(rs.getString("estado_anterior"))),
-				Timestamp.from(agora), Timestamp.from(agora.plus(prazo)), Timestamp.from(agora));
+						"em_andamento".equals(rs.getString("estado_anterior")), rs.getBoolean("resposta_invalida"),
+						rs.getInt("tentativas_anteriores") >= limite,
+						Objects.requireNonNull(rs.getTimestamp("reservado_ate")).toInstant()),
+				Timestamp.from(agora), Timestamp.from(agora), limite, Timestamp.from(agora.plus(prazo)),
+				Timestamp.from(agora));
+	}
+
+	void reagendar(UUID trabalhoId, Instant agora, Instant proxima, boolean respostaInvalida) {
+		this.jdbc.update("""
+				UPDATE trabalhos_transcricao SET estado = 'pendente', reservado_ate = NULL,
+				    proxima_tentativa_em = ?, resposta_invalida = resposta_invalida OR ?, atualizado_em = ?
+				WHERE id = ?
+				""", Timestamp.from(proxima), respostaInvalida, Timestamp.from(agora), trabalhoId);
 	}
 
 	/**
@@ -87,13 +102,13 @@ class SubmissoesRepository {
 
 	/**
 	 * Retoma a reserva na transação final e devolve false quando ela não é mais nossa. A
-	 * contagem de tentativas é a cerca: se outra instância reservou o mesmo trabalho
-	 * depois do vencimento, o número mudou e este resultado é descartado sem gravar nada.
+	 * tentativa e o prazo identificam a reserva, inclusive quando o limite já esgotou. Um
+	 * resultado de uma reserva anterior não pode sobrescrever a recuperação.
 	 */
-	boolean reservaAindaENossa(UUID trabalhoId, int tentativas) {
+	boolean reservaAindaENossa(UUID trabalhoId, int tentativas, Instant reservadoAte) {
 		return !this.jdbc.queryForList(
-				"SELECT 1 FROM trabalhos_transcricao WHERE id = ? AND estado = 'em_andamento' AND tentativas = ? FOR UPDATE",
-				trabalhoId, tentativas)
+				"SELECT 1 FROM trabalhos_transcricao WHERE id = ? AND estado = 'em_andamento' AND tentativas = ? AND reservado_ate = ? FOR UPDATE",
+				trabalhoId, tentativas, Timestamp.from(reservadoAte))
 			.isEmpty();
 	}
 
@@ -104,7 +119,7 @@ class SubmissoesRepository {
 
 	void encerrarTrabalho(UUID trabalhoId, String estado, Instant agora) {
 		this.jdbc.update(
-				"UPDATE trabalhos_transcricao SET estado = ?, reservado_ate = NULL, atualizado_em = ? WHERE id = ?",
+				"UPDATE trabalhos_transcricao SET estado = ?, reservado_ate = NULL, proxima_tentativa_em = NULL, atualizado_em = ? WHERE id = ?",
 				estado, Timestamp.from(agora), trabalhoId);
 	}
 
@@ -113,7 +128,7 @@ class SubmissoesRepository {
 	 * pendente; é a reentrada que não conta espera nem conclusão nova
 	 */
 	record TrabalhoReservado(UUID id, UUID jobId, UUID submissaoId, int tentativas, Instant criadoEm,
-			boolean recuperado) {
+			boolean recuperado, boolean respostaInvalida, boolean limiteEsgotado, Instant reservadoAte) {
 	}
 
 	/** Classe, e não record: um record com componente de array é recusado na revisão. */

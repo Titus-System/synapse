@@ -49,7 +49,7 @@ class MigrationTests {
 			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras",
 			"rodadas_correcao", "trabalhos_transcricao", "sugestoes_meta_venda");
 
-	private static final int CHANGESETS = 28;
+	private static final int CHANGESETS = 29;
 
 	private static final int CHANGESETS_ANTES_DA_TENTATIVA = 26;
 
@@ -530,6 +530,43 @@ class MigrationTests {
 	}
 
 	@Test
+	void respostaInvalidaSobreviveAoUpgradeComPermissoesMinimasERollback() throws Exception {
+		atualizar(28);
+		try (Connection connection = abrir(); Statement sql = connection.createStatement()) {
+			semearParaRodadas(sql);
+			sql.execute(insereTrabalho(JOB_ID, SUBMISSAO_ID.toString()));
+		}
+		atualizar();
+		assertThat(coluna("trabalhos_transcricao", "resposta_invalida")).containsExactly("boolean", "NO", "false");
+		try (Connection connection = abrir();
+				Statement sql = connection.createStatement();
+				ResultSet rs = sql.executeQuery(
+						"""
+								SELECT resposta_invalida,
+								 has_column_privilege('synapse_api','trabalhos_transcricao','resposta_invalida','UPDATE') AS api,
+								 has_column_privilege('synapse_codegen','trabalhos_transcricao','resposta_invalida','SELECT') AS codegen,
+								 has_column_privilege('synapse_worker','trabalhos_transcricao','resposta_invalida','SELECT') AS worker
+								FROM trabalhos_transcricao
+								""")) {
+			assertThat(rs.next()).isTrue();
+			assertThat(rs.getBoolean("resposta_invalida")).isFalse();
+			assertThat(rs.getBoolean("api")).isTrue();
+			assertThat(rs.getBoolean("codegen")).isFalse();
+			assertThat(rs.getBoolean("worker")).isFalse();
+		}
+		reverter(1);
+		try (Connection connection = abrir();
+				Statement sql = connection.createStatement();
+				ResultSet rs = sql.executeQuery("SELECT count(*) FROM trabalhos_transcricao")) {
+			assertThat(rs.next()).isTrue();
+			assertThat(rs.getInt(1)).isEqualTo(1);
+		}
+		assertThat(nulidadeDasColunas("trabalhos_transcricao")).doesNotContainKey("resposta_invalida");
+		atualizar();
+		assertThat(coluna("trabalhos_transcricao", "resposta_invalida")).containsExactly("boolean", "NO", "false");
+	}
+
+	@Test
 	void sugestoesDeMetaTemGrantsMinimosERollbackPreservaBancoAnterior() throws Exception {
 		atualizar(27);
 		try (Connection connection = abrir(); Statement sql = connection.createStatement()) {
@@ -558,7 +595,7 @@ class MigrationTests {
 				assertThat(rs.getBoolean("worker")).isFalse();
 			}
 		}
-		reverter(1);
+		reverter(CHANGESETS - 27);
 		assertThat(tabelasExistentes()).doesNotContain("sugestoes_meta_venda").contains("jobs", "resultados_simulacao");
 		try (Connection connection = abrir();
 				Statement sql = connection.createStatement();
@@ -901,7 +938,8 @@ class MigrationTests {
 			assertThat(colunas).containsExactly("id:uuid:NO", "job_id:uuid:NO", "submissao_id:uuid:NO",
 					"finalidade:text:NO", "estado:text:NO", "tentativas:integer:NO",
 					"reservado_ate:timestamp with time zone:YES", "proxima_tentativa_em:timestamp with time zone:YES",
-					"criado_em:timestamp with time zone:NO", "atualizado_em:timestamp with time zone:NO");
+					"criado_em:timestamp with time zone:NO", "atualizado_em:timestamp with time zone:NO",
+					"resposta_invalida:boolean:NO");
 			try (ResultSet rs = statement
 				.executeQuery(insereTrabalho(JOB_ID, SUBMISSAO_ID.toString()) + " RETURNING *")) {
 				assertThat(rs.next()).isTrue();

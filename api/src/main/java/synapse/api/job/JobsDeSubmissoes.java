@@ -17,6 +17,9 @@ public interface JobsDeSubmissoes {
 
 	boolean falharTranscricao(UUID jobId, UUID submissaoId);
 
+	/** Confere a espera com trava, na transação que reagenda o trabalho. */
+	boolean aguardandoTranscricao(UUID jobId, UUID submissaoId);
+
 	enum TipoEntrada {
 
 		TEXTO, VOZ

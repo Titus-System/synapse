@@ -54,6 +54,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.support.JdbcTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -177,10 +178,13 @@ class SubmissoesHttpTests {
 	@BeforeEach
 	void limpar() {
 		VOZ.set(true);
-		dono.execute("TRUNCATE usuarios CASCADE");
-		dono.update(
-				"INSERT INTO usuarios (id, login, nome, papel, keycloak_sub, criado_em) VALUES (?, 'rh', 'RH', 'profissional_rh', 'subject-a', now())",
-				USUARIO);
+		var tx = new TransactionTemplate(new JdbcTransactionManager(Objects.requireNonNull(dono.getDataSource())));
+		tx.executeWithoutResult(status -> {
+			dono.execute("TRUNCATE usuarios CASCADE");
+			dono.update(
+					"INSERT INTO usuarios (id, login, nome, papel, keycloak_sub, criado_em) VALUES (?, 'rh', 'RH', 'profissional_rh', 'subject-a', now())",
+					USUARIO);
+		});
 	}
 
 	@Test
@@ -254,12 +258,10 @@ class SubmissoesHttpTests {
 	}
 
 	static Stream<Arguments> formatos() {
-		return Stream.of(
-				Arguments.of("webm", "audio/webm;codecs=opus", new byte[] { 0x1a, 0x45, (byte) 0xdf, (byte) 0xa3 }),
+		return Stream.of(Arguments.of("webm", "audio/webm;codecs=opus", AudioDeTeste.webm()),
 				Arguments.of("ogg", "audio/ogg", "OggS".getBytes(StandardCharsets.US_ASCII)),
-				Arguments.of("wav", "audio/wav", "RIFF1234WAVE".getBytes(StandardCharsets.US_ASCII)),
-				Arguments.of("mp4", "audio/mp4",
-						new byte[] { 0, 0, 0, 16, 'f', 't', 'y', 'p', 'M', '4', 'A', ' ', 0, 0, 0, 0 }));
+				Arguments.of("wav", "audio/wav", AudioDeTeste.wav()),
+				Arguments.of("mp4", "audio/mp4", AudioDeTeste.mp4()));
 	}
 
 	@ParameterizedTest
@@ -334,7 +336,16 @@ class SubmissoesHttpTests {
 				Arguments.of("audio/ogg", new byte[] { 1, 2, 3, 4 }), Arguments.of("audio/mpeg", ogg(4)),
 				Arguments.of("application/ogg", ogg(4)),
 				Arguments.of("audio/wav", "RIFF1234FAIL".getBytes(StandardCharsets.US_ASCII)),
+				Arguments.of("audio/wav", wavComTamanhoIncoerente()),
+				Arguments.of("audio/webm", new byte[] { 0x1a, 0x45, (byte) 0xdf, (byte) 0xa3 }),
+				Arguments.of("audio/mp4", java.util.Arrays.copyOf(AudioDeTeste.mp4(), 16)),
 				Arguments.of("audio/mp4", "xxxxxxxxftypxxxx".getBytes(StandardCharsets.US_ASCII)));
+	}
+
+	private static byte[] wavComTamanhoIncoerente() {
+		byte[] bytes = AudioDeTeste.wav();
+		bytes[4] = 0;
+		return bytes;
 	}
 
 	@ParameterizedTest

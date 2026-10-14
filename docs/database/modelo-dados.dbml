@@ -133,6 +133,7 @@ Table trabalhos_transcricao {
   tentativas int [not null, default: 0, note: 'quantidade de tentativas de transcricao iniciadas']
   reservado_ate timestamptz [null, note: 'null enquanto nao ha reserva; prazo de exclusividade do processamento']
   proxima_tentativa_em timestamptz [null, note: 'null enquanto nao ha nova tentativa agendada']
+  resposta_invalida boolean [not null, default: false, note: 'o provedor ja respondeu fora do formato esperado neste trabalho; preservado nas novas tentativas']
   criado_em timestamptz [not null]
   atualizado_em timestamptz [not null, note: 'instante da ultima alteracao do controle; igual a criado_em na insercao']
 
@@ -140,7 +141,7 @@ Table trabalhos_transcricao {
     (submissao_id) [unique, name: 'uq_trabalhos_transcricao_submissao_id']
   }
 
-  Note: 'Controle pertencente a API, com SELECT, INSERT e UPDATE, sem DELETE. Codegen e worker nao acessam. No maximo um trabalho por submissao. Audio e formato permanecem em submissoes; a transacao final do processamento preenche transcricao e transcrito_em. O envio por voz cria o trabalho pendente; o processador agendado o reserva com FOR UPDATE SKIP LOCKED, chama o provedor sem transacao aberta e grava o desfecho. Reserva vencida volta a ser elegivel. Finalidade correcao e ignorada e as novas tentativas com espera sao tarefas posteriores.'
+  Note: 'Controle pertencente a API, com SELECT, INSERT e UPDATE, sem DELETE. Codegen e worker nao acessam. No maximo um trabalho por submissao. Audio e formato permanecem em submissoes; a transacao final do processamento preenche transcricao e transcrito_em. A reserva usa FOR UPDATE SKIP LOCKED e a chamada ao provedor fica fora de transacao. Falha transitoria agenda proxima_tentativa_em; tentativas persistem entre reinicios e incluem reservas vencidas. O limite de tentativas termina o job em erro_transcricao. Finalidade correcao fica para a T-238.'
 }
 
 Table rodadas_correcao {
