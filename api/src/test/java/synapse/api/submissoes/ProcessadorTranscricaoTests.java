@@ -10,6 +10,9 @@ import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -18,6 +21,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -30,6 +34,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.jspecify.annotations.Nullable;
+import org.springframework.transaction.PlatformTransactionManager;
+import synapse.api.core.config.AppProperties;
+import synapse.api.core.logging.CorrelationContext;
+import synapse.api.core.metrics.AppMetrics;
+import synapse.api.job.JobsDeSubmissoes;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -95,6 +105,12 @@ class ProcessadorTranscricaoTests {
 
 	private static ProcessadorTranscricao processador;
 
+	private static RelogioControlado relogio = new RelogioControlado();
+
+	private static final AtomicReference<String> RETRY_AFTER = new AtomicReference<>();
+
+	private static final AtomicBoolean RESPOSTA_INVALIDA = new AtomicBoolean();
+
 	private static JdbcTemplate dono;
 
 	private static String base;
@@ -159,6 +175,13 @@ class ProcessadorTranscricaoTests {
 		byte[] corpo = ("{\"results\":{\"channels\":[{\"alternatives\":[{\"transcript\":\"" + TRANSCRITO.get()
 				+ "\"}]}]}}")
 			.getBytes(StandardCharsets.UTF_8);
+		if (RESPOSTA_INVALIDA.get()) {
+			corpo = "{}".getBytes(StandardCharsets.UTF_8);
+		}
+		String prazo = RETRY_AFTER.get();
+		if (prazo != null) {
+			exchange.getResponseHeaders().add("Retry-After", prazo);
+		}
 		exchange.getResponseHeaders().add("Content-Type", "application/json");
 		exchange.sendResponseHeaders(STATUS.get(), corpo.length);
 		try (var saida = exchange.getResponseBody()) {
@@ -187,6 +210,10 @@ class ProcessadorTranscricaoTests {
 
 	@BeforeEach
 	void limpar() {
+		relogio = new RelogioControlado();
+		processador = novoProcessador();
+		RETRY_AFTER.set(null);
+		RESPOSTA_INVALIDA.set(false);
 		STATUS.set(200);
 		TRANSCRITO.set(TEXTO);
 		CHAMADAS.set(0);
@@ -199,7 +226,22 @@ class ProcessadorTranscricaoTests {
 
 	@AfterEach
 	void conferirCorrelacaoLimpa() {
+		processador.encerrar();
 		assertThat(MDC.get("job_id")).as("o ciclo não pode deixar o job_id na thread").isNull();
+	}
+
+	@Test
+	void falhaTransitoriaReagendaSemEncerrarOJob() throws Exception {
+		STATUS.set(503);
+		var criada = criarVoz(wav(1), "audio/wav");
+		processador.processarPendentes();
+		assertThat(status(criada.job())).isEqualTo("aguardando_transcricao");
+		assertThat(trabalho(criada.job())).containsEntry("estado", "pendente")
+			.containsEntry("tentativas", 1)
+			.hasEntrySatisfying("proxima_tentativa_em", instante -> assertThat(instante).isNotNull());
+		processador.processarPendentes();
+		assertThat(CHAMADAS.get()).isEqualTo(1);
+		assertThat(contar("outbox_events")).isZero();
 	}
 
 	@Test
@@ -247,7 +289,7 @@ class ProcessadorTranscricaoTests {
 	}
 
 	@ParameterizedTest
-	@CsvSource({ "503,transitoria", "400,permanente", "200,texto_vazio" })
+	@CsvSource({ "400,permanente", "200,texto_vazio" })
 	void falhaDoProvedorTerminaOJobEmErroComOMotivoLocalizado(int status, String classe) throws Exception {
 		STATUS.set(status);
 		if ("texto_vazio".equals(classe)) {
@@ -634,6 +676,262 @@ class ProcessadorTranscricaoTests {
 	}
 
 	private record Submissao(UUID id, UUID job) {
+	}
+
+	private static ProcessadorTranscricao novoProcessador() {
+		return novoProcessador(contexto.getBean(AppProperties.class));
+	}
+
+	private static ProcessadorTranscricao novoProcessador(AppProperties properties) {
+		return new ProcessadorTranscricao(contexto.getBean(SubmissoesRepository.class),
+				contexto.getBean(ClienteDeepgram.class), contexto.getBean(JobsDeSubmissoes.class),
+				contexto.getBean(PlatformTransactionManager.class), contexto.getBean(CorrelationContext.class),
+				contexto.getBean(AppMetrics.class), properties, relogio);
+	}
+
+	@Test
+	void retomaSomenteNoHorarioEConcluiUmaUnicaVezMesmoComNovoProcessador() throws Exception {
+		var criada = criarVoz(wav(1), "audio/wav");
+		Instant inicio = Instant.now().plusSeconds(1).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+		relogio.fixar(inicio);
+		STATUS.set(503);
+		processador.processarPendentes();
+		assertThat(proxima(criada.job())).isEqualTo(inicio.plusSeconds(10));
+		processador.encerrar();
+		processador = novoProcessador();
+		relogio.fixar(inicio.plusSeconds(10).minusNanos(1000));
+		processador.processarPendentes();
+		assertThat(CHAMADAS.get()).isEqualTo(1);
+		STATUS.set(200);
+		relogio.fixar(inicio.plusSeconds(10));
+		processador.processarPendentes();
+		processador.processarPendentes();
+		assertThat(CHAMADAS.get()).isEqualTo(2);
+		assertThat(trabalho(criada.job())).containsEntry("estado", "concluido")
+			.containsEntry("tentativas", 2)
+			.containsEntry("proxima_tentativa_em", null);
+		assertThat(status(criada.job())).isEqualTo("gerando_regra");
+		assertThat(contar("outbox_events WHERE tipo = 'regra-submetida'")).isEqualTo(1);
+	}
+
+	@Test
+	void esperaCresceEOTerceiroErroEsgotaComLogsEMetricasReais() throws Exception {
+		var criada = criarVoz(wav(1), "audio/wav");
+		Instant inicio = Instant.now().plusSeconds(1).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+		relogio.fixar(inicio);
+		STATUS.set(503);
+		String antes = metricas();
+		try (var logs = new CapturaDeLog(ProcessadorTranscricao.class)) {
+			processador.processarPendentes();
+			assertThat(proxima(criada.job())).isEqualTo(inicio.plusSeconds(10));
+			relogio.fixar(proxima(criada.job()));
+			processador.processarPendentes();
+			assertThat(proxima(criada.job())).isEqualTo(inicio.plusSeconds(40));
+			assertThat(status(criada.job())).isEqualTo("aguardando_transcricao");
+			relogio.fixar(proxima(criada.job()));
+			processador.processarPendentes();
+			var linhas = logs.eventos().stream().map(CapturaDeLog::emJson).toList();
+			for (String linha : linhas) {
+				ContratoDeEvento.validarLog(linha);
+				assertThat(linha).contains(criada.job().toString()).doesNotContain(TEXTO, CHAVE, "RIFF");
+			}
+			assertThat(linhas).anySatisfy(
+					linha -> assertThat(linha).contains("nova_tentativa", "proxima_tentativa_em", "tentativas"));
+			assertThat(linhas).anySatisfy(linha -> assertThat(linha).contains("esgotado", "transitoria"));
+		}
+		assertThat(CHAMADAS.get()).isEqualTo(3);
+		assertThat(trabalho(criada.job())).containsEntry("estado", "falhou")
+			.containsEntry("tentativas", 3)
+			.containsEntry("proxima_tentativa_em", null);
+		assertThat(status(criada.job())).isEqualTo("erro");
+		assertThat(dono.queryForObject(
+				"SELECT motivo FROM job_transicoes WHERE job_id = ? ORDER BY ocorrido_em DESC LIMIT 1", String.class,
+				criada.job()))
+			.isEqualTo("erro_transcricao");
+		String depois = metricas();
+		for (String resultado : List.of("nova_tentativa", "esgotado")) {
+			String serie = "transcricao_trabalhos_total{resultado=\"" + resultado + "\"}";
+			assertThat(amostra(depois, serie))
+				.isEqualTo(amostra(antes, serie) + (resultado.equals("nova_tentativa") ? 2 : 1));
+			assertThat(contexto.getBean(io.micrometer.core.instrument.MeterRegistry.class)
+				.get("transcricao.trabalhos")
+				.tag("resultado", resultado)
+				.counter()
+				.count()).isEqualTo(amostra(depois, serie));
+		}
+		assertThat(amostra(depois, "transcricao_trabalhos_total{resultado=\"concluida\"}"))
+			.isEqualTo(amostra(antes, "transcricao_trabalhos_total{resultado=\"concluida\"}"));
+	}
+
+	@Test
+	void limiteDeTaxaRespeitaPrazoMaiorQueOTetoLocalSemGastarTentativas() throws Exception {
+		var criada = criarVoz(wav(1), "audio/wav");
+		Instant inicio = Instant.now().plusSeconds(1).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+		relogio.fixar(inicio);
+		STATUS.set(429);
+		RETRY_AFTER.set("900");
+		processador.processarPendentes();
+		assertThat(proxima(criada.job())).isEqualTo(inicio.plusSeconds(900));
+		relogio.fixar(inicio.plusSeconds(899));
+		processador.processarPendentes();
+		assertThat(CHAMADAS.get()).isEqualTo(1);
+		assertThat(trabalho(criada.job())).containsEntry("tentativas", 1);
+		relogio.fixar(inicio.plusSeconds(900));
+		STATUS.set(200);
+		processador.processarPendentes();
+		assertThat(trabalho(criada.job())).containsEntry("estado", "concluido").containsEntry("tentativas", 2);
+	}
+
+	@Test
+	void ultimaReservaVencidaEsgotaSemUmaQuartaChamada() throws Exception {
+		var criada = criarVoz(wav(1), "audio/wav");
+		dono.update(
+				"UPDATE trabalhos_transcricao SET estado = 'em_andamento', tentativas = 3, reservado_ate = now() - interval '1 second'");
+		processador.processarPendentes();
+		assertThat(CHAMADAS.get()).isZero();
+		assertThat(trabalho(criada.job())).containsEntry("estado", "falhou").containsEntry("tentativas", 3);
+		assertThat(status(criada.job())).isEqualTo("erro");
+	}
+
+	@Test
+	void segundaRespostaInvalidaEhPermanenteMesmoAposReiniciar() throws Exception {
+		var criada = criarVoz(wav(1), "audio/wav");
+		RESPOSTA_INVALIDA.set(true);
+		processador.processarPendentes();
+		assertThat(trabalho(criada.job())).containsEntry("resposta_invalida", true).containsEntry("estado", "pendente");
+		processador.encerrar();
+		processador = novoProcessador();
+		relogio.fixar(proxima(criada.job()));
+		processador.processarPendentes();
+		assertThat(CHAMADAS.get()).isEqualTo(2);
+		assertThat(trabalho(criada.job())).containsEntry("estado", "falhou").containsEntry("tentativas", 2);
+		assertThat(status(criada.job())).isEqualTo("erro");
+	}
+
+	@Test
+	void limitePorInstanciaNaoBloqueiaOPollerEDrenaAFila() throws Exception {
+		for (int i = 0; i < 6; i++) {
+			criarVoz(wav(1), "audio/wav");
+		}
+		var chegaram = new CountDownLatch(2);
+		var liberar = new CountDownLatch(1);
+		var ativas = new AtomicInteger();
+		var pico = new AtomicInteger();
+		DURANTE_A_CHAMADA.set(() -> {
+			int atual = ativas.incrementAndGet();
+			pico.accumulateAndGet(atual, Math::max);
+			chegaram.countDown();
+			try {
+				assertThat(liberar.await(15, TimeUnit.SECONDS)).isTrue();
+			}
+			catch (InterruptedException ex) {
+				Thread.currentThread().interrupt();
+			}
+			finally {
+				ativas.decrementAndGet();
+			}
+		});
+		try (var logs = new CapturaDeLog(ProcessadorTranscricao.class)) {
+			processador.agendarPendentes();
+			assertThat(chegaram.await(10, TimeUnit.SECONDS)).isTrue();
+			for (int i = 0; i < 10; i++) {
+				processador.agendarPendentes();
+				processador.processarPendentes();
+			}
+			assertThat(CHAMADAS.get()).isEqualTo(2);
+			liberar.countDown();
+			await().atMost(Duration.ofSeconds(20))
+				.untilAsserted(
+						() -> assertThat(contar("trabalhos_transcricao WHERE estado = 'concluido'")).isEqualTo(6));
+			await().atMost(Duration.ofSeconds(5))
+				.untilAsserted(() -> assertThat(logs.eventos()
+					.stream()
+					.filter(evento -> evento.getFormattedMessage().equals("transcrição processada"))
+					.count()).isEqualTo(6));
+			assertThat(pico.get()).isEqualTo(2);
+			assertThat(CHAMADAS.get()).isEqualTo(6);
+			for (var evento : logs.eventos()) {
+				String linha = CapturaDeLog.emJson(evento);
+				ContratoDeEvento.validarLog(linha);
+				assertThat(linha).doesNotContain(TEXTO, CHAVE, "RIFF");
+				var eventoJson = JSON.readTree(linha);
+				UUID trabalhoId = UUID.fromString(eventoJson.path("extra").path("trabalho_id").asString());
+				String jobEsperado = Objects.requireNonNull(dono.queryForObject(
+						"SELECT job_id::text FROM trabalhos_transcricao WHERE id = ?", String.class, trabalhoId));
+				assertThat(eventoJson.path("job_id").asString()).isEqualTo(jobEsperado);
+			}
+		}
+		finally {
+			liberar.countDown();
+		}
+	}
+
+	private static Instant proxima(UUID job) {
+		return ((java.sql.Timestamp) Objects.requireNonNull(trabalho(job).get("proxima_tentativa_em"))).toInstant();
+	}
+
+	@Test
+	void tetoEQuantidadeDeTentativasSaoConfiguraveis() throws Exception {
+		var properties = contexto.getBean(AppProperties.class);
+		var transcription = properties.transcription();
+		var processor = new AppProperties.Transcription.Processor(false, Duration.ofSeconds(1), Duration.ofSeconds(30),
+				4, Duration.ofSeconds(10), 3, Duration.ofSeconds(15), 2);
+		var configuracao = new AppProperties(properties.environment(), properties.service(), properties.cors(),
+				properties.observability(), properties.postgres(), properties.rabbitmq(), properties.sse(),
+				properties.outbox(), properties.keycloak(),
+				new AppProperties.Transcription(transcription.apiKey(), transcription.baseUrl(),
+						transcription.connectTimeoutMs(), transcription.readTimeoutMs(), processor));
+		processador.encerrar();
+		processador = novoProcessador(configuracao);
+		var criada = criarVoz(wav(1), "audio/wav");
+		Instant inicio = Instant.now().plusSeconds(1).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+		relogio.fixar(inicio);
+		STATUS.set(503);
+		for (long segundos : new long[] { 10, 25, 40 }) {
+			processador.processarPendentes();
+			assertThat(proxima(criada.job())).isEqualTo(inicio.plusSeconds(segundos));
+			relogio.fixar(proxima(criada.job()));
+		}
+		processador.processarPendentes();
+		assertThat(CHAMADAS.get()).isEqualTo(4);
+		assertThat(status(criada.job())).isEqualTo("erro");
+	}
+
+	@Test
+	void falhaTransitoriaDeJobCanceladoNaoReagenda() throws Exception {
+		var criada = criarVoz(wav(1), "audio/wav");
+		STATUS.set(503);
+		DURANTE_A_CHAMADA.set(() -> cancelar(criada.job()));
+		processador.processarPendentes();
+		assertThat(status(criada.job())).isEqualTo("cancelado");
+		assertThat(trabalho(criada.job())).containsEntry("estado", "descartado")
+			.containsEntry("proxima_tentativa_em", null);
+	}
+
+	private static final class RelogioControlado extends Clock {
+
+		private volatile @Nullable Instant fixo;
+
+		void fixar(Instant instante) {
+			this.fixo = instante;
+		}
+
+		@Override
+		public ZoneId getZone() {
+			return java.time.ZoneOffset.UTC;
+		}
+
+		@Override
+		public Clock withZone(ZoneId zona) {
+			return this;
+		}
+
+		@Override
+		public Instant instant() {
+			Instant instante = this.fixo;
+			return instante == null ? Instant.now() : instante;
+		}
+
 	}
 
 }

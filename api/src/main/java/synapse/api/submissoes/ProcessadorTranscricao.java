@@ -1,16 +1,24 @@
 package synapse.api.submissoes;
 
 import java.time.Duration;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.RejectedExecutionException;
+
+import jakarta.annotation.PreDestroy;
 
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -20,10 +28,10 @@ import synapse.api.core.metrics.AppMetrics;
 import synapse.api.job.JobsDeSubmissoes;
 
 /**
- * Transcreve os áudios já persistidos, um trabalho por vez, em três passos: uma transação
- * curta reserva o trabalho, a chamada ao provedor acontece sem transação aberta, e uma
- * transação nova grava o texto e encerra o trabalho junto com a transição do job e o seu
- * evento de outbox.
+ * Transcreve os áudios já persistidos, com simultaneidade limitada, em três passos: uma
+ * transação curta reserva o trabalho, a chamada ao provedor acontece sem transação
+ * aberta, e uma transação nova grava o texto e encerra o trabalho junto com a transição
+ * do job e o seu evento de outbox.
  *
  * <p>
  * A chamada externa nunca mantém aberta a transação que grava o job e o seu evento: ela
@@ -54,9 +62,22 @@ class ProcessadorTranscricao {
 
 	private final AppProperties.Transcription.Processor properties;
 
+	private final Clock relogio;
+
+	private final Semaphore vagas;
+
+	private final ExecutorService executor;
+
+	@Autowired
 	ProcessadorTranscricao(SubmissoesRepository repository, ClienteDeepgram cliente, JobsDeSubmissoes jobs,
 			PlatformTransactionManager transacoes, CorrelationContext correlacao, AppMetrics metrics,
 			AppProperties properties) {
+		this(repository, cliente, jobs, transacoes, correlacao, metrics, properties, Clock.systemUTC());
+	}
+
+	ProcessadorTranscricao(SubmissoesRepository repository, ClienteDeepgram cliente, JobsDeSubmissoes jobs,
+			PlatformTransactionManager transacoes, CorrelationContext correlacao, AppMetrics metrics,
+			AppProperties properties, Clock relogio) {
 		this.repository = repository;
 		this.cliente = cliente;
 		this.jobs = jobs;
@@ -64,6 +85,39 @@ class ProcessadorTranscricao {
 		this.correlacao = correlacao;
 		this.metrics = metrics;
 		this.properties = properties.transcription().processor();
+		this.relogio = relogio;
+		this.vagas = new Semaphore(this.properties.concurrency());
+		this.executor = Executors.newFixedThreadPool(this.properties.concurrency());
+	}
+
+	@PreDestroy
+	void encerrar() {
+		this.executor.shutdownNow();
+	}
+
+	/** O scheduler apenas despacha; nenhuma chamada externa ocupa sua thread. */
+	void agendarPendentes() {
+		for (int i = 0; i < this.properties.concurrency() && this.vagas.tryAcquire(); i++) {
+			try {
+				this.executor.execute(() -> {
+					try {
+						drenar();
+					}
+					catch (RuntimeException ex) {
+						log.atError()
+							.addKeyValue("excecao", ex.getClass().getSimpleName())
+							.log("ciclo de transcrição interrompido");
+					}
+					finally {
+						this.vagas.release();
+					}
+				});
+			}
+			catch (RejectedExecutionException ex) {
+				this.vagas.release();
+				return;
+			}
+		}
 	}
 
 	/**
@@ -72,14 +126,27 @@ class ProcessadorTranscricao {
 	 * preservar entre trabalhos de jobs distintos.
 	 */
 	void processarPendentes() {
-		while (processarUm()) {
+		if (!this.vagas.tryAcquire()) {
+			return;
+		}
+		try {
+			drenar();
+		}
+		finally {
+			this.vagas.release();
+		}
+	}
+
+	private void drenar() {
+		while (!Thread.currentThread().isInterrupted() && !this.executor.isShutdown() && processarUm()) {
 			// Enquanto houver trabalho elegível, o ciclo continua.
 		}
 	}
 
 	private boolean processarUm() {
-		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
-		var reservados = this.repository.reservarTrabalho(agora, this.properties.reservationTimeout());
+		Instant agora = agora();
+		var reservados = this.repository.reservarTrabalho(agora, this.properties.reservationTimeout(),
+				this.properties.maxAttempts());
 		if (reservados.isEmpty()) {
 			return false;
 		}
@@ -91,7 +158,7 @@ class ProcessadorTranscricao {
 					.addKeyValue("tentativas", trabalho.tentativas())
 					.log("reserva vencida de transcrição recuperada");
 			}
-			else {
+			else if (trabalho.tentativas() == 1) {
 				this.metrics.transcricaoEspera()
 					.record(Duration.between(trabalho.criadoEm(), agora).toNanos(), TimeUnit.NANOSECONDS);
 			}
@@ -106,9 +173,10 @@ class ProcessadorTranscricao {
 
 	private void processar(SubmissoesRepository.TrabalhoReservado trabalho) {
 		Desfecho desfecho = transcrever(trabalho);
+		Instant proxima = proximaTentativa(desfecho, agora());
 		Resultado resultado;
 		try {
-			resultado = Objects.requireNonNull(this.transacao.execute(status -> gravar(trabalho, desfecho)));
+			resultado = Objects.requireNonNull(this.transacao.execute(status -> gravar(trabalho, desfecho, proxima)));
 		}
 		catch (RuntimeException ex) {
 			// Nem a mensagem nem a causa: a exceção do driver pode carregar a linha.
@@ -124,15 +192,15 @@ class ProcessadorTranscricao {
 			.addKeyValue("tentativas", trabalho.tentativas())
 			.addKeyValue("resultado", resultado.rotulo)
 			.addKeyValue("classe_motivo", desfecho.classeDoMotivo)
+			.addKeyValue("proxima_tentativa_em", resultado == Resultado.NOVA_TENTATIVA ? proxima.toString() : null)
 			.log("transcrição processada");
 	}
 
-	/**
-	 * A chamada ao provedor, fora de transação. Toda falha termina o job em erro neste
-	 * esqueleto; as novas tentativas com espera crescente são da T-237, e por isso o
-	 * desfecho distingue a falha transitória da permanente somente no sinal observável.
-	 */
+	/** Mede somente chamadas efetivas; uma reserva esgotada não chama o provedor. */
 	private Desfecho transcrever(SubmissoesRepository.TrabalhoReservado trabalho) {
+		if (trabalho.limiteEsgotado()) {
+			return Desfecho.falha("reserva_vencida", "falhou_transitoria");
+		}
 		long inicio = System.nanoTime();
 		Desfecho desfecho = chamar(trabalho);
 		this.metrics.transcricaoChamada(desfecho.medidaDaChamada)
@@ -147,14 +215,16 @@ class ProcessadorTranscricao {
 				return Desfecho.falha("permanente", "falhou_permanente");
 			}
 			var audio = gravados.getFirst();
-			String texto = this.cliente.transcrever(audio.bytes(), "audio/" + audio.formato());
+			String texto = this.cliente.transcrever(audio.bytes(), "audio/" + audio.formato(),
+					trabalho.respostaInvalida());
 			if (EntradaSubmissao.semConteudo(texto)) {
 				return Desfecho.falha("texto_vazio", "texto_vazio");
 			}
 			return Desfecho.sucesso(texto);
 		}
 		catch (TranscricaoTransitoriaException ex) {
-			return Desfecho.falha("transitoria", "falhou_transitoria");
+			return new Desfecho(null, "transitoria", "falhou_transitoria", ex.prazoParaNovaTentativa(),
+					ex.respostaInvalida(), trabalho.tentativas());
 		}
 		catch (TranscricaoPermanenteException ex) {
 			return Desfecho.falha("permanente", "falhou_permanente");
@@ -179,16 +249,26 @@ class ProcessadorTranscricao {
 	 * enquanto o provedor respondia, por exemplo. Nesse caso o trabalho é descartado e
 	 * nada mais é gravado: nem o texto, nem a transição, nem o evento.
 	 */
-	private Resultado gravar(SubmissoesRepository.TrabalhoReservado trabalho, Desfecho desfecho) {
-		if (!this.repository.reservaAindaENossa(trabalho.id(), trabalho.tentativas())) {
+	private Resultado gravar(SubmissoesRepository.TrabalhoReservado trabalho, Desfecho desfecho, Instant proxima) {
+		if (!this.repository.reservaAindaENossa(trabalho.id(), trabalho.tentativas(), trabalho.reservadoAte())) {
 			return Resultado.RESERVA_PERDIDA;
 		}
-		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		Instant agora = agora();
 		String texto = desfecho.texto;
 		if (texto == null) {
+			if ("transitoria".equals(desfecho.classeDoMotivo)
+					&& trabalho.tentativas() < this.properties.maxAttempts()) {
+				if (!this.jobs.aguardandoTranscricao(trabalho.jobId(), trabalho.submissaoId())) {
+					this.repository.encerrarTrabalho(trabalho.id(), "descartado", agora);
+					return Resultado.DESCARTADA;
+				}
+				this.repository.reagendar(trabalho.id(), agora, proxima, desfecho.respostaInvalida);
+				return Resultado.NOVA_TENTATIVA;
+			}
 			boolean aplicada = this.jobs.falharTranscricao(trabalho.jobId(), trabalho.submissaoId());
 			this.repository.encerrarTrabalho(trabalho.id(), aplicada ? "falhou" : "descartado", agora);
-			return aplicada ? desfecho.resultado() : Resultado.DESCARTADA;
+			return aplicada ? ("transitoria".equals(desfecho.classeDoMotivo) || trabalho.limiteEsgotado()
+					? Resultado.ESGOTADO : Resultado.FALHOU_PERMANENTE) : Resultado.DESCARTADA;
 		}
 		if (!this.jobs.concluirTranscricao(trabalho.jobId(), trabalho.submissaoId())) {
 			this.repository.encerrarTrabalho(trabalho.id(), "descartado", agora);
@@ -200,27 +280,46 @@ class ProcessadorTranscricao {
 	}
 
 	/** O que a chamada ao provedor produziu: o texto, ou a classe da falha. */
-	private record Desfecho(@Nullable String texto, String classeDoMotivo, String medidaDaChamada) {
+	private record Desfecho(@Nullable String texto, String classeDoMotivo, String medidaDaChamada, Duration prazo,
+			boolean respostaInvalida, int tentativa) {
 
 		private static Desfecho sucesso(String texto) {
-			return new Desfecho(texto, "nenhum", "concluida");
+			return new Desfecho(texto, "nenhum", "concluida", Duration.ZERO, false, 0);
 		}
 
 		private static Desfecho falha(String classeDoMotivo, String medidaDaChamada) {
-			return new Desfecho(null, classeDoMotivo, medidaDaChamada);
+			return new Desfecho(null, classeDoMotivo, medidaDaChamada, Duration.ZERO, false, 0);
 		}
 
-		private Resultado resultado() {
-			return "transitoria".equals(this.classeDoMotivo) ? Resultado.FALHOU_TRANSITORIA
-					: Resultado.FALHOU_PERMANENTE;
-		}
+	}
 
+	private Instant agora() {
+		return this.relogio.instant().truncatedTo(ChronoUnit.MICROS);
+	}
+
+	private Instant proximaTentativa(Desfecho desfecho, Instant agora) {
+		Duration espera = this.properties.initialBackoff();
+		for (int i = 1; i < desfecho.tentativa && espera.compareTo(this.properties.maxBackoff()) < 0; i++) {
+			try {
+				espera = espera.multipliedBy(this.properties.backoffMultiplier());
+			}
+			catch (ArithmeticException ex) {
+				espera = this.properties.maxBackoff();
+			}
+		}
+		if (espera.compareTo(this.properties.maxBackoff()) > 0) {
+			espera = this.properties.maxBackoff();
+		}
+		if (desfecho.prazo.compareTo(espera) > 0) {
+			espera = desfecho.prazo;
+		}
+		return agora.plus(espera);
 	}
 
 	/** O desfecho do trabalho, já considerando a transação final. */
 	private enum Resultado {
 
-		CONCLUIDA("concluida", false), FALHOU_TRANSITORIA("falhou_transitoria", true),
+		CONCLUIDA("concluida", false), NOVA_TENTATIVA("nova_tentativa", true), ESGOTADO("esgotado", true),
 		FALHOU_PERMANENTE("falhou_permanente", true), DESCARTADA("descartada", false),
 		RESERVA_PERDIDA("reserva_perdida", false), INTERROMPIDA("interrompida", true);
 

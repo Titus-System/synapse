@@ -39,6 +39,21 @@ class TranscricaoConfiguracaoTests {
 		var processor = this.properties.transcription().processor();
 		assertThat(processor.pollInterval()).isEqualTo(Duration.ofSeconds(1));
 		assertThat(processor.reservationTimeout()).isEqualTo(Duration.ofMinutes(5));
+		assertThat(processor.maxAttempts()).isEqualTo(3);
+		assertThat(processor.initialBackoff()).isEqualTo(Duration.ofSeconds(10));
+		assertThat(processor.backoffMultiplier()).isEqualTo(3);
+		assertThat(processor.maxBackoff()).isEqualTo(Duration.ofMinutes(5));
+		assertThat(processor.concurrency()).isEqualTo(2);
+	}
+
+	@ParameterizedTest
+	@CsvSource({ "0,10,300,3,2", "3,0,300,3,2", "3,10,5,3,2", "3,10,300,1,2", "3,10,300,3,0" })
+	void politicaInvalidaEhRecusada(int tentativas, int espera, int teto, int multiplicador, int simultaneas) {
+		var processor = new AppProperties.Transcription.Processor(true, Duration.ofSeconds(1), Duration.ofMinutes(5),
+				tentativas, Duration.ofSeconds(espera), multiplicador, Duration.ofSeconds(teto), simultaneas);
+		try (var factory = Validation.buildDefaultValidatorFactory()) {
+			assertThat(factory.getValidator().validate(processor)).isNotEmpty();
+		}
 	}
 
 	@ParameterizedTest

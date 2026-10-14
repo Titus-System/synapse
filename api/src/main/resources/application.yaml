@@ -111,6 +111,11 @@ app:
       enabled: ${TRANSCRIPTION_PROCESSOR_ENABLED:true}
       poll-interval: ${TRANSCRIPTION_POLL_INTERVAL:1s}
       reservation-timeout: ${TRANSCRIPTION_RESERVATION_TIMEOUT:5m}
+      max-attempts: ${TRANSCRIPTION_MAX_ATTEMPTS:3}
+      initial-backoff: ${TRANSCRIPTION_INITIAL_BACKOFF:10s}
+      backoff-multiplier: ${TRANSCRIPTION_BACKOFF_MULTIPLIER:3}
+      max-backoff: ${TRANSCRIPTION_MAX_BACKOFF:5m}
+      concurrency: ${TRANSCRIPTION_CONCURRENCY:2}
 
 logging:
   level:

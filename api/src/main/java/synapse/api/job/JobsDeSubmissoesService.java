@@ -121,6 +121,17 @@ class JobsDeSubmissoesService implements JobsDeSubmissoes {
 		return encerrarTranscricao(jobId, submissaoId, false);
 	}
 
+	@Override
+	public boolean aguardandoTranscricao(UUID jobId, UUID submissaoId) {
+		var encontrados = this.repository.buscarContextoComTrava(jobId);
+		if (encontrados.isEmpty()) {
+			return false;
+		}
+		var job = encontrados.getFirst();
+		return job.status() == JobStatus.AGUARDANDO_TRANSCRICAO && "voz".equals(job.origem())
+				&& submissaoId.equals(job.submissaoId());
+	}
+
 	private boolean encerrarTranscricao(UUID jobId, UUID submissaoId, boolean sucesso) {
 		var observacao = new ObservacaoTranscricao(jobId, sucesso ? "concluir" : "falhar");
 		TransactionSynchronizationManager.registerSynchronization(observacao);

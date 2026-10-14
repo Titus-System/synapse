@@ -13,8 +13,8 @@ import synapse.api.core.config.AppProperties;
 
 /**
  * Agenda {@link ProcessadorTranscricao} a cada {@code app.transcription.processor.poll-
- * interval}. Atraso fixo, como o poller do outbox: o intervalo conta a partir do fim do
- * ciclo anterior, então um ciclo que esperou o provedor não se sobrepõe ao seguinte.
+ * interval}. O agendamento somente despacha para o executor limitado do processador;
+ * esperas pelo provedor não bloqueiam o scheduler compartilhado com o outbox.
  *
  * <p>
  * Sem a chave do provedor nada é agendado, e a mesma condição que faz
@@ -48,7 +48,7 @@ class ProcessadorTranscricaoConfig implements SchedulingConfigurer {
 			log.info("processador de transcrição desligado: provedor não configurado");
 			return;
 		}
-		registrar.addFixedDelayTask(this.processador::processarPendentes,
+		registrar.addFixedDelayTask(this.processador::agendarPendentes,
 				this.properties.transcription().processor().pollInterval());
 	}
 

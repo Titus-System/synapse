@@ -40,12 +40,12 @@ public class AppMetrics {
 	}
 
 	/**
-	 * Trabalhos de transcrição com desfecho, um incremento por trabalho processado.
+	 * Tentativas de transcrição com desfecho confirmado, não jobs únicos.
 	 * {@code resultado} vem de um conjunto fechado - {@code concluida},
-	 * {@code falhou_transitoria}, {@code falhou_permanente}, {@code descartada},
-	 * {@code reserva_perdida} e {@code interrompida}. Só {@code concluida} é conclusão de
-	 * negócio: a retomada de uma reserva vencida e a reserva perdida para outra instância
-	 * não produzem texto nem evento.
+	 * {@code nova_tentativa}, {@code esgotado}, {@code falhou_permanente},
+	 * {@code descartada}, {@code reserva_perdida} e {@code interrompida}. Só
+	 * {@code concluida} é conclusão de negócio: a retomada de uma reserva vencida e a
+	 * reserva perdida para outra instância não produzem texto nem evento.
 	 */
 	public Counter transcricaoTrabalho(String resultado) {
 		return Counter.builder("transcricao.trabalhos")

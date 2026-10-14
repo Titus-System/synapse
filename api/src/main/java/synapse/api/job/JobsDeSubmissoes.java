@@ -21,6 +21,9 @@ public interface JobsDeSubmissoes {
 
 	boolean falharTranscricao(UUID jobId, UUID submissaoId);
 
+	/** Confere a espera com trava, na transação que reagenda o trabalho. */
+	boolean aguardandoTranscricao(UUID jobId, UUID submissaoId);
+
 	/** Grava a submissão somente depois da autorização e da trava do job. */
 	CorrecaoRecebida corrigir(UUID jobId, AcessoDoUsuario acesso, Function<UUID, UUID> gravarSubmissao, Instant agora);
 
