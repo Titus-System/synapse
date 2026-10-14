@@ -33,6 +33,7 @@ def test_corpus_versionado_cobre_categorias_obrigatorias() -> None:
         "vigencia_mes",
         "vigencia_intervalo",
         "virgula",
+        "percentual_por_cento",
         "extenso",
         "nomes_canonicos",
         "gerentes",

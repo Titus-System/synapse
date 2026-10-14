@@ -111,6 +111,24 @@
     "parametros_esperados": {}
   },
   {
+    "id": "percentual_por_cento",
+    "texto": "A comissão será de 0,5 por cento da venda.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {
+        "percentual": 0.005
+      },
+      "especificacoes": []
+    },
+    "parametros_esperados": {}
+  },
+  {
     "id": "extenso",
     "texto": "A comissão é de dois e meio por cento.",
     "competencias_publicadas": [

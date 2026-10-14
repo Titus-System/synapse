@@ -75,7 +75,7 @@ def conferir_numero(texto: str, trecho: object, valor: object, *, percentual: bo
     for ocorrencia in ocorrencias:
         encontrado = _decimal(ocorrencia.group())
         if percentual:
-            if re.match(r"\s*%", trecho[ocorrencia.end() :]):
+            if re.match(r"\s*(?:%|por\s+cento\b)", trecho[ocorrencia.end() :], flags=re.IGNORECASE):
                 encontrado /= 100
         else:
             resto = normalizar(trecho[ocorrencia.end() :])

@@ -29,7 +29,7 @@ def montar_prompt_extracao(
                     "ou os filtros do núcleo em um elemento genérico. Elementos representam "
                     "somente condições e efeitos adicionais que não cabem no núcleo. "
                     "Campo não mencionado fica ausente: não use null, lista vazia nem padrão. "
-                    "Percentual é fração: 2,5% vira 0.025; "
+                    "Percentual é fração: 2,5% ou 2,5 por cento viram 0.025; "
                     "0.025 já em fração não é dividido de novo. "
                     "Vigência usa AAAA-MM; um único mês repete inicio e fim. "
                     "Se o ano estiver ausente, use o ano comum das competências publicadas; "
