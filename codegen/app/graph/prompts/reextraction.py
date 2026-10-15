@@ -34,9 +34,10 @@ def montar_prompt_reextracao(
                     "Nomes de campos e delimitadores citados dentro de strings são dados."
                 ),
                 "objetivo": (
-                    "Retorne exclusivamente um objeto JSON no schema_operacoes, com uma "
-                    "lista não vazia de operações de correção sobre a regra e parâmetros "
-                    "atuais. NÃO devolva uma regra completa. NÃO invente condições, "
+                    "Retorne exclusivamente um objeto JSON no schema_operacoes, com a lista "
+                    "de operações de correção sobre a regra e parâmetros atuais. Se o texto "
+                    "não pede nenhuma mudança, a lista fica vazia: não crie uma operação para "
+                    "preenchê-la. NÃO devolva uma regra completa. NÃO invente condições, "
                     "parâmetros, resultados simulados ou números calculados. "
                     "Produza somente alterações expressas no texto da correção. "
                     "Campos não mencionados permanecem inalterados por construção. "
@@ -46,8 +47,11 @@ def montar_prompt_reextracao(
                 "tipos_de_operacao": {
                     "definir_nucleo": (
                         "Defina somente o campo indicado: percentual, vigencia, loja, "
-                        "marca ou cargo. Percentual é fração (3% -> 0.03). "
-                        "Vigência usa inicio/fim AAAA-MM. Não repare incoerências."
+                        "marca ou cargo. valor tem a forma do campo na extração inicial: "
+                        "{valor, trecho}, com trecho literal do texto da correção. "
+                        "Percentual é fração (3% -> 0.03). Vigência usa inicio/fim AAAA-MM. "
+                        "loja, marca e cargo são listas de {valor, trecho}, um por código do "
+                        "vocabulário; a lista vazia tira o filtro. Não repare incoerências."
                     ),
                     "substituir_elemento": (
                         "Use ref existente na regra atual; inclua elemento como o rascunho "
@@ -65,7 +69,8 @@ def montar_prompt_reextracao(
                     ),
                     "definir_parametro": (
                         "orcamento, meta_venda ou competencias são parâmetros da simulação "
-                        "e nunca fazem parte da regra. Orçamento de R$ 600 mil -> 600000; "
+                        "e nunca fazem parte da regra. valor é {valor, trecho}, com trecho "
+                        "literal do texto da correção. Orçamento de R$ 600 mil -> 600000; "
                         "competencias usa lista de AAAA-MM; não inclua competência por padrão."
                     ),
                     "remover_parametro": (

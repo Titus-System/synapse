@@ -1,10 +1,8 @@
 # Extração e aplicação de correções — T-220
 
-O motor síncrono aplica operações sobre uma versão existente sem chamar modelo,
-banco, grafo ou broker. `reextracao.reextrair_regra` chama o modelo e entrega suas
-operações a esse motor. A integração ao nó do grafo pertence à T-221.
+`reextracao.reextrair_regra` pede ao modelo as operações que uma correção faz sobre a regra e os parâmetros atuais, e `correcao.aplicar_operacoes_correcao` as aplica de forma determinística. Nenhum dos dois acessa banco, grafo ou broker. O nó do grafo que os chama, a persistência e a publicação pertencem à T-221.
 
-## Chamada assíncrona ao modelo
+## Chamada ao modelo
 
 ```python
 async def reextrair_regra(
@@ -19,62 +17,32 @@ async def reextrair_regra(
 ) -> ResultadoReextracao: ...
 ```
 
-O resultado contém `representacao`, `parametros` completos, `rebaixamentos` (a
-união dos diagnósticos definida abaixo) e `chamada: ChamadaExtracao`. A chamada
-preserva prompt, resposta original, cópia independente dos metadados e consumo de
-tokens quando informado, para futura auditoria. As dataclasses de resultado e
-chamada não expõem esses conteúdos em `repr`.
+O resultado contém `representacao`, os `parametros` completos, `rebaixamentos` (a união dos diagnósticos definida abaixo) e `chamada: ChamadaExtracao`. A chamada guarda o prompt, a resposta original, uma cópia independente dos metadados e o consumo de tokens quando o provedor o informa, para a auditoria. As dataclasses de resultado e de chamada não expõem esses conteúdos em `repr`.
 
-O prompt separa instruções fixas, contexto estruturado da regra/parâmetros/conflitos
-e texto da correção identificado como não confiável. Textos do contexto também
-não são comandos. O modelo recebe o schema fechado, sem ferramentas vinculadas.
-A resposta é lida com `simplejson`, `use_decimal=True`, rejeição de NaN e de chaves
-duplicadas inclusive em objetos aninhados; depois passa ao aplicador determinístico.
+O prompt separa as instruções fixas, o contexto estruturado da regra, dos parâmetros e dos conflitos, e o texto da correção, identificado como não confiável. Os textos do contexto também não são comandos. O modelo recebe o schema fechado, sem ferramentas vinculadas. A resposta é lida com `simplejson`, com `use_decimal=True`, recusando NaN e chaves duplicadas, inclusive em objetos aninhados, e depois passa ao aplicador.
 
-Texto vazio, resposta vazia/bloqueada/truncada, JSON inválido, envelope incompatível
-ou falha de validação do resultado geram `FalhaExtracaoError`, derivada de
-`FalhaDoJobError`, com etapa `extracao_parametros`. Operações recuperáveis continuam
-como diagnósticos, sem transformar todo o lote em falha permanente.
+Texto vazio, resposta vazia, bloqueada ou truncada, JSON inválido, envelope incompatível ou falha na validação do resultado geram `FalhaExtracaoError`, derivada de `FalhaDoJobError`, com etapa `extracao_parametros`. Uma operação recuperável vira diagnóstico, sem tornar o lote inteiro uma falha permanente.
 
-Exceções da chamada ao provedor viram `FalhaChamadaReextracaoError` (RuntimeError,
-não FalhaDoJobError), sem mensagem original, causa ou contexto de exceção. Essa
-sanitização não classifica códigos do provedor: inclusive erros de configuração
-ou schema rejeitado precisam ser diagnosticados na integração operacional.
-Cancelamento assíncrono é propagado. O motor não implementa retry próprio.
+A exceção da chamada ao provedor sobe como veio. `chamar_com_espera_do_provedor` (T-268) a classifica pelo tipo e pelo código ao percorrer a cadeia de causas, espera quando o provedor está indisponível e lança a falha final sem a causa encadeada. Embrulhar a exceção aqui apagaria o código e transformaria um 503 numa reentrega imediata. O cancelamento assíncrono também sobe. O motor não tem retry próprio.
 
-Não existe serialização de diagnósticos para banco/eventos neste módulo. A
-pendência contratual abaixo permanece para a integração, sem bloquear a chamada
-e aplicação em memória.
-
-## Interface
+## Interface do aplicador
 
 ```python
-from app.extracao.correcao import aplicar_operacoes_correcao, ResultadoCorrecao
-
 def aplicar_operacoes_correcao(
     representacao: RepresentacaoRegra,
     parametros: dict[str, ValorRegra],
     operacoes: object,
     competencias_publicadas: Sequence[str],
     *,
-    texto_correcao: str = "",
+    texto_correcao: str,
 ) -> ResultadoCorrecao: ...
 ```
 
-- `representacao`: versão atual validada; os `ref` precisam ser únicos.
-- `parametros`: conjunto completo atual, validado por `validar_parametros`.
-- `operacoes`: envelope Python desserializado `{"operacoes": [...]}`. Não aceita
-  texto JSON. Use `Decimal` para números fracionários, conforme `ValorRegra`; a
-  integração deve desserializar sem perda de precisão e recusar chaves duplicadas.
-- `competencias_publicadas`: contexto explícito para o chamador; não restringe nem
-  preenche os parâmetros. Todas as operações já levam valores absolutos, sem
-  resolução de período. T-277 permite meses fora das competências publicadas para
-  a validação de domínio apontá-los depois. Novembro pode substituir agosto e
-  setembro mesmo que não conste dos parâmetros atuais.
-- `texto_correcao`: necessário para conferir o lastro dos rascunhos adicionados ou
-  substituídos, reaproveitando a T-203. Ausência de trecho literal segue os mesmos
-  rebaixamentos da extração inicial. Não há conferência adicional da T-224 nem
-  lastro novo para as operações diretas de núcleo e parâmetros.
+- `representacao`: a versão atual validada, com `ref` únicos.
+- `parametros`: o conjunto completo atual, validado por `validar_parametros`.
+- `operacoes`: o envelope já desserializado, `{"operacoes": [...]}`, e não o texto JSON. Números fracionários chegam como `Decimal`, conforme `ValorRegra`.
+- `competencias_publicadas`: resolvem o ano que o trecho não diz, como na extração inicial. Não filtram nem preenchem os parâmetros: um período fora delas é aceito, para a validação de domínio apontá-lo (T-277). "Simula só novembro" pode levar o período a um mês que o job não tinha.
+- `texto_correcao`: a fonte do lastro de todo valor novo, nas operações de núcleo, de parâmetro e de elemento.
 
 O retorno é uma tupla de três posições:
 
@@ -86,141 +54,87 @@ type ResultadoCorrecao = tuple[
 ]
 ```
 
-A primeira posição é a regra corrigida. A segunda contém os parâmetros completos,
-inclusive os que não foram mencionados. A terceira contém diagnósticos desta
-aplicação: primeiro as operações ignoradas, na ordem de entrada, depois os
-rebaixamentos dos elementos produzidos que sobrevivem, na ordem final da regra.
-Não reconstrói rebaixamentos históricos dos genéricos já presentes na entrada.
-
-**A lista de diagnósticos não pode ser persistida diretamente no contrato de
-rebaixamentos da extração.** Veja a decisão pendente abaixo.
+A primeira posição é a regra corrigida, e a segunda, os parâmetros completos, inclusive os que a correção não mencionou. A terceira tem os diagnósticos desta aplicação: primeiro as operações não aplicadas, na ordem de entrada, depois os rebaixamentos dos elementos produzidos que sobreviveram, na ordem final da regra. Os rebaixamentos históricos dos genéricos que a regra já tinha não são reconstruídos.
 
 ## Schema das operações
 
-`app.extracao.schema_correcao.schema_operacoes_correcao()` produz um JSON Schema
-fechado. Envelope: somente `operacoes`, obrigatório, array não vazio. Cada item
-tem `tipo` como discriminador e somente os campos indicados:
+`schema_correcao.schema_operacoes_correcao()` produz um JSON Schema fechado. O envelope tem só `operacoes`, obrigatório, um array que pode ser vazio. Cada item tem `tipo` como discriminador e só os campos indicados:
 
 | Tipo | Campos obrigatórios além de `tipo` | Semântica |
 | --- | --- | --- |
 | `definir_nucleo` | `campo`, `valor` | Define percentual, vigencia, loja, marca ou cargo. |
 | `substituir_elemento` | `ref`, `elemento` | Monta o substituto na posição do original. |
-| `remover_elemento` | `ref` | Remove somente o elemento referido. |
+| `remover_elemento` | `ref` | Remove só o elemento referido. |
 | `adicionar_elemento` | `elemento` | Monta e acrescenta ao final. |
 | `definir_parametro` | `campo`, `valor` | Define orcamento, meta_venda ou competencias. |
 | `remover_parametro` | `campo` | Remove um desses três parâmetros por ausência. |
 
-`percentual`, `orcamento` e `meta_venda` são números, sem restrições de coerência.
-`vigencia` contém `inicio` e `fim` no formato `AAAA-MM`; filtros de loja/marca/cargo
-são arrays de strings, inclusive vazios. `competencias` é um array não vazio de
-`AAAA-MM`. `null` não define nem remove valores. A remoção de `competencias`
-restaura a semântica de período padrão por ausência, sem materializá-lo no motor.
+Em `definir_nucleo` e `definir_parametro`, `valor` tem a forma do campo na extração inicial, `{valor, trecho}`, com o trecho literal do texto da correção. loja, marca e cargo são listas de `{valor, trecho}`, um item por código, e a lista vazia tira o filtro. `percentual`, `orcamento` e `meta_venda` são números, sem restrição de coerência. `vigencia` tem `inicio` e `fim` no formato `AAAA-MM`. `competencias` é um array não vazio de `AAAA-MM`. `null` não define nem remove valor. Remover `competencias` devolve o job ao período padrão, todas as competências publicadas, sem materializá-lo aqui.
 
-`ref` tem o formato `elem.<dígitos>`, compatível com a representação existente.
-`elemento` é o rascunho da T-203, com `construto_pretendido`, `descricao` e `trecho`,
-acrescido dos campos do registro `CONSTRUTOS_HABILITADOS`. Campos numéricos de
-construtos habilitados usam `{valor, trecho}`, como na extração inicial.
+`ref` tem o formato `elem.<dígitos>`. `elemento` é o rascunho da extração inicial, com `construto_pretendido`, `descricao` e `trecho`, mais os campos do construto em `CONSTRUTOS_HABILITADOS`, cujos campos numéricos também usam `{valor, trecho}`.
 
 ```json
 {
   "operacoes": [
-    {"tipo": "definir_nucleo", "campo": "percentual", "valor": 0.03},
-    {"tipo": "definir_parametro", "campo": "orcamento", "valor": 600000},
+    {"tipo": "definir_nucleo", "campo": "percentual", "valor": {"valor": 0.03, "trecho": "3%"}},
+    {"tipo": "definir_parametro", "campo": "orcamento", "valor": {"valor": 600000, "trecho": "R$ 600 mil"}},
     {"tipo": "remover_parametro", "campo": "meta_venda"},
-    {"tipo": "definir_parametro", "campo": "competencias", "valor": ["2025-11"]}
+    {"tipo": "definir_parametro", "campo": "competencias", "valor": {"valor": ["2025-11"], "trecho": "só novembro"}}
   ]
 }
 ```
 
-O schema para orientar o modelo é estrito. A aplicação valida separadamente o
-envelope e cada operação: um item desconhecido, com campos extras ou valor inválido
-é ignorado, sem perder os demais. Rascunhos de elementos passam pela recuperação
-da T-203: quando recuperáveis, viram `generico`; quando irrecuperáveis, a operação
-é ignorada. Um lote não vazio composto somente por operações ignoradas devolve a
-regra e os parâmetros preservados, com diagnósticos. Detectar proposta sem mudança
-continua sendo responsabilidade da integração do loop.
+A lista vazia é a resposta a um texto que não pede mudança, e devolve a regra e os parâmetros atuais. Exigir ao menos uma operação levaria o modelo a inventar uma. Pela tabela de transições do loop, na skill [`correction-loop`](../../.agents/skills/correction-loop/SKILL.md) da raiz, a proposta com o hash de uma versão que o job já tem marca a rodada como `reextracao_falhou` e abre uma `pendente` nova.
 
-Assim, “operação fora do schema” não implica falha permanente de todo o lote. A
-falha global se limita ao envelope inutilizável. Esta separação segue a orientação
-explícita da tarefa e da skill de correction-loop.
+O schema enviado ao modelo é estrito. O aplicador valida o envelope e cada operação separadamente: uma operação desconhecida, com campo a mais ou com valor inválido é ignorada sem perder as demais.
+
+## Lastro
+
+Todo valor novo passa pela conferência da extração inicial (T-210), contra o texto da correção:
+
+- `percentual`, `orcamento` e `meta_venda` por `conferir_numero`.
+- `vigencia` e `competencias` por `conferir_periodo`, com as competências publicadas para o ano implícito.
+- Cada código de loja, marca e cargo por `resolver_codigo`, no vocabulário canônico.
+- Os elementos substituídos ou acrescentados pela montagem da extração inicial.
+
+O valor que não confere não é aplicado: o campo fica como estava, e a operação sai como `DiagnosticoOperacao` com o motivo da conferência (`valor_sem_lastro`, `codigo_fora_do_vocabulario`, `termo_ambiguo` ou `periodo_nao_resolvido`). Uma lista de códigos só é aplicada se todos resolverem, para o escopo não encolher sem o usuário pedir.
+
+A substituição sem lastro também mantém o elemento atual. A montagem da extração inicial põe o trecho no lugar da descrição de um elemento sem lastro, e na correção o trecho é uma frase sobre o elemento, como "o limite inferior da faixa é 40 mil", e não o elemento: a troca apagaria o que o texto não mencionou. Por isso a correção parcial de um elemento não é aplicada, e o usuário precisa descrever o elemento inteiro. Aceitar a regra atual como lastro dos valores que a correção não mudou é da T-224. O elemento acrescentado sem lastro segue a extração inicial e entra como `generico`, porque não há elemento anterior a preservar.
+
+A conferência não cobre a operação em si: uma remoção, ou uma lista de códigos vazia, não tem valor a conferir. Conferir que o texto pediu a operação é da T-224.
 
 ## Invariantes e falhas
 
-- A ordem de aplicação é a ordem da lista; a última definição válida de um campo
-  prevalece. Uma operação inválida não desfaz definições válidas anteriores.
-- Referências são as da versão original durante todo o lote. Um elemento
-  substituído continua endereçável pelo `ref` original. Um removido deixa de existir;
-  adicionados não podem ser endereçados no mesmo lote, pois o modelo não atribui refs.
-- A renumeração ocorre somente no final: `elem.1`, `elem.2`, etc. Os rebaixamentos
-  sobreviventes recebem a referência final; os de elementos removidos ou
-  novamente substituídos são descartados.
-- Regra, parâmetros, operações e competências recebidos não são modificados.
-  As estruturas mutáveis retornadas são independentes das entradas.
-- Nada é interpretado, importado ou executado a partir dos dados do modelo.
-- Núcleo e parâmetros não mencionados são preservados. Nenhuma incoerência é
-  corrigida automaticamente. O motor não consulta E2.
-- A regra final passa por `RepresentacaoRegra`; os parâmetros finais passam por
-  `validar_parametros`. Operações diretas também validam o candidato antes de aplicá-lo.
-- `FalhaExtracaoError("Envelope de correção inválido")`: envelope ausente, vazio,
-  com propriedades extras, sem array de operações ou com array vazio. A mensagem
-  não contém o payload e a exceção não encadeia erro de schema com dados privados.
-- `FalhaExtracaoError("Referências da regra atual ambíguas")`: refs duplicados na
-  entrada. Ambas as falhas usam a etapa `extracao_parametros`.
-- `ValueError`/`pydantic.ValidationError`: entradas atuais inválidas ou falha na
-  validação final. A representação de entrada deve ter sido validada pelo chamador.
-  Falhas individuais recuperáveis são convertidas em diagnósticos internos.
+- As operações são aplicadas na ordem da lista, e a última definição válida de um campo prevalece. Uma operação não aplicada não desfaz as anteriores.
+- As referências são as da versão original durante todo o lote. Um elemento substituído continua endereçável pelo `ref` original. Um removido deixa de existir. Um acrescentado não é endereçável no mesmo lote, porque o modelo não atribui `ref`.
+- A renumeração ocorre só no final: `elem.1`, `elem.2` e assim por diante. Os rebaixamentos sobreviventes recebem a referência final. Os de elementos removidos ou substituídos de novo são descartados.
+- A regra, os parâmetros, as operações e as competências recebidos não são modificados, e as estruturas mutáveis devolvidas não compartilham objetos com eles.
+- Nada é interpretado, importado ou executado a partir da resposta do modelo.
+- Nenhuma incoerência é corrigida. O motor não consulta a validação de domínio (E2).
+- A regra final passa por `RepresentacaoRegra`, e os parâmetros finais, por `validar_parametros`. Cada operação de núcleo ou parâmetro valida o candidato antes de ser aplicada.
+- `FalhaExtracaoError("Envelope de correção inválido")`: envelope ausente, com propriedades a mais ou sem o array de operações. A mensagem não contém o payload, e a exceção não encadeia o erro de schema.
+- `FalhaExtracaoError("Referências da regra atual ambíguas")`: `ref` duplicado na regra recebida.
+- `ValueError` ou `pydantic.ValidationError`: entrada atual inválida ou falha na validação final. `reextrair_regra` as converte em `FalhaExtracaoError`, sem encadear.
 
 ## Montagem compartilhada e diagnósticos
 
-`montagem.montar_elemento` foi extraída de `motor._montar` e é usada tanto pela
-extração inicial quanto pela correção. Mantém o registro, schema, conversão,
-lastro numérico/literal, validação do construto e rebaixamento da T-203.
+`montagem.montar_elemento` é a montagem de elemento da extração inicial, usada por ela e pela correção: registro, schema, conversão, lastro numérico e literal, validação do construto e rebaixamento. `montagem.objeto_sem_duplicatas` e `montagem.consumo_de_tokens` também servem às duas leituras da resposta do modelo.
 
-Rebaixamentos dessa montagem continuam sendo `Rebaixamento` e conservam o
-vocabulário existente. Para operações ignoradas, usa-se o tipo local:
+Os rebaixamentos da montagem continuam sendo `Rebaixamento`, com o vocabulário existente. Para operações não aplicadas, há um tipo local:
 
 ```python
 @dataclass(frozen=True, slots=True)
 class DiagnosticoOperacao:
     indice: int  # Posição da operação no lote, começando em 1.
-    motivo: Literal["operacao_invalida", "referencia_inexistente"]
+    motivo: MotivoDiagnostico
 ```
 
-Esse tipo não tem `para_contrato`, não retém payload ou texto e não é um subtipo de
-`Rebaixamento`. Não deve ser passado a `validar_conteudo`, usado na extração inicial:
-esse validador exige correspondência de todos os genéricos da regra com seus
-rebaixamentos, enquanto a correção recebe uma regra pronta sem seu histórico.
+`MotivoDiagnostico` é `operacao_invalida`, `referencia_inexistente` ou um dos motivos de lastro da seção anterior. O tipo não tem `para_contrato`, não guarda payload nem texto e não é subtipo de `Rebaixamento`. Não deve ser passado a `validar_conteudo`, da extração inicial: esse validador exige que todo genérico da regra tenha seu rebaixamento, e a correção recebe uma regra pronta, sem o histórico.
 
-### Decisão pendente de contrato
+### Destino dos diagnósticos de operação
 
-`contracts/domain/rebaixamentos-extracao.schema.json` tem motivos fechados e permite
-apenas referências de elementos ou parâmetros. Um tipo desconhecido ou referência
-ausente não é semanticamente `campo_obrigatorio_ausente` nem
-`construto_nao_habilitado`.
+`contracts/domain/rebaixamentos-extracao.schema.json` tem motivos fechados e só aceita referências de elemento ou de parâmetro. Uma operação desconhecida ou com referência inexistente não é `campo_obrigatorio_ausente` nem `construto_nao_habilitado`, e a operação não tem referência nesse formato. Persistir a lista inteira exige decidir antes entre ampliar o contrato, com motivos e um alvo para a operação, como `operacoes.<posição>`, e deixar os diagnósticos de operação fora da persistência. Ampliar o contrato afeta o schema, os exemplos, a serialização do codegen e a validação na api, e um validador antigo pode recusar os valores novos.
 
-Proposta para decisão: permitir `operacao_invalida` e `referencia_inexistente`, com
-referência da operação (`operacoes.<posição>`) ou um objeto de diagnóstico próprio.
-O motivo novo sozinho não basta: é preciso definir o alvo e a semântica de refs
-para elementos inexistentes, removidos ou renumerados.
+## Integração
 
-Uma ampliação exigiria autorização para modificar o schema compartilhado, exemplos,
-tipos/serialização do codegen e validação/persistência consumida pela api, além da
-documentação e dos testes dos consumidores relevantes. O produtor seria codegen;
-api seria o consumidor de persistência, e qualquer exposição posterior ao frontend
-precisaria ser avaliada. O risco é um consumidor antigo rejeitar os novos motivos
-ou referências: aceitar valores novos não garante compatibilidade com validadores
-antigos. Nenhum desses contratos ou consumidores foi alterado nesta etapa.
-
-A alternativa implementada mantém os diagnósticos em memória e reaproveita
-`Rebaixamento` somente onde seu significado é válido. A integração de persistência
-deve decidir o destino auditável antes de tentar persistir a lista completa.
-
-## Integração seguinte
-
-O chamador deve obter a versão e parâmetros atuais, conflitos e texto e fornecer
-as competências publicadas a `reextrair_regra`. O resultado contém o conjunto
-completo de parâmetros, nunca um patch. Nó, armazenamento, publicação e telemetria
-do fluxo permanecem fora da T-220. Os módulos de extração não emitem logs ou métricas;
-exportação e coleta não foram verificadas nesta entrega. Antes de ativar o fluxo
-na aplicação, a integração precisa satisfazer os critérios de observabilidade
-do AGENTS, incluindo sucesso, falha, duração e correlação.
+O chamador obtém a versão e os parâmetros atuais, os conflitos e o texto, e passa as competências publicadas a `reextrair_regra`. O resultado traz o conjunto completo de parâmetros, nunca um patch. O motor não emite logs nem métricas: a observabilidade da reextração é da T-221, que o chama no caminho real e precisa cumprir os critérios do `AGENTS.md`, inclusive sucesso, falha, duração e correlação.

@@ -16,6 +16,7 @@ from langchain_core.messages import HumanMessage
 
 from app.extracao.correcao import DiagnosticoCorrecao, aplicar_operacoes_correcao
 from app.extracao.modelos import ChamadaExtracao, FalhaExtracaoError
+from app.extracao.montagem import consumo_de_tokens, objeto_sem_duplicatas
 from app.extracao.schema_correcao import schema_operacoes_correcao
 from app.graph.prompts.reextraction import montar_prompt_reextracao
 from app.representacao_regra import RepresentacaoRegra
@@ -25,36 +26,16 @@ from app.tipos_estado import ValorRegra
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ResultadoReextracao:
-    """Resultado equivalente à extração, com diagnósticos locais ainda não persistíveis."""
+    """O resultado da extração para uma correção.
+
+    `rebaixamentos` junta `Rebaixamento` e `DiagnosticoOperacao`, que não cabe no contrato de
+    rebaixamentos da extração.
+    """
 
     representacao: RepresentacaoRegra
     parametros: dict[str, ValorRegra]
     rebaixamentos: list[DiagnosticoCorrecao]
     chamada: ChamadaExtracao
-
-
-class FalhaChamadaReextracaoError(RuntimeError):
-    """Falha transitória sanitizada; não retém exceção, prompt ou resposta."""
-
-
-def _objeto_sem_duplicatas(pares: list[tuple[str, Any]]) -> dict[str, Any]:
-    objeto: dict[str, Any] = {}
-    for chave, valor in pares:
-        if chave in objeto:
-            raise ValueError("Chave JSON repetida")
-        objeto[chave] = valor
-    return objeto
-
-
-def _consumo_tokens(resposta: object) -> dict[str, int] | None:
-    usage = getattr(resposta, "usage_metadata", None)
-    if (
-        isinstance(usage, dict)
-        and isinstance(usage.get("input_tokens"), int)
-        and isinstance(usage.get("output_tokens"), int)
-    ):
-        return {"tokens_in": usage["input_tokens"], "tokens_out": usage["output_tokens"]}
-    return None
 
 
 async def reextrair_regra(
@@ -69,8 +50,9 @@ async def reextrair_regra(
 ) -> ResultadoReextracao:
     """Produz operações com uma chamada sem ferramentas e aplica-as deterministicamente.
 
-    Uma resposta globalmente inutilizável falha em extracao_parametros. Operações
-    individualmente inválidas são diagnosticadas pelo aplicador da etapa 1.
+    Uma resposta globalmente inutilizável falha em extracao_parametros. Uma operação inválida
+    ou sem lastro vira diagnóstico, sem derrubar as demais. A exceção do provedor sobe como
+    veio, para `chamar_com_espera_do_provedor` classificá-la pelo tipo e pelo código.
     """
     if not texto_correcao.strip():
         raise FalhaExtracaoError("Texto de correção vazio")
@@ -84,17 +66,11 @@ async def reextrair_regra(
         competencias_publicadas,
         schema=schema,
     )
-    resposta = None
-    # O provider pode incluir dados privados no erro; a falha pública não o encadeia.
-    with suppress(Exception):
-        resposta = await modelo.ainvoke(
-            [HumanMessage(content=prompt)],
-            response_mime_type="application/json",
-            response_json_schema=schema,
-        )
-    if resposta is None:
-        raise FalhaChamadaReextracaoError("Falha ao chamar o modelo de reextração")
-
+    resposta = await modelo.ainvoke(
+        [HumanMessage(content=prompt)],
+        response_mime_type="application/json",
+        response_json_schema=schema,
+    )
     conteudo, motivo = extrair_resposta(resposta)
     if not conteudo.strip() or motivo != "STOP":
         raise FalhaExtracaoError("Resposta de reextração vazia, bloqueada ou interrompida")
@@ -105,7 +81,7 @@ async def reextrair_regra(
             conteudo,
             use_decimal=True,
             allow_nan=False,
-            object_pairs_hook=_objeto_sem_duplicatas,
+            object_pairs_hook=objeto_sem_duplicatas,
         )
         montado = aplicar_operacoes_correcao(
             representacao,
@@ -126,6 +102,6 @@ async def reextrair_regra(
             prompt=prompt,
             resposta=conteudo,
             modelo=deepcopy(metadados_modelo),
-            consumo_tokens=_consumo_tokens(resposta),
+            consumo_tokens=consumo_de_tokens(resposta),
         ),
     )

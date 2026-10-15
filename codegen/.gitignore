@@ -12,7 +12,6 @@ __pycache__/
 # Distribuição / build
 # =========================
 /contracts/
-/target/t220/
 .Python
 build/
 dist/

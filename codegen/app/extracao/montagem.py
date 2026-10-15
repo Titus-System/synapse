@@ -11,6 +11,26 @@ from app.representacao_regra import RepresentacaoRegra
 from app.tipos_estado import ValorRegra
 
 
+def objeto_sem_duplicatas(pares: list[tuple[str, Any]]) -> dict[str, Any]:
+    objeto: dict[str, Any] = {}
+    for chave, valor in pares:
+        if chave in objeto:
+            raise ValueError("Chave JSON repetida")
+        objeto[chave] = valor
+    return objeto
+
+
+def consumo_de_tokens(resposta: object) -> dict[str, int] | None:
+    usage = getattr(resposta, "usage_metadata", None)
+    if (
+        isinstance(usage, dict)
+        and isinstance(usage.get("input_tokens"), int)
+        and isinstance(usage.get("output_tokens"), int)
+    ):
+        return {"tokens_in": usage["input_tokens"], "tokens_out": usage["output_tokens"]}
+    return None
+
+
 def _texto_util(valor: object) -> str | None:
     return valor if isinstance(valor, str) and valor.strip() else None
 

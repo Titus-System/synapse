@@ -12,13 +12,10 @@ from langchain_core.messages import AIMessage
 
 from app.extracao.correcao import DiagnosticoOperacao
 from app.extracao.modelos import FalhaExtracaoError, Rebaixamento
-from app.extracao.reextracao import (
-    FalhaChamadaReextracaoError,
-    ResultadoReextracao,
-    reextrair_regra,
-)
+from app.extracao.reextracao import ResultadoReextracao, reextrair_regra
 from app.extracao.schema_correcao import schema_operacoes_correcao
 from app.falhas import FalhaDoJobError
+from app.graph.core.llm.disponibilidade import e_indisponibilidade_do_provedor
 from app.graph.prompts.reextraction import montar_prompt_reextracao
 from app.representacao_regra import RepresentacaoRegra
 from tests.app.graph.conftest import FakeChatModel
@@ -96,7 +93,11 @@ async def test_altera_somente_percentual_sem_perder_regra_ou_parametros(
         "Agora é 3%.",
         {
             "operacoes": [
-                {"tipo": "definir_nucleo", "campo": "percentual", "valor": Decimal("0.03")}
+                {
+                    "tipo": "definir_nucleo",
+                    "campo": "percentual",
+                    "valor": {"valor": Decimal("0.03"), "trecho": "3%"},
+                }
             ]
         },
     )
@@ -119,12 +120,16 @@ async def test_modifica_parametros_sem_alterar_regra(
         "Orçamento é R$ 600 mil, tira a meta e simula só novembro de 2025.",
         {
             "operacoes": [
-                {"tipo": "definir_parametro", "campo": "orcamento", "valor": 600000},
+                {
+                    "tipo": "definir_parametro",
+                    "campo": "orcamento",
+                    "valor": {"valor": 600000, "trecho": "R$ 600 mil"},
+                },
                 {"tipo": "remover_parametro", "campo": "meta_venda"},
                 {
                     "tipo": "definir_parametro",
                     "campo": "competencias",
-                    "valor": ["2025-11"],
+                    "valor": {"valor": ["2025-11"], "trecho": "novembro de 2025"},
                 },
             ]
         },
@@ -191,7 +196,11 @@ async def test_operacao_invalida_e_ref_inexistente_preservam_as_outras(
             "operacoes": [
                 {"tipo": "remover_elemento", "ref": "elem.99"},
                 {"tipo": "operacao_desconhecida", "campo": "privado"},
-                {"tipo": "definir_nucleo", "campo": "percentual", "valor": Decimal("0.03")},
+                {
+                    "tipo": "definir_nucleo",
+                    "campo": "percentual",
+                    "valor": {"valor": Decimal("0.03"), "trecho": "3%"},
+                },
             ]
         },
     )
@@ -201,6 +210,42 @@ async def test_operacao_invalida_e_ref_inexistente_preservam_as_outras(
         DiagnosticoOperacao(1, "referencia_inexistente"),
         DiagnosticoOperacao(2, "operacao_invalida"),
     ]
+
+
+async def test_lista_vazia_devolve_a_regra_e_os_parametros_atuais(
+    regra: RepresentacaoRegra, parametros: dict[str, Any]
+) -> None:
+    resultado, _ = await reextrair(
+        regra, parametros, "Está certo assim, pode seguir.", {"operacoes": []}
+    )
+
+    assert resultado.representacao.para_contrato() == regra.para_contrato()
+    assert resultado.parametros == parametros
+    assert resultado.rebaixamentos == []
+
+
+async def test_valor_que_o_texto_da_correcao_nao_disse_nao_entra(
+    regra: RepresentacaoRegra, parametros: dict[str, Any]
+) -> None:
+    resultado, _ = await reextrair(
+        regra,
+        parametros,
+        "Tira a meta.",
+        {
+            "operacoes": [
+                {
+                    "tipo": "definir_nucleo",
+                    "campo": "percentual",
+                    "valor": {"valor": Decimal("0.05"), "trecho": "Tira a meta."},
+                },
+                {"tipo": "remover_parametro", "campo": "meta_venda"},
+            ]
+        },
+    )
+
+    assert resultado.representacao.para_contrato() == regra.para_contrato()
+    assert resultado.parametros == {k: v for k, v in parametros.items() if k != "meta_venda"}
+    assert resultado.rebaixamentos == [DiagnosticoOperacao(1, "valor_sem_lastro")]
 
 
 def test_prompt_isola_texto_e_identifica_contexto_do_sistema(
@@ -241,7 +286,11 @@ async def test_nao_vincula_ferramentas_e_pede_schema_json(
         "Agora 3%.",
         {
             "operacoes": [
-                {"tipo": "definir_nucleo", "campo": "percentual", "valor": Decimal("0.03")}
+                {
+                    "tipo": "definir_nucleo",
+                    "campo": "percentual",
+                    "valor": {"valor": Decimal("0.03"), "trecho": "3%"},
+                }
             ]
         },
     )
@@ -267,7 +316,6 @@ async def test_nao_vincula_ferramentas_e_pede_schema_json(
         ("", "STOP"),
         ("não é JSON", "STOP"),
         ("{", "STOP"),
-        ('{"operacoes":[]}', "STOP"),
         ('{"operacoes":[{"tipo":"remover_elemento","ref":"elem.1"}],"extra":"x"}', "STOP"),
         ('{"operacoes":[{"tipo":"remover_elemento","ref":"elem.1","ref":"elem.2"}]}', "STOP"),
         ('{"operacoes":[{"tipo":"remover_parametro","campo":"orcamento"}]}', "SAFETY"),
@@ -305,27 +353,30 @@ async def test_saida_globalmente_inutilizavel_falha_sem_vazar_texto(
     assert erro.value.__context__ is None
 
 
-async def test_erro_do_modelo_e_sanitizado_mas_nao_vira_falha_permanente(
+class _ProvedorIndisponivelError(Exception):
+    code = 503
+
+
+async def test_falha_do_provedor_sobe_como_veio_para_a_espera_reconhecer(
     regra: RepresentacaoRegra, parametros: dict[str, Any]
 ) -> None:
+    falha = _ProvedorIndisponivelError()
     modelo = AsyncMock()
-    modelo.ainvoke.side_effect = RuntimeError("erro do provider com " + SEGREDO)
+    modelo.ainvoke.side_effect = falha
 
-    with pytest.raises(FalhaChamadaReextracaoError) as erro:
+    with pytest.raises(_ProvedorIndisponivelError) as erro:
         await reextrair_regra(
             regra,
             parametros,
             CONFLITOS,
-            SEGREDO,
+            "Agora 3%.",
             PUBLICADAS,
             modelo=modelo,
             metadados_modelo=METADADOS,
         )
 
-    assert not isinstance(erro.value, FalhaExtracaoError)
-    assert SEGREDO not in str(erro.value)
-    assert erro.value.__cause__ is None
-    assert erro.value.__context__ is None
+    assert erro.value is falha
+    assert e_indisponibilidade_do_provedor(erro.value)
 
 
 async def test_resposta_esta_disponivel_para_a_t221_sem_expor_repr(
@@ -350,7 +401,8 @@ async def test_preserva_centavos_e_metadados_sem_compartilhar_entradas(
 ) -> None:
     resposta = AIMessage(
         content='{"operacoes":[{"tipo":"definir_parametro","campo":"orcamento",'
-        '"valor":600000.1234567890123456789}]}',
+        '"valor":{"valor":600000.1234567890123456789,'
+        '"trecho":"R$ 600.000,1234567890123456789"}}]}',
         response_metadata={"finish_reason": "STOP"},
         usage_metadata={"input_tokens": 31, "output_tokens": 12, "total_tokens": 43},
     )
@@ -362,7 +414,7 @@ async def test_preserva_centavos_e_metadados_sem_compartilhar_entradas(
         regra,
         parametros,
         CONFLITOS,
-        SEGREDO,
+        SEGREDO + " Orçamento de R$ 600.000,1234567890123456789.",
         PUBLICADAS,
         modelo=modelo,
         metadados_modelo=metadados,

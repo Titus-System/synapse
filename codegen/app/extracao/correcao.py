@@ -7,20 +7,34 @@ from typing import Any, Literal, cast
 from jsonschema import Draft202012Validator
 from pydantic import ConfigDict, TypeAdapter
 
+from app.extracao.lastro import conferir_numero, conferir_periodo
 from app.extracao.modelos import FalhaExtracaoError, Rebaixamento
 from app.extracao.montagem import montar_elemento
 from app.extracao.parametros import validar_parametros
 from app.extracao.schema_correcao import schema_envelope_correcao, schema_operacao_correcao
+from app.extracao.vocabulario import CampoCodigo, resolver_codigo
 from app.representacao_regra import RepresentacaoRegra
 from app.tipos_estado import ValorRegra
+
+type MotivoDiagnostico = Literal[
+    "operacao_invalida",
+    "referencia_inexistente",
+    "valor_sem_lastro",
+    "codigo_fora_do_vocabulario",
+    "termo_ambiguo",
+    "periodo_nao_resolvido",
+]
 
 
 @dataclass(frozen=True, slots=True)
 class DiagnosticoOperacao:
-    """Diagnóstico interno, sem serialização no contrato de rebaixamentos da extração."""
+    """Operação que não foi aplicada, sem serialização no contrato de rebaixamentos da extração.
+
+    A regra e os parâmetros ficam como estavam no ponto em que ela seria aplicada.
+    """
 
     indice: int
-    motivo: Literal["operacao_invalida", "referencia_inexistente"]
+    motivo: MotivoDiagnostico
 
 
 type DiagnosticoCorrecao = Rebaixamento | DiagnosticoOperacao
@@ -36,23 +50,57 @@ class _Elemento:
     rebaixamento: Rebaixamento | None = None
 
 
+def _conferir(
+    campo: str, valor: Any, texto: str, publicadas: Sequence[str]
+) -> tuple[object, MotivoDiagnostico | None]:
+    """Confere o valor contra o texto da correção como a extração inicial confere (T-210)."""
+    if campo in ("loja", "marca", "cargo"):
+        # Tudo ou nada: aplicar só os códigos resolvidos encolheria o escopo sem o usuário pedir.
+        codigos: list[str] = []
+        for item in valor:
+            codigo, falha = resolver_codigo(
+                cast(CampoCodigo, campo), item["valor"], item["trecho"], texto
+            )
+            if codigo is None:
+                return None, falha
+            if codigo not in codigos:
+                codigos.append(codigo)
+        return codigos, None
+    bruto, trecho = valor["valor"], valor["trecho"]
+    if campo in ("vigencia", "competencias"):
+        confere, resolvido = conferir_periodo(
+            texto, trecho, bruto, publicadas, vigencia=campo == "vigencia"
+        )
+        if not confere:
+            return None, "valor_sem_lastro" if resolvido else "periodo_nao_resolvido"
+        return bruto, None
+    if not conferir_numero(texto, trecho, bruto, percentual=campo == "percentual"):
+        return None, "valor_sem_lastro"
+    return bruto, None
+
+
 def _aplicar(
     operacao: dict[str, Any],
     nucleo: dict[str, ValorRegra],
     parametros: dict[str, ValorRegra],
     elementos: list[_Elemento],
     texto: str,
-) -> Literal["referencia_inexistente"] | None:
+    publicadas: Sequence[str],
+) -> MotivoDiagnostico | None:
     tipo = operacao["tipo"]
-    if tipo == "definir_nucleo":
-        valor = _VALOR.validate_python(operacao["valor"], strict=True)
-        candidato = {**nucleo, operacao["campo"]: valor}
-        RepresentacaoRegra.model_validate({"nucleo": candidato, "especificacoes": []})
-        nucleo[operacao["campo"]] = valor
-    elif tipo == "definir_parametro":
-        valor = _VALOR.validate_python(operacao["valor"], strict=True)
-        validar_parametros({**parametros, operacao["campo"]: valor})
-        parametros[operacao["campo"]] = valor
+    if tipo in ("definir_nucleo", "definir_parametro"):
+        campo = operacao["campo"]
+        conferido, motivo = _conferir(campo, operacao["valor"], texto, publicadas)
+        if motivo is not None:
+            return motivo
+        valor = _VALOR.validate_python(conferido, strict=True)
+        if tipo == "definir_nucleo":
+            candidato = {**nucleo, campo: valor}
+            RepresentacaoRegra.model_validate({"nucleo": candidato, "especificacoes": []})
+            nucleo[campo] = valor
+        else:
+            validar_parametros({**parametros, campo: valor})
+            parametros[campo] = valor
     elif tipo == "remover_parametro":
         parametros.pop(operacao["campo"], None)
     elif tipo == "adicionar_elemento":
@@ -68,6 +116,11 @@ def _aplicar(
             elementos.pop(posicao)
         else:
             convertido, rebaixamento = montar_elemento(operacao["elemento"], "elem.1", texto)
+            # Sem lastro, a montagem põe o trecho no lugar da descrição. Na correção o trecho é
+            # uma frase sobre o elemento, e não o elemento: trocá-lo apagaria o que o texto não
+            # mencionou.
+            if rebaixamento is not None and rebaixamento.motivo == "valor_sem_lastro":
+                return "valor_sem_lastro"
             elementos[posicao] = _Elemento(operacao["ref"], convertido, rebaixamento)
     return None
 
@@ -78,12 +131,12 @@ def aplicar_operacoes_correcao(
     operacoes: object,
     competencias_publicadas: Sequence[str],
     *,
-    texto_correcao: str = "",
+    texto_correcao: str,
 ) -> ResultadoCorrecao:
     """Aplica um envelope desserializado; interface e diagnósticos em docs/correcao.md.
 
-    Competências publicadas são contexto, não filtro: T-277 preserva períodos fora
-    das publicadas para a validação de domínio. Não há resolução de período aqui.
+    As competências publicadas só resolvem o ano que o trecho não diz, como na extração
+    inicial: um período fora delas é aceito, para a validação de domínio apontá-lo (T-277).
     """
     if not Draft202012Validator(schema_envelope_correcao()).is_valid(operacoes):
         raise FalhaExtracaoError("Envelope de correção inválido")
@@ -104,9 +157,16 @@ def aplicar_operacoes_correcao(
         if not validador.is_valid(operacao):
             diagnosticos.append(DiagnosticoOperacao(indice, "operacao_invalida"))
             continue
-        motivo: Literal["operacao_invalida", "referencia_inexistente"] | None = "operacao_invalida"
+        motivo: MotivoDiagnostico | None = "operacao_invalida"
         with suppress(ValueError, TypeError, KeyError, RecursionError):
-            motivo = _aplicar(deepcopy(operacao), nucleo, completos, elementos, texto_correcao)
+            motivo = _aplicar(
+                deepcopy(operacao),
+                nucleo,
+                completos,
+                elementos,
+                texto_correcao,
+                competencias_publicadas,
+            )
         if motivo is not None:
             diagnosticos.append(DiagnosticoOperacao(indice, motivo))
 

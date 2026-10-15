@@ -23,7 +23,7 @@ from app.extracao.modelos import (
     Rebaixamento,
     ResultadoExtracao,
 )
-from app.extracao.montagem import montar_elemento
+from app.extracao.montagem import consumo_de_tokens, montar_elemento, objeto_sem_duplicatas
 from app.extracao.parametros import validar_parametros
 from app.extracao.registro import CONSTRUTOS_HABILITADOS
 from app.extracao.schema import schema_envelope, schema_saida
@@ -34,20 +34,11 @@ from app.resposta_modelo import extrair_resposta
 from app.tipos_estado import ValorRegra
 
 
-def _objeto_sem_duplicatas(pares: list[tuple[str, Any]]) -> dict[str, Any]:
-    objeto: dict[str, Any] = {}
-    for chave, valor in pares:
-        if chave in objeto:
-            raise ValueError("Chave JSON repetida")
-        objeto[chave] = valor
-    return objeto
-
-
 def _montar(
     conteudo: str, texto: str, competencias: Sequence[str]
 ) -> tuple[RepresentacaoRegra, list[Rebaixamento], dict[str, ValorRegra]]:
     rascunho = simplejson.loads(
-        conteudo, use_decimal=True, allow_nan=False, object_pairs_hook=_objeto_sem_duplicatas
+        conteudo, use_decimal=True, allow_nan=False, object_pairs_hook=objeto_sem_duplicatas
     )
     Draft202012Validator(schema_envelope()).validate(rascunho)
     elementos: list[dict[str, ValorRegra]] = []
@@ -158,14 +149,6 @@ async def extrair_regra(
     if montado is None:
         raise FalhaExtracaoError("Resposta incompatível com o schema de extração")
 
-    consumo = None
-    usage = getattr(resposta, "usage_metadata", None)
-    if (
-        usage
-        and isinstance(usage.get("input_tokens"), int)
-        and isinstance(usage.get("output_tokens"), int)
-    ):
-        consumo = {"tokens_in": usage["input_tokens"], "tokens_out": usage["output_tokens"]}
     representacao, rebaixamentos, parametros = montado
     return ResultadoExtracao(
         representacao=representacao,
@@ -175,6 +158,6 @@ async def extrair_regra(
             prompt=prompt,
             resposta=conteudo,
             modelo=deepcopy(metadados_modelo),
-            consumo_tokens=consumo,
+            consumo_tokens=consumo_de_tokens(resposta),
         ),
     )

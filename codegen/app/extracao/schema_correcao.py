@@ -6,11 +6,13 @@ from app.extracao.schema import NUCLEO, PARAMETROS, schema_saida
 
 
 def schema_envelope_correcao() -> dict[str, Any]:
+    # Lista vazia é a resposta a um texto que não pede mudança; exigir uma operação levaria o
+    # modelo a inventar uma.
     return {
         "type": "object",
         "additionalProperties": False,
         "required": ["operacoes"],
-        "properties": {"operacoes": {"type": "array", "minItems": 1}},
+        "properties": {"operacoes": {"type": "array"}},
     }
 
 
@@ -34,15 +36,17 @@ def _definir(tipo: str, campos: dict[str, Any]) -> dict[str, Any]:
 
 
 def schema_operacao_correcao(*, validar_elemento: bool = True) -> dict[str, Any]:
-    nucleo = {}
-    for nome, campo in NUCLEO["properties"].items():
-        if nome in ("loja", "marca", "cargo"):
-            nucleo[nome] = {"type": "array", "items": campo["items"]["properties"]["valor"]}
-        else:
-            nucleo[nome] = campo["properties"]["valor"]
-    parametros = {
-        nome: campo["properties"]["valor"] for nome, campo in PARAMETROS["properties"].items()
+    # O valor tem a forma do campo na extração inicial, com o trecho que lhe dá lastro. Uma lista
+    # de códigos vazia tira o filtro, que passa a valer para todos.
+    nucleo = {
+        nome: (
+            {chave: valor for chave, valor in campo.items() if chave != "minItems"}
+            if nome in ("loja", "marca", "cargo")
+            else campo
+        )
+        for nome, campo in NUCLEO["properties"].items()
     }
+    parametros = PARAMETROS["properties"]
     elemento = (
         schema_saida(CONSTRUTOS_HABILITADOS)["properties"]["elementos"]["items"]
         if validar_elemento
