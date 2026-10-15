@@ -59,6 +59,10 @@ ReferenciaDeElemento = Annotated[
     str,
     Field(pattern=r"^(nucleo\.[a-z_]+|elem\.[0-9]+)$"),
 ]
+ReferenciaDeParametro = Annotated[
+    str,
+    Field(pattern=r"^parametros\.(orcamento|meta_venda|competencias)$"),
+]
 
 
 class ConclusaoDaTrilha(ModeloContrato):
@@ -140,7 +144,7 @@ class ExecutarCodigo(ModeloContrato):
 
 
 class ConflitoDaRodada(ModeloContrato):
-    elementos: list[ReferenciaDeElemento] = Field(min_length=1)
+    elementos: list[ReferenciaDeElemento | ReferenciaDeParametro] = Field(min_length=1)
     motivo: TextoNaoVazio
 
 
