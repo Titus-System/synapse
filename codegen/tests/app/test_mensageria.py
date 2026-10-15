@@ -315,6 +315,19 @@ async def test_producer_publica_o_fim_da_iteracao_sem_alternativa() -> None:
     assert corpo == exemplo(nome)
 
 
+async def test_producer_publica_a_pausa_com_a_versao_e_os_conflitos() -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+    nome = "etapa-alterada-conflitos"
+    dto = EtapaAlterada.model_validate_json(simplejson.dumps(exemplo(nome)))
+
+    await Producers(canal).etapa_alterada(dto)
+
+    corpo = simplejson.loads(canal.default_exchange.publish.call_args.args[0].body)
+    oficial("etapa-alterada").validate(corpo)
+    assert corpo == exemplo(nome)
+
+
 async def test_producer_nao_publica_sugestao_adulterada() -> None:
     canal = MagicMock()
     canal.default_exchange.publish = AsyncMock()

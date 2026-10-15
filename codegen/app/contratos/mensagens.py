@@ -139,11 +139,18 @@ class ExecutarCodigo(ModeloContrato):
     elementos_exigidos: list[ReferenciaDeElemento] | None = Field(default=None, min_length=1)
 
 
+class ConflitoDaRodada(ModeloContrato):
+    elementos: list[ReferenciaDeElemento] = Field(min_length=1)
+    motivo: TextoNaoVazio
+
+
 class EtapaAlterada(ModeloContrato):
     job_id: UUID
     etapa: NoGrafo
     status: str = Field(min_length=1)
     causa: Literal["provedor_indisponivel"] | None = None
+    regra_id: UUID | None = None
+    conflitos: list[ConflitoDaRodada] | None = Field(default=None, min_length=1)
 
 
 class NoConcluido(ModeloContrato):

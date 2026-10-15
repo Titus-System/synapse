@@ -14,7 +14,6 @@ from prometheus_client.parser import text_string_to_metric_families
 from app.contratos.mensagens import RegraSubmetida, SimulacaoConcluida
 from app.core.logger import FormatadorJson, ManipuladorFilaContexto, job_id_ctx, no_ctx
 from app.falhas import FalhaDoJobError
-from app.graph.nodes.reject_rule import RegraComConflitoError, reject_rule
 from app.mensageria.consumers import Consumer
 from app.repositorio.artefatos import id_do_evento_de_trilha
 from app.repositorio.regras import buscar_regra
@@ -111,15 +110,21 @@ async def test_regra_passa_pela_validacao_antes_de_qualquer_geracao(
         "etapa-alterada",
         {
             "job_id": payload["job_id"],
-            "etapa": "validacao_dominio" if conflito else "geracao_codigo",
-            "status": "erro" if conflito else "iniciada",
-        },
+            "etapa": "confirmacao",
+            "status": "aguardando_correcao",
+            "regra_id": payload["regra_id"],
+            "conflitos": estado["conflitos"],
+        }
+        if conflito
+        else {"job_id": payload["job_id"], "etapa": "geracao_codigo", "status": "iniciada"},
     )
     if conflito:
         assert len(ambiente.publicacoes) == 3
-        recebida.reject.assert_awaited_once_with(requeue=False)
+        recebida.ack.assert_awaited_once_with()
+        recebida.reject.assert_not_awaited()
         assert ambiente.modelo.seen_messages == []
         assert ambiente.banco.linhas == {}
+        assert (await ambiente.estado(payload)).next == ()
     else:
         recebida.ack.assert_awaited_once_with()
         assert len(ambiente.modelo.seen_messages) == 1
@@ -138,9 +143,12 @@ async def test_toda_origem_de_regra_persistida_e_validada(
 
     await Consumer(RegraSubmetida, "regra-submetida", ambiente.roteador).receber(recebida)
 
-    recebida.reject.assert_awaited_once_with(requeue=False)
+    recebida.ack.assert_awaited_once_with()
+    recebida.reject.assert_not_awaited()
     assert ambiente.modelo.seen_messages == []
     assert (await ambiente.estado(payload)).values["regra_liberada"] is False
+    etapas = [(p["etapa"], p["status"]) for _, p in ambiente.publicacoes if "etapa" in p]
+    assert etapas == [("validacao_dominio", "iniciada"), ("confirmacao", "aguardando_correcao")]
 
 
 @pytest.mark.parametrize(
@@ -234,13 +242,8 @@ async def test_falha_do_no_conta_duracao_e_falha_sem_expor_conteudo(
     assert job_id_ctx.get() is None
 
 
-async def test_reject_rule_lanca_falha_permanente_com_mensagem_fixa() -> None:
-    with pytest.raises(RegraComConflitoError) as erro:
-        await reject_rule({"conflitos": [{"elementos": ["elem.1"], "motivo": "CONTEUDO_PRIVADO"}]})
-
-    assert erro.value.etapa == "validacao_dominio"
-    assert isinstance(erro.value, FalhaDoJobError)
-    assert str(erro.value) == "Rule rejected by domain validation"
+class _FalhaPermanenteDaValidacaoError(FalhaDoJobError):
+    etapa = "validacao_dominio"
 
 
 async def test_falha_do_job_dentro_do_no_propaga_sem_virar_transitoria(
@@ -256,7 +259,7 @@ async def test_falha_do_job_dentro_do_no_propaga_sem_virar_transitoria(
 
     monkeypatch.setattr(
         "app.nos.validacao_dominio.verificar",
-        lambda _: (_ for _ in ()).throw(RegraComConflitoError()),
+        lambda _: (_ for _ in ()).throw(_FalhaPermanenteDaValidacaoError()),
     )
     payload = exemplo("parametros-confirmados")
     estado = {
@@ -266,7 +269,7 @@ async def test_falha_do_job_dentro_do_no_propaga_sem_virar_transitoria(
     }
     antes = (await cliente.get("/metrics")).text
 
-    with pytest.raises(RegraComConflitoError) as erro:
+    with pytest.raises(_FalhaPermanenteDaValidacaoError) as erro:
         await validate_domain(estado, {"configurable": {"producers": ambiente.producers}})
 
     assert erro.value.etapa == "validacao_dominio"

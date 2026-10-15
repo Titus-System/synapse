@@ -13,7 +13,7 @@ graph TD;
 	load_rule(load_rule)
 	extract_rule(extract_rule)
 	validate_domain(validate_domain)
-	reject_rule(reject_rule)
+	report_conflicts(report_conflicts)
 	code_generation(code_generation)
 	persist_response(persist_response)
 	extract_code(extract_code)
@@ -40,10 +40,10 @@ graph TD;
 	search_sales_target -.-> dispatch_execution;
 	search_sales_target -.-> publish_sales_target;
 	validate_domain -.-> code_generation;
-	validate_domain -.-> reject_rule;
+	validate_domain -.-> report_conflicts;
 	extract_rule --> __end__;
 	publish_sales_target --> __end__;
-	reject_rule --> __end__;
+	report_conflicts --> __end__;
 	suggest_adaptation --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0

@@ -17,7 +17,7 @@ from app.graph.nodes.extract_code import extract_code
 from app.graph.nodes.extract_rule import extract_rule
 from app.graph.nodes.load_rule import load_rule
 from app.graph.nodes.persist_response import persist_response
-from app.graph.nodes.reject_rule import reject_rule
+from app.graph.nodes.report_conflicts import report_conflicts
 from app.graph.nodes.search_sales_target import publish_sales_target, search_sales_target
 from app.graph.nodes.suggest_adaptation import suggest_adaptation
 from app.graph.nodes.validate_domain import validate_domain
@@ -33,7 +33,7 @@ def load_nodes(graph: StateGraph[AgentState]) -> None:
     graph.add_node("load_rule", load_rule)
     graph.add_node("extract_rule", extract_rule)
     graph.add_node("validate_domain", validate_domain)
-    graph.add_node("reject_rule", reject_rule)
+    graph.add_node("report_conflicts", report_conflicts)
     graph.add_node("code_generation", code_generation)
     graph.add_node("persist_response", persist_response)
     graph.add_node("extract_code", extract_code)
@@ -63,7 +63,7 @@ def _entrada(state: AgentState) -> str:
 
 
 def _apos_a_validacao(state: AgentState) -> str:
-    return "code_generation" if state["regra_liberada"] else "reject_rule"
+    return "code_generation" if state["regra_liberada"] else "report_conflicts"
 
 
 def load_edges(graph: StateGraph[AgentState]) -> None:
@@ -79,9 +79,9 @@ def load_edges(graph: StateGraph[AgentState]) -> None:
     graph.add_conditional_edges(
         "validate_domain",
         _apos_a_validacao,
-        {"code_generation": "code_generation", "reject_rule": "reject_rule"},
+        {"code_generation": "code_generation", "report_conflicts": "report_conflicts"},
     )
-    graph.add_edge("reject_rule", END)
+    graph.add_edge("report_conflicts", END)
     graph.add_edge("code_generation", "persist_response")
     graph.add_edge("persist_response", "extract_code")
     graph.add_edge("extract_code", "dispatch_execution")

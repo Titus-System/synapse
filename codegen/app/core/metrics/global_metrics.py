@@ -67,6 +67,12 @@ resultados_validacao_dominio = prometheus.register_counter(
 for _resultado in ("liberada", "barrada"):
     resultados_validacao_dominio.labels(resultado=_resultado)
 
+# Conta as entregas da pausa à api. A tentativa que falha ao publicar entra também em
+# `job_failures_total`, e a reentrega conta outra execução.
+job_runs.labels(job_name="report_conflicts")
+job_failures.labels(job_name="report_conflicts")
+job_duration.labels(job_name="report_conflicts")
+
 CONSTRUTOS_DA_EXTRACAO = (
     "nucleo",
     "generico",

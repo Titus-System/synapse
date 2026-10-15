@@ -6,7 +6,7 @@ Keycloak disabled. Only the model is scripted; no generated code is executed her
 
 import asyncio
 import os
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import asyncpg
 import pytest
@@ -32,7 +32,7 @@ pytestmark = [
 ]
 
 
-async def test_regra_barrada_termina_em_erro_na_api_e_regra_coerente_chega_a_simulacao(
+async def test_regra_coerente_passa_pela_validacao_e_chega_a_simulacao(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     host = os.environ["T211_POSTGRES_HOST"]
@@ -80,24 +80,6 @@ async def test_regra_barrada_termina_em_erro_na_api_e_regra_coerente_chega_a_sim
             resposta = await api.post("/jobs", json=corpo)
             assert resposta.status_code == 201, resposta.text
             coerente = resposta.json()
-            invertido = {**nucleo, "vigencia": {"inicio": "2025-12", "fim": "2025-08"}}
-            tentativa = await api.post(
-                "/jobs", json={**corpo, "conteudo": {"nucleo": invertido, "texto_livre": None}}
-            )
-            assert tentativa.status_code == 400
-            resposta = await api.post("/jobs", json=corpo)
-            assert resposta.status_code == 201, resposta.text
-            barrado = resposta.json()
-            regra_barrada = uuid4()
-            await dono.execute(
-                "INSERT INTO regras"
-                " (id, job_id, versao, origem, nucleo, especificacoes, hash, criada_em)"
-                " VALUES($1, $2, 2, 'formulario', $3::jsonb, '[]', $4, now())",
-                regra_barrada,
-                UUID(barrado["id"]),
-                simplejson.dumps(invertido),
-                uuid4().hex * 2,
-            )
             async with app.router.lifespan_context(app):
                 canal = await conexao.channel()
                 execucoes = await canal.declare_queue("executar-codigo", durable=True)
@@ -105,45 +87,26 @@ async def test_regra_barrada_termina_em_erro_na_api_e_regra_coerente_chega_a_sim
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as codegen:
                     antes = (await codegen.get("/metrics")).text
-                    for job, regra_id in (
-                        (barrado, str(regra_barrada)),
-                        (coerente, coerente["regra"]["id"]),
-                    ):
-                        payload = {
-                            "job_id": job["id"],
-                            "regra_id": regra_id,
-                            "submissao_id": job["submissao_id"],
-                            "origem": "formulario",
-                            "competencias": ["2025-11"],
-                            "orcamento": 500,
-                        }
-                        oficial("regra-submetida").validate(payload)
-                        await canal.default_exchange.publish(
-                            Message(body=simplejson.dumps(payload).encode()),
-                            routing_key="regra-submetida",
-                        )
-                        async with asyncio.timeout(30):
-                            while True:
-                                consulta = await api.get(f"/jobs/{job['id']}")
-                                assert consulta.status_code == 200
-                                estado = consulta.json()
-                                if estado["status"] == ("erro" if job is barrado else "simulando"):
-                                    break
-                                await asyncio.sleep(0.1)
-                        if job is barrado:
-                            assert (
-                                estado["motivo"]
-                                == "Falha durante o processamento da regra, antes da simulação."
-                            )
-                            assert modelo.seen_messages == []
-                            for tabela in ("prompts", "respostas_modelo", "codigos_gerados"):
-                                assert (
-                                    await dono.fetchval(
-                                        f"SELECT count(*) FROM {tabela} WHERE job_id=$1",
-                                        UUID(job["id"]),
-                                    )
-                                    == 0
-                                )
+                    payload = {
+                        "job_id": coerente["id"],
+                        "regra_id": coerente["regra"]["id"],
+                        "submissao_id": coerente["submissao_id"],
+                        "origem": "formulario",
+                        "competencias": ["2025-11"],
+                        "orcamento": 500,
+                    }
+                    oficial("regra-submetida").validate(payload)
+                    await canal.default_exchange.publish(
+                        Message(body=simplejson.dumps(payload).encode()),
+                        routing_key="regra-submetida",
+                    )
+                    async with asyncio.timeout(30):
+                        while True:
+                            consulta = await api.get(f"/jobs/{coerente['id']}")
+                            assert consulta.status_code == 200
+                            if consulta.json()["status"] == "simulando":
+                                break
+                            await asyncio.sleep(0.1)
                     comando = await execucoes.get(timeout=10)
                     assert comando is not None
                     payload_execucao = simplejson.loads(comando.body)
@@ -152,10 +115,9 @@ async def test_regra_barrada_termina_em_erro_na_api_e_regra_coerente_chega_a_sim
                     await comando.ack()
                     assert len(modelo.seen_messages) == 1
                     depois = (await codegen.get("/metrics")).text
-                    for resultado in ("liberada", "barrada"):
-                        nome = "codegen_validacao_dominio_resultados_total"
-                        labels = {"resultado": resultado}
-                        assert amostra(depois, nome, labels) - amostra(antes, nome, labels) == 1
+                    nome = "codegen_validacao_dominio_resultados_total"
+                    labels = {"resultado": "liberada"}
+                    assert amostra(depois, nome, labels) - amostra(antes, nome, labels) == 1
     finally:
         await conexao.close()
         await dono.close()
