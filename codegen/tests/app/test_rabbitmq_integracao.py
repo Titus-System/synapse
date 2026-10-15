@@ -30,6 +30,7 @@ from app.mensageria.broker import (
 )
 from app.mensageria.consumers import Consumer
 from app.mensageria.roteamento import Entrada, GraphRouter
+from app.representacao_regra import RepresentacaoRegra
 from tests.app.confirmacao_falsa import ConfirmacaoFalsa
 from tests.app.iteracao_falsa import NUCLEO, HistoricoFalso
 from tests.app.test_mensageria import SAIDAS, exemplo, oficial, sugestao_do_exemplo
@@ -403,3 +404,61 @@ async def test_iteracao_da_taxa_nova_propoe_tres_taxas_e_encerra_sem_alternativa
         finally:
             if not canal_verificacao.is_closed:
                 await canal_verificacao.close()
+
+
+async def test_regra_barrada_publica_a_pausa_no_broker_sem_chegar_ao_modelo(
+    broker_real: ConexaoBroker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Consumer, roteador e producers reais no broker; o teste faz a api (T-219).
+
+    A regra não tem percentual, um conflito conhecido. O ciclo termina publicando a pausa, e
+    nada segue para a geração de código.
+    """
+    ambiente = ConfirmacaoFalsa(monkeypatch)
+    ambiente.buscar_regra.return_value = RepresentacaoRegra.model_validate(
+        {"nucleo": {}, "especificacoes": []}
+    )
+    assentadas: asyncio.Queue[None] = asyncio.Queue()
+    receber = Consumer.receber
+
+    async def acompanhar(self: Consumer, mensagem: AbstractIncomingMessage) -> None:
+        await receber(self, mensagem)
+        assentadas.put_nowait(None)
+
+    monkeypatch.setattr(Consumer, "receber", acompanhar)
+    roteador = GraphRouter(ambiente.banco, broker_real.producers, ambiente.limpeza)
+    await broker_real.iniciar_consumers(roteador)
+    nome = "parametros-confirmados"
+    payload = exemplo(nome) | {"job_id": str(uuid4()), "regra_id": str(uuid4())}
+
+    await broker_real.canal.default_exchange.publish(
+        Message(body=simplejson.dumps(payload, use_decimal=True).encode()), routing_key=nome
+    )
+    await asyncio.wait_for(assentadas.get(), timeout=30)
+
+    etapas = [
+        await _ler(await _proxima(broker_real.filas["etapa-alterada"]), "etapa-alterada")
+        for _ in range(2)
+    ]
+    assert etapas == [
+        {"job_id": payload["job_id"], "etapa": "validacao_dominio", "status": "iniciada"},
+        {
+            "job_id": payload["job_id"],
+            "etapa": "confirmacao",
+            "status": "aguardando_correcao",
+            "regra_id": payload["regra_id"],
+            "conflitos": [{"elementos": ["nucleo.percentual"], "motivo": "percentual ausente"}],
+        },
+    ]
+    trilha = await _ler(await _proxima(broker_real.filas["no-concluido"]), "no-concluido")
+    assert trilha["no"] == "validacao_dominio"
+    for fila_de_saida in ("etapa-alterada", "no-concluido", "executar-codigo"):
+        assert await broker_real.filas[fila_de_saida].get(fail=False) is None
+    assert ambiente.modelo.seen_messages == []
+    canal_verificacao = await broker_real.conexao.channel()
+    try:
+        fila = await canal_verificacao.declare_queue(nome, passive=True)
+        assert fila.declaration_result.message_count == 0
+    finally:
+        if not canal_verificacao.is_closed:
+            await canal_verificacao.close()

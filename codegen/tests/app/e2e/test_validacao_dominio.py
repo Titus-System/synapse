@@ -32,7 +32,7 @@ pytestmark = [
 ]
 
 
-async def test_regra_barrada_termina_em_erro_na_api_e_regra_coerente_chega_a_simulacao(
+async def test_regra_barrada_pausa_para_correcao_na_api_e_regra_coerente_chega_a_simulacao(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     host = os.environ["T211_POSTGRES_HOST"]
@@ -122,19 +122,17 @@ async def test_regra_barrada_termina_em_erro_na_api_e_regra_coerente_chega_a_sim
                             Message(body=simplejson.dumps(payload).encode()),
                             routing_key="regra-submetida",
                         )
+                        esperado = (
+                            "aguardando_confirmacao_parametros" if job is barrado else "simulando"
+                        )
                         async with asyncio.timeout(30):
                             while True:
                                 consulta = await api.get(f"/jobs/{job['id']}")
                                 assert consulta.status_code == 200
-                                estado = consulta.json()
-                                if estado["status"] == ("erro" if job is barrado else "simulando"):
+                                if consulta.json()["status"] == esperado:
                                     break
                                 await asyncio.sleep(0.1)
                         if job is barrado:
-                            assert (
-                                estado["motivo"]
-                                == "Falha durante o processamento da regra, antes da simulação."
-                            )
                             assert modelo.seen_messages == []
                             for tabela in ("prompts", "respostas_modelo", "codigos_gerados"):
                                 assert (
@@ -144,6 +142,23 @@ async def test_regra_barrada_termina_em_erro_na_api_e_regra_coerente_chega_a_sim
                                     )
                                     == 0
                                 )
+                            rodadas = await api.get(f"/jobs/{job['id']}/rodadas")
+                            assert rodadas.status_code == 200
+                            assert [
+                                (r["regra_analisada_id"], r["estado"], r["conflitos"])
+                                for r in rodadas.json()
+                            ] == [
+                                (
+                                    str(regra_barrada),
+                                    "pendente",
+                                    [
+                                        {
+                                            "elementos": ["nucleo.vigencia"],
+                                            "motivo": "fim 2025-08 anterior ao início 2025-12",
+                                        }
+                                    ],
+                                )
+                            ]
                     comando = await execucoes.get(timeout=10)
                     assert comando is not None
                     payload_execucao = simplejson.loads(comando.body)

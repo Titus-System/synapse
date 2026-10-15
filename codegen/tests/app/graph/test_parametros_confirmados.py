@@ -331,8 +331,8 @@ async def test_metricas_e_logs_dos_tres_resultados_passam_pelo_roteador_real(
 
 
 @pytest.mark.parametrize(
-    ("refs", "falha_permanente"),
-    [(["elem.2", "elem.1"], False), ([], True), (["elem.1", "elem.1"], True)],
+    ("refs", "desfecho"),
+    [(["elem.2", "elem.1"], "delegada"), ([], "pausa"), (["elem.1", "elem.1"], "falha")],
     ids=["cobertura-enviada", "regra-vazia", "referencias-repetidas"],
 )
 async def test_cobertura_passa_pelo_consumidor_grafo_e_observabilidade(
@@ -340,7 +340,7 @@ async def test_cobertura_passa_pelo_consumidor_grafo_e_observabilidade(
     cliente: AsyncClient,
     logs: list[dict[str, Any]],
     refs: list[str],
-    falha_permanente: bool,
+    desfecho: str,
 ) -> None:
     regra: dict[str, Any] = {
         "nucleo": {"percentual": Decimal("0.025")} if refs else {},
@@ -356,11 +356,11 @@ async def test_cobertura_passa_pelo_consumidor_grafo_e_observabilidade(
 
     await ambiente.consumer.receber(recebida)
 
-    if falha_permanente:
+    if desfecho == "falha":
         recebida.reject.assert_awaited_once_with(requeue=False)
         recebida.ack.assert_not_awaited()
         ambiente.producers.executar_codigo.assert_not_awaited()
-        etapa = "delegacao_worker" if refs else "validacao_dominio"
+        etapa = "delegacao_worker"
         delegacoes = [
             p
             for nome, p in ambiente.publicacoes
@@ -372,6 +372,21 @@ async def test_cobertura_passa_pelo_consumidor_grafo_e_observabilidade(
             and log["extra"].get("decisao") == "reject_sem_requeue"
             for log in logs
         )
+    elif desfecho == "pausa":
+        recebida.ack.assert_awaited_once_with()
+        recebida.reject.assert_not_awaited()
+        ambiente.producers.executar_codigo.assert_not_awaited()
+        assert ambiente.publicacoes[-1] == (
+            "etapa-alterada",
+            {
+                "job_id": payload["job_id"],
+                "etapa": "confirmacao",
+                "status": "aguardando_correcao",
+                "regra_id": payload["regra_id"],
+                "conflitos": [{"elementos": ["nucleo.percentual"], "motivo": "percentual ausente"}],
+            },
+        )
+        assert all(p.get("status") != "erro" for _, p in ambiente.publicacoes)
     else:
         recebida.ack.assert_awaited_once_with()
         recebida.reject.assert_not_awaited()
@@ -381,9 +396,9 @@ async def test_cobertura_passa_pelo_consumidor_grafo_e_observabilidade(
     recebida.nack.assert_not_awaited()
     depois = amostras((await cliente.get("/metrics")).text)
     assert {nome: depois[nome] - antes[nome] for nome in antes} == {
-        "ciclo_aberto": 0 if falha_permanente else 1,
+        "ciclo_aberto": 0 if desfecho == "falha" else 1,
         "reentrega_ignorada": 0,
-        "descartada": 1 if falha_permanente else 0,
+        "descartada": 1 if desfecho == "falha" else 0,
     }
     validador = Draft202012Validator(
         simplejson.loads((CONTRATOS / "observability/log.schema.json").read_bytes()),

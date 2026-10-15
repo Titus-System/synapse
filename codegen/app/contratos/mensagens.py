@@ -59,6 +59,10 @@ ReferenciaDeElemento = Annotated[
     str,
     Field(pattern=r"^(nucleo\.[a-z_]+|elem\.[0-9]+)$"),
 ]
+ReferenciaDeParametro = Annotated[
+    str,
+    Field(pattern=r"^parametros\.(orcamento|meta_venda|competencias)$"),
+]
 
 
 class ConclusaoDaTrilha(ModeloContrato):
@@ -139,11 +143,18 @@ class ExecutarCodigo(ModeloContrato):
     elementos_exigidos: list[ReferenciaDeElemento] | None = Field(default=None, min_length=1)
 
 
+class ConflitoDaRodada(ModeloContrato):
+    elementos: list[ReferenciaDeElemento | ReferenciaDeParametro] = Field(min_length=1)
+    motivo: TextoNaoVazio
+
+
 class EtapaAlterada(ModeloContrato):
     job_id: UUID
     etapa: NoGrafo
     status: str = Field(min_length=1)
     causa: Literal["provedor_indisponivel"] | None = None
+    regra_id: UUID | None = None
+    conflitos: list[ConflitoDaRodada] | None = Field(default=None, min_length=1)
 
 
 class NoConcluido(ModeloContrato):
