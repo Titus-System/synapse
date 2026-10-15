@@ -61,12 +61,12 @@ O `CorrelationFilter` só limpa o MDC. Abra `CorrelationContext` com o `job_id` 
 
 ## `etapa-alterada` (T-215)
 
-`EtapaAlteradaDto` ganha `regra_id` e `conflitos`, ambos `@Nullable`. Receba `conflitos` como `JsonNode`, e não como lista tipada. A rodada guarda os conflitos exatamente como chegaram, e o SSE os repassa como chegaram. Um record tipado descartaria em silêncio um campo que o codegen acrescentar aos itens numa evolução aditiva do contrato. Confira só que é um array não vazio.
+`EtapaAlteradaDto` ganha `regra_id`, `conflitos` e `submissao_id`, todos `@Nullable`. Receba `conflitos` como `JsonNode`, e não como lista tipada. A rodada guarda os conflitos exatamente como chegaram, e o SSE os repassa como chegaram. Um record tipado descartaria em silêncio um campo que o codegen acrescentar aos itens numa evolução aditiva do contrato. Confira só que é um array não vazio.
 
 Em `JobEventosService.aplicarEtapaAlterada`, leia o status do job sob trava uma vez e ramifique por ele:
 
 1. `confirmacao` + `aguardando_correcao` com `regra_id` e `conflitos`: primeiro confira se já existe rodada para `(job_id, regra_id)` e se `regra_id` é a versão mais recente do job. Só depois tente a transição. A ordem importa: uma pausa reentregue de uma versão antiga encontra o job em `gerando_regra` por causa da versão nova, e a transição viria primeiro e pausaria o ciclo errado.
-2. `extracao_parametros` + `erro` com o job em `aguardando_confirmacao_parametros` e uma rodada `em_reextracao`: fecha a rodada como `reextracao_falhou` e abre a `pendente` nova, copiando `conflitos` e `regra_analisada_id`. O job não muda.
+2. `extracao_parametros` + `erro` com `regra_id` e `submissao_id`: a rodada é a de `submissao_correcao_id` igual a `submissao_id`, e não a que estiver em `em_reextracao`, porque `regra_id` se repete entre as correções de uma mesma versão. Com ela em `em_reextracao`, `regra_id` igual à versão analisada dela e à mais recente do job, e o job em `aguardando_confirmacao_parametros`, fecha a rodada como `reextracao_falhou` e abre a `pendente` nova, copiando `conflitos` e `regra_analisada_id`. O job não muda. Com ela já em `reextracao_falhou`, a entrega é `duplicada`; os demais casos são descartados. Sem `regra_id`, o `erro` é da extração inicial e segue o item 3 só num job sem rodadas; num job que já teve rodada, é uma falha antiga e é descartada.
 3. Os ramos existentes (`delegacao_worker` iniciada e `erro` a partir de `gerando_regra`) continuam como estão.
 
 O serviço devolve ao consumidor o que ele precisa emitir. `EtapaAlteradaConsumidor` continua emitindo depois de o serviço retornar, que é depois do commit, e mantém a ordem `etapa` antes de `estado` da skill [`sse`](../sse/SKILL.md). `EventoEtapaDto` ganha `conflitos` com `@JsonInclude(NON_NULL)`, como `EventoEstadoDto` já faz: o contrato SSE não aceita `conflitos: null`. `regra_id` não vai ao SSE, porque o contrato HTTP não o declara em `EventoEtapa`.

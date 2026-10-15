@@ -152,6 +152,7 @@ class RegraExtraidaPersistenciaTests {
 		contexto = new AnnotationConfigApplicationContext();
 		contexto.registerBean(DataSource.class, () -> dataSource);
 		contexto.registerBean(JdbcTemplate.class, () -> jdbc);
+		contexto.registerBean(JsonMapper.class, () -> new JsonMapper());
 		contexto.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
 		contexto.registerBean(EmissoresSse.class, () -> mock(EmissoresSse.class));
 		contexto.register(Config.class);
@@ -182,7 +183,7 @@ class RegraExtraidaPersistenciaTests {
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
 	@Import({ JobRepository.class, JobService.class, JobEventosService.class, MaquinaDeEstadosDoJob.class, Outbox.class,
-			VersoesDaRegra.class, CorrelationContext.class, AutorizadorDeJob.class })
+			RodadasCorrecaoRepository.class, VersoesDaRegra.class, CorrelationContext.class, AutorizadorDeJob.class })
 	static class Config {
 
 	}

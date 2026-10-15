@@ -52,7 +52,7 @@ sequenceDiagram
             Note over A: versão com origem correcao, rodada corrigida, job em gerando_regra
             A->>C: parametros-confirmados da versão nova, e o loop recomeça
         else falhou
-            C->>A: etapa-alterada (extracao_parametros, erro, regra_id)
+            C->>A: etapa-alterada (extracao_parametros, erro, regra_id, submissao_id)
             Note over A: rodada reextracao_falhou, pendente nova, job não muda
         end
     end
@@ -95,12 +95,15 @@ O banco garante no máximo uma rodada aberta por job e no máximo uma sucessora 
 | `correcao-proposta` | rodada `em_reextracao` para `regra_origem_id`, representação nova | vai a `gerando_regra`, motivo `correcao_aplicada` | `corrigida`, com `regra_resultante_id` | `parametros-confirmados` com competências e orçamento |
 | o mesmo | hash igual ao de uma versão que o job já tem | nada | `reextracao_falhou` e `pendente` nova | nada |
 | o mesmo | sem rodada `em_reextracao` para a origem | nada | nada | nada (descartada) |
-| `etapa-alterada` `extracao_parametros` + `erro` | job em `aguardando_confirmacao_parametros`, rodada `em_reextracao` | nada | `reextracao_falhou` e `pendente` nova com os mesmos conflitos e a mesma versão analisada | SSE `etapa` |
-| o mesmo | job em `gerando_regra` | vai a `erro`, como hoje | nada | SSE `etapa` e `estado` |
+| `etapa-alterada` `extracao_parametros` + `erro` com `regra_id` e `submissao_id` | rodada daquela `submissao_id` em `em_reextracao`, `regra_id` igual à versão analisada dela e à mais recente do job, job em `aguardando_confirmacao_parametros` | nada | `reextracao_falhou` e `pendente` nova com os mesmos conflitos e a mesma versão analisada | SSE `etapa` |
+| o mesmo | rodada daquela `submissao_id` já em `reextracao_falhou` | nada | nada | nada (duplicada) |
+| o mesmo | qualquer outro caso: submissão desconhecida, versão superada, job fora da espera | nada | nada | nada (descartada) |
+| `etapa-alterada` `extracao_parametros` + `erro` sem `regra_id` | job em `gerando_regra` e sem rodadas | vai a `erro`, como hoje | nada | SSE `etapa` e `estado` |
+| o mesmo | job que já teve rodada | nada | nada | nada (descartada) |
 | `POST /jobs/{id}/parameters` | job em `aguardando_confirmacao_parametros` com rodada aberta | vai a `gerando_regra` | a aberta vira `corrigida` com a versão confirmada | `parametros-confirmados` |
 | `cancelar` ou `arquivar` | rodada aberta | estado terminal | as abertas viram `abandonada` | `job-encerrado` |
 
-O mesmo `erro` em `extracao_parametros` tem dois significados. Quem decide qual vale é o estado do job, nunca o evento sozinho.
+O mesmo `erro` em `extracao_parametros` tem dois significados. A falha da reextração traz `regra_id` e `submissao_id`; a da extração inicial não traz nenhum dos dois, e só existe antes da primeira rodada do job. A rodada que a falha fecha é a da `submissao_id`, nunca a que estiver em `em_reextracao`: `regra_id` se repete entre as correções enviadas para a mesma versão, e uma falha antiga reentregue fecharia a correção seguinte.
 
 ## Identidade dos ciclos no codegen
 
@@ -118,7 +121,7 @@ As filas são independentes e a entrega é pelo menos uma vez. Cada passo tem a 
 | `etapa-alterada` de pausa | api | uma rodada por `(job_id, regra_id)` |
 | `correcao-submetida` | codegen | thread por `submissao_id`, ids de prompt, resposta e trilha derivados |
 | `correcao-proposta` | api | a rodada `em_reextracao` daquela origem, aplicada uma vez |
-| `etapa-alterada` de falha da reextração | api | só age com rodada `em_reextracao` |
+| `etapa-alterada` de falha da reextração | api | a rodada daquela `submissao_id`: só age com ela em `em_reextracao`, e com ela em `reextracao_falhou` a entrega é duplicada |
 
 Três regras de ordem:
 

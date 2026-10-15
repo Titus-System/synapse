@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.jackson.databind.JsonNode;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,11 +46,15 @@ class JobEventosService {
 
 	private final Outbox outbox;
 
-	JobEventosService(JobRepository repository, MaquinaDeEstadosDoJob maquina, VersoesDaRegra versoes, Outbox outbox) {
+	private final RodadasCorrecaoRepository rodadas;
+
+	JobEventosService(JobRepository repository, MaquinaDeEstadosDoJob maquina, VersoesDaRegra versoes, Outbox outbox,
+			RodadasCorrecaoRepository rodadas) {
 		this.repository = repository;
 		this.maquina = maquina;
 		this.versoes = versoes;
 		this.outbox = outbox;
+		this.rodadas = rodadas;
 	}
 
 	@Transactional
@@ -59,46 +64,139 @@ class JobEventosService {
 		return this.repository.registrarMetaSugerida(evento);
 	}
 
-	/**
-	 * O evento {@code estado} da transição aplicada, nulo quando a combinação não move o
-	 * job ou ele já saiu de {@code gerando_regra}, e o fim da iteração da taxa nova que o
-	 * evento representa, nulo quando não representa nenhum.
-	 * <p>
-	 * {@code causa} só tem efeito com {@code erro}: uma causa que a api reconhece dá ao
-	 * job um motivo próprio, e a ausência ou uma causa desconhecida mantém o motivo
-	 * genérico. {@code aguardando_provedor} não passa por nenhum ramo: é só repassado ao
-	 * SSE.
-	 * <p>
-	 * {@code sem_alternativa}, ou {@code erro} da decisão ou da sugestão durante a
-	 * iteração, encerra as tentativas. Uma falha preserva seu motivo e termina em erro;
-	 * somente o sinal sem alternativa confirma que não há outra taxa a tentar. Fora da
-	 * iteração, {@code sem_alternativa} não move o job - na regra original, o desfecho
-	 * inviável é da {@code simulacao-concluida} dela -, e {@code erro} segue o caminho de
-	 * qualquer etapa.
-	 */
 	@Transactional
 	EtapaAplicada aplicarEtapaAlterada(UUID jobId, EtapaDoGrafo etapa, String status, @Nullable String causa) {
+		return aplicarEtapaAlterada(jobId, etapa, status, causa, null, null);
+	}
+
+	@Transactional
+	EtapaAplicada aplicarEtapaAlterada(UUID jobId, EtapaDoGrafo etapa, String status, @Nullable String causa,
+			@Nullable UUID regraId, @Nullable JsonNode conflitos) {
+		return aplicarEtapaAlterada(jobId, etapa, status, causa, regraId, conflitos, null);
+	}
+
+	@Transactional
+	EtapaAplicada aplicarEtapaAlterada(UUID jobId, EtapaDoGrafo etapa, String status, @Nullable String causa,
+			@Nullable UUID regraId, @Nullable JsonNode conflitos, @Nullable UUID submissaoId) {
+		List<ContextoDoJob> contextos = this.repository.buscarContextoComTrava(jobId);
+		if (contextos.isEmpty()) {
+			return resultadoCorrecao(DesfechoCorrecao.JOB_INEXISTENTE, regraId, null, conflitos);
+		}
+		JobStatus atual = contextos.getFirst().status();
+		if ("aguardando_correcao".equals(status)) {
+			if (etapa != EtapaDoGrafo.CONFIRMACAO) {
+				return resultadoCorrecao(DesfechoCorrecao.EVENTO_INVALIDO, regraId, null, conflitos);
+			}
+			return pausarPorConflitos(jobId, atual, regraId, conflitos);
+		}
+		if (etapa == EtapaDoGrafo.EXTRACAO_PARAMETROS && STATUS_ERRO.equals(status)) {
+			// Sem referências, só a ausência de histórico permite reconhecer a extração
+			// inicial.
+			if (regraId != null || submissaoId != null || atual == JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS
+					|| !this.rodadas.buscarUltima(jobId).isEmpty()) {
+				return falharReextracao(jobId, atual, regraId, submissaoId);
+			}
+		}
 		if (etapa == EtapaDoGrafo.SUGESTAO_ADAPTACAO && STATUS_SEM_ALTERNATIVA.equals(status)) {
-			EventoEstadoDto encerrada = encerrarIteracao(jobId, JobStatus.SIMULACAO_INVIAVEL,
+			EventoEstadoDto encerrada = encerrarIteracao(jobId, atual, JobStatus.SIMULACAO_INVIAVEL,
 					MotivoDaParada.SEM_ALTERNATIVA, MotivoDaParada.NENHUMA_TAXA_COUBE);
-			return (encerrada != null) ? new EtapaAplicada(encerrada, FimDaIteracao.SEM_ALTERNATIVA)
-					: new EtapaAplicada(null, FimDaIteracao.SEM_ALTERNATIVA_SEM_EFEITO);
+			return (encerrada != null) ? EtapaAplicada.comum(encerrada, FimDaIteracao.SEM_ALTERNATIVA)
+					: EtapaAplicada.comum(null, FimDaIteracao.SEM_ALTERNATIVA_SEM_EFEITO);
 		}
 		if (STATUS_ERRO.equals(status) && (etapa == EtapaDoGrafo.DECISAO || etapa == EtapaDoGrafo.SUGESTAO_ADAPTACAO)) {
-			EventoEstadoDto encerrada = encerrarIteracao(jobId, JobStatus.ERRO,
+			EventoEstadoDto encerrada = encerrarIteracao(jobId, atual, JobStatus.ERRO,
 					MotivoDaParada.falhaNaEtapa(etapa, causa), MotivoDaParada.razaoDaFalha(causa));
 			if (encerrada != null) {
-				return new EtapaAplicada(encerrada, FimDaIteracao.FALHA);
+				return EtapaAplicada.comum(encerrada, FimDaIteracao.FALHA);
 			}
 		}
 		if (etapa == EtapaDoGrafo.DELEGACAO_WORKER && STATUS_INICIADA.equals(status)) {
-			return new EtapaAplicada(avancarDeGerandoRegra(jobId, JobStatus.SIMULANDO, null, null), null);
+			return EtapaAplicada.comum(avancarDeGerandoRegra(jobId, JobStatus.SIMULANDO, null, null));
 		}
 		if (STATUS_ERRO.equals(status)) {
-			return new EtapaAplicada(avancarDeGerandoRegra(jobId, JobStatus.ERRO,
-					MotivoDaParada.falhaNaEtapa(etapa, causa), MotivoDaParada.razaoDaFalha(causa)), null);
+			return EtapaAplicada.comum(avancarDeGerandoRegra(jobId, JobStatus.ERRO,
+					MotivoDaParada.falhaNaEtapa(etapa, causa), MotivoDaParada.razaoDaFalha(causa)));
 		}
-		return new EtapaAplicada(null, null);
+		return EtapaAplicada.comum(null);
+	}
+
+	private EtapaAplicada pausarPorConflitos(UUID jobId, JobStatus atual, @Nullable UUID regraId,
+			@Nullable JsonNode conflitos) {
+		if (regraId != null) {
+			List<UUID> existentes = this.rodadas.buscarPorRegra(jobId, regraId);
+			if (!existentes.isEmpty()) {
+				return resultadoCorrecao(DesfechoCorrecao.DUPLICADA, regraId, existentes.getFirst(), conflitos);
+			}
+		}
+		if (atual != JobStatus.GERANDO_REGRA) {
+			return resultadoCorrecao(DesfechoCorrecao.ESTADO_INCOMPATIVEL, regraId, null, conflitos);
+		}
+		if (regraId == null) {
+			return resultadoCorrecao(DesfechoCorrecao.REGRA_AUSENTE, null, null, conflitos);
+		}
+		if (!this.rodadas.regraPertenceAVersaoAtual(jobId, regraId)) {
+			return resultadoCorrecao(DesfechoCorrecao.REGRA_NAO_ATUAL, regraId, null, conflitos);
+		}
+		if (conflitos == null || !conflitos.isArray() || conflitos.isEmpty()) {
+			return resultadoCorrecao(DesfechoCorrecao.CONFLITOS_INVALIDOS, regraId, null, conflitos);
+		}
+		List<UUID> ultimas = this.rodadas.buscarUltima(jobId);
+		if (!this.maquina.avancarSeEm(jobId, JobStatus.GERANDO_REGRA, JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS, ATOR,
+				"validacao_com_conflitos")) {
+			return resultadoCorrecao(DesfechoCorrecao.ESTADO_INCOMPATIVEL, regraId, null, conflitos);
+		}
+		Timestamp agora = Timestamp.from(Instant.now().truncatedTo(ChronoUnit.MICROS));
+		UUID rodadaId = this.rodadas.inserirPendente(jobId, regraId, conflitos,
+				ultimas.isEmpty() ? null : ultimas.getFirst(), agora);
+		return new EtapaAplicada(DesfechoCorrecao.RODADA_ABERTA, EventoEstadoDto.transicao(jobId,
+				JobStatus.GERANDO_REGRA, JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS, null), regraId, rodadaId,
+				conflitos.size(), null);
+	}
+
+	private EtapaAplicada falharReextracao(UUID jobId, JobStatus atual, @Nullable UUID regraId,
+			@Nullable UUID submissaoId) {
+		if (submissaoId == null) {
+			return resultadoCorrecao(
+					regraId != null && !this.rodadas.regraPertenceAVersaoAtual(jobId, regraId)
+							? DesfechoCorrecao.REGRA_NAO_ATUAL : DesfechoCorrecao.TENTATIVA_AUSENTE,
+					regraId, null, null);
+		}
+		if (regraId == null) {
+			return resultadoCorrecao(DesfechoCorrecao.REGRA_AUSENTE, null, null, null);
+		}
+		var encontradas = this.rodadas.buscarPorSubmissao(jobId, submissaoId);
+		if (encontradas.isEmpty()) {
+			return resultadoCorrecao(DesfechoCorrecao.TENTATIVA_DESCONHECIDA, regraId, null, null);
+		}
+		if (encontradas.size() != 1) {
+			return resultadoCorrecao(DesfechoCorrecao.TENTATIVA_AMBIGUA, regraId, null, null);
+		}
+		var rodada = encontradas.getFirst();
+		if (!regraId.equals(rodada.regraId())) {
+			return resultadoCorrecao(DesfechoCorrecao.REGRA_DIVERGENTE, regraId, rodada.id(), null);
+		}
+		if ("reextracao_falhou".equals(rodada.estado())) {
+			return resultadoCorrecao(DesfechoCorrecao.DUPLICADA, regraId, rodada.id(), rodada.conflitos());
+		}
+		if (!this.rodadas.regraPertenceAVersaoAtual(jobId, regraId)) {
+			return resultadoCorrecao(DesfechoCorrecao.REGRA_NAO_ATUAL, regraId, rodada.id(), null);
+		}
+		if (atual != JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS) {
+			return resultadoCorrecao(DesfechoCorrecao.ESTADO_INCOMPATIVEL, regraId, rodada.id(), null);
+		}
+		if (!"em_reextracao".equals(rodada.estado())) {
+			return resultadoCorrecao(DesfechoCorrecao.SEM_REEXTRACAO, regraId, rodada.id(), null);
+		}
+		Timestamp agora = Timestamp.from(Instant.now().truncatedTo(ChronoUnit.MICROS));
+		this.rodadas.fecharReextracao(rodada.id(), agora);
+		UUID sucessora = this.rodadas.inserirPendente(jobId, rodada.regraId(), rodada.conflitos(), rodada.id(), agora);
+		return resultadoCorrecao(DesfechoCorrecao.REEXTRACAO_FALHOU, rodada.regraId(), sucessora, rodada.conflitos());
+	}
+
+	private static EtapaAplicada resultadoCorrecao(DesfechoCorrecao desfecho, @Nullable UUID regraId,
+			@Nullable UUID rodadaId, @Nullable JsonNode conflitos) {
+		return new EtapaAplicada(desfecho, null, regraId, rodadaId,
+				conflitos != null && conflitos.isArray() ? conflitos.size() : 0, null);
 	}
 
 	/**
@@ -108,8 +206,8 @@ class JobEventosService {
 	 * versão atual não é uma alternativa com resultado inviável, ou o job já saiu do
 	 * processamento.
 	 */
-	private @Nullable EventoEstadoDto encerrarIteracao(UUID jobId, JobStatus destino, String motivo, String razao) {
-		JobStatus status = JobStatus.deColuna(this.repository.buscarStatusComTrava(jobId));
+	private @Nullable EventoEstadoDto encerrarIteracao(UUID jobId, JobStatus status, JobStatus destino, String motivo,
+			String razao) {
 		if (!status.emProcessamento()) {
 			return null;
 		}
@@ -121,9 +219,6 @@ class JobEventosService {
 		this.maquina.transicionar(jobId, destino, ATOR, motivo);
 		this.repository.vincularResultado(jobId, resultados.getFirst());
 		return EventoEstadoDto.transicao(jobId, JobStatus.SIMULANDO, destino, razao);
-	}
-
-	record EtapaAplicada(@Nullable EventoEstadoDto transicao, @Nullable FimDaIteracao fim) {
 	}
 
 	/**

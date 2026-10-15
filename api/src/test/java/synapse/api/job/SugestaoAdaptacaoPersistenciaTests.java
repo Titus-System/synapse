@@ -109,6 +109,7 @@ class SugestaoAdaptacaoPersistenciaTests {
 		contexto = new AnnotationConfigApplicationContext();
 		contexto.registerBean(DataSource.class, () -> dataSource);
 		contexto.registerBean(JdbcTemplate.class, () -> jdbc);
+		contexto.registerBean(JsonMapper.class, () -> new JsonMapper());
 		contexto.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
 		contexto.registerBean(EmissoresSse.class, () -> mock(EmissoresSse.class));
 		contexto.register(Config.class);
@@ -130,7 +131,7 @@ class SugestaoAdaptacaoPersistenciaTests {
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
 	@Import({ JobRepository.class, JobService.class, JobEventosService.class, MaquinaDeEstadosDoJob.class, Outbox.class,
-			VersoesDaRegra.class, CorrelationContext.class })
+			RodadasCorrecaoRepository.class, VersoesDaRegra.class, CorrelationContext.class })
 	static class Config {
 
 	}
@@ -400,7 +401,7 @@ class SugestaoAdaptacaoPersistenciaTests {
 				new AppMetrics(registro));
 		var conclusoes = new SimulacaoConcluidaConsumidor(sugestaoService, emissores, new CorrelationContext(),
 				new AppMetrics(registro));
-		var fim = new EtapaAlteradaDto(jobId, "sugestao_adaptacao", "sem_alternativa", null);
+		var fim = new EtapaAlteradaDto(jobId, "sugestao_adaptacao", "sem_alternativa", null, null, null);
 		var conclusao = new SimulacaoConcluidaDto(jobId, resultado, "sucesso", "inviavel", null, null, null, null);
 
 		List<ILoggingEvent> logs;
@@ -839,7 +840,7 @@ class SugestaoAdaptacaoPersistenciaTests {
 			// Reproduz o outro consumidor depois do commit, antes de o primeiro emitir
 			// SSE.
 			assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
-			etapas.receber(new EtapaAlteradaDto(jobId, "sugestao_adaptacao", "sem_alternativa", null));
+			etapas.receber(new EtapaAlteradaDto(jobId, "sugestao_adaptacao", "sem_alternativa", null, null, null));
 			return aplicado;
 		}).when(intercalado).concluirSimulacao(jobId, resultado, DesfechoDaSimulacao.INVIAVEL);
 		var conclusoes = new SimulacaoConcluidaConsumidor(intercalado, emissores, new CorrelationContext(), metricas);

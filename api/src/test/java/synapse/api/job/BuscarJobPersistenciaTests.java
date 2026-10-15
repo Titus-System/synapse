@@ -113,6 +113,7 @@ class BuscarJobPersistenciaTests {
 		contexto = new AnnotationConfigApplicationContext();
 		contexto.registerBean(DataSource.class, () -> dataSource);
 		contexto.registerBean(JdbcTemplate.class, () -> jdbc);
+		contexto.registerBean(JsonMapper.class, () -> new JsonMapper());
 		contexto.registerBean(EmissoresSse.class, () -> mock(EmissoresSse.class));
 		contexto.register(Config.class);
 		contexto.refresh();
@@ -147,7 +148,8 @@ class BuscarJobPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@Import({ JobRepository.class, JobService.class, AutorizadorDeJob.class, CorrelationContext.class,
-			MaquinaDeEstadosDoJob.class, JobEventosService.class, Outbox.class, VersoesDaRegra.class })
+			MaquinaDeEstadosDoJob.class, JobEventosService.class, RodadasCorrecaoRepository.class, Outbox.class,
+			VersoesDaRegra.class })
 	static class Config {
 
 	}

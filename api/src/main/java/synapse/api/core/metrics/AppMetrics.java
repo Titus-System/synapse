@@ -107,6 +107,22 @@ public class AppMetrics {
 			.register(this.registry);
 	}
 
+	/** Mensagens de correção confirmadas por resultado, não jobs distintos. */
+	public Counter etapaAlteradaCorrecao(String resultado) {
+		return Counter.builder("etapa.alterada.correcao")
+			.description("Mensagens de correção processadas por resultado após commit")
+			.tag("resultado", resultado)
+			.register(this.registry);
+	}
+
+	/** Tentativas de consumo, inclusive falhas que serão reentregues. */
+	public Timer etapaAlteradaDuracao(String resultado) {
+		return Timer.builder("etapa.alterada.consumo.duracao")
+			.description("Duração das tentativas de consumo de etapa-alterada até commit ou falha")
+			.tag("resultado", resultado)
+			.register(this.registry);
+	}
+
 	public Counter jobFailures(String jobName) {
 		return Counter.builder("job.failures")
 			.description("Number of failed executions of jobs")
