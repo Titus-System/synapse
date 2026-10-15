@@ -22,12 +22,17 @@
     "status": {
       "type": "string",
       "minLength": 1,
-      "description": "Situação reportada pelo codegen para a etapa iniciada. A API a traduz para o estado do job, de que ela é dona, e repassa o progresso ao frontend. Com o job em gerando_regra, três valores o movem: iniciada na etapa delegacao_worker o leva a simulando; aguardando_correcao na etapa confirmacao o leva a aguardando_confirmacao_parametros, porque a validação apontou conflitos na versão e o ciclo dela terminou à espera da correção do usuário, e a API abre uma rodada pendente com esses conflitos; e erro, em qualquer etapa, o leva a erro. Com o job em aguardando_confirmacao_parametros, erro na etapa extracao_parametros é a falha da reextração de uma correção: a API não encerra o job, fecha a rodada em reextração e reabre a correção numa rodada pendente nova, encadeada e com os mesmos conflitos. Na etapa sugestao_adaptacao, sem_alternativa encerra a iteração da taxa nova sem uma taxa que caiba: a terceira tentativa simulada não coube no orçamento, ou não houve como estimar uma taxa para a primeira ou para a seguinte. Não há outra sugestao-adaptacao-proposta depois dele, e a API leva o job ao desfecho de inviável sem alternativa, com a oferta de nova regra, em vez de esperar outra tentativa. aguardando_provedor, em qualquer etapa que chama o modelo, avisa que o provedor de IA está indisponível e que o codegen continua tentando dentro da mesma mensagem; é publicado uma vez por chamada, não muda o estado do job e deixa de valer no próximo evento do job. Quando a janela de tentativas se esgota, o evento é erro com causa provedor_indisponivel. Os demais valores só são repassados ao frontend. O vocabulário ainda não está fechado."
+      "description": "Situação reportada pelo codegen para a etapa iniciada. A API a traduz para o estado do job, de que ela é dona, e repassa o progresso ao frontend. Com o job em gerando_regra, três valores o movem: iniciada na etapa delegacao_worker o leva a simulando; aguardando_correcao na etapa confirmacao o leva a aguardando_confirmacao_parametros, porque a validação apontou conflitos na versão e o ciclo dela terminou à espera da correção do usuário, e a API abre uma rodada pendente com esses conflitos; e erro, em qualquer etapa, o leva a erro. Com o job em aguardando_confirmacao_parametros, erro na etapa extracao_parametros é a falha da reextração de uma correção: a API não encerra o job, fecha a rodada em reextração daquela correção, identificada por submissao_id, e reabre a correção numa rodada pendente nova, encadeada e com os mesmos conflitos. Na etapa sugestao_adaptacao, sem_alternativa encerra a iteração da taxa nova sem uma taxa que caiba: a terceira tentativa simulada não coube no orçamento, ou não houve como estimar uma taxa para a primeira ou para a seguinte. Não há outra sugestao-adaptacao-proposta depois dele, e a API leva o job ao desfecho de inviável sem alternativa, com a oferta de nova regra, em vez de esperar outra tentativa. aguardando_provedor, em qualquer etapa que chama o modelo, avisa que o provedor de IA está indisponível e que o codegen continua tentando dentro da mesma mensagem; é publicado uma vez por chamada, não muda o estado do job e deixa de valer no próximo evento do job. Quando a janela de tentativas se esgota, o evento é erro com causa provedor_indisponivel. Os demais valores só são repassados ao frontend. O vocabulário ainda não está fechado."
     },
     "regra_id": {
       "type": "string",
       "format": "uuid",
-      "description": "Versão da regra em regras a que o evento se refere. Obrigatório quando status é aguardando_correcao: identifica a versão analisada, cujos conflitos vão no evento, e é por ele que a API associa a rodada à versão certa, sem depender de qual versão o job tem como corrente quando o evento chega. Na falha da reextração, é a versão que a correção corrigia, a mesma regra_origem_id recebida em correcao-submetida. Ausente nos demais usos, em que a API correlaciona o evento só pelo job."
+      "description": "Versão da regra em regras a que o evento se refere. Obrigatório quando status é aguardando_correcao: identifica a versão analisada, cujos conflitos vão no evento, e é por ele que a API associa a rodada à versão certa, sem depender de qual versão o job tem como corrente quando o evento chega. Na falha da reextração, é a versão que a correção corrigia, a mesma regra_origem_id recebida em correcao-submetida, e vem com submissao_id. Ausente nos demais usos, em que a API correlaciona o evento só pelo job."
+    },
+    "submissao_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Correção cuja reextração falhou, a mesma submissao_id recebida em correcao-submetida. Obrigatório na falha da reextração, que é o erro na etapa extracao_parametros com regra_id, e ausente nos demais usos. regra_id se repete entre as correções enviadas para a mesma versão; é por submissao_id que a API fecha a rodada da correção que falhou, e não a de uma correção enviada depois, quando a falha antiga é reentregue."
     },
     "causa": {
       "type": "string",
@@ -57,6 +62,28 @@
         "required": [
           "regra_id",
           "conflitos"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "etapa": {
+            "const": "extracao_parametros"
+          },
+          "status": {
+            "const": "erro"
+          }
+        },
+        "required": [
+          "etapa",
+          "status",
+          "regra_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "submissao_id"
         ]
       }
     }
@@ -92,7 +119,8 @@
       "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
       "etapa": "extracao_parametros",
       "status": "erro",
-      "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+      "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
+      "submissao_id": "c4a7e2d1-6b3f-4e58-9a1c-2d7f8e0b5a63"
     },
     {
       "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",

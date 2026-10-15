@@ -42,7 +42,7 @@ Thread housekeeping already covers the new thread shape. `ciclos_do_job` matches
 Two consequences:
 
 - A `FalhaDoJobError` raised for a message that should only be discarded moves a healthy job to `erro`. Reserve it for failures that really end the cycle.
-- A re-extraction failure reported on any other `etapa` is invisible to the api: its handler only acts on `extracao_parametros` with a round in `em_reextracao`, so the round stays blocked forever. The contract also asks for `regra_id` on that event, equal to the `regra_origem_id` of the correction. The router has the message at hand, so add it there when the message is a `CorrecaoSubmetida`, rather than carrying it inside the exception.
+- A re-extraction failure reported on any other `etapa` is invisible to the api: its handler only acts on `extracao_parametros`, so the round stays blocked forever. The contract also requires `regra_id` and `submissao_id` on that event, equal to the `regra_origem_id` and the `submissao_id` of the correction. The api closes the round of that `submissao_id` and discards the event without it, because `regra_id` repeats across corrections of the same version. The router has the message at hand, so add both there when the message is a `CorrecaoSubmetida`, rather than carrying them inside the exception.
 
 ## The pause (T-219)
 

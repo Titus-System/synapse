@@ -65,7 +65,7 @@ O restante do contrato do loop está definido pela [T-213](https://github.com/Ti
 
 - `parametros-confirmados` e `correcao-submetida` levam as competências e, quando definidos, orçamento e meta de venda atuais do job, que o codegen não alcança em `jobs`. A T-277 amplia o contexto da T-213; a reextração recebe esses valores para preservar os parâmetros que a correção não mudou.
 - A pausa para correção é `etapa-alterada` com `etapa = confirmacao` e `status = aguardando_correcao`, que exige `regra_id`, a versão analisada, e `conflitos`. A API leva o job de `gerando_regra` para `aguardando_confirmacao_parametros` e abre uma rodada pendente.
-- A falha da reextração é `etapa-alterada` com `etapa = extracao_parametros` e `status = erro`. Com o job em `aguardando_confirmacao_parametros`, a API não encerra o job: fecha a rodada como `reextracao_falhou` e abre uma rodada pendente nova, encadeada e com os mesmos conflitos.
+- A falha da reextração é `etapa-alterada` com `etapa = extracao_parametros`, `status = erro`, `regra_id` e `submissao_id`, a versão e a submissão da correção. Com o job em `aguardando_confirmacao_parametros`, a API não encerra o job: fecha como `reextracao_falhou` a rodada daquela submissão e abre uma rodada pendente nova, encadeada e com os mesmos conflitos.
 - A rodada tem os estados `pendente`, `em_reextracao`, `reextracao_falhou`, `corrigida` e `abandonada`. O formato de `rodadas_correcao.conflitos` é `contracts/domain/conflitos-rodada.schema.json`, o mesmo do evento.
 - O chatbot envia a correção por `POST /submissoes`, com `finalidade = correcao`, e lê o histórico em `GET /jobs/{id}/rodadas`. A versão nascida de uma correção tem origem `correcao`.
 

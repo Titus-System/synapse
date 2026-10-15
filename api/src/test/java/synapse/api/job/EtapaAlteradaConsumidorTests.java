@@ -497,6 +497,7 @@ class EtapaAlteradaConsumidorTests {
 		StreamCliente cliente = conectar(job);
 		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
 		ObjectNode evento = falha(job, regra).put("submissao_id", submissao.toString());
+		ContratoDeEvento.validar("etapa-alterada", evento.toString());
 		try (CapturaDeLog captura = new CapturaDeLog(EtapaAlteradaConsumidor.class)) {
 			publicarEEsperar(evento, "reextracao_falhou");
 			String etapa = cliente.aguardarBloco("event:etapa", Duration.ofSeconds(10));
@@ -786,7 +787,8 @@ class EtapaAlteradaConsumidorTests {
 				"CREATE TRIGGER t215_falhar_uma_vez BEFORE INSERT ON rodadas_correcao FOR EACH ROW EXECUTE FUNCTION t215_falhar_uma_vez()");
 		double abertas = contagem("rodada_aberta");
 		try (CapturaDeLog consumidor = new CapturaDeLog(EtapaAlteradaConsumidor.class);
-				CapturaDeLog framework = new CapturaDeLog("org.springframework.amqp")) {
+				CapturaDeLog framework = new CapturaDeLog("org.springframework.amqp");
+				CapturaDeLog aplicacao = new CapturaDeLog(org.slf4j.Logger.ROOT_LOGGER_NAME)) {
 			Message mensagem = MessageBuilder.withBody(pausa(job, regra).toString().getBytes(StandardCharsets.UTF_8))
 				.setContentType(MessageProperties.CONTENT_TYPE_JSON)
 				.build();
@@ -817,6 +819,13 @@ class EtapaAlteradaConsumidorTests {
 					assertThat(linha).doesNotContain("conflito reservado T215", "linha rejeitada", "NEW.conflitos",
 							"INSERT INTO rodadas_correcao");
 				}
+			}
+			// Qualquer logger da aplicação, não só o do container, pode receber a exceção
+			// do driver; o formato de cada um não é deste teste, só a ausência do
+			// conteúdo.
+			for (var evento : aplicacao.eventos()) {
+				assertThat(CapturaDeLog.emJson(evento)).doesNotContain("conflito reservado T215", "linha rejeitada",
+						"NEW.conflitos", "INSERT INTO rodadas_correcao");
 			}
 			assertThat(registry.get("etapa.alterada.consumo.duracao").tag("resultado", "falha").timer().count())
 				.isPositive();
