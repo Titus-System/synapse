@@ -1,0 +1,22 @@
+{
+  "id": "condicao-limiar-loja",
+  "descricao": "Núcleo mais a condição por limiar do exemplo do contrato e da extração (T-209): \"se a loja vender no mínimo R$ 50 mil no mês, a comissão é de 3%\". O núcleo deixa o cargo 150 de fora, para o caso provar a condição, e não a forma como o percentual do núcleo se aplica ao gerente. O período é o padrão, as cinco competências, porque as lojas que ficam abaixo do limiar mudam de um mês para outro.",
+  "leitura": "A comissão de quem é dos cargos 100, 200 e 300 passa a ser 3% das vendas do mês (nucleo.percentual), mas só onde a condição vale: a venda total da loja na competência precisa ser maior ou igual a R$ 50.000. A venda da loja é a soma de vlr_venda das vendas com aquele cod_loja, como nas regras base, e a pessoa pertence à loja da sua linha no baseline (lotação). A métrica é somada a cada competência, nunca no período inteiro. Onde a condição não vale, a comissão fica igual à do baseline. A condição não gera valor próprio: elem.1 é declarado em elementos_implementados e não tem linha em contribuicoes, e a contribuição que ela libera fica em nucleo.percentual. Em novembro nenhuma loja fica abaixo do limiar.",
+  "representacao": {
+    "nucleo": {
+      "cargo": ["100", "200", "300"],
+      "percentual": 0.03
+    },
+    "especificacoes": [
+      {
+        "ref": "elem.1",
+        "construto": "condicao_limiar",
+        "metrica": "venda_total",
+        "escopo_agregacao": "loja",
+        "operador": ">=",
+        "limiar": 50000
+      }
+    ]
+  },
+  "competencias": ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
+}

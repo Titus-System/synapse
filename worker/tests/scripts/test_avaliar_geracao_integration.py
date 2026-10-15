@@ -83,7 +83,7 @@ def test_a_referencia_reproduz_o_esperado_gravado(alvo: Caso, imagem: str) -> No
     assert comparar(alvo.id, ler_esperado(alvo), medicao, Decimal(0)).passou
 
 
-def test_o_avaliador_aprova_as_tres_referencias_e_sai_com_zero(
+def test_o_avaliador_aprova_todas_as_referencias_e_sai_com_zero(
     tmp_path: Path, imagem: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     for alvo in carregar_casos():
@@ -93,7 +93,7 @@ def test_o_avaliador_aprova_as_tres_referencias_e_sai_com_zero(
 
     saida = capsys.readouterr().out
     assert codigo == 0, saida
-    assert saida.splitlines()[-1] == "3 de 3 casos passaram"
+    assert saida.splitlines()[-1] == "9 de 9 casos passaram"
 
 
 def test_o_avaliador_reprova_elem_1_alterado_aponta_o_elemento_e_sai_com_um(
@@ -114,6 +114,64 @@ def test_o_avaliador_reprova_elem_1_alterado_aponta_o_elemento_e_sai_com_um(
     assert [d["elemento"] for d in relatorio["diferencas"]] == ["elem.1"]
     [diferenca] = relatorio["diferencas"]
     assert diferenca["obtido"] > 1.9 * diferenca["esperado"]
+
+
+@pytest.mark.parametrize(
+    ("caso_id", "original", "neutro", "apontados"),
+    [
+        (
+            "exclusao-gerente",
+            "_CARGOS_EXCLUIDOS = (150,)",
+            "_CARGOS_EXCLUIDOS = ()",
+            ["nucleo.percentual"],
+        ),
+        ("bonus-fixo-lista-e-filtro", "_VALOR_LISTA = 500.0", "_VALOR_LISTA = 0.0", ["elem.1"]),
+        (
+            "bonus-fixo-lista-e-filtro",
+            "_VALOR_FILTRO = 1000.0",
+            "_VALOR_FILTRO = 0.0",
+            ["elem.2"],
+        ),
+        ("janela-datas-black-friday", "_ACRESCIMO = 0.01", "_ACRESCIMO = 0.0", ["elem.1"]),
+        (
+            "faixa-valor-dezembro",
+            '("elem.1", 40000.0, 50000.0, 3500.0)',
+            '("elem.1", 40000.0, 50000.0, 0.0)',
+            ["elem.1"],
+        ),
+        ("condicao-limiar-loja", "_LIMIAR = 50000.0", "_LIMIAR = 0.0", ["nucleo.percentual"]),
+        ("combinado-elementos", "_BONUS_FAIXA = 3500.0", "_BONUS_FAIXA = 0.0", ["elem.1"]),
+        (
+            "combinado-elementos",
+            "_ACRESCIMO_JANELA = 0.01",
+            "_ACRESCIMO_JANELA = 0.0",
+            ["elem.2"],
+        ),
+    ],
+    ids=[
+        "exclusao",
+        "bonus-lista",
+        "bonus-filtro",
+        "janela",
+        "faixa",
+        "limiar",
+        "combinado-faixa",
+        "combinado-janela",
+    ],
+)
+def test_o_avaliador_reprova_a_referencia_com_o_construto_sem_efeito(
+    imagem: str, caso_id: str, original: str, neutro: str, apontados: list[str]
+) -> None:
+    """O elemento continua declarado e passa na cobertura; só os números podem reprová-lo."""
+    fonte = referencia(caso_id)
+    sem_efeito = fonte.replace(original, neutro)
+    assert sem_efeito != fonte
+
+    avaliacao = avaliar(caso(caso_id), sem_efeito, imagem=imagem)
+
+    assert avaliacao.obtido.classe == "sucesso"
+    assert avaliacao.desfecho == "diverge"
+    assert [diferenca.elemento for diferenca in avaliacao.diferencas] == apontados
 
 
 def test_o_avaliador_reprova_com_cobertura_incompleta_o_codigo_que_nao_declara_um_elemento(

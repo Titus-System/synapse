@@ -1,0 +1,20 @@
+{
+  "id": "exclusao-gerente",
+  "descricao": "Núcleo mais uma exclusao de cargo, na forma da regra real de outubro do cliente (marca 30, \"não se aplica aos cargos de gerente\") e com o elemento do exemplo do contrato. Prova que a geração tira os excluídos do alcance da regra sem dar valor próprio à exclusão. Um mês só, outubro.",
+  "leitura": "A comissão de quem é da marca 30 passa a ser 2,5% das vendas do mês (nucleo.percentual), exceto para o cargo 150: a exclusão (elem.1) retira os gerentes do alcance da regra, e a comissão deles fica igual à do baseline. A exclusão não gera valor próprio: elem.1 é declarado em elementos_implementados e não tem linha em contribuicoes. Toda a diferença é de nucleo.percentual, e ela é zero para os excluídos; atribuir à exclusão uma contribuição negativa, ou aplicar o núcleo aos gerentes, diverge.",
+  "representacao": {
+    "nucleo": {
+      "marca": ["30"],
+      "percentual": 0.025
+    },
+    "especificacoes": [
+      {
+        "ref": "elem.1",
+        "construto": "exclusao",
+        "dimensao": "cargo",
+        "valores": ["150"]
+      }
+    ]
+  },
+  "competencias": ["2025-10"]
+}

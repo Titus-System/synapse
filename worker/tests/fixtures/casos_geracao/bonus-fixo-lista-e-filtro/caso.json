@@ -1,0 +1,43 @@
+{
+  "id": "bonus-fixo-lista-e-filtro",
+  "descricao": "Núcleo mais os dois tipos de alvo de bonus_fixo: a lista real de agosto do cliente (R$ 500 para oito matrículas), acrescida de MATRIC-133, que só entra no quadro em setembro, e o filtro real de outubro (cargo 100 admitido até 10/10/2025, R$ 1.000), que também é o exemplo do contrato. O núcleo deixa o cargo 150 de fora, para o caso provar o bônus, e não a forma como o percentual do núcleo se aplica ao gerente. O período tem dois meses não seguidos.",
+  "leitura": "A comissão de quem é das marcas 10 e 20 e dos cargos 100, 200 e 300 passa a ser 2,5% das vendas do mês (nucleo.percentual). Dentro desse recorte, cada bônus soma o valor à matrícula do alvo, depois do percentual, uma vez por competência em que o alvo se aplica, e nunca uma vez por venda: elem.1 paga R$ 500 a cada matrícula da lista que está no baseline da competência, e elem.2 paga R$ 1.000 a quem, naquela competência, é do cargo 100 e tem data_admiss até 2025-10-10, inclusive. O filtro vale em toda competência do período, porque a regra não tem vigência: em agosto, todo o cargo 100 do recorte foi admitido antes do corte, e em outubro três admitidos depois de 10/10 ficam de fora. Uma matrícula fora do quadro numa competência não recebe nada nela (MATRIC-133 só recebe em outubro), e o bônus não alcança quem está fora do recorte do núcleo. Quem cai nos dois alvos recebe os dois, cada um no seu elemento. O caso não exercita a inclusão do próprio dia 10/10: ninguém do cargo 100 foi admitido nele.",
+  "representacao": {
+    "nucleo": {
+      "marca": ["10", "20"],
+      "cargo": ["100", "200", "300"],
+      "percentual": 0.025
+    },
+    "especificacoes": [
+      {
+        "ref": "elem.1",
+        "construto": "bonus_fixo",
+        "alvo": {
+          "tipo": "lista",
+          "valor": [
+            "MATRIC-134",
+            "MATRIC-135",
+            "MATRIC-14",
+            "MATRIC-141",
+            "MATRIC-143",
+            "MATRIC-144",
+            "MATRIC-147",
+            "MATRIC-148",
+            "MATRIC-133"
+          ]
+        },
+        "valor": 500
+      },
+      {
+        "ref": "elem.2",
+        "construto": "bonus_fixo",
+        "alvo": {
+          "tipo": "filtro",
+          "valor": { "cargo": "100", "admitido_ate": "2025-10-10" }
+        },
+        "valor": 1000
+      }
+    ]
+  },
+  "competencias": ["2025-08", "2025-10"]
+}
