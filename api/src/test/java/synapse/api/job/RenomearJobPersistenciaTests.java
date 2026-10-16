@@ -244,6 +244,10 @@ class RenomearJobPersistenciaTests {
 		UUID formulario = job(A, submissao(A, "formulario", null), null, null);
 		UUID vozSemTranscricao = job(A, submissao(A, "voz", null), null, null);
 		UUID soEspacos = job(A, submissao(A, "texto", "  \t\n "), null, null);
+
+		assertNome(A, formulario, null);
+		assertNome(A, vozSemTranscricao, null);
+		assertNome(A, soEspacos, null);
 	}
 
 	@Test
@@ -258,9 +262,12 @@ class RenomearJobPersistenciaTests {
 	}
 
 	@Test
-	void outraSubmissaoDoUsuarioNaoAlteraONomePadraoDoJob() throws Exception {
+	void correcaoGravadaEmOutraSubmissaoNaoAlteraONomePadraoDoJob() throws Exception {
 		UUID job = job(A, submissao(A, "texto", TEXTO_LONGO), null, null);
-		submissao(A, "texto", "Texto de uma correção gravada em outra submissão");
+		UUID analisada = regra(job, 1, "extracao", null);
+		UUID correcao = submissao(A, "texto", "Texto de uma correção gravada em outra submissão");
+		UUID resultante = regra(job, 2, "correcao", analisada);
+		rodadaCorrigida(job, analisada, correcao, resultante);
 
 		assertNome(A, job, NOME_PADRAO_LONGO);
 	}
@@ -373,14 +380,28 @@ class RenomearJobPersistenciaTests {
 	}
 
 	private static void regra(UUID job) {
-		dono.update(
+		regra(job, 1, "confirmacao_usuario", null);
+	}
+
+	private static UUID regra(UUID job, int versao, String origem, @Nullable UUID regraOrigem) {
+		return Objects.requireNonNull(dono.queryForObject(
 				"""
-						INSERT INTO regras (job_id, versao, origem, nucleo, especificacoes, hash, criada_em)
-						VALUES (?, 1, 'confirmacao_usuario',
+						INSERT INTO regras (job_id, versao, origem, regra_origem_id, nucleo, especificacoes, hash, criada_em)
+						VALUES (?, ?, ?, ?::uuid,
 						        '{"vigencia":{"inicio":"2025-11","fim":"2025-11"},"loja":["13"],"marca":["10"],"cargo":["100"],"percentual":0.03}'::jsonb,
-						        '[]'::jsonb, repeat('a', 64), now())
+						        '[]'::jsonb, lpad(?::text, 64, 'a'), now())
+						RETURNING id
 						""",
-				job);
+				UUID.class, job, versao, origem, regraOrigem, versao));
+	}
+
+	private static void rodadaCorrigida(UUID job, UUID regraAnalisada, UUID submissaoCorrecao, UUID regraResultante) {
+		dono.update("""
+				INSERT INTO rodadas_correcao (job_id, regra_analisada_id, conflitos, estado, submissao_correcao_id,
+				    regra_resultante_id, criada_em, atualizada_em)
+				VALUES (?, ?, '[{"elementos":["nucleo.percentual"],"motivo":"percentual ausente"}]'::jsonb, 'corrigida',
+				    ?, ?, now(), now())
+				""", job, regraAnalisada, submissaoCorrecao, regraResultante);
 	}
 
 	private static @Nullable String nomeGravado(UUID job) {
