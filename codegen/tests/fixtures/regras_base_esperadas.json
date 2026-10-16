@@ -236,5 +236,32 @@
       "declarado_em": "elementos_implementados",
       "atribuido_em": "contribuicoes"
     }
+  },
+  "venda_do_gerente": {
+    "fontes": [
+      "dataset_domrock/Especificacao.md, regra 5b",
+      "docs/decisoes/dec-084.md#a-relação-entre-cargo-e-matrícula-no-núcleo",
+      "worker/app/sandbox/regras_base.py#_componentes_base",
+      "worker/app/sandbox/regras_base.py#_filtrar_vendas",
+      "worker/app/sandbox/regras_competencia.py, faixa individual com a venda própria inclusive do gerente",
+      "worker/sandbox/data/domrock/baselines/auditoria, rastreabilidade.base_original"
+    ],
+    "fatos": {
+      "cargo": "150",
+      "base_do_percentual": "venda total da loja",
+      "base_recusada": "vlr_venda da própria matrícula",
+      "loja_da_venda": "cod_loja",
+      "vendas_contadas": "apuracao_base",
+      "chave_do_quadro": [
+        "matricula",
+        "competencia"
+      ],
+      "juncao": "inner",
+      "agrupamento": [
+        "cod_loja",
+        "competencia"
+      ],
+      "faixa_valor": "venda própria do gerente"
+    }
   }
 }
