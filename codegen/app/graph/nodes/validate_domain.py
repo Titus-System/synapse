@@ -9,6 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from app.contratos.mensagens import ConclusaoDaTrilha, NoConcluido, NoGrafo
 from app.core.logger import get_logger, no_ctx
 from app.core.metrics.global_metrics import (
+    conflitos_validacao_dominio,
     job_duration,
     job_failures,
     job_runs,
@@ -65,12 +66,16 @@ async def validate_domain(state: AgentState, config: RunnableConfig) -> AgentSta
                 )
             )
             resultados_validacao_dominio.labels(resultado=resultado).inc()
+            codigos = [conflito.codigo.value for conflito in validacao.conflitos]
+            for codigo in codigos:
+                conflitos_validacao_dominio.labels(codigo=codigo).inc()
             logger.info(
                 "domain validation finished",
                 extra={
                     "resultado": resultado,
                     "quantidade_conflitos": len(conflitos),
                     "elementos": elementos,
+                    "codigos": codigos,
                 },
             )
             return {"regra_liberada": validacao.liberado, "conflitos": conflitos}
