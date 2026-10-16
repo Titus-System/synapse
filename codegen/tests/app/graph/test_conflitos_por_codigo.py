@@ -253,3 +253,21 @@ async def test_reentrega_de_regra_barrada_nao_incrementa_o_contador_de_conflitos
     await ambiente.consumer.receber(mensagem(payload))
 
     assert _contagens((await cliente.get("/metrics")).text) == antes
+
+
+async def test_falha_ao_publicar_a_regra_barrada_nao_conta_os_conflitos(
+    ambiente: ConfirmacaoFalsa, cliente: AsyncClient
+) -> None:
+    ambiente.producers.no_concluido.side_effect = RuntimeError("CONTEUDO_PRIVADO")
+    regra = _regra({"percentual": Decimal("-0.01")}, [_faixa_invertida()])
+    antes = (await cliente.get("/metrics")).text
+
+    await _processar(ambiente, regra)
+
+    depois = (await cliente.get("/metrics")).text
+    falhas = {"job_name": "validate_domain"}
+    assert (
+        amostra(depois, "job_failures_total", falhas) - amostra(antes, "job_failures_total", falhas)
+        == 1
+    )
+    assert _contagens(depois) == _contagens(antes)
