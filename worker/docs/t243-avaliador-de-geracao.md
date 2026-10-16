@@ -44,6 +44,12 @@ com competências que o dataset publica. Campo a mais ou a menos é recusado.
 | `nucleo-controle` | só núcleo, a do exemplo do harness: 2,5% das vendas para marca 10 e cargo 100 | `2025-08` e `2025-11` (meses não seguidos) | `nucleo.percentual` -23.740,16 |
 | `generico-admissao` | núcleo + `elem.1` (`generico`): mais 1 p.p. para quem, dentro do recorte do núcleo, foi admitido antes de 01/01/2020 (`data_admiss`) | as cinco competências (o padrão) | `elem.1` 34.770,95; `nucleo.percentual` -805.757,82 |
 | `generico-aniversario-loja` | a representação de `contracts/examples/domain/representacao-regra-generico.json`: dobrar a comissão no aniversário da loja, data que nenhuma base tem | `2025-11` (um mês só) | falha: `erro_codigo`, `excecao`, `NotImplementedError` |
+| `exclusao-gerente` (T-245) | núcleo de 2,5% na marca 30 + `elem.1` (`exclusao` do cargo 150) | `2025-10` | `nucleo.percentual` -324,71; `elem.1` só declarado |
+| `bonus-fixo-lista-e-filtro` (T-245) | núcleo de 2,5% nas marcas 10 e 20, cargos 100, 200 e 300 + `elem.1` (`bonus_fixo` por lista, R$ 500) + `elem.2` (`bonus_fixo` por filtro, cargo 100 admitido até 10/10/2025, R$ 1.000) | `2025-08` e `2025-10` | `elem.1` 8.500,00; `elem.2` 654.000,09; `nucleo.percentual` -351.487,00 |
+| `janela-datas-black-friday` (T-245) | núcleo de 2,5% nos cargos 100, 200 e 300 + `elem.1` (`janela_datas` de 24 a 30/11, +1 p.p.) | `2025-11` | `elem.1` 22.305,94; `nucleo.percentual` -17.315,01 |
+| `faixa-valor-dezembro` (T-245) | núcleo de 2,5% nas marcas 10 e 20, cargos 100, 200 e 300 + três `faixa_valor` (R$ 3.500, R$ 4.000 e R$ 4.500) | `2025-12` | `elem.1` 262.500,00; `elem.2` 140.000,00; `elem.3` 18.000,00; `nucleo.percentual` -420.241,45 |
+| `condicao-limiar-loja` (T-245) | núcleo de 3% nos cargos 100, 200 e 300 + `elem.1` (`condicao_limiar`: venda da loja >= R$ 50.000) | as cinco competências | `nucleo.percentual` -564.374,42; `elem.1` só declarado |
+| `combinado-elementos` (T-245) | a representação de `contracts/examples/domain/representacao-regra-elementos.json`: núcleo de novembro + faixa, janela e exclusão | as cinco competências | `elem.1` 17.499,99; `elem.2` 378,58; `nucleo.percentual` -2.656,08; `elem.3` só declarado |
 
 Os três períodos cobrem os formatos que um job pode pedir (ARCHITECTURE.md §1.3): o período inteiro,
 um subconjunto não contíguo e um mês só. No recorte do `generico-admissao`, de 34 a 36 pessoas por
