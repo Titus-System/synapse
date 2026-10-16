@@ -153,7 +153,7 @@ class JobService {
 			return new JobDetalhadoDto(job.id(), job.status(), job.origem(), job.competencias(), job.orcamento(),
 					job.meta_venda(), job.criado_em(), job.iniciado_em(), job.finalizado_em(), job.submissao_id(),
 					job.job_origem_id(), job.motivo(), job.regras(), simulacao, simulacoes,
-					this.repository.buscarMetaSugerida(jobId));
+					this.repository.buscarMetaSugerida(jobId), dados.nome());
 		}
 		catch (EmptyResultDataAccessException ex) {
 			throw new JobNaoEncontradoException(jobId);
@@ -365,6 +365,12 @@ class JobService {
 		return new AcaoAplicada(evento, job);
 	}
 
+	@Transactional
+	JobDetalhadoDto renomear(UUID jobId, RenomearJobRequisicao requisicao) {
+		this.repository.atualizarNome(jobId, requisicao.nome());
+		return consultarJob(jobId);
+	}
+
 	record AcaoAplicada(EventoEstadoDto evento, JobDetalhadoDto job) {
 	}
 
@@ -385,7 +391,7 @@ class JobService {
 		Timestamp timestamp = Timestamp.from(agora);
 		JobStatus status = JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS;
 		UUID jobId = this.repository.inserirJobReprocessado(status.paraColuna(), origem.usuarioId(), origemId,
-				competencias, orcamento, timestamp);
+				competencias, orcamento, origem.nome(), timestamp);
 		this.maquina.registrarCriacao(jobId, status, "usuario");
 		RegraCriadaDto regra = this.repository.copiarRegra(jobId, regras.getFirst(), timestamp, agora);
 		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA,

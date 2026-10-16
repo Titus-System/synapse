@@ -7,6 +7,7 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -115,6 +116,24 @@ class JobController {
 			this.emissores.emitir(id, EventoSse.ultimo("estado", aplicada.evento()));
 		}
 		return aplicada.job();
+	}
+
+	@AutorizarJob(OperacaoJob.RENOMEAR)
+	@PutMapping(path = "/jobs/{id}/nome", consumes = "application/json", produces = "application/json")
+	JobDetalhadoDto renomear(@PathVariable UUID id, @RequestBody(required = false) @Nullable String corpo) {
+		try (var escopo = this.correlacao.abrir(id.toString(), null)) {
+			RenomearJobRequisicao requisicao;
+			try {
+				requisicao = RenomearJobRequisicao.deJson(corpo);
+			}
+			catch (RenomearJobException ex) {
+				log.atWarn().addKeyValue("motivo", ex.motivo().paraLog()).log("renomeação recusada: nome inválido");
+				throw ex;
+			}
+			JobDetalhadoDto job = this.service.renomear(id, requisicao);
+			log.atInfo().log("regra renomeada");
+			return job;
+		}
 	}
 
 	@AutorizarJob(OperacaoJob.REPROCESSAR)

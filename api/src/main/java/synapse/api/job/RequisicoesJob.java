@@ -319,6 +319,46 @@ record ExecutarAcaoRequisicao(AcaoJob acao) {
 
 }
 
+record RenomearJobRequisicao(String nome) {
+
+	static final int TAMANHO_MAXIMO = 100;
+
+	private static final JsonMapper JSON = JsonMapper.builder()
+		.enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+		.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+		.build();
+
+	static RenomearJobRequisicao deJson(@Nullable String corpo) {
+		if (corpo == null) {
+			throw RenomearJobException.requisicao(RenomearJobException.Motivo.NOME_AUSENTE,
+					"O campo nome é obrigatório e deve ser um texto de 1 a 100 caracteres.");
+		}
+		JsonNode raiz;
+		try {
+			raiz = JSON.readTree(corpo);
+		}
+		catch (JacksonException ex) {
+			throw RenomearJobException.requisicao(RenomearJobException.Motivo.NOME_AUSENTE,
+					"O corpo deve conter um objeto JSON válido.");
+		}
+		if (raiz == null || !raiz.isObject() || !raiz.path("nome").isString()) {
+			throw RenomearJobException.requisicao(RenomearJobException.Motivo.NOME_AUSENTE,
+					"O campo nome é obrigatório e deve ser um texto de 1 a 100 caracteres.");
+		}
+		String nome = raiz.path("nome").asString().strip();
+		if (nome.isEmpty()) {
+			throw RenomearJobException.requisicao(RenomearJobException.Motivo.NOME_VAZIO,
+					"O campo nome é obrigatório e deve ser um texto de 1 a 100 caracteres.");
+		}
+		if (nome.codePointCount(0, nome.length()) > TAMANHO_MAXIMO) {
+			throw RenomearJobException.requisicao(RenomearJobException.Motivo.NOME_MUITO_LONGO,
+					"O campo nome deve ter no máximo 100 caracteres.");
+		}
+		return new RenomearJobRequisicao(nome);
+	}
+
+}
+
 record ReprocessarJobRequisicao(@Nullable BigDecimal orcamento, @Nullable List<String> competencias) {
 
 	private static final List<String> MESES = List.of("2025-08", "2025-09", "2025-10", "2025-11", "2025-12");

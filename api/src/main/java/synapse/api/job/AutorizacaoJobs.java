@@ -105,7 +105,7 @@ class AutorizadorDeJob {
 
 	void exigir(OperacaoJob operacao, @Nullable UUID jobId, AcessoDoUsuario acesso) {
 		boolean permitido = switch (operacao) {
-			case CRIAR, LISTAR, CONSULTAR, ACOMPANHAR, CONFIRMAR_PARAMETROS, EXECUTAR_ACAO, REPROCESSAR ->
+			case CRIAR, LISTAR, CONSULTAR, ACOMPANHAR, CONFIRMAR_PARAMETROS, EXECUTAR_ACAO, REPROCESSAR, RENOMEAR ->
 				acesso.papel() == PapelDoUsuario.PROFISSIONAL_RH;
 		};
 		if (!permitido) {
@@ -138,12 +138,12 @@ class AutorizadorDeJob {
 
 enum OperacaoJob {
 
-	CRIAR, LISTAR, CONSULTAR, ACOMPANHAR, CONFIRMAR_PARAMETROS, EXECUTAR_ACAO, REPROCESSAR;
+	CRIAR, LISTAR, CONSULTAR, ACOMPANHAR, CONFIRMAR_PARAMETROS, EXECUTAR_ACAO, REPROCESSAR, RENOMEAR;
 
 	boolean exigePosse() {
 		return switch (this) {
 			case CRIAR, LISTAR -> false;
-			case CONSULTAR, ACOMPANHAR, CONFIRMAR_PARAMETROS, EXECUTAR_ACAO, REPROCESSAR -> true;
+			case CONSULTAR, ACOMPANHAR, CONFIRMAR_PARAMETROS, EXECUTAR_ACAO, REPROCESSAR, RENOMEAR -> true;
 		};
 	}
 
