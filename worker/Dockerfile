@@ -37,9 +37,18 @@ COPY worker/app ./app
 COPY worker/entrypoint.sh ./entrypoint.sh
 COPY worker/run.py ./run.py
 COPY contracts ./contracts
-# Só os baselines congelados e o manifesto, que o worker confere contra o total que sai do
-# container (T-066). As bases ficam só na imagem do sandbox: o worker não as lê.
+# Os baselines congelados e o manifesto, que o worker confere contra o total que sai do
+# container (T-066).
 COPY worker/sandbox/data/domrock/baselines ./sandbox/data/domrock/baselines
+# As bases da apuração (T-270): numa execução na meta de venda, o worker reapura por conta
+# própria o baseline sobre as vendas escaladas, para conferir o que sai do container, e soma
+# delas o total de vendas do período. A subida as confere contra o sha256 do manifesto.
+COPY worker/sandbox/data/domrock/rh.jsonl \
+     worker/sandbox/data/domrock/vendas.jsonl \
+     worker/sandbox/data/domrock/comissoes.jsonl \
+     worker/sandbox/data/domrock/eventos_rh.jsonl \
+     worker/sandbox/data/domrock/regras_competencia.jsonl \
+     ./sandbox/data/domrock/
 
 RUN mkdir -p /app/logs \
     && chmod +x /app/entrypoint.sh \

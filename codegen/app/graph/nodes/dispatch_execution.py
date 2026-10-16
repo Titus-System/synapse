@@ -4,6 +4,7 @@ Kept apart from `await_execution`: the paused node re-runs from its first line o
 publishing there would send the command again on every resume.
 """
 
+import time
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -17,9 +18,10 @@ from app.contratos.mensagens import (
     NoConcluido,
     NoGrafo,
 )
-from app.core.logger import get_logger
+from app.core.logger import get_logger, no_ctx
 from app.falhas import FalhaDoJobError
 from app.graph.core.state import AgentState
+from app.graph.nodes.search_sales_target import cancelada
 from app.repositorio.artefatos import id_do_evento_de_trilha
 
 logger = get_logger("app.graph.nodes.dispatch_execution")
@@ -36,21 +38,57 @@ RESUMO_DA_TRILHA = (
 )
 
 
-class OrcamentoAusenteError(FalhaDoJobError):
-    """The job has no `orcamento`, which `executar-codigo` requires.
+class MetaVendaInvalidaError(FalhaDoJobError):
+    """The job's `meta_venda` is zero or negative, and `executar-codigo` requires a positive one.
 
-    The event carries it as an optional field, and its absence is never read as zero: the
-    budget is an input to the worker's verdict, not something this service may invent.
+    The entry events carry the meta as the user said it, so that domain validation can point it
+    out as a conflict (T-280). If it still gets here, the command would be refused with an error
+    that is not a `FalhaDoJobError`: the message would be requeued and every redelivery would
+    fail the same way.
     """
 
     etapa = ETAPA
 
 
+class ElementosExigidosAusentesError(FalhaDoJobError):
+    """An empty coverage list cannot be sent under the execution contract."""
+
+    etapa = ETAPA
+
+
+class ElementosExigidosDuplicadosError(FalhaDoJobError):
+    """Repeated references cannot identify distinct rule elements for coverage."""
+
+    etapa = ETAPA
+
+
 async def dispatch_execution(state: AgentState, config: RunnableConfig) -> AgentState:
-    """Publish the command with a reference to the recorded code, never the code itself."""
+    """Publish the command with a reference to the recorded code, never the code itself.
+
+    `orcamento` and `meta_venda` go only when the job has them, and their absence is never read
+    as zero: without the budget the worker simulates without the budget check (T-281), and
+    without the meta it simulates over the historical sales.
+    """
     orcamento = state.get("orcamento")
-    if orcamento is None:
-        raise OrcamentoAusenteError("executar-codigo requires the job's orcamento")
+    busca = state.get("busca_meta")
+    if busca is not None:
+        token = no_ctx.set("search_sales_target")
+        try:
+            if await cancelada(state, config):
+                return {"busca_meta": {**busca, "encerrada": True, "pendente": None}}
+        finally:
+            no_ctx.reset(token)
+    meta_venda = busca["pendente"] if busca else state.get("meta_venda")
+    if meta_venda is not None and Decimal(meta_venda) <= 0:
+        raise MetaVendaInvalidaError("executar-codigo requires a positive meta_venda")
+
+    representacao = state["representacao_regra"]
+    elementos_exigidos = ["nucleo.percentual"] if "percentual" in representacao["nucleo"] else []
+    elementos_exigidos.extend(elemento["ref"] for elemento in representacao["especificacoes"])
+    if not elementos_exigidos:
+        raise ElementosExigidosAusentesError("executar-codigo requires at least one rule element")
+    if len(elementos_exigidos) != len(set(elementos_exigidos)):
+        raise ElementosExigidosDuplicadosError("executar-codigo requires unique rule elements")
 
     job_id = UUID(state["job_id"])
     codigo_gerado_id = UUID(state["codigo_gerado_id"])
@@ -58,9 +96,32 @@ async def dispatch_execution(state: AgentState, config: RunnableConfig) -> Agent
         job_id=job_id,
         codigo_gerado_id=codigo_gerado_id,
         competencias=list(state["competencias"]),
-        orcamento=Decimal(orcamento),
+        proposito="busca_meta" if busca else "simulacao",
+        elementos_exigidos=elementos_exigidos,
     )
+    # Atribuídos só quando presentes: a serialização omite o campo nunca atribuído, e o contrato
+    # recusa `null` explícito.
+    if orcamento is not None:
+        comando.orcamento = Decimal(orcamento)
+    if meta_venda is not None:
+        comando.meta_venda = Decimal(meta_venda)
     producers = config["configurable"]["producers"]
+
+    if busca is not None:
+        enviada_em = time.time()
+        await producers.executar_codigo(comando)
+        token = no_ctx.set("search_sales_target")
+        try:
+            logger.info(
+                "sales target candidate published",
+                extra={
+                    "codigo_gerado_id": state["codigo_gerado_id"],
+                    "candidata": len(busca["pontos"]),
+                },
+            )
+        finally:
+            no_ctx.reset(token)
+        return {"busca_meta": {**busca, "enviada_em": enviada_em}}
 
     # `etapa-alterada` primeiro, e a ordem importa. Do lado da `api` ele é idempotente (a
     # transição só vale a partir de `gerando_regra`, então uma segunda cópia não faz nada),
@@ -70,8 +131,14 @@ async def dispatch_execution(state: AgentState, config: RunnableConfig) -> Agent
     # o job ainda em `gerando_regra`, transição que a `api` recusa em silêncio.
     await producers.etapa_alterada(EtapaAlterada(job_id=job_id, etapa=ETAPA, status="iniciada"))
     await producers.executar_codigo(comando)
+    # A presença dos parâmetros como fato, nunca o valor: é o que o usuário disse.
     logger.info(
-        "execution command published", extra={"codigo_gerado_id": state["codigo_gerado_id"]}
+        "execution command published",
+        extra={
+            "codigo_gerado_id": state["codigo_gerado_id"],
+            "com_orcamento": orcamento is not None,
+            "com_meta_venda": meta_venda is not None,
+        },
     )
 
     # Por último, porque o nó conclui quando o comando foi entregue: anunciar a conclusão

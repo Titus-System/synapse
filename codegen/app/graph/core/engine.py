@@ -11,12 +11,16 @@ from langgraph.graph.state import CompiledStateGraph
 from app.graph.core.state import AgentState
 from app.graph.nodes.await_execution import await_execution
 from app.graph.nodes.code_generation import code_generation
-from app.graph.nodes.decision import ENCAMINHAMENTO_SUGESTAO, decision
+from app.graph.nodes.decision import ENCAMINHAMENTO_META, ENCAMINHAMENTO_SUGESTAO, decision
 from app.graph.nodes.dispatch_execution import dispatch_execution
 from app.graph.nodes.extract_code import extract_code
+from app.graph.nodes.extract_rule import extract_rule
 from app.graph.nodes.load_rule import load_rule
 from app.graph.nodes.persist_response import persist_response
+from app.graph.nodes.report_conflicts import report_conflicts
+from app.graph.nodes.search_sales_target import publish_sales_target, search_sales_target
 from app.graph.nodes.suggest_adaptation import suggest_adaptation
+from app.graph.nodes.validate_domain import validate_domain
 
 #: Nó em que o grafo pausa à espera do worker. Quem retoma confere que a pausa é esta antes de
 #: entregar o resultado - ver `app/graph/entrypoint.py::resume_to_completion`.
@@ -27,6 +31,9 @@ SUGGEST_ADAPTATION = "suggest_adaptation"
 def load_nodes(graph: StateGraph[AgentState]) -> None:
     """Load all nodes into the graph."""
     graph.add_node("load_rule", load_rule)
+    graph.add_node("extract_rule", extract_rule)
+    graph.add_node("validate_domain", validate_domain)
+    graph.add_node("report_conflicts", report_conflicts)
     graph.add_node("code_generation", code_generation)
     graph.add_node("persist_response", persist_response)
     graph.add_node("extract_code", extract_code)
@@ -34,36 +41,83 @@ def load_nodes(graph: StateGraph[AgentState]) -> None:
     graph.add_node(AWAIT_EXECUTION, await_execution)
     graph.add_node("decision", decision)
     graph.add_node(SUGGEST_ADAPTATION, suggest_adaptation)
+    graph.add_node("search_sales_target", search_sales_target)
+    graph.add_node("publish_sales_target", publish_sales_target)
 
 
 def _apos_a_decisao(state: AgentState) -> str:
-    """Única ramificação do grafo, e ela lê só o campo que o nó de decisão validou.
+    """Encaminha pelo campo que o nó de decisão validou.
 
     O veredito vem do worker e chega ao estado pela retomada; nada que um modelo escreveu
     entra nesta escolha (AGENTS.md - Security).
     """
+    if state.get("encaminhamento") == ENCAMINHAMENTO_META:
+        return "search_sales_target"
     if state.get("encaminhamento") == ENCAMINHAMENTO_SUGESTAO:
         return SUGGEST_ADAPTATION
     return END
 
 
-def load_edges(graph: StateGraph[AgentState]) -> None:
-    """Load all edges into the graph.
+def _entrada(state: AgentState) -> str:
+    return "load_rule" if state.get("regra_id") is not None else "extract_rule"
 
-    Uma linha reta até a pausa, e uma ramificação depois dela: o grafo pausa dentro de
-    `await_execution` até o resultado do worker retomá-lo, `decision` encaminha conforme o
-    veredito apurado, e a adaptação volta a `END` porque a alternativa é gravada e
-    re-simulada pela `api`, não por um laço interno.
+
+def _apos_a_validacao(state: AgentState) -> str:
+    return "code_generation" if state["regra_liberada"] else "report_conflicts"
+
+
+def load_edges(graph: StateGraph[AgentState]) -> None:
+    """Extraction ends after publication; persisted rules continue to worker execution.
+
+    The api owns rule versions and opens the next cycle after persisting a proposal.
     """
-    graph.add_edge(START, "load_rule")
-    graph.add_edge("load_rule", "code_generation")
+    graph.add_conditional_edges(
+        START, _entrada, {"load_rule": "load_rule", "extract_rule": "extract_rule"}
+    )
+    graph.add_edge("extract_rule", END)
+    graph.add_edge("load_rule", "validate_domain")
+    graph.add_conditional_edges(
+        "validate_domain",
+        _apos_a_validacao,
+        {"code_generation": "code_generation", "report_conflicts": "report_conflicts"},
+    )
+    graph.add_edge("report_conflicts", END)
     graph.add_edge("code_generation", "persist_response")
     graph.add_edge("persist_response", "extract_code")
     graph.add_edge("extract_code", "dispatch_execution")
-    graph.add_edge("dispatch_execution", AWAIT_EXECUTION)
-    graph.add_edge(AWAIT_EXECUTION, "decision")
     graph.add_conditional_edges(
-        "decision", _apos_a_decisao, {SUGGEST_ADAPTATION: SUGGEST_ADAPTATION, END: END}
+        "dispatch_execution",
+        _apos_delegacao,
+        {
+            AWAIT_EXECUTION: AWAIT_EXECUTION,
+            END: END,
+        },
+    )
+    graph.add_conditional_edges(
+        AWAIT_EXECUTION,
+        _apos_execucao,
+        {
+            "decision": "decision",
+            "search_sales_target": "search_sales_target",
+        },
+    )
+    graph.add_conditional_edges(
+        "search_sales_target",
+        _apos_busca,
+        {
+            "dispatch_execution": "dispatch_execution",
+            "publish_sales_target": "publish_sales_target",
+        },
+    )
+    graph.add_edge("publish_sales_target", END)
+    graph.add_conditional_edges(
+        "decision",
+        _apos_a_decisao,
+        {
+            SUGGEST_ADAPTATION: SUGGEST_ADAPTATION,
+            "search_sales_target": "search_sales_target",
+            END: END,
+        },
     )
     graph.add_edge(SUGGEST_ADAPTATION, END)
 
@@ -77,3 +131,16 @@ def build_graph(
     load_edges(graph)
 
     return graph.compile(checkpointer=checkpointer)
+
+
+def _apos_delegacao(state: AgentState) -> str:
+    busca = state.get("busca_meta")
+    return END if busca and busca["encerrada"] else AWAIT_EXECUTION
+
+
+def _apos_execucao(state: AgentState) -> str:
+    return "search_sales_target" if "busca_meta" in state else "decision"
+
+
+def _apos_busca(state: AgentState) -> str:
+    return "dispatch_execution" if state["busca_meta"]["pendente"] else "publish_sales_target"

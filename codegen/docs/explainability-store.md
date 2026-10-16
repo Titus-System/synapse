@@ -1,100 +1,34 @@
-# Explainability store
+# Armazenamento de artefatos e explicabilidade
 
-A sketch, not an implementation — no tables exist yet. Once the SQLAlchemy models and the Alembic migration are written, they are the source of truth and this file should shrink to whatever they cannot express.
+O registro auditável usa o modelo de domínio do Synapse, definido em [modelo-dados.dbml](../../docs/database/modelo-dados.dbml) e explicado em [modelo-dados.md](../../docs/database/modelo-dados.md). A proposta anterior de `agent_run` e `agent_step` não foi implementada e não é o modelo vigente. Migrations de domínio pertencem à API, via Liquibase.
 
-The rule this serves is in [`.agents/skills/observability/SKILL.md`](../.agents/skills/observability/SKILL.md): telemetry is sampled and expires, so the record of what an agent did belongs in Postgres, written by the code that did the work.
+## Estrutura existente
 
-## Shape
+- `prompts`: texto enviado e metadados do modelo e seus parâmetros.
+- `respostas_modelo`: resposta original e consumo de tokens, quando informado pelo provedor.
+- `codigos_gerados`: código vinculado ao prompt e à versão exata da regra.
+- `regras`: versões imutáveis, relacionadas ao job e à versão de origem.
+- `simulacoes` e `resultados_simulacao`: vínculo entre regra, código executado e resultado persistido pelo worker.
+- `trilhas_auditoria`: registros persistidos pela API a partir de `no-concluido`, com referências aos artefatos e identidade do evento.
 
-Two tables. `agent_run` is one attempt at producing an outcome for a job; `agent_step` is one unit of work inside that attempt, and steps form a tree — the same shape as a trace, kept somewhere that does not sample or expire.
+O codegen grava os artefatos que produz. A API é dona do estado, das transições e da trilha; os serviços se coordenam exclusivamente por RabbitMQ. Eventos transportam referências; prompts, respostas e código permanecem no PostgreSQL.
 
-```sql
-create table agent_run (
-    id             uuid        primary key,
-    job_id         text        not null,
-    user_id        text,
-    attempt        integer     not null,
-    agent_name     text        not null,
-    agent_version  text        not null,
-    status         text        not null check (status in ('running', 'succeeded', 'failed')),
-    input          jsonb       not null,
-    output         jsonb,
-    error          text,
-    started_at     timestamptz not null,
-    finished_at    timestamptz,
-    trace_id       text,
-    schema_version integer     not null,
+## Idempotência e retomada
 
-    unique (job_id, attempt)
-);
+O `evento_id` da trilha é UUIDv5 derivado de job, nó e referência do artefato. Republicar o mesmo evento lógico conserva sua identidade.
 
-create index on agent_run (job_id);
-create index on agent_run (user_id, started_at desc);
-create index on agent_run (trace_id) where trace_id is not null;
-```
+O checkpoint usa `job_id:regra_id` e pertence à infraestrutura de retomada do codegen. Não substitui o armazenamento auditável. Ele é removido depois do encerramento do job, e o registro `jobs_grafo_encerrados` preserva a deduplicação dos ciclos concluídos (DEC-095).
 
-```sql
-create table agent_step (
-    id             uuid        primary key,
-    run_id         uuid        not null references agent_run (id) on delete cascade,
-    parent_step_id uuid        references agent_step (id) on delete cascade,
-    seq            integer     not null,
-    kind           text        not null check (kind in ('llm_call', 'tool_call', 'retrieval', 'decision')),
-    name           text        not null,
-    status         text        not null check (status in ('running', 'succeeded', 'failed')),
-    model          text,
-    model_params   jsonb,
-    input          jsonb,
-    output         jsonb,
-    payload_uri    text,
-    tokens_in      integer,
-    tokens_out     integer,
-    error          text,
-    started_at     timestamptz not null,
-    finished_at    timestamptz,
-    span_id        text,
+## Telemetria e explicação
 
-    unique (run_id, seq)
-);
+Logs, métricas e traces apoiam operação, mas não substituem o registro de negócio. Prompts, respostas, código e linhas de dados não devem aparecer nos logs ou rótulos de métricas. `job_id` relaciona o contexto operacional ao domínio; identificadores de trace não são chaves de negócio.
 
-create index on agent_step (run_id, seq);
-create index on agent_step (parent_step_id);
-```
+O grafo ativo ainda não contém a explicação completa da US05. A narrativa deve citar números já apurados e ser conferida antes de exibição. Falha de explicação é distinta de falha de geração, cobertura ou asserção: não deve transformar uma apuração inválida em resultado utilizável.
 
-## Why the columns are what they are
+## Evolução da Sprint 2
 
-`id` is minted here, not borrowed from telemetry. Everything the domain joins on must be a value this service guarantees exists.
+Rodadas do chatbot serão armazenadas em tabela própria, com conflitos em `jsonb`, referências às submissões e às versões e encadeamento entre rodadas. Essa estrutura ainda não existe no banco.
 
-`job_id` is the business job and is stable across retries; `attempt` distinguishes the runs under it. One job has many runs, which is precisely why a trace id could never identify a job.
+Rastreabilidade por colaborador, loja e competência requer a evolução dos resultados. As quebras atuais são diferenças agregadas; a granularidade dos detalhes e dos dataframes precisa ser fechada conforme o pedido do cliente.
 
-`agent_version` and `model` are provenance. "Why did it answer that" is unanswerable without knowing which agent build and which model produced it, and both change under you.
-
-`schema_version` exists because this is an audit artifact: rows written years apart must be interpretable, and the shape will change.
-
-`trace_id` and `span_id` are nullable breadcrumbs. Nullable is the honest type — the trace may never have been sampled, and the tracer may not have been wired up when the row was written. Nothing reads them to make a decision; they exist so a person can pivot to Tempo while the trace is still there.
-
-`payload_uri` is the escape hatch for large prompts and completions: keep the row small, put the blob in object storage, and store the pointer. Inline `jsonb` is fine while payloads stay small.
-
-`parent_step_id` plus `seq` reconstruct the tree and the order within a level. A retrieval nested under an LLM call is a child, not a sibling.
-
-## Write path
-
-Insert the `agent_run` row when the attempt starts, with `status = 'running'`. A process that dies mid-run then leaves evidence that it ran, which is the case you most need explained.
-
-Append `agent_step` rows as steps complete, and close the run with its status, output and `finished_at`.
-
-Commit the explanation before acking the RabbitMQ message. A message acked without its record is an outcome nobody can account for.
-
-Never sample it, and never make it best-effort. If the explanation cannot be written, the run failed — shipping an answer that cannot be explained defeats the requirement the store exists for.
-
-## Retention and PII
-
-Retention is set by the obligation the store serves, not by Loki's or Tempo's config, and deletion is an explicit purge that someone decided on — not a TTL that silently ages rows out.
-
-Prompts, completions and retrieved documents routinely contain user data. This store is where they live, redacted at write time per policy. They never go into `extra` on a log line and never become a metric label.
-
-## Pivoting between the two systems
-
-From a log line: `job_id` finds every attempt and its full explanation; `trace_id` opens the trace while it still exists.
-
-From a run: `trace_id` and `span_id` open the waterfall for latency and infrastructure detail that this store deliberately does not keep.
+Ver [Fluxo e decisões da Sprint 2](../../docs/FLUXO-SPRINT-2.md). Esse planejamento não cria novas tabelas apenas por documentá-las.

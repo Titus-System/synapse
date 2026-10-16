@@ -14,7 +14,7 @@ import java.time.Duration;
  * testes esperem por um trecho aparecer em vez de depender do enquadramento exato de cada
  * leitura de socket.
  */
-final class StreamCliente {
+public final class StreamCliente {
 
 	private final HttpResponse<InputStream> resposta;
 
@@ -26,7 +26,7 @@ final class StreamCliente {
 
 	private boolean fimDoStream;
 
-	StreamCliente(HttpResponse<InputStream> resposta) {
+	public StreamCliente(HttpResponse<InputStream> resposta) {
 		this.resposta = resposta;
 		this.leitora = Thread.ofVirtual().unstarted(this::ler);
 		this.leitora.start();
@@ -63,7 +63,7 @@ final class StreamCliente {
 		return this.resposta.headers().firstValue(nome).orElse("");
 	}
 
-	String conteudo() {
+	public String conteudo() {
 		synchronized (this.trava) {
 			return this.buffer.toString();
 		}
@@ -76,7 +76,7 @@ final class StreamCliente {
 	 * (o `id:`, que este emissor escreve antes do `event:`, ou o `data:` que vem depois)
 	 * ter chegado.
 	 */
-	String aguardarBloco(String marcador, Duration timeout) {
+	public String aguardarBloco(String marcador, Duration timeout) {
 		long limiteNanos = System.nanoTime() + timeout.toNanos();
 		synchronized (this.trava) {
 			while (true) {
@@ -120,7 +120,7 @@ final class StreamCliente {
 	/**
 	 * Espera o servidor encerrar o stream (EOF), como acontece após um evento terminal.
 	 */
-	void aguardarFimDoStream(Duration timeout) {
+	public void aguardarFimDoStream(Duration timeout) {
 		long limiteNanos = System.nanoTime() + timeout.toNanos();
 		synchronized (this.trava) {
 			while (!this.fimDoStream) {
@@ -139,7 +139,7 @@ final class StreamCliente {
 		}
 	}
 
-	void fechar() {
+	public void fechar() {
 		try {
 			this.resposta.body().close();
 		}

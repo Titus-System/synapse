@@ -13,6 +13,8 @@ private static final Logger log = LoggerFactory.getLogger(JobService.class);
 
 SLF4J direto, sem wrapper e sem registro. Passe a classe, não uma string: o nome do logger sai do nome qualificado dela.
 
+Exceção de compatibilidade: `JobService` e `JobEventosService` preservam os nomes operacionais dos loggers anteriores à consolidação (`synapse.api.job.BuscarJobService` e `synapse.api.job.SimulacaoConcluidaService`) por nome explícito. Isso mantém filtros e consultas existentes sem conservar as classes antigas.
+
 ## Níveis
 
 | Método | Para |

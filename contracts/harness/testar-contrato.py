@@ -1,9 +1,9 @@
 """Testes do contrato do harness (T-034).
 
 Cobrem: as bases chegam como cópia, uma execução processa mais de uma
-competência (incluindo um mês em que a regra não tem efeito), o validador
-aceita saída válida e recusa uma sem decomposição, e o exemplo passa no
-validador.
+competência (incluindo um mês em que a regra não tem efeito), o exemplo
+declara os elementos que implementa, o validador aceita saída válida e recusa
+uma sem decomposição, e o exemplo passa no validador.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import math
+import re
 import subprocess
 import sys
 import tempfile
@@ -27,6 +28,13 @@ DIRETORIO_HARNESS = Path(__file__).resolve().parent
 VALIDADOR = DIRETORIO_HARNESS / "validar-saida.py"
 RAIZ_REPOSITORIO = DIRETORIO_HARNESS.parents[1]
 DIRETORIO_BASELINES = RAIZ_REPOSITORIO / "worker" / "sandbox" / "data" / "domrock" / "baselines"
+PADRAO_ELEMENTO_REF = re.compile(
+    json.loads(
+        (DIRETORIO_HARNESS.parent / "domain" / "comum.schema.json").read_text(encoding="utf-8")
+    )["$defs"]["elemento_ref"]["pattern"]
+)
+# A regra do exemplo é só de núcleo, com percentual: é o único elemento que ela exige.
+ELEMENTOS_EXIGIDOS_DO_EXEMPLO = ["nucleo.percentual"]
 # Valores congelados antes da republicação: a mudança de formato não muda a apuração.
 BASELINES_ESPERADOS = {
     "2025-08": (497, Decimal("363021.46")),
@@ -294,6 +302,39 @@ class TestarMultiplasCompetencias(unittest.TestCase):
         finally:
             Path(arquivo.name).unlink(missing_ok=True)
         self.assertEqual(processo.returncode, 0, processo.stderr)
+
+
+class TestarDeclaracaoDeCobertura(unittest.TestCase):
+    """O exemplo cumpre as duas condições da conferência de cobertura do README."""
+
+    def _conferir_cobertura(self, saida: dict[str, Any]) -> None:
+        declarados = saida["elementos_implementados"]
+        self.assertIsInstance(declarados, list)
+        for elemento in declarados:
+            self.assertIsInstance(elemento, str)
+            self.assertRegex(elemento, PADRAO_ELEMENTO_REF)
+        self.assertLessEqual(set(ELEMENTOS_EXIGIDOS_DO_EXEMPLO), set(declarados))
+        self.assertLessEqual(
+            set(saida["contribuicoes"]["elemento_ref"]), set(ELEMENTOS_EXIGIDOS_DO_EXEMPLO)
+        )
+
+    def test_exemplo_declara_os_elementos_que_implementa(self) -> None:
+        saida = harness.chamar(regra.aplicar_regra, _bases(), _apuracao_base(), ["2025-11"])
+
+        self.assertFalse(saida["contribuicoes"].empty)
+        self._conferir_cobertura(saida)
+
+    def test_elemento_sem_efeito_no_periodo_continua_declarado(self) -> None:
+        # Novembro tem venda, mas o cargo está fora do alvo da regra: nenhuma contribuição.
+        apuracao_base = _apuracao_base_multi_competencia()
+        apuracao_base = apuracao_base[apuracao_base["competencia"] == "2025-11"]
+
+        saida = harness.chamar(
+            regra.aplicar_regra, _bases_multi_competencia(), apuracao_base, ["2025-11"]
+        )
+
+        self.assertTrue(saida["contribuicoes"].empty)
+        self._conferir_cobertura(saida)
 
 
 class TestarValidador(unittest.TestCase):

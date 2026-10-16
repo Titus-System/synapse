@@ -16,22 +16,26 @@ from app.codigo_gerado import CodigoInvalidoError
 from app.graph.core.engine import build_graph
 from app.graph.core.state import AgentState
 from app.prompts.geracao_codigo import montar_prompt_geracao
+from app.repositorio.regras import TentativasDeTaxa
 from app.repositorio.resultados import TotaisDaSimulacao
 from app.representacao_regra import RepresentacaoRegra
+from app.sugestao_adaptacao import TaxaSimulada
 from tests.app.banco_falso import BancoFalso
 from tests.app.graph.conftest import FakeChatModel
 
 ScriptedModel = Callable[[Iterable[AIMessage]], FakeChatModel]
 
-_REGRA = RepresentacaoRegra.model_validate({"nucleo": {}, "especificacoes": []})
+_REGRA = RepresentacaoRegra.model_validate(
+    {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []}
+)
 
 
 def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
     """Every registered node is reachable, from START to END.
 
     Guards against a node left in the graph without an edge, which reads as part of the
-    pipeline in `docs/graph.md` but never runs. Uma linha reta até a pausa e uma única
-    ramificação depois dela, no nó de decisão.
+    pipeline in `docs/graph.md` but never runs. Conflicts branch before generation;
+    the worker's verdict routes the flow after the execution pause.
     """
     graph = build_graph(InMemorySaver())
 
@@ -39,6 +43,9 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
     assert set(drawable.nodes) == {
         "__start__",
         "load_rule",
+        "extract_rule",
+        "validate_domain",
+        "report_conflicts",
         "code_generation",
         "persist_response",
         "extract_code",
@@ -46,12 +53,19 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
         "await_execution",
         "decision",
         "suggest_adaptation",
+        "search_sales_target",
+        "publish_sales_target",
         "__end__",
     }
     edges = {(edge.source, edge.target) for edge in drawable.edges}
     assert edges == {
         ("__start__", "load_rule"),
-        ("load_rule", "code_generation"),
+        ("__start__", "extract_rule"),
+        ("extract_rule", "__end__"),
+        ("load_rule", "validate_domain"),
+        ("validate_domain", "code_generation"),
+        ("validate_domain", "report_conflicts"),
+        ("report_conflicts", "__end__"),
         ("code_generation", "persist_response"),
         ("persist_response", "extract_code"),
         ("extract_code", "dispatch_execution"),
@@ -60,6 +74,12 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
         ("decision", "suggest_adaptation"),
         ("decision", "__end__"),
         ("suggest_adaptation", "__end__"),
+        ("decision", "search_sales_target"),
+        ("search_sales_target", "dispatch_execution"),
+        ("search_sales_target", "publish_sales_target"),
+        ("publish_sales_target", "__end__"),
+        ("dispatch_execution", "__end__"),
+        ("await_execution", "search_sales_target"),
     }
     alcancados = {no for aresta in edges for no in aresta}
     assert set(drawable.nodes) == alcancados
@@ -85,7 +105,10 @@ class _Execucao:
         regra: RepresentacaoRegra = _REGRA,
     ) -> None:
         monkeypatch.setattr("app.graph.nodes.load_rule.buscar_regra", AsyncMock(return_value=regra))
-        monkeypatch.setattr("app.graph.nodes.decision.tem_sugestao", AsyncMock(return_value=False))
+        monkeypatch.setattr(
+            "app.graph.nodes.decision.contar_tentativas",
+            AsyncMock(return_value=TentativasDeTaxa(feitas=0, regra_e_tentativa=False)),
+        )
         self.banco = banco or BancoFalso()
         self.producers = MagicMock(
             executar_codigo=AsyncMock(),
@@ -185,7 +208,7 @@ async def test_resuming_records_the_result_reference_in_the_state(
 async def test_an_unaffordable_result_routes_to_the_adaptation_and_proposes_one(
     scripted_model: ScriptedModel, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A única ramificação do grafo: inviável por orçamento vai para a adaptação.
+    """Inviável por orçamento vai para a adaptação.
 
     A proposta sai do total apurado, não do modelo - o nó de sugestão não chama LLM.
     """
@@ -199,6 +222,11 @@ async def test_an_unaffordable_result_routes_to_the_adaptation_and_proposes_one(
                 Decimal("492100"), Decimal("485000"), baseline=Decimal("480312")
             )
         ),
+    )
+    # A regra ainda não foi adaptada: a cadeia dela tem só a taxa que acabou de ser simulada.
+    monkeypatch.setattr(
+        "app.graph.nodes.suggest_adaptation.buscar_taxas_simuladas",
+        AsyncMock(return_value=[TaxaSimulada(Decimal("0.025"), Decimal("492100"))]),
     )
     scripted_model([AIMessage(content=RESPOSTA_VALIDA)])
     execucao = _Execucao(monkeypatch, regra=regra)

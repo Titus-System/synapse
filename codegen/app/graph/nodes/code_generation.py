@@ -4,17 +4,20 @@ No tools are bound here - the model only replies with text, never picks a next s
 """
 
 from typing import Any
+from uuid import UUID
 
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-from app.contratos.mensagens import NoGrafo
+from app.contratos.mensagens import EtapaAlterada, NoGrafo
 from app.core.logger import get_logger, no_ctx
-from app.falhas import FalhaDoJobError
+from app.falhas import FalhaDoJobError, ProvedorIndisponivelError
+from app.graph.core.llm.disponibilidade import chamar_com_espera_do_provedor, ganchos_da_espera
 from app.graph.core.llm.registry import get_model, get_model_metadata
 from app.graph.core.state import AgentState
 from app.prompts.geracao_codigo import montar_prompt_geracao
 from app.representacao_regra import RepresentacaoRegra
+from app.resposta_modelo import extrair_resposta
 
 logger = get_logger("app.graph.nodes.code_generation")
 
@@ -39,20 +42,37 @@ class RespostaModeloInvalidaError(FalhaDoJobError):
     etapa = "geracao_codigo"
 
 
+class ProvedorIndisponivelGeracaoError(ProvedorIndisponivelError):
+    """The provider stayed unavailable for the whole retry window of the generation call."""
+
+    etapa = "geracao_codigo"
+
+
 async def code_generation(state: AgentState, config: RunnableConfig) -> AgentState:
     """Build the generation prompt from `representacao_regra` and call `code_generation`.
 
-    Raises `RespostaModeloInvalidaError` when the reply is empty, blocked or truncated - a
-    provider error propagates as-is. Neither case leaves partial state (AGENTS.md).
+    Raises `RespostaModeloInvalidaError` when the reply is empty, blocked or truncated, and
+    `ProvedorIndisponivelGeracaoError` when the provider stays unavailable for the whole retry
+    window. Any other provider error propagates as-is. No case leaves partial state (AGENTS.md).
     """
+    await config["configurable"]["producers"].etapa_alterada(
+        EtapaAlterada(job_id=UUID(state["job_id"]), etapa=NO_GERACAO_CODIGO, status="iniciada")
+    )
     rule = RepresentacaoRegra.model_validate(state["representacao_regra"])
     prompt = montar_prompt_geracao(rule)
 
     token = no_ctx.set(NO_GERACAO_CODIGO)
     try:
         model = get_model("code_generation")
-        response = await model.ainvoke([HumanMessage(content=prompt)])
-        content, finish_reason = _extract_response(response)
+        avisar, encerrado = ganchos_da_espera(config, state, NO_GERACAO_CODIGO)
+        response = await chamar_com_espera_do_provedor(
+            lambda: model.ainvoke([HumanMessage(content=prompt)]),
+            no=NO_GERACAO_CODIGO,
+            esgotada=ProvedorIndisponivelGeracaoError,
+            avisar=avisar,
+            encerrado=encerrado,
+        )
+        content, finish_reason = extrair_resposta(response)
 
         if not content or finish_reason != _FINISH_REASON_ACEITO:
             logger.error(
@@ -74,31 +94,6 @@ async def code_generation(state: AgentState, config: RunnableConfig) -> AgentSta
         return update
     finally:
         no_ctx.reset(token)
-
-
-def _extract_response(response: BaseMessage) -> tuple[str, str | None]:
-    content = _text_content(response.content)
-    metadata = response.response_metadata or {}
-    finish_reason = metadata.get("finish_reason")
-    return content, finish_reason
-
-
-def _text_content(content: object) -> str:
-    # `AIMessage.content` is `str | list[str | dict]`. Some providers (observed: Gemini,
-    # via langchain_google_genai) return a list of content-part dicts even for a plain text
-    # reply, e.g. `[{"type": "text", "text": "...", "extras": {...}}]` - a bare `isinstance`
-    # check against `str` silently treats every one of those replies as empty.
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        partes = []
-        for item in content:
-            if isinstance(item, str):
-                partes.append(item)
-            elif isinstance(item, dict) and item.get("type") == "text":
-                partes.append(str(item.get("text", "")))
-        return "".join(partes)
-    return ""
 
 
 def _token_usage(response: BaseMessage) -> dict[str, Any] | None:

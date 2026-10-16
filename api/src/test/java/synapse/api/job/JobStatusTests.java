@@ -13,6 +13,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class JobStatusTests {
 
+	@Test
+	void transcricaoSoPodeGerarRegraFalharOuCancelar() {
+		for (JobStatus destino : JobStatus.values()) {
+			assertThat(JobStatus.AGUARDANDO_TRANSCRICAO.permiteTransicaoPara(destino))
+				.as("aguardando_transcricao -> %s", destino)
+				.isEqualTo(Set.of(JobStatus.GERANDO_REGRA, JobStatus.ERRO, JobStatus.CANCELADO).contains(destino));
+		}
+		assertThat(JobStatus.AGUARDANDO_TRANSCRICAO.terminal()).isFalse();
+		assertThat(JobStatus.AGUARDANDO_TRANSCRICAO.emProcessamento()).isFalse();
+		assertThat(JobStatus.origensPermitidasPara(JobStatus.AGUARDANDO_TRANSCRICAO)).isEmpty();
+	}
+
 	// --- Caminhos válidos -----------------------------------------------------------
 
 	@Test
@@ -29,6 +41,11 @@ class JobStatusTests {
 		assertThat(JobStatus.SIMULACAO_INVIAVEL.permiteTransicaoPara(JobStatus.GERANDO_REGRA)).isTrue();
 		assertThat(JobStatus.SIMULACAO_INVIAVEL.permiteTransicaoPara(JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS))
 			.isTrue();
+	}
+
+	@Test
+	void permiteATentativaSeguinteAPartirDaAlternativaQueNaoCoube() {
+		assertThat(JobStatus.SIMULANDO.permiteTransicaoPara(JobStatus.GERANDO_REGRA)).isTrue();
 	}
 
 	@Test
@@ -59,8 +76,16 @@ class JobStatusTests {
 	}
 
 	@Test
-	void recusaVoltarDeGerandoRegraParaAguardandoConfirmacao() {
-		assertThat(JobStatus.GERANDO_REGRA.permiteTransicaoPara(JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS)).isFalse();
+	void permitePausaERetomadaSemSaltosIlegais() {
+		assertThat(JobStatus.GERANDO_REGRA.permiteTransicaoPara(JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS)).isTrue();
+		assertThat(JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS.terminal()).isFalse();
+		for (JobStatus destino : JobStatus.values()) {
+			assertThat(JobStatus.GERANDO_REGRA.permiteTransicaoPara(destino))
+				.isEqualTo(Set.of(JobStatus.SIMULANDO, JobStatus.ERRO, JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS)
+					.contains(destino));
+			assertThat(JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS.permiteTransicaoPara(destino))
+				.isEqualTo(Set.of(JobStatus.GERANDO_REGRA, JobStatus.CANCELADO).contains(destino));
+		}
 	}
 
 	@ParameterizedTest
@@ -108,6 +133,18 @@ class JobStatusTests {
 			}
 		}
 		return visitados;
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = JobStatus.class, names = { "GERANDO_REGRA", "SIMULANDO" })
+	void soGerandoRegraESimulandoEstaoEmProcessamento(JobStatus status) {
+		assertThat(status.emProcessamento()).isTrue();
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = JobStatus.class, mode = EnumSource.Mode.EXCLUDE, names = { "GERANDO_REGRA", "SIMULANDO" })
+	void osDemaisEstadosNaoEstaoEmProcessamento(JobStatus status) {
+		assertThat(status.emProcessamento()).isFalse();
 	}
 
 }

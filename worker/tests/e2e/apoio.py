@@ -117,6 +117,13 @@ class Worker:
             await asyncio.sleep(0.1)
         raise AssertionError(f"o worker não encerrou em {prazo} s\n{self.cauda()}")
 
+    async def metricas(self, prazo: float = 5.0) -> str:
+        """`GET /metrics`, em texto do Prometheus, como o coletor o lê."""
+        async with httpx.AsyncClient(timeout=prazo) as cliente:
+            resposta = await cliente.get(f"http://127.0.0.1:{self.porta}/metrics")
+        resposta.raise_for_status()
+        return resposta.text
+
     async def saude(self, prazo: float = 5.0) -> tuple[int, float]:
         """`GET /health`: o código HTTP e quanto a resposta levou."""
         inicio = time.monotonic()
@@ -199,17 +206,33 @@ class Corretor:
         assert self._canal is not None
         await self._canal.default_exchange.publish(Message(body=corpo), routing_key=FILA_COMANDO)
 
-    async def publicar_comando(self, semente: dict[str, Any], orcamento: float) -> None:
-        await self.publicar(
-            json.dumps(
-                {
-                    "job_id": str(semente["job_id"]),
-                    "codigo_gerado_id": str(semente["id"]),
-                    "competencias": COMPETENCIAS,
-                    "orcamento": orcamento,
-                }
-            ).encode("utf-8")
-        )
+    async def publicar_comando(
+        self,
+        semente: dict[str, Any],
+        orcamento: float | None,
+        *,
+        elementos_exigidos: list[str] | None = None,
+        meta_venda: float | None = None,
+        proposito: str | None = None,
+        competencias: list[str] | None = None,
+    ) -> None:
+        """Sem `elementos_exigidos`, o comando é o de antes da conferência de cobertura (T-241).
+        `orcamento` None é o comando de um job sem orçamento, que chega sem o campo (T-281). Sem
+        `meta_venda` e `proposito`, o comando é o de antes da meta de venda (T-270)."""
+        corpo: dict[str, Any] = {
+            "job_id": str(semente["job_id"]),
+            "codigo_gerado_id": str(semente["id"]),
+            "competencias": competencias or COMPETENCIAS,
+        }
+        if orcamento is not None:
+            corpo["orcamento"] = orcamento
+        if elementos_exigidos is not None:
+            corpo["elementos_exigidos"] = elementos_exigidos
+        if meta_venda is not None:
+            corpo["meta_venda"] = meta_venda
+        if proposito is not None:
+            corpo["proposito"] = proposito
+        await self.publicar(json.dumps(corpo).encode("utf-8"))
 
     async def esperar(self, fila: AbstractQueue, prazo: float = 90.0) -> Message | None:
         """A próxima mensagem da fila, confirmada, ou `None` se nada chega no prazo."""
@@ -281,7 +304,7 @@ class Ambiente:
         self,
         fonte: str,
         *,
-        orcamento: float = ORCAMENTO_PADRAO,
+        orcamento: float | None = ORCAMENTO_PADRAO,
         competencias: list[str] | None = None,
     ) -> dict[str, Any]:
         semente = await semear_codigo(

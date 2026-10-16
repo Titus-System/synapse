@@ -260,6 +260,24 @@ describe('transformarResultado', () => {
     ])
   })
 
+  it('trata como respeitado o orçamento que o usuário não informou', () => {
+    const resultado: ResultadoSimulacao = {
+      totais: {
+        baseline: 10000,
+        simulado: 18000,
+        diferenca_abs: 8000,
+        diferenca_pct: 0.8,
+      },
+      assercoes: [],
+      decomposicao: {},
+    }
+
+    expect(transformarResultado(resultado)).toEqual([
+      'comissão = R$ 18.000,00',
+      'orçamento = OK',
+    ])
+  })
+
   it('retorna lista vazia quando a simulação não tem totais', () => {
     const resultado: ResultadoSimulacao = {
       totais: null,

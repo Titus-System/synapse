@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/resultado-linhas.schema.json",
+  "title": "Detalhamento do resultado por competência e matrícula",
+  "description": "Coluna resultados_simulacao.linhas. Há uma entrada por mês e colaborador, indexada primeiro por competência e depois por matrícula, na granularidade mensal dos dados enviados pela DomRock. A marca e a loja são as da lotação no RH naquela competência, como no baseline congelado; vendas em outras marcas ou lojas ficam consolidadas na mesma linha. O cargo também é o da pessoa naquele mês. O harness monta o detalhamento a partir de apuracao_simulada e contribuicoes, com a diferença calculada a partir das mesmas parcelas em centavos. O worker grava o objeto inteiro no mesmo INSERT do resultado, e a api o lê pela rota de detalhamento. Só um resultado com status sucesso tem números válidos; a coluna é nula nos demais status e nos resultados anteriores à inclusão do detalhamento. Fica fora de decomposicao e de resultado-simulacao para que a consulta do job não carregue o período inteiro de todas as simulações. A conferência das linhas contra os totais e as quebras é determinística e pertence ao worker, não ao frontend nem a este schema.",
+  "type": "object",
+  "propertyNames": { "$ref": "comum.schema.json#/$defs/competencia" },
+  "additionalProperties": {
+    "type": "object",
+    "description": "Apuração de uma competência. Cada matrícula aparece uma única vez no mês, inclusive quando a regra não altera sua comissão.",
+    "propertyNames": { "$ref": "comum.schema.json#/$defs/matricula" },
+    "additionalProperties": { "$ref": "#/$defs/linha" }
+  },
+  "$defs": {
+    "linha": {
+      "type": "object",
+      "required": [
+        "cod_loja",
+        "cod_marca",
+        "cod_cargo",
+        "comissao_baseline",
+        "comissao_simulada",
+        "diferenca",
+        "contribuicoes"
+      ],
+      "properties": {
+        "cod_loja": {
+          "$ref": "comum.schema.json#/$defs/codigo",
+          "description": "Loja da lotação no RH no mês, como no baseline congelado."
+        },
+        "cod_marca": {
+          "$ref": "comum.schema.json#/$defs/codigo",
+          "description": "Marca da lotação no RH no mês, como no baseline congelado."
+        },
+        "cod_cargo": {
+          "$ref": "comum.schema.json#/$defs/codigo",
+          "description": "Cargo da pessoa no RH no mês."
+        },
+        "comissao_baseline": {
+          "$ref": "comum.schema.json#/$defs/brl",
+          "description": "Comissão congelada da matrícula nesta competência."
+        },
+        "comissao_simulada": {
+          "$ref": "comum.schema.json#/$defs/brl",
+          "description": "Comissão da matrícula nesta competência sob a regra proposta."
+        },
+        "diferenca": {
+          "$ref": "comum.schema.json#/$defs/brl",
+          "description": "Comissão simulada menos a comissão do baseline, calculada pelo harness a partir das parcelas em centavos. Vem pronta para exibição; o frontend não recalcula."
+        },
+        "contribuicoes": {
+          "type": "object",
+          "description": "Delta de cada elemento nesta competência e matrícula. Só inclui elementos com delta diferente de zero, inclusive negativo. A soma fecha com diferenca. Uma linha não alterada pela regra tem diferenca zero e este objeto vazio.",
+          "propertyNames": { "$ref": "comum.schema.json#/$defs/elemento_ref" },
+          "additionalProperties": {
+            "$ref": "comum.schema.json#/$defs/brl",
+            "not": { "const": 0 }
+          }
+        }
+      }
+    }
+  }
+}

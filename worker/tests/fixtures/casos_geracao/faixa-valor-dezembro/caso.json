@@ -1,0 +1,36 @@
+{
+  "id": "faixa-valor-dezembro",
+  "descricao": "Núcleo mais a escada real de bônus de dezembro do cliente (marcas 10 e 20, venda individual acima de R$ 40 mil), em três faixas, com a faixa aberta no limite de 1.000.000.000 que a extração usa (T-208). O núcleo deixa o cargo 150 de fora, para o caso provar as faixas, e não a forma como o percentual do núcleo se aplica ao gerente; nenhum gerente dessas marcas tem venda individual acima de R$ 40 mil em dezembro. Um mês só, dezembro.",
+  "leitura": "A comissão de quem é das marcas 10 e 20 e dos cargos 100, 200 e 300 passa a ser 2,5% das vendas do mês (nucleo.percentual). Dentro desse recorte, a faixa olha a venda individual, que é o total mensal consolidado de todas as vendas da pessoa (docs/ESCOPO-SIMULACAO.md), e não cada venda: quem tem esse total entre o limite inferior e o superior de uma faixa, os dois inclusive, ganha o bônus fixo dela uma vez na competência, somado depois do percentual, no elemento da faixa. elem.1 paga R$ 3.500 de 40.000 a 50.000; elem.2, R$ 4.000 de 50.001 a 60.000; elem.3, R$ 4.500 de 60.001 em diante, com 1.000.000.000 como limite superior da faixa aberta. Premissa: cada faixa vale só no próprio intervalo e não preenche o espaço até a faixa seguinte, então um total entre 50.000 e 50.001, ou entre 60.000 e 60.001, não ganharia bônus; nenhum total deste dataset cai nesses espaços, e a premissa não muda o número aqui. O baseline de dezembro já paga essas faixas, pela leitura da T-032; dentro do recorte, a comissão do núcleo substitui a do baseline, e o bônus que fica é o das faixas do caso.",
+  "representacao": {
+    "nucleo": {
+      "marca": ["10", "20"],
+      "cargo": ["100", "200", "300"],
+      "percentual": 0.025
+    },
+    "especificacoes": [
+      {
+        "ref": "elem.1",
+        "construto": "faixa_valor",
+        "limite_inferior": 40000,
+        "limite_superior": 50000,
+        "efeito": { "tipo": "bonus_fixo", "valor": 3500 }
+      },
+      {
+        "ref": "elem.2",
+        "construto": "faixa_valor",
+        "limite_inferior": 50001,
+        "limite_superior": 60000,
+        "efeito": { "tipo": "bonus_fixo", "valor": 4000 }
+      },
+      {
+        "ref": "elem.3",
+        "construto": "faixa_valor",
+        "limite_inferior": 60001,
+        "limite_superior": 1000000000,
+        "efeito": { "tipo": "bonus_fixo", "valor": 4500 }
+      }
+    ]
+  },
+  "competencias": ["2025-12"]
+}

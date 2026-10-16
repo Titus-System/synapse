@@ -7,6 +7,27 @@ from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
 
+class ConflitoDominio(TypedDict):
+    elementos: list[str]
+    motivo: str
+
+
+class PontoBusca(TypedDict):
+    meta: str
+    comissao: str
+    resultado_id: str
+
+
+class BuscaMeta(TypedDict):
+    pontos: list[PontoBusca]
+    pendente: str | None
+    motivo: str | None
+    vencedora: str | None
+    iniciada_em: float
+    enviada_em: float
+    encerrada: bool
+
+
 class AgentState(TypedDict, total=False):
     """Shared graph state - see `.agents/skills/graph/SKILL.md`.
 
@@ -24,12 +45,16 @@ class AgentState(TypedDict, total=False):
     # T-094 (initial state, from `regra-submetida`)
     job_id: str
     regra_id: str
+    submissao_id: str
     origem: str
     competencias: list[str]
     orcamento: str  # decimal text, never float - see `app/tipos_estado.py::Orcamento`
+    meta_venda: str  # decimal text, never float, like `orcamento` (T-272)
 
     # T-096 (this task)
     representacao_regra: dict[str, Any]
+    regra_liberada: bool
+    conflitos: list[ConflitoDominio]
     prompt_enviado: str
     resposta_bruta: str
     modelo: dict[str, Any]
@@ -50,3 +75,8 @@ class AgentState(TypedDict, total=False):
     # Para onde o nó de decisão encaminhou o fluxo. É o campo validado que a aresta
     # condicional lê - resposta de modelo nunca escolhe o próximo nó.
     encaminhamento: str
+    # Taxas novas que o job já tentou até a regra deste ciclo, inclusive (T-271). O nó de
+    # decisão a conta, e a sugestão a lê do checkpoint para numerar a tentativa seguinte.
+    tentativas_de_taxa: int
+
+    busca_meta: BuscaMeta

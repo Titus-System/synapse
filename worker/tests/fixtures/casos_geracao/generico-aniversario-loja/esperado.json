@@ -1,0 +1,8 @@
+{
+  "classe": "erro_codigo",
+  "competencias": [
+    "2025-11"
+  ],
+  "motivo": "excecao",
+  "tipo_erro": "NotImplementedError"
+}

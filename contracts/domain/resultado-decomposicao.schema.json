@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://synapse.local/contracts/domain/resultado-decomposicao.schema.json",
-  "title": "Decomposição da diferença",
-  "description": "Coluna resultados_simulacao.decomposicao. Quebra da DIFERENÇA em relação ao baseline, nunca do total: somar qualquer quebra dá resultado-totais.diferenca_abs. Vem do container e o worker a repassa sem recompor. Nula quando resultados_simulacao.status não é sucesso. A forma de objeto, e não de array de registros, é o que torna chave repetida dentro de uma quebra impossível de representar. As cinco quebras são exigidas: por elemento, porque é ela que amarra cada parte da regra ao efeito que produziu; por loja, marca e cargo, que são as dimensões de agregação do domínio e sem as quais a explicação não tem onde se apoiar; e por competência, que é onde está a contribuição de cada mês do período.",
+  "title": "Decomposição do resultado",
+  "description": "Coluna resultados_simulacao.decomposicao. Reúne dois tipos de quebra. As cinco quebras da DIFERENÇA em relação ao baseline (elemento, loja, marca, cargo e competencia) distribuem a diferença, nunca o total: somar qualquer uma delas dá resultado-totais.diferenca_abs. As três quebras ABSOLUTAS (matricula, loja_absoluto e competencia_absoluto) distribuem o comissionamento apurado pela regra proposta: somar qualquer uma delas dá resultado-totais.simulado. Vem do container e o worker a repassa sem recompor. Nula quando resultados_simulacao.status não é sucesso. A forma de objeto, e não de array de registros, é o que torna chave repetida dentro de uma quebra impossível de representar. As cinco quebras da diferença são exigidas: por elemento, porque é ela que amarra cada parte da regra ao efeito que produziu; por loja, marca e cargo, que são as dimensões de agregação do domínio e sem as quais a explicação não tem onde se apoiar; e por competência, que é onde está a contribuição de cada mês do período. As três quebras absolutas são opcionais e um resultado sem elas continua válido: dizem quem receberia quanto, em que loja e em que mês, mas não explicam o efeito da regra, que continua nas quebras da diferença.",
   "type": "object",
   "required": ["elemento", "loja", "marca", "cargo", "competencia"],
   "properties": {
@@ -37,6 +37,26 @@
       "propertyNames": { "$ref": "comum.schema.json#/$defs/competencia" },
       "additionalProperties": { "$ref": "comum.schema.json#/$defs/brl" },
       "examples": [{ "2025-08": 0, "2025-11": 11788.0 }]
+    },
+    "matricula": {
+      "type": "object",
+      "description": "Valor absoluto por colaborador: a comissão de cada matrícula sob a regra proposta, total da matrícula no período, somando todas as competências do job. Não é a diferença em relação ao baseline. Somar a quebra dá resultado-totais.simulado.",
+      "propertyNames": { "$ref": "comum.schema.json#/$defs/matricula" },
+      "additionalProperties": { "$ref": "comum.schema.json#/$defs/brl" },
+      "examples": [{ "MATRIC-422": 141300.0, "MATRIC-517": 133550.0, "MATRIC-603": 120400.0, "MATRIC-718": 96850.0 }]
+    },
+    "loja_absoluto": {
+      "type": "object",
+      "description": "Valor absoluto por Cod_Loja: a comissão da loja sob a regra proposta, somada no período. Par absoluto da quebra loja, que traz a diferença. Somar a quebra dá resultado-totais.simulado.",
+      "additionalProperties": { "$ref": "comum.schema.json#/$defs/brl" },
+      "examples": [{ "13": 274850.0, "58": 217250.0 }]
+    },
+    "competencia_absoluto": {
+      "type": "object",
+      "description": "Valor absoluto por competência: a comissão do mês sob a regra proposta. Par absoluto da quebra competencia, que traz a diferença. Somar a quebra dá resultado-totais.simulado.",
+      "propertyNames": { "$ref": "comum.schema.json#/$defs/competencia" },
+      "additionalProperties": { "$ref": "comum.schema.json#/$defs/brl" },
+      "examples": [{ "2025-08": 238900.0, "2025-11": 253200.0 }]
     }
   },
   "examples": [
@@ -45,7 +65,10 @@
       "loja": { "13": 7100.0, "58": 4688.0 },
       "marca": { "10": 11788.0 },
       "cargo": { "100": 9200.0, "150": 2588.0 },
-      "competencia": { "2025-08": 0, "2025-11": 11788.0 }
+      "competencia": { "2025-08": 0, "2025-11": 11788.0 },
+      "matricula": { "MATRIC-422": 141300.0, "MATRIC-517": 133550.0, "MATRIC-603": 120400.0, "MATRIC-718": 96850.0 },
+      "loja_absoluto": { "13": 274850.0, "58": 217250.0 },
+      "competencia_absoluto": { "2025-08": 238900.0, "2025-11": 253200.0 }
     }
   ]
 }

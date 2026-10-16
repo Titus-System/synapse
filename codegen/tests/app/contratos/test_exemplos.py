@@ -24,10 +24,12 @@ DIRETORIO_EXEMPLOS = Path(__file__).resolve().parents[4] / "contracts" / "exampl
     [
         ("events/regra-submetida.json", RegraSubmetida),
         ("events/regra-submetida-voz.json", RegraSubmetida),
+        ("events/regra-submetida-texto.json", RegraSubmetida),
         ("events/parametros-confirmados.json", ParametrosConfirmados),
         ("events/simulacao-concluida.json", SimulacaoConcluida),
         ("events/executar-codigo.json", ExecutarCodigo),
         ("events/etapa-alterada.json", EtapaAlterada),
+        ("events/etapa-alterada-conflitos-parametros.json", EtapaAlterada),
         ("events/no-concluido.json", NoConcluido),
     ],
 )

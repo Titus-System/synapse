@@ -12,11 +12,14 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
+from app.nos.codigos_conflito import CodigoConflito
+
 
 @dataclass(frozen=True, slots=True)
 class Conflito:
     elementos: tuple[str, ...]
     motivo: str
+    codigo: CodigoConflito
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +46,11 @@ def _completude_do_nucleo(representacao: Mapping[str, object]) -> list[Conflito]
     nucleo = representacao.get("nucleo")
     percentual = nucleo.get("percentual") if isinstance(nucleo, Mapping) else None
     if percentual is None:
-        return [Conflito(("nucleo.percentual",), "percentual ausente")]
+        return [
+            Conflito(
+                ("nucleo.percentual",), "percentual ausente", CodigoConflito.PERCENTUAL_AUSENTE
+            )
+        ]
     return []
 
 
@@ -53,7 +60,13 @@ def _coerencia_do_percentual(representacao: Mapping[str, object]) -> list[Confli
         return []
     percentual = _numero(nucleo.get("percentual"))
     if percentual is not None and percentual < 0:
-        return [Conflito(("nucleo.percentual",), f"percentual negativo ({percentual})")]
+        return [
+            Conflito(
+                ("nucleo.percentual",),
+                f"percentual negativo ({percentual})",
+                CodigoConflito.PERCENTUAL_NEGATIVO,
+            )
+        ]
     return []
 
 
@@ -80,6 +93,7 @@ def _coerencia_de_exclusoes(representacao: Mapping[str, object]) -> list[Conflit
                 Conflito(
                     (f"nucleo.{dimensao}", ref),
                     f"{dimensao} {', '.join(repetidos)} no núcleo e na exclusão",
+                    CodigoConflito.EXCLUSAO_REPETIDA,
                 )
             )
     return conflitos
@@ -95,7 +109,13 @@ def _coerencia_da_vigencia(representacao: Mapping[str, object]) -> list[Conflito
     inicio = vigencia.get("inicio")
     fim = vigencia.get("fim")
     if isinstance(inicio, str) and isinstance(fim, str) and fim < inicio:
-        return [Conflito(("nucleo.vigencia",), f"fim {fim} anterior ao início {inicio}")]
+        return [
+            Conflito(
+                ("nucleo.vigencia",),
+                f"fim {fim} anterior ao início {inicio}",
+                CodigoConflito.VIGENCIA_INVERTIDA,
+            )
+        ]
     return []
 
 
@@ -126,7 +146,11 @@ def _faixa_invertida(elemento: Mapping[str, object], ref: str) -> Conflito | Non
     inferior = _numero(elemento.get("limite_inferior"))
     superior = _numero(elemento.get("limite_superior"))
     if inferior is not None and superior is not None and inferior > superior:
-        return Conflito((ref,), f"limite inferior {inferior} maior que o superior {superior}")
+        return Conflito(
+            (ref,),
+            f"limite inferior {inferior} maior que o superior {superior}",
+            CodigoConflito.FAIXA_INVERTIDA,
+        )
     return None
 
 
@@ -134,7 +158,11 @@ def _janela_invertida(elemento: Mapping[str, object], ref: str) -> Conflito | No
     inicio = _como_data(elemento.get("data_inicial"))
     fim = _como_data(elemento.get("data_final"))
     if inicio is not None and fim is not None and fim < inicio:
-        return Conflito((ref,), f"data final {fim} anterior à inicial {inicio}")
+        return Conflito(
+            (ref,),
+            f"data final {fim} anterior à inicial {inicio}",
+            CodigoConflito.JANELA_INVERTIDA,
+        )
     return None
 
 
@@ -142,7 +170,9 @@ def _limiar_sem_escopo(elemento: Mapping[str, object], ref: str) -> Conflito | N
     escopo = elemento.get("escopo_agregacao")
     if isinstance(escopo, str) and escopo:
         return None
-    return Conflito((ref,), "condição por limiar sem escopo de agregação")
+    return Conflito(
+        (ref,), "condição por limiar sem escopo de agregação", CodigoConflito.LIMIAR_SEM_ESCOPO
+    )
 
 
 def _numero(valor: object) -> Decimal | None:

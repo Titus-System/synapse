@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from app.nos import validacao_dominio
+from app.nos.codigos_conflito import CodigoConflito
 from app.nos.validacao_dominio import verificar
 
 
@@ -246,3 +247,112 @@ def test_verificacao_de_dominio_nao_importa_llm_nem_acesso_a_base() -> None:
     }
 
     assert ofensores == set()
+
+
+def _limiar_sem_escopo() -> dict[str, object]:
+    return {
+        "ref": "elem.3",
+        "construto": "condicao_limiar",
+        "metrica": "venda_total",
+        "operador": ">=",
+        "limiar": Decimal("50000"),
+    }
+
+
+_REGRAS_COM_UM_CONFLITO: list[tuple[CodigoConflito, dict[str, object]]] = [
+    (CodigoConflito.PERCENTUAL_AUSENTE, {"nucleo": {}, "especificacoes": []}),
+    (
+        CodigoConflito.PERCENTUAL_NEGATIVO,
+        {"nucleo": {"percentual": Decimal("-0.01")}, "especificacoes": []},
+    ),
+    (
+        CodigoConflito.VIGENCIA_INVERTIDA,
+        _representacao(nucleo={"vigencia": {"inicio": "2025-11", "fim": "2025-08"}}),
+    ),
+    (
+        CodigoConflito.EXCLUSAO_REPETIDA,
+        {
+            "nucleo": {"percentual": Decimal("0.03"), "cargo": ["100", "150"]},
+            "especificacoes": [
+                {"ref": "elem.1", "construto": "exclusao", "dimensao": "cargo", "valores": ["150"]}
+            ],
+        },
+    ),
+    (
+        CodigoConflito.FAIXA_INVERTIDA,
+        _representacao(especificacoes=[_faixa(Decimal("50000"), Decimal("40000"))]),
+    ),
+    (
+        CodigoConflito.JANELA_INVERTIDA,
+        _representacao(especificacoes=[_janela("2025-11-24", "2025-11-20")]),
+    ),
+    (
+        CodigoConflito.LIMIAR_SEM_ESCOPO,
+        _representacao(especificacoes=[_limiar_sem_escopo()]),
+    ),
+]
+
+
+def test_conjunto_fechado_de_codigos_e_o_das_verificacoes_existentes() -> None:
+    assert {codigo.value for codigo in CodigoConflito} == {
+        "percentual_ausente",
+        "percentual_negativo",
+        "vigencia_invertida",
+        "exclusao_repetida",
+        "faixa_invertida",
+        "janela_invertida",
+        "limiar_sem_escopo",
+    }
+
+
+@pytest.mark.parametrize(
+    ("codigo", "regra"), _REGRAS_COM_UM_CONFLITO, ids=[c.value for c, _ in _REGRAS_COM_UM_CONFLITO]
+)
+def test_cada_verificacao_classifica_o_conflito_com_o_seu_codigo(
+    codigo: CodigoConflito, regra: dict[str, object]
+) -> None:
+    resultado = verificar(regra)
+
+    assert [conflito.codigo for conflito in resultado.conflitos] == [codigo]
+
+
+def test_toda_verificacao_do_modulo_produz_conflito_com_codigo_do_conjunto() -> None:
+    cobertos = {codigo for codigo, _ in _REGRAS_COM_UM_CONFLITO}
+
+    assert cobertos == set(CodigoConflito)
+    for _, regra in _REGRAS_COM_UM_CONFLITO:
+        for conflito in verificar(regra).conflitos:
+            assert isinstance(conflito.codigo, CodigoConflito)
+
+
+def test_regra_com_dois_conflitos_classifica_cada_um_pelo_seu_codigo() -> None:
+    regra = _representacao(
+        nucleo={"percentual": Decimal("-0.01")},
+        especificacoes=[_faixa(Decimal("50000"), Decimal("40000"))],
+    )
+
+    resultado = verificar(regra)
+
+    assert [conflito.codigo for conflito in resultado.conflitos] == [
+        CodigoConflito.PERCENTUAL_NEGATIVO,
+        CodigoConflito.FAIXA_INVERTIDA,
+    ]
+
+
+def test_generico_e_construto_desconhecido_sao_ignorados_sem_falhar() -> None:
+    regra = _representacao(
+        especificacoes=[
+            {"ref": "elem.1", "construto": "generico", "descricao": "x", "campos": {"a": 1}},
+            {"ref": "elem.2", "construto": "construto_que_nao_existe", "valor": 1},
+        ]
+    )
+
+    assert verificar(regra).liberado
+
+
+def test_conflito_nao_carrega_o_valor_da_regra_no_codigo() -> None:
+    regra = _representacao(especificacoes=[_faixa(Decimal("50000"), Decimal("40000"))])
+
+    (conflito,) = verificar(regra).conflitos
+
+    assert "50000" not in conflito.codigo

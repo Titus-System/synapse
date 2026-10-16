@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/events/job-encerrado.schema.json",
+  "title": "job-encerrado",
+  "description": "Evento publicado pela API quando o job atinge um estado terminal, gravado no outbox na mesma transação que persiste a transição. Anuncia um fato definitivo: depois dele o job não volta a processar. Não é encerramento a conclusão de um nó, a conclusão de uma simulação, a inviabilidade nem a espera por decisão, confirmação ou correção do usuário; nesses casos o job continua retomável e não há evento. O consumidor é o codegen, pela fila job-encerrado, que usa o fato para descartar o estado operacional do grafo sem consultar jobs. A entrega é independente das outras filas: o encerramento pode chegar ao consumidor antes de um simulacao-concluida que ele ainda não processou. Por isso o consumidor registra o encerramento de forma durável antes de confirmar a mensagem e só descarta o estado operacional depois de concluir os efeitos pendentes, como o processamento de um resultado e as publicações de auditoria que ele produz. O evento carrega identificação e controle, nunca prompt, transcrição, código, diagnóstico ou resultado.",
+  "type": "object",
+  "required": [
+    "evento_id",
+    "job_id",
+    "status",
+    "encerrado_em"
+  ],
+  "properties": {
+    "evento_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do encerramento, o mesmo em toda emissão do mesmo fato: uma republicação do outbox ou o registro de um encerramento anterior à existência deste evento levam o mesmo valor. A API usa o id da transição terminal em job_transicoes. Um job encerra uma vez só, então o consumidor pode deduplicar por este campo ou por job_id."
+    },
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador do job encerrado."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "liberado",
+        "cancelado",
+        "arquivado",
+        "erro"
+      ],
+      "description": "Estado terminal atingido, no vocabulário de jobs.status. liberado, cancelado e arquivado vêm de uma decisão do usuário; erro vem de uma falha na geração ou na execução. Estados de processamento, confirmação e decisão do usuário não são encerramento e não aparecem aqui."
+    },
+    "encerrado_em": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Instante da transição terminal persistida, o mesmo de job_transicoes.ocorrido_em e de jobs.finalizado_em. Não é o instante da publicação: toda emissão do mesmo encerramento leva este mesmo valor."
+    }
+  },
+  "examples": [
+    {
+      "evento_id": "0199a8c4-2f6e-7b10-9a3d-5c1e7f2b8d40",
+      "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+      "status": "liberado",
+      "encerrado_em": "2025-11-28T15:02:44.318204Z"
+    }
+  ]
+}

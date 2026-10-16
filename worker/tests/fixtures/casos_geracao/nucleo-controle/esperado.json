@@ -1,0 +1,17 @@
+{
+  "classe": "sucesso",
+  "competencias": [
+    "2025-08",
+    "2025-11"
+  ],
+  "elemento": {
+    "nucleo.percentual": -23740.16
+  },
+  "motivo": "ok",
+  "totais": {
+    "baseline": 871403.78,
+    "diferenca_abs": -23740.16,
+    "diferenca_pct": -0.02724358161494319,
+    "simulado": 847663.62
+  }
+}

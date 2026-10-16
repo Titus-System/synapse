@@ -39,6 +39,13 @@ def _google(model_id: str, **kwargs: Any) -> BaseChatModel:
 # project's free-tier key. `flash-lite` has real quota and the same 1,048,576-token input
 # window, comfortably above this prompt's size.
 _MODELS: dict[str, Callable[[], BaseChatModel]] = {
+    "extraction": lambda: _google(
+        "gemini-3.1-flash-lite",
+        temperature=0,
+        max_output_tokens=8192,
+        timeout=60,
+        max_retries=2,
+    ),
     "code_generation": lambda: _google(
         "gemini-3.1-flash-lite",
         temperature=0,
@@ -52,6 +59,12 @@ _MODELS: dict[str, Callable[[], BaseChatModel]] = {
 # the builder that produces it, instead of read back from the provider response: Gemini's
 # response carries no reliable per-call snapshot/version field to read it from.
 _METADATA: dict[str, dict[str, Any]] = {
+    "extraction": {
+        "provedor": "google",
+        "modelo": "gemini-3.1-flash-lite",
+        "versao": "stable",
+        "parametros": {"temperature": 0, "max_output_tokens": 8192},
+    },
     "code_generation": {
         "provedor": "google",
         "modelo": "gemini-3.1-flash-lite",

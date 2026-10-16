@@ -1,0 +1,11 @@
+{
+  "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+  "resultado_id": "0192d4a1-6c3e-7b10-9f2a-4e5d6c7b8a90",
+  "status": "sucesso",
+  "veredito": "viavel",
+  "total_baseline": 529520.0,
+  "total_simulado": 541900.0,
+  "diferenca_abs": 12380.0,
+  "diferenca_pct": 0.0234,
+  "meta_venda": 26000000.0
+}

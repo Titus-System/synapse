@@ -6,8 +6,10 @@ Nenhuma tabela nasce de inferência de tipo: uma competência sem linha nenhuma
 produziria ``float64`` onde o contrato manda ``int64``, e o código gerado, escrito
 contra o contrato, erraria em silêncio.
 
-Não abre rede, não recalcula o baseline e não executa código gerado. O baseline é
-dado congelado (T-032), já na forma de ``apuracao_base``; este módulo valida e tipa a carga.
+Não abre rede e não executa código gerado. Sem meta de venda, o baseline é dado congelado
+(T-032), já na forma de ``apuracao_base``, e este módulo valida e tipa a carga. Com meta de
+venda (T-270), as vendas do período são escaladas até a meta e o baseline é reapurado sobre
+elas antes de chegar à regra (``escalonamento.py``).
 """
 
 from __future__ import annotations
@@ -21,6 +23,16 @@ from pathlib import Path
 from typing import NamedTuple, NoReturn
 
 import pandas
+
+from app.sandbox.assercoes import AssercaoVioladaError
+from app.sandbox.escalonamento import (
+    MetaVendaError,
+    escalar_vendas,
+    fator_de_escala,
+    reapurar_baseline,
+    total_de_vendas,
+)
+from app.sandbox.regras_base import RegraBaseError
 
 # Este arquivo fica em <raiz>/app/sandbox/ tanto no repositório (worker/) quanto na
 # imagem (/app), e os dados em <raiz>/sandbox/data/domrock nos dois: o mesmo cálculo
@@ -124,6 +136,10 @@ class BaseInconsistenteError(CargaError):
     """O baseline congelado não bate com o RH ou com o manifesto."""
 
 
+class ReapuracaoError(CargaError):
+    """O baseline não pôde ser reapurado sobre as vendas escaladas até a meta."""
+
+
 class Entrada(NamedTuple):
     bases: dict[str, pandas.DataFrame]
     apuracao_base: pandas.DataFrame
@@ -165,17 +181,68 @@ def competencias_publicadas(*, raiz: Path = RAIZ_DADOS) -> tuple[str, ...]:
     return tuple(publicadas)
 
 
-def carregar(competencias: Sequence[str], *, raiz: Path = RAIZ_DADOS) -> Entrada:
-    """Carrega as bases e o baseline do período, tipados como o contrato manda."""
+def carregar(
+    competencias: Sequence[str], *, meta_venda: float | None = None, raiz: Path = RAIZ_DADOS
+) -> Entrada:
+    """Carrega as bases e o baseline do período, tipados como o contrato manda.
+
+    Com ``meta_venda``, as vendas do período chegam escaladas até a meta, e o baseline,
+    reapurado sobre elas; ``rh``, ``comissoes`` e ``eventos_rh`` não mudam. Sem ela, a carga é a
+    de antes da meta, com o baseline congelado.
+    """
     periodo = _conferir_periodo(competencias, raiz)
     registros = {nome: ler_jsonl(raiz / f"{nome}.jsonl") for nome in TABELAS}
 
     recortados = {nome: _recortar(nome, registros[nome], periodo) for nome in TABELAS}
-    bases = {nome: _tabela(nome, recortados[nome]) for nome in TABELAS}
 
-    linhas_base = _linhas_apuracao_base(raiz, periodo, recortados["rh"])
+    if meta_venda is None:
+        bases = {nome: _tabela(nome, recortados[nome]) for nome in TABELAS}
+        linhas_base = _linhas_apuracao_base(raiz, periodo, recortados["rh"])
+    else:
+        # Só a tabela de vendas muda, com as vendas escaladas; as demais são as do arquivo.
+        vendas_escaladas, linhas_base = _escalar_ate_a_meta(raiz, periodo, recortados, meta_venda)
+        bases = {
+            nome: _tabela("vendas", vendas_escaladas)
+            if nome == "vendas"
+            else _tabela(nome, recortados[nome])
+            for nome in TABELAS
+        }
+
     apuracao_base = _tabela("apuracao_base", list(enumerate(linhas_base, start=1)))
     return Entrada(bases, apuracao_base, tuple(linhas_base))
+
+
+def _escalar_ate_a_meta(
+    raiz: Path,
+    periodo: tuple[str, ...],
+    recortados: Mapping[str, Sequence[tuple[int, Mapping[str, object]]]],
+    meta_venda: float,
+) -> tuple[list[tuple[int, Mapping[str, object]]], list[dict[str, object]]]:
+    """As vendas do período escaladas até a meta, com o número da linha no arquivo, e o
+    baseline reapurado sobre elas.
+
+    Roda antes de a regra ser carregada, então nada que ela faça alcança a escala nem a
+    reapuração. O que ela pode alcançar depois é o baseline que o harness guarda, e é por isso
+    que o worker reapura o mesmo baseline por conta própria e o confere (T-270).
+    """
+    vendas = recortados["vendas"]
+    try:
+        fator = fator_de_escala(meta_venda, total_de_vendas(venda for _, venda in vendas))
+        escaladas = escalar_vendas([venda for _, venda in vendas], fator)
+        linhas_base = reapurar_baseline(
+            [registro for _, registro in recortados["rh"]],
+            escaladas,
+            [registro for _, registro in recortados["comissoes"]],
+            [registro for _, registro in recortados["eventos_rh"]],
+            ler_jsonl(raiz / "regras_competencia.jsonl"),
+            periodo,
+        )
+    except (MetaVendaError, RegraBaseError, AssercaoVioladaError) as erro:
+        raise ReapuracaoError(f"o baseline na meta não pôde ser reapurado: {erro}") from erro
+    numeradas: list[tuple[int, Mapping[str, object]]] = [
+        (numero, escalada) for (numero, _), escalada in zip(vendas, escaladas, strict=True)
+    ]
+    return numeradas, linhas_base
 
 
 def _conferir_periodo(competencias: Sequence[str], raiz: Path) -> tuple[str, ...]:
