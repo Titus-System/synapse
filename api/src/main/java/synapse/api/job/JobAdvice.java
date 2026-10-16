@@ -40,6 +40,12 @@ class JobAdvice {
 		return ResponseEntity.status(ex.status()).body(ex.erro());
 	}
 
+	@ExceptionHandler(RenomearJobException.class)
+	ResponseEntity<ErroDto> tratar(RenomearJobException ex, HttpServletRequest request) {
+		exigirOperacao(request, ex, OperacaoJob.RENOMEAR);
+		return ResponseEntity.status(ex.status()).body(ex.erro());
+	}
+
 	@ExceptionHandler(ListarJobsException.class)
 	ResponseEntity<ErroDto> parametroInvalido(ListarJobsException ex, HttpServletRequest request) {
 		exigirOperacao(request, ex, OperacaoJob.LISTAR);
@@ -61,6 +67,8 @@ class JobAdvice {
 			case CONFIRMAR_PARAMETROS -> tratar(ConfirmarParametrosException.requisicao(mensagem), request);
 			case EXECUTAR_ACAO -> tratar(ExecutarAcaoException.requisicao(mensagem), request);
 			case REPROCESSAR -> tratar(ReprocessarJobException.requisicao(mensagem), request);
+			case RENOMEAR ->
+				tratar(RenomearJobException.requisicao(RenomearJobException.Motivo.NOME_AUSENTE, mensagem), request);
 			case LISTAR, CONSULTAR, ACOMPANHAR -> throw ex;
 		};
 	}
@@ -77,7 +85,7 @@ class JobAdvice {
 			case CRIAR, LISTAR -> throw ex;
 			// O erro do stream deve ser JSON mesmo com Accept: text/event-stream.
 			case ACOMPANHAR -> ResponseEntity.status(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_JSON);
-			case CONSULTAR, CONFIRMAR_PARAMETROS, EXECUTAR_ACAO, REPROCESSAR ->
+			case CONSULTAR, CONFIRMAR_PARAMETROS, EXECUTAR_ACAO, REPROCESSAR, RENOMEAR ->
 				ResponseEntity.status(HttpStatus.NOT_FOUND);
 		};
 		return resposta.body(new ErroDto("job_nao_encontrado", "Job não encontrado."));
@@ -94,7 +102,7 @@ class JobAdvice {
 	ResponseEntity<Void> falhaDePersistencia(DataAccessException ex, HttpServletRequest request) {
 		return switch (operacao(request, ex)) {
 			case CONSULTAR -> throw ex;
-			case CRIAR, LISTAR, ACOMPANHAR, CONFIRMAR_PARAMETROS, EXECUTAR_ACAO, REPROCESSAR ->
+			case CRIAR, LISTAR, ACOMPANHAR, CONFIRMAR_PARAMETROS, EXECUTAR_ACAO, REPROCESSAR, RENOMEAR ->
 				ResponseEntity.internalServerError().build();
 		};
 	}

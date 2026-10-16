@@ -48,14 +48,23 @@ record JobDetalhadoDto(UUID id, String status, String origem, List<String> compe
 		@Nullable BigDecimal meta_venda, Instant criado_em, @Nullable Instant iniciado_em,
 		@Nullable Instant finalizado_em, @Nullable UUID submissao_id, @Nullable UUID job_origem_id,
 		@Nullable String motivo, List<RegraCriadaDto> regras, @Nullable SimulacaoDto simulacao,
-		List<SimulacaoDto> simulacoes, @Nullable MetaSugeridaDto meta_sugerida) {
+		List<SimulacaoDto> simulacoes, @Nullable MetaSugeridaDto meta_sugerida, @Nullable String nome) {
+	JobDetalhadoDto(UUID id, String status, String origem, List<String> competencias, @Nullable BigDecimal orcamento,
+			@Nullable BigDecimal meta_venda, Instant criado_em, @Nullable Instant iniciado_em,
+			@Nullable Instant finalizado_em, @Nullable UUID submissao_id, @Nullable UUID job_origem_id,
+			@Nullable String motivo, List<RegraCriadaDto> regras, @Nullable SimulacaoDto simulacao,
+			List<SimulacaoDto> simulacoes, @Nullable MetaSugeridaDto meta_sugerida) {
+		this(id, status, origem, competencias, orcamento, meta_venda, criado_em, iniciado_em, finalizado_em,
+				submissao_id, job_origem_id, motivo, regras, simulacao, simulacoes, meta_sugerida, null);
+	}
+
 	JobDetalhadoDto(UUID id, String status, String origem, List<String> competencias, @Nullable BigDecimal orcamento,
 			@Nullable BigDecimal meta_venda, Instant criado_em, @Nullable Instant iniciado_em,
 			@Nullable Instant finalizado_em, @Nullable UUID submissao_id, @Nullable UUID job_origem_id,
 			@Nullable String motivo, List<RegraCriadaDto> regras, @Nullable SimulacaoDto simulacao,
 			List<SimulacaoDto> simulacoes) {
 		this(id, status, origem, competencias, orcamento, meta_venda, criado_em, iniciado_em, finalizado_em,
-				submissao_id, job_origem_id, motivo, regras, simulacao, simulacoes, null);
+				submissao_id, job_origem_id, motivo, regras, simulacao, simulacoes, null, null);
 	}
 }
 
@@ -78,7 +87,12 @@ record DetalhamentoSimulacaoDto(UUID simulacao_id, @JsonRawValue @Nullable Strin
 @JsonInclude(JsonInclude.Include.NON_NULL)
 record JobResumoDto(UUID id, String status, List<String> competencias, @Nullable BigDecimal orcamento,
 		@Nullable BigDecimal meta_venda, @Nullable String veredito, Instant criado_em, @Nullable Instant finalizado_em,
-		@Nullable UUID job_origem_id) {
+		@Nullable UUID job_origem_id, @Nullable String nome) {
+	JobResumoDto(UUID id, String status, List<String> competencias, @Nullable BigDecimal orcamento,
+			@Nullable BigDecimal meta_venda, @Nullable String veredito, Instant criado_em,
+			@Nullable Instant finalizado_em, @Nullable UUID job_origem_id) {
+		this(id, status, competencias, orcamento, meta_venda, veredito, criado_em, finalizado_em, job_origem_id, null);
+	}
 }
 
 /**
