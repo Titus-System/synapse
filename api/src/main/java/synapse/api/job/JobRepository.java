@@ -28,6 +28,35 @@ import synapse.api.job.VersoesDaRegra.VersaoRegra;
 @Repository
 class JobRepository {
 
+	/**
+	 * Texto inicial do job: o da própria submissão ou, no job reprocessado, o do primeiro
+	 * job da cadeia de origem que tem submissão. Exige o alias {@code j} para jobs.
+	 */
+	private static final String JUNCAO_TEXTO_INICIAL = """
+			LEFT JOIN LATERAL (
+				WITH RECURSIVE cadeia AS (
+					SELECT j.submissao_id, j.job_origem_id, 0 AS nivel
+					UNION ALL
+					SELECT o.submissao_id, o.job_origem_id, c.nivel + 1
+					FROM cadeia c
+					JOIN jobs o ON o.id = c.job_origem_id
+					WHERE c.submissao_id IS NULL
+				)
+				SELECT si.transcricao
+				FROM cadeia c
+				JOIN submissoes si ON si.id = c.submissao_id
+				ORDER BY c.nivel
+				LIMIT 1
+			) inicial ON true
+			""";
+
+	/** Nome resolvido: o definido pelo usuário, senão o padrão, senão NULL. */
+	private static final String NOME_RESOLVIDO = """
+			COALESCE(j.nome, NULLIF(left(
+				regexp_replace(btrim(inicial.transcricao, E' \\t\\r\\n'), '[ \\t\\r\\n]+', ' ', 'g'),
+				50), '')) AS nome
+			""";
+
 	private final JdbcTemplate jdbc;
 
 	private final JsonMapper json = JsonMapper.builder()
@@ -49,8 +78,10 @@ class JobRepository {
 	List<JobResumoDto> listarJobs(UUID usuarioId, int tamanho, long deslocamento) {
 		return this.jdbc.query("""
 				SELECT j.id, j.status, j.competencias, j.orcamento, j.meta_venda, j.criado_em, j.finalizado_em,
-				       j.job_origem_id, rs.veredito
+				       j.job_origem_id, rs.veredito,
+					   """ + NOME_RESOLVIDO + """
 				FROM jobs j
+				""" + JUNCAO_TEXTO_INICIAL + """
 				LEFT JOIN LATERAL (
 				    SELECT s.resultado_id FROM simulacoes s
 				    WHERE s.job_id = j.id
@@ -69,7 +100,7 @@ class JobRepository {
 				Objects.requireNonNull(linha.getString("status")), competencias(linha.getArray("competencias")),
 				linha.getBigDecimal("orcamento"), linha.getBigDecimal("meta_venda"), linha.getString("veredito"),
 				Objects.requireNonNull(instante(linha, "criado_em")), instante(linha, "finalizado_em"),
-				linha.getObject("job_origem_id", UUID.class));
+				linha.getObject("job_origem_id", UUID.class), linha.getString("nome"));
 	}
 
 	private static List<String> competencias(Array coluna) throws SQLException {
@@ -105,9 +136,11 @@ class JobRepository {
 				    j.submissao_id,
 				    j.job_origem_id,
 				    ultima.motivo AS motivo_da_trilha,
-				    regras.regras
+				    regras.regras,
+					""" + NOME_RESOLVIDO + """
 
 				FROM jobs j
+				""" + JUNCAO_TEXTO_INICIAL + """
 				LEFT JOIN submissoes s ON s.id = j.submissao_id
 				LEFT JOIN LATERAL (
 				    SELECT t.motivo
@@ -150,8 +183,10 @@ class JobRepository {
 
 			String regras = rs.getString("regras");
 
+			String nome = rs.getString("nome");
+
 			return new DadosConsulta(id, status, origem, competencias, orcamento, metaVenda, criadoEm, iniciadoEm,
-					finalizadoEm, submissaoId, jobOrigemId, motivo, regras);
+					finalizadoEm, submissaoId, jobOrigemId, motivo, regras, nome);
 		}, jobId);
 	}
 
@@ -366,6 +401,10 @@ class JobRepository {
 		this.jdbc.update("UPDATE jobs SET orcamento = ? WHERE id = ?", novo, jobId);
 	}
 
+	void atualizarNome(UUID jobId, String nome) {
+		this.jdbc.update("UPDATE jobs SET nome = ? WHERE id = ?", nome, jobId);
+	}
+
 	void atualizarCompetencias(UUID jobId, List<String> novas) {
 		this.jdbc.update("UPDATE jobs SET competencias = ? WHERE id = ?", new SqlArrayValue("text", novas.toArray()),
 				jobId);
@@ -391,12 +430,12 @@ class JobRepository {
 	}
 
 	UUID inserirJobReprocessado(String status, UUID usuarioId, UUID origemId, List<String> competencias,
-			@Nullable BigDecimal orcamento, Timestamp timestamp) {
+			@Nullable BigDecimal orcamento, @Nullable String nome, Timestamp timestamp) {
 		return Objects.requireNonNull(this.jdbc.queryForObject("""
-				INSERT INTO jobs (status, usuario_id, job_origem_id, competencias, orcamento, criado_em)
-				VALUES (?, ?, ?, ?, ?, ?) RETURNING id
+				INSERT INTO jobs (status, usuario_id, job_origem_id, competencias, orcamento, nome, criado_em)
+				VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
 				""", UUID.class, status, usuarioId, origemId, new SqlArrayValue("text", competencias.toArray()),
-				orcamento, timestamp));
+				orcamento, nome, timestamp));
 	}
 
 	/**
@@ -424,11 +463,12 @@ class JobRepository {
 
 	List<JobDeOrigem> buscarJobDeOrigem(UUID jobId) {
 		return this.jdbc.query("""
-				SELECT status, usuario_id, competencias, orcamento FROM jobs WHERE id = ?
+				SELECT status, usuario_id, competencias, orcamento, nome FROM jobs WHERE id = ?
 				""",
 				(rs, linha) -> new JobDeOrigem(JobStatus.deColuna(Objects.requireNonNull(rs.getString("status"))),
 						Objects.requireNonNull(rs.getObject("usuario_id", UUID.class)),
-						List.of((String[]) rs.getArray("competencias").getArray()), rs.getBigDecimal("orcamento")),
+						List.of((String[]) rs.getArray("competencias").getArray()), rs.getBigDecimal("orcamento"),
+						rs.getString("nome")),
 				jobId);
 	}
 
@@ -688,7 +728,7 @@ class JobRepository {
 	record DadosConsulta(UUID id, String status, String origem, List<String> competencias,
 			@Nullable BigDecimal orcamento, @Nullable BigDecimal metaVenda, Instant criadoEm,
 			@Nullable Instant iniciadoEm, @Nullable Instant finalizadoEm, @Nullable UUID submissaoId,
-			@Nullable UUID jobOrigemId, @Nullable String motivoDaTrilha, String regrasJson) {
+			@Nullable UUID jobOrigemId, @Nullable String motivoDaTrilha, String regrasJson, @Nullable String nome) {
 	}
 
 	record DadosDoJob(String origem, @Nullable BigDecimal orcamento, Instant criadoEm, @Nullable UUID submissaoId,
@@ -699,7 +739,8 @@ class JobRepository {
 			@Nullable String parametros) {
 	}
 
-	record JobDeOrigem(JobStatus status, UUID usuarioId, List<String> competencias, @Nullable BigDecimal orcamento) {
+	record JobDeOrigem(JobStatus status, UUID usuarioId, List<String> competencias, @Nullable BigDecimal orcamento,
+			@Nullable String nome) {
 	}
 
 	/**

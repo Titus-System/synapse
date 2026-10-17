@@ -1,5 +1,7 @@
 from prometheus_client import Histogram
 
+from app.nos.codigos_conflito import CodigoConflito
+
 from .prometheus import prometheus
 
 # Conta entregas processadas, inclusive continuação após falha transitória; não jobs únicos.
@@ -66,6 +68,14 @@ resultados_validacao_dominio = prometheus.register_counter(
 )
 for _resultado in ("liberada", "barrada"):
     resultados_validacao_dominio.labels(resultado=_resultado)
+# Um incremento por conflito de uma regra barrada, por execução do nó.
+conflitos_validacao_dominio = prometheus.register_counter(
+    "validacao_conflitos_total",
+    "Conflitos apontados pela validação de domínio por código",
+    ["codigo"],
+)
+for _codigo in CodigoConflito:
+    conflitos_validacao_dominio.labels(codigo=_codigo.value)
 
 # Conta as entregas da pausa à api. A tentativa que falha ao publicar entra também em
 # `job_failures_total`, e a reentrega conta outra execução.

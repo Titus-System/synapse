@@ -1,0 +1,21 @@
+{
+  "id": "janela-datas-black-friday",
+  "descricao": "Núcleo mais a janela real da Black Friday do cliente (novembro, +1% nas vendas de 24 a 30/11, sem gerentes), que também é o exemplo do contrato. Só novembro tem data de venda no dia, e o caso usa um mês só, novembro.",
+  "leitura": "A comissão de quem é dos cargos 100, 200 e 300 passa a ser 2,5% das vendas do mês (nucleo.percentual). Dentro desse recorte, as vendas com data_venda de 2025-11-24 a 2025-11-30, as duas datas inclusive, ganham mais 1 ponto percentual sobre o valor da venda (elem.1), somado ao percentual do núcleo; o efeito incide sobre a venda, e não sobre a comissão. Venda com data_venda nula só tem a referência mensal e não entra na janela, e a competência vem da coluna competencia, nunca de uma data. Neste dataset, data_ref repete data_venda nas vendas datadas, então um código que use data_ref no lugar de data_venda não é detectado por este caso.",
+  "representacao": {
+    "nucleo": {
+      "cargo": ["100", "200", "300"],
+      "percentual": 0.025
+    },
+    "especificacoes": [
+      {
+        "ref": "elem.1",
+        "construto": "janela_datas",
+        "data_inicial": "2025-11-24",
+        "data_final": "2025-11-30",
+        "efeito": { "tipo": "acrescimo_pct", "valor": 0.01 }
+      }
+    ]
+  },
+  "competencias": ["2025-11"]
+}

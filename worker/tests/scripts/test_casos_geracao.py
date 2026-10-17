@@ -32,7 +32,17 @@ from scripts.casos_geracao import (
 )
 
 RAIZ_MONOREPO = Path(__file__).resolve().parents[3]
-IDS = ["generico-admissao", "generico-aniversario-loja", "nucleo-controle"]
+IDS = [
+    "bonus-fixo-lista-e-filtro",
+    "combinado-elementos",
+    "condicao-limiar-loja",
+    "exclusao-gerente",
+    "faixa-valor-dezembro",
+    "generico-admissao",
+    "generico-aniversario-loja",
+    "janela-datas-black-friday",
+    "nucleo-controle",
+]
 
 
 def caso(caso_id: str) -> Caso:
@@ -42,7 +52,7 @@ def caso(caso_id: str) -> Caso:
 # ---- os casos versionados ----
 
 
-def test_os_tres_casos_carregam_com_a_representacao_valida() -> None:
+def test_os_casos_carregam_com_a_representacao_valida() -> None:
     assert [c.id for c in carregar_casos()] == IDS
 
 
@@ -86,6 +96,12 @@ def test_o_generico_impossivel_espera_a_falha_da_regra() -> None:
         ("generico-admissao", ["nucleo.percentual", "elem.1"]),
         ("generico-aniversario-loja", ["nucleo.percentual", "elem.1"]),
         ("nucleo-controle", ["nucleo.percentual"]),
+        ("exclusao-gerente", ["nucleo.percentual", "elem.1"]),
+        ("bonus-fixo-lista-e-filtro", ["nucleo.percentual", "elem.1", "elem.2"]),
+        ("janela-datas-black-friday", ["nucleo.percentual", "elem.1"]),
+        ("faixa-valor-dezembro", ["nucleo.percentual", "elem.1", "elem.2", "elem.3"]),
+        ("condicao-limiar-loja", ["nucleo.percentual", "elem.1"]),
+        ("combinado-elementos", ["nucleo.percentual", "elem.1", "elem.2", "elem.3"]),
     ],
 )
 def test_os_elementos_exigidos_sao_os_que_o_comando_levaria(
@@ -109,6 +125,57 @@ def test_o_caso_impossivel_usa_a_representacao_do_contrato() -> None:
     exemplo = RAIZ_MONOREPO / "contracts/examples/domain/representacao-regra-generico.json"
 
     assert caso("generico-aniversario-loja").representacao == json.loads(
+        exemplo.read_text(encoding="utf-8")
+    )
+
+
+@pytest.mark.parametrize(
+    ("caso_id", "construtos"),
+    [
+        ("exclusao-gerente", ["exclusao"]),
+        ("bonus-fixo-lista-e-filtro", ["bonus_fixo", "bonus_fixo"]),
+        ("janela-datas-black-friday", ["janela_datas"]),
+        ("faixa-valor-dezembro", ["faixa_valor", "faixa_valor", "faixa_valor"]),
+        ("condicao-limiar-loja", ["condicao_limiar"]),
+        ("combinado-elementos", ["faixa_valor", "janela_datas", "exclusao"]),
+    ],
+)
+def test_cada_caso_de_construto_tipado_traz_o_proprio_construto(
+    caso_id: str, construtos: list[str]
+) -> None:
+    especificacoes = caso(caso_id).representacao["especificacoes"]
+
+    assert [elemento["construto"] for elemento in especificacoes] == construtos
+
+
+@pytest.mark.parametrize(
+    ("caso_id", "com_contribuicao"),
+    [
+        ("exclusao-gerente", ["nucleo.percentual"]),
+        ("bonus-fixo-lista-e-filtro", ["elem.1", "elem.2", "nucleo.percentual"]),
+        ("janela-datas-black-friday", ["elem.1", "nucleo.percentual"]),
+        ("faixa-valor-dezembro", ["elem.1", "elem.2", "elem.3", "nucleo.percentual"]),
+        ("condicao-limiar-loja", ["nucleo.percentual"]),
+        ("combinado-elementos", ["elem.1", "elem.2", "nucleo.percentual"]),
+    ],
+)
+def test_so_os_elementos_que_geram_valor_tem_contribuicao_no_esperado(
+    caso_id: str, com_contribuicao: list[str]
+) -> None:
+    """Exclusão e condição de limiar não geram valor próprio: ficam só declaradas, e a
+    conferência de cobertura que o esperado passou prova a declaração. Cada elemento que gera
+    valor tem a própria chave na quebra, separada da do núcleo."""
+    esperado = ler_esperado(caso(caso_id))
+
+    assert esperado.elemento is not None
+    assert sorted(esperado.elemento) == com_contribuicao
+    assert all(valor != 0 for valor in esperado.elemento.values())
+
+
+def test_o_caso_combinado_usa_a_representacao_do_contrato() -> None:
+    exemplo = RAIZ_MONOREPO / "contracts/examples/domain/representacao-regra-elementos.json"
+
+    assert caso("combinado-elementos").representacao == json.loads(
         exemplo.read_text(encoding="utf-8")
     )
 
@@ -253,6 +320,12 @@ def comparar_um_centavo(caso_id: str, esperado: Medicao, medido: Medicao) -> Ava
         ("generico-admissao", Decimal("26.72")),
         ("nucleo-controle", Decimal("10.43")),
         ("generico-aniversario-loja", Decimal("5.46")),
+        ("exclusao-gerente", Decimal("5.37")),
+        ("bonus-fixo-lista-e-filtro", Decimal("10.34")),
+        ("janela-datas-black-friday", Decimal("5.46")),
+        ("faixa-valor-dezembro", Decimal("5.62")),
+        ("condicao-limiar-loja", Decimal("26.72")),
+        ("combinado-elementos", Decimal("26.72")),
     ],
 )
 def test_a_tolerancia_e_um_centavo_por_linha_do_periodo(caso_id: str, tolerancia: Decimal) -> None:

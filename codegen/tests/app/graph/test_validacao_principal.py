@@ -413,6 +413,7 @@ async def test_metricas_e_logs_dos_desfechos_no_caminho_real_sem_vazamento(
         "resultado": "barrada",
         "quantidade_conflitos": 1,
         "elementos": ["elem.1"],
+        "codigos": ["faixa_invertida"],
     }
     schema = simplejson.loads((CONTRATOS / "observability/log.schema.json").read_bytes())
     for log in logs:
