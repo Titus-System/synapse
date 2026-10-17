@@ -93,6 +93,9 @@ class Settings(BaseSettings):
             f"{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
+    # A API precisa distinguir candidatas antes de habilitar a busca (T-274).
+    BUSCA_META_ENABLED: bool = False
+
     # Graph / LLM
     GOOGLE_API_KEY: str | None = None
 

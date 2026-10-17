@@ -104,9 +104,10 @@ O payload do evento. Uma falha de publicação loga `evento_id`, `tipo_mensagem`
   nesta fase. Com mais de uma, cada uma agendaria o próprio poller e `SKIP LOCKED`
   continuaria correto — nenhuma publicaria a linha que a outra já travou — mas não é o
   cenário testado nem o que a arquitetura assume hoje.
-- `spring.task.scheduling.pool.size: 2`: o scheduler padrão tem uma thread só, e o
-  heartbeat SSE bloqueia enviando a um cliente lento, o que atrasaria o outbox se
-  dividissem a mesma thread.
+- `spring.task.scheduling.pool.size: 3`: o scheduler padrão tem uma thread só. O
+  heartbeat SSE bloqueia enviando a um cliente lento, e o processador de transcrição
+  espera o provedor por até a soma dos tempos limite do cliente; qualquer um dos dois
+  atrasaria o outbox se dividissem a mesma thread.
 
 ## Referências
 

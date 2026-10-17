@@ -1,4 +1,4 @@
-"""Read-only access to `regras`, for the graph's `load_rule` node.
+"""Read-only access to `regras`, for the graph's `load_rule` and `decision` nodes.
 
 Only `SELECT` here: the row is written once by the `api`, before `regra-submetida` is
 published (AGENTS.md - "a `api` é dona do estado do job... os demais serviços escrevem
@@ -7,6 +7,7 @@ table (migration `006-cria-regras.sql`, for a future reprocessing/adaptation flo
 nothing in this task's scope writes to it.
 """
 
+from dataclasses import dataclass
 from uuid import UUID
 
 import simplejson
@@ -25,11 +26,10 @@ class RegraInvalidaError(FalhaDoJobError):
     correlation ids, not artifact data. A redelivery does not make the rule valid, so this
     failure is permanent.
 
-    `load_rule` has no etapa of its own in the closed vocabulary: reading the rule is the
-    first step of the generation the job is already in (`gerando_regra`).
+    Reading the rule is the first step of domain validation.
     """
 
-    etapa = "geracao_codigo"
+    etapa = "validacao_dominio"
 
 
 def _como_objeto(valor: object) -> object:
@@ -72,14 +72,32 @@ async def buscar_regra(
         raise RegraInvalidaError("Rule failed RepresentacaoRegra's contract") from erro
 
 
-async def tem_sugestao(sessoes: async_sessionmaker[AsyncSession], job_id: UUID) -> bool:
-    """Uma única tentativa automática é permitida por job, mesmo após nova confirmação."""
+@dataclass(frozen=True, slots=True)
+class TentativasDeTaxa:
+    """As taxas novas que o job já tentou até a versão simulada, inclusive."""
+
+    feitas: int
+    regra_e_tentativa: bool
+
+
+async def contar_tentativas(
+    sessoes: async_sessionmaker[AsyncSession], job_id: UUID, regra_id: UUID
+) -> TentativasDeTaxa:
+    """Count the job's `sugestao_adaptacao` versions up to `regra_id`, and whether it is one.
+
+    O limite é por job, mesmo depois de uma nova confirmação. A conta para na versão simulada
+    porque a `api` pode já ter gravado a proposta seguinte quando um resultado é reentregue, e a
+    reentrega não pode virar mais uma tentativa.
+    """
+    consulta = text(
+        "SELECT r.origem = 'sugestao_adaptacao' AS regra_e_tentativa,"
+        " (SELECT count(*) FROM regras s WHERE s.job_id = r.job_id"
+        "  AND s.origem = 'sugestao_adaptacao' AND s.versao <= r.versao) AS feitas"
+        " FROM regras r WHERE r.id = :regra_id AND r.job_id = :job_id"
+    )
+    parametros = {"regra_id": str(regra_id), "job_id": str(job_id)}
     async with sessoes() as sessao:
-        resultado = await sessao.execute(
-            text(
-                "SELECT EXISTS (SELECT 1 FROM regras"
-                " WHERE job_id = :job_id AND origem = 'sugestao_adaptacao')"
-            ),
-            {"job_id": str(job_id)},
-        )
-        return bool(resultado.scalar_one())
+        resultado = await sessao.execute(consulta, parametros)
+        # A versão foi lida por `load_rule` neste ciclo, e `regras` só recebe INSERT.
+        linha = resultado.mappings().one()
+    return TentativasDeTaxa(int(linha["feitas"]), bool(linha["regra_e_tentativa"]))

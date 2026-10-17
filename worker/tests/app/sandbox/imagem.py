@@ -20,16 +20,17 @@ MODULOS_DA_IMAGEM = frozenset(
         "assercoes.py",
         "carga.py",
         "envelope.py",
+        "escalonamento.py",
         "executor.py",
         "harness.py",
         "regras_base.py",
+        "regras_competencia.py",
         "resultado.py",
     }
 )
 
-# daemon.py importa docker, app.config e app.core.logger; regras_competencia.py só serve
-# para recomputar baselines, e aqui o baseline é dado congelado.
-MODULOS_PROIBIDOS = frozenset({"daemon.py", "regras_competencia.py"})
+# daemon.py importa docker, app.config e app.core.logger.
+MODULOS_PROIBIDOS = frozenset({"daemon.py"})
 
 DADOS_DA_IMAGEM = frozenset(
     {
@@ -37,6 +38,8 @@ DADOS_DA_IMAGEM = frozenset(
         "vendas.jsonl",
         "comissoes.jsonl",
         "eventos_rh.jsonl",
+        # Insumo da reapuração do baseline na meta de venda (T-270).
+        "regras_competencia.jsonl",
         "schema.json",
         "baselines/manifesto.json",
         *(f"baselines/baseline-{competencia}.jsonl" for competencia in competencias_publicadas()),
@@ -47,9 +50,8 @@ DADOS_DA_IMAGEM = frozenset(
     }
 )
 
-# normalization_report.json é relatório da T-026, não é base; regras_competencia.jsonl é
-# insumo do recálculo, que o harness não faz.
-DADOS_PROIBIDOS = frozenset({"normalization_report.json", "regras_competencia.jsonl"})
+# normalization_report.json é relatório da T-026, não é base.
+DADOS_PROIBIDOS = frozenset({"normalization_report.json"})
 
 # Módulos que só podem usar a biblioteca padrão. O envelope, em particular, precisa disso
 # para o worker poder importá-lo sem tocar no caminho que executa código gerado.
@@ -59,7 +61,9 @@ MODULOS_SO_STDLIB = frozenset(
         "ajustes_competencia.py",
         "assercoes.py",
         "envelope.py",
+        "escalonamento.py",
         "regras_base.py",
+        "regras_competencia.py",
         "resultado.py",
     }
 )

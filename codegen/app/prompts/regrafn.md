@@ -13,15 +13,15 @@ def aplicar_regra(bases, apuracao_base, competencias): ...
 | `apuracao_base` | `pandas.DataFrame` | O baseline congelado das competências do período, concatenado. |
 | `competencias` | `list[str]` | As competências a processar, cada uma `AAAA-MM` (ex.: `["2025-09", "2025-10", "2025-11"]`), na ordem crescente em que chegaram no comando `executar-codigo`. |
 
-Retorno: `dict[str, pandas.DataFrame]` com duas chaves:
+Retorno: `dict` com três chaves, duas tabelas e uma lista:
 
 | Chave | Conteúdo |
 | --- | --- |
 | `apuracao_simulada` | Apuração por matrícula e por competência sob a regra proposta: `matricula`, `cod_loja`, `cod_marca`, `cod_cargo`, `competencia`, `comissao`. Mesmo formato de `apuracao_base`, com o mesmo conjunto de linhas (uma por matrícula elegível e por competência do período) - a regra ajusta `comissao` onde se aplica e mantém as demais linhas iguais ao baseline. |
 | `contribuicoes` | Contribuição por matrícula, por competência e por elemento da regra: as mesmas dimensões de `apuracao_simulada`, mais `elemento_ref` e `delta` (o quanto aquele elemento mudou a comissão daquela matrícula naquela competência). |
+| `elementos_implementados` | `list[str]` com o identificador de cada elemento da regra que o código implementa, tenha ele gerado contribuição ou não. |
 
-O harness agrega esse retorno por linha nas dimensões do domínio, inclusive por
-competência. A função gerada não devolve totais nem quebras já somadas.
+O harness agrega as duas tabelas por linha nas dimensões do domínio, inclusive por competência. A função gerada não devolve totais nem quebras já somadas. A lista de elementos implementados não entra na agregação: ela serve à conferência de cobertura.
 
 ## `RegraFn`: o contrato de entrada e saída
 
@@ -32,7 +32,7 @@ geração recebe sobre o formato esperado.
 ```python
 type RegraFn = Callable[
     [dict[str, pandas.DataFrame], pandas.DataFrame, list[str]],
-    dict[str, pandas.DataFrame],
+    dict[str, pandas.DataFrame | list[str]],
 ]
 ```
 
@@ -75,9 +75,7 @@ a `competencia` de cada linha com o que a regra propõe (ex.: `if competencia ==
 
 ### O que a função devolve
 
-Um `dict` com exatamente as duas chaves descritas na tabela da seção "A assinatura":
-`apuracao_simulada` e `contribuicoes`. Nenhuma chave extra é lida pelo harness; nenhuma
-das duas pode faltar.
+Um `dict` com exatamente as três chaves descritas na tabela da seção "A assinatura": `apuracao_simulada`, `contribuicoes` e `elementos_implementados`. Nenhuma chave extra é lida pelo harness; nenhuma das três pode faltar.
 
 **`apuracao_simulada`** - mesmo formato de `apuracao_base` (mesmas colunas e tipos).
 Precisa ter **o mesmo conjunto de linhas** de `apuracao_base` (mesma `matricula` +
@@ -98,6 +96,8 @@ mesma matrícula na mesma competência (ex.: um acréscimo percentual e uma excl
 concorrendo), cada elemento entra com sua própria linha e seu próprio `delta` - a soma
 das linhas daquela matrícula/competência em `contribuicoes` bate com a diferença total
 dela entre `apuracao_simulada` e `apuracao_base`.
+
+**`elementos_implementados`** - `list[str]` com o identificador de cada elemento da regra que o código implementa (seção "Como o código declara o elemento que implementa"). Entra todo elemento implementado, tenha ou não gerado contribuição no período. Todo `elemento_ref` que aparece em `contribuicoes` também está nesta lista.
 
 ### O que "pura" significa aqui
 
@@ -122,7 +122,7 @@ A função pode levantar qualquer exceção Python (ex.: `KeyError` por coluna a
 `ZeroDivisionError`). O harness não a captura silenciosamente: uma exceção não tratada
 propaga e o worker classifica a execução como `erro_codigo` - o job para, não
 devolve número parcial. O mesmo vale para um retorno que não seja um `dict` com as
-duas chaves esperadas, ou cujos DataFrames não tenham as colunas exigidas: o validador de saída rejeita antes de o resultado ser aceito, e essa rejeição
+duas tabelas esperadas, ou cujos DataFrames não tenham as colunas exigidas: o validador de saída rejeita antes de o resultado ser aceito, e essa rejeição
 também vira `erro_codigo`. Não existe "resultado parcial aceito".
 
 ### Exemplo mínimo, com duas competências
@@ -155,14 +155,14 @@ def aplicar_regra(bases, apuracao_base, competencias):
     contribuicoes["delta"] = delta.to_numpy()
     contribuicoes = contribuicoes[contribuicoes["delta"] != 0.0].reset_index(drop=True)
 
-    return {"apuracao_simulada": simulada.reset_index(drop=True), "contribuicoes": contribuicoes}
+    return {
+        "apuracao_simulada": simulada.reset_index(drop=True),
+        "contribuicoes": contribuicoes,
+        "elementos_implementados": ["elem.1"],
+    }
 ```
 
-Chamado com `competencias=["2025-09", "2025-10", "2025-11"]`, esse exemplo (acréscimo
-de 1% em novembro na marca 10) devolve `apuracao_simulada` com linhas para os três
-meses, mas só altera `comissao` nas linhas de novembro/marca 10; `contribuicoes` só
-tem linhas de novembro. Setembro e outubro aparecem em `decomposicao.competencia` com
-valor zero - simulados e sem efeito, não ausentes (ver `resultado-decomposicao.schema.json`).
+Chamado com `competencias=["2025-09", "2025-10", "2025-11"]`, esse exemplo (acréscimo de 1% em novembro na marca 10) devolve `apuracao_simulada` com linhas para os três meses, mas só altera `comissao` nas linhas de novembro/marca 10; `contribuicoes` só tem linhas de novembro. Setembro e outubro aparecem em `decomposicao.competencia` com valor zero - simulados e sem efeito, não ausentes (ver `resultado-decomposicao.schema.json`). `elementos_implementados` traz `elem.1`, e traria do mesmo jeito se nenhuma venda da marca 10 tivesse ocorrido em novembro e `contribuicoes` saísse vazia.
 
 ## Regras da entrada
 
@@ -202,10 +202,24 @@ Cada parte da regra tem um identificador estável no espaço único de
 `comum.schema.json#/$defs/elemento_ref`: campo do núcleo é `nucleo.<campo>` (ex.:
 `nucleo.percentual`), item de `especificacoes` é `elem.<n>` (ex.: `elem.1`).
 
-O código gerado declara o que cada trecho implementa preenchendo `elemento_ref` em
-`contribuicoes`, e esses mesmos identificadores viram as chaves de
-`decomposicao.elemento`. É essa correspondência que permite conferir a cobertura: elemento da representação sem chave na decomposição é erro de geração, e o
-job falha em vez de devolver um número que parece completo.
+O código gerado declara os elementos que implementa na lista `elementos_implementados` do retorno, e atribui cada contribuição ao elemento que a produziu preenchendo `elemento_ref` em `contribuicoes`. Os identificadores de `contribuicoes` viram as chaves de `decomposicao.elemento`.
+
+A decomposição sozinha não diz o que foi implementado, porque só tem chave para os elementos que geraram contribuição. Uma exclusão retira pessoas do alcance da regra e não gera valor próprio. Uma condição de limiar decide se o efeito vale e também não gera valor próprio. Um elemento cuja condição não ocorre nas competências processadas não gera nenhuma linha. Nos três casos o elemento está implementado, não aparece em `contribuicoes` e é declarado em `elementos_implementados`:
+
+```python
+    return {
+        "apuracao_simulada": simulada.reset_index(drop=True),
+        "contribuicoes": contribuicoes,
+        # elem.1 é uma exclusão: não tem linha em contribuicoes, mas está implementado.
+        "elementos_implementados": ["nucleo.percentual", "elem.1"],
+    }
+```
+
+Os elementos que a regra exige são `nucleo.percentual`, quando o núcleo tem percentual, e o `ref` de cada item de `especificacoes`. Toda contribuição é atribuída a um deles. Os demais campos do núcleo (`vigencia`, `loja`, `marca`, `cargo`) recortam o alcance da regra, não geram contribuição própria e não são declarados à parte.
+
+A execução falha como `erro_codigo` quando um elemento exigido não está em `elementos_implementados`, ou quando `contribuicoes` atribui valor a um elemento que a regra não exige. Elemento esquecido ou inventado é erro de geração, e o job para em vez de devolver um número que parece completo. Declare só o que o código implementa: a lista não substitui a implementação.
+
+Um elemento que não pode ser implementado com as bases recebidas não é declarado. A função levanta uma exceção que nomeia o elemento e o motivo, por exemplo `raise NotImplementedError("elem.2: as bases não têm a data de aniversário da loja")`, e o job para. Declarar um elemento que o código não implementa, por exemplo com um efeito fixo em zero no lugar da lógica dele, é o pior erro possível, porque produz um número que parece completo sem a parte da regra que faltou.
 
 ## Bibliotecas permitidas no sandbox
 

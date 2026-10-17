@@ -15,9 +15,12 @@ def saida_para(
 ) -> SaidaBruta:
     """O que o container devolveria para este payload: o envelope leva os ids e as
     competências dele, senão a classificação o trataria como de outra execução, e o resultado de
-    sucesso parte do baseline congelado dessas competências, senão o julgamento o reprovaria."""
+    sucesso parte do baseline que o worker confere para essas competências (o congelado, ou o
+    reapurado na meta do payload), senão o julgamento o reprovaria."""
     if status == "sucesso":
-        mudancas.setdefault("resultado", resultado_para(payload.competencias))
+        mudancas.setdefault(
+            "resultado", resultado_para(payload.competencias, meta_venda=payload.meta_venda)
+        )
     dados = envelope(
         status,
         job_id=str(payload.job_id),

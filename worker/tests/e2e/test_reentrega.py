@@ -6,11 +6,13 @@ depois de o worker cair sem ter confirmado nada. Nos dois casos o job termina co
 """
 
 import json
+import signal
 
 import pytest
 
 from tests.e2e import regras
 from tests.e2e.apoio import FILA_COMANDO, Ambiente, esperar_ate
+from tests.e2e.test_processo import ENCERRAMENTO_LIMPO
 
 pytestmark = pytest.mark.e2e
 
@@ -42,6 +44,41 @@ async def test_comando_duplicado_nao_duplica_a_linha_nem_executa_de_novo(
     )
     assert (await corretor.esperar_comando_concluido()).vazia
     assert ambiente.conteineres_do_job(semente["job_id"]) == []
+
+
+async def test_o_diagnostico_sobrevive_ao_worker_e_a_reentrega_nao_o_troca(
+    ambiente: Ambiente,
+) -> None:
+    """O diagnóstico é artefato no Postgres, e não estado do processo: um worker novo encontra a
+    linha que o anterior gravou, republica o mesmo evento e não executa a regra de novo."""
+    corretor = ambiente.corretor
+    primeiro = await ambiente.iniciar_worker()
+    semente = await ambiente.semear(regras.LEVANTA_COM_SEGREDOS)
+    job_id = semente["job_id"]
+    await corretor.publicar_comando(semente, 485000.0)
+    evento = await corretor.evento(corretor.api)
+    await corretor.evento(corretor.codegen)
+    assert (await corretor.esperar_comando_concluido()).vazia
+    (gravada,) = await ambiente.linhas(job_id)
+
+    primeiro.sinalizar(signal.SIGTERM)
+    assert await primeiro.aguardar_saida(prazo=30) in ENCERRAMENTO_LIMPO, primeiro.cauda()
+    segundo = await ambiente.iniciar_worker()
+    await corretor.publicar_comando(semente, 485000.0)  # a entrega duplicada, para outro processo
+
+    assert await corretor.evento(corretor.api) == evento
+    await corretor.evento(corretor.codegen)
+    (linha,) = await ambiente.linhas(job_id)
+    assert linha["id"] == gravada["id"]
+    assert linha["diagnostico"] == gravada["diagnostico"]
+    diagnostico = json.loads(linha["diagnostico"])
+    assert diagnostico["causa"] == "excecao"
+    assert diagnostico["falha"]["mensagem"] == "SEGREDO-NA-MENSAGEM"
+    assert segundo.mensagens("execução no sandbox concluída") == [], "executou de novo"
+    assert segundo.mensagens("resultado gravado") == []
+    assert "SEGREDO-NA-MENSAGEM" not in primeiro.texto_do_log() + segundo.texto_do_log()
+    assert (await corretor.esperar_comando_concluido()).vazia
+    assert ambiente.conteineres_do_job(job_id) == []
 
 
 async def test_worker_morto_no_meio_da_execucao_nao_perde_o_comando(ambiente: Ambiente) -> None:
@@ -80,3 +117,34 @@ async def test_worker_morto_no_meio_da_execucao_nao_perde_o_comando(ambiente: Am
     assert set(ambiente.conteineres_do_job(job_id)) <= orfaos
     assert corretor.contagens()["executar-codigo.dlq"].prontas == 0
     assert json.loads(json.dumps(evento))["status"] == "sucesso"
+
+
+async def test_o_mesmo_codigo_em_duas_metas_vira_duas_linhas_e_a_reentrega_de_uma_republica(
+    ambiente: Ambiente,
+) -> None:
+    """A busca da meta maior roda o mesmo código em várias metas (T-273): cada candidata é uma
+    execução, com a própria linha, e a reentrega de uma republica a dela, sem executar (T-270)."""
+    worker = await ambiente.iniciar_worker()
+    semente = await ambiente.semear(regras.SUCESSO)
+    corretor = ambiente.corretor
+    metas = (regras.META_2025_11, 16000000.0)
+    eventos = []
+    for meta in metas:
+        await corretor.publicar_comando(semente, 600000.0, meta_venda=meta, proposito="busca_meta")
+        eventos.append(await corretor.evento(corretor.api))
+        await corretor.evento(corretor.codegen)
+
+    await corretor.publicar_comando(
+        semente, 600000.0, meta_venda=metas[0], proposito="busca_meta"
+    )  # a entrega duplicada da primeira candidata
+    republicado = await corretor.evento(corretor.api)
+    await corretor.evento(corretor.codegen)
+
+    linhas = await ambiente.linhas(semente["job_id"])
+    assert [float(linha["meta_venda"]) for linha in linhas] == list(metas)
+    assert [evento["meta_venda"] for evento in eventos] == list(metas)
+    assert [evento["resultado_id"] for evento in eventos] == [str(linha["id"]) for linha in linhas]
+    assert republicado == eventos[0]
+    assert len(worker.mensagens("execução no sandbox concluída")) == 2
+    assert (await corretor.esperar_comando_concluido()).vazia
+    assert ambiente.conteineres_do_job(semente["job_id"]) == []

@@ -37,7 +37,17 @@ public class SegurancaKeycloakConfig {
 						HttpServletResponse.SC_UNAUTHORIZED, "nao_autenticado", "Sessão ausente ou expirada."))
 				.accessDeniedHandler((requisicao, resposta, excecao) -> escreverErro(resposta,
 						HttpServletResponse.SC_FORBIDDEN, "sem_permissao", "Você não tem permissão para esta ação.")))
-			.oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
+			.oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults())
+				.authenticationEntryPoint((requisicao, resposta, excecao) -> {
+					if ("/submissoes".equals(requisicao.getServletPath())) {
+						escreverErro(resposta, HttpServletResponse.SC_UNAUTHORIZED, "nao_autenticado",
+								"Sessão ausente ou expirada.");
+					}
+					else {
+						new org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint()
+							.commence(requisicao, resposta, excecao);
+					}
+				}))
 			.build();
 	}
 

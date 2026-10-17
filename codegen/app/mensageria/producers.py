@@ -5,13 +5,22 @@ from aio_pika.abc import AbstractChannel
 from app.contratos.mensagens import (
     EtapaAlterada,
     ExecutarCodigo,
+    MetaVendaSugerida,
     NoConcluido,
+    RegraExtraida,
     SugestaoAdaptacaoProposta,
 )
 from app.contratos.serializacao import serializar
 from app.contratos.validacao import validar
 
-type Saida = ExecutarCodigo | EtapaAlterada | NoConcluido | SugestaoAdaptacaoProposta
+type Saida = (
+    ExecutarCodigo
+    | EtapaAlterada
+    | NoConcluido
+    | SugestaoAdaptacaoProposta
+    | RegraExtraida
+    | MetaVendaSugerida
+)
 
 
 class ProdutorError(Exception):
@@ -45,6 +54,9 @@ class Producers:
     async def executar_codigo(self, dto: ExecutarCodigo) -> None:
         await self._publicar(dto, "executar-codigo")
 
+    async def regra_extraida(self, dto: RegraExtraida) -> None:
+        await self._publicar(dto, "regra-extraida")
+
     async def etapa_alterada(self, dto: EtapaAlterada) -> None:
         await self._publicar(dto, "etapa-alterada")
 
@@ -53,3 +65,6 @@ class Producers:
 
     async def sugestao_adaptacao_proposta(self, dto: SugestaoAdaptacaoProposta) -> None:
         await self._publicar(dto, "sugestao-adaptacao-proposta")
+
+    async def meta_venda_sugerida(self, dto: MetaVendaSugerida) -> None:
+        await self._publicar(dto, "meta-venda-sugerida")

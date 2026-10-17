@@ -1,0 +1,37 @@
+{
+  "id": "combinado-elementos",
+  "descricao": "Regra combinada do exemplo do contrato (contracts/examples/domain/representacao-regra-elementos.json, sem alteração): núcleo com vigência de novembro, uma faixa, uma janela e uma exclusão. O período é o padrão, as cinco competências, para a vigência separar novembro dos outros meses.",
+  "leitura": "Só em novembro, que é a vigência, a comissão de quem é das lojas 13 e 58, da marca 10 e do cargo 100 passa a ser 2% das vendas do mês (nucleo.percentual); nos outros meses, e fora desse recorte, ela fica igual à do baseline. Dentro do recorte, quem tem o total mensal de vendas entre 40.000 e 50.000, os dois inclusive, ganha um bônus fixo de R$ 3.500 (elem.1), e as vendas com data_venda de 2025-11-24 a 2025-11-30, inclusive, ganham mais 1 ponto percentual sobre o valor delas (elem.2); cada efeito fica no próprio elemento e se soma ao percentual do núcleo. A exclusão do cargo 150 (elem.3) é declarada sem contribuição. Como o núcleo já se restringe ao cargo 100, ela não tira ninguém do alcance neste caso; o efeito dela é provado em exclusao-gerente.",
+  "representacao": {
+    "nucleo": {
+      "vigencia": { "inicio": "2025-11", "fim": "2025-11" },
+      "loja": ["13", "58"],
+      "marca": ["10"],
+      "cargo": ["100"],
+      "percentual": 0.02
+    },
+    "especificacoes": [
+      {
+        "ref": "elem.1",
+        "construto": "faixa_valor",
+        "limite_inferior": 40000,
+        "limite_superior": 50000,
+        "efeito": { "tipo": "bonus_fixo", "valor": 3500 }
+      },
+      {
+        "ref": "elem.2",
+        "construto": "janela_datas",
+        "data_inicial": "2025-11-24",
+        "data_final": "2025-11-30",
+        "efeito": { "tipo": "acrescimo_pct", "valor": 0.01 }
+      },
+      {
+        "ref": "elem.3",
+        "construto": "exclusao",
+        "dimensao": "cargo",
+        "valores": ["150"]
+      }
+    ]
+  },
+  "competencias": ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
+}

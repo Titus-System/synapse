@@ -3,10 +3,13 @@ export type CodigoErro =
   | 'nao_autenticado'
   | 'sem_permissao'
   | 'job_nao_encontrado'
+  | 'simulacao_nao_encontrada'
   | 'estado_invalido'
   | 'simulacao_inviavel'
   | 'nucleo_incompleto'
   | 'regra_incoerente'
+  | 'audio_invalido'
+  | 'audio_muito_grande'
 
 export interface ElementoErro {
   ref: string
@@ -31,8 +34,8 @@ export type StatusJob =
   | 'arquivado'
   | 'erro'
 
-export type OrigemJob = 'formulario' | 'voz' | 'reprocessamento'
-export type AcaoJob = 'confirmar_liberar' | 'cancelar' | 'salvar' | 'arquivar'
+export type OrigemJob = 'formulario' | 'voz' | 'reprocessamento' | 'texto'
+export type AcaoJob = 'confirmar_liberar' | 'cancelar' | 'salvar' | 'arquivar' | 'aceitar_meta'
 export type Veredito = 'viavel' | 'inviavel' | 'indeterminado'
 export type StatusResultado = 'sucesso' | 'assercao_violada' | 'erro_codigo' | 'erro_infra'
 
@@ -86,6 +89,10 @@ export interface ConfirmarParametrosRequisicao {
   competencias?: string[]
 }
 
+export interface RenomearJobRequisicao {
+  nome: string
+}
+
 export interface ExecutarAcaoRequisicao {
   acao: AcaoJob
 }
@@ -100,7 +107,8 @@ export interface TotaisSimulacao {
   simulado: number
   diferenca_abs: number
   diferenca_pct: number
-  orcamento: number
+  orcamento?: number
+  vendas_historicas?: number
 }
 
 export interface ResultadoAssercao {
@@ -115,10 +123,27 @@ export interface ResultadoSimulacao {
   decomposicao: Record<string, Record<string, number>> | null
 }
 
+export interface LinhaResultadoSimulacao {
+  cod_loja: string
+  cod_marca: string
+  cod_cargo: string
+  comissao_baseline: number
+  comissao_simulada: number
+  diferenca: number
+  contribuicoes: Record<string, number>
+}
+
+export type ResultadoLinhas = Record<string, Record<string, LinhaResultadoSimulacao>>
+
+export interface DetalhamentoSimulacao {
+  simulacao_id: string
+  linhas?: ResultadoLinhas
+}
+
 export interface RegraVersionada {
   id: string
   versao: number
-  origem: 'confirmacao_usuario' | 'sugestao_adaptacao' | 'reprocessamento'
+  origem: 'confirmacao_usuario' | 'sugestao_adaptacao' | 'reprocessamento' | 'extracao' | 'correcao'
   representacao: RepresentacaoRegra
   criada_em: string
 }
@@ -130,15 +155,29 @@ export interface Simulacao {
   status: StatusResultado | null
   flag_baixa_rastreabilidade: boolean
   veredito?: Veredito | null
+  meta_venda?: number
   resultado?: ResultadoSimulacao | null
 }
+
+export type MotivoMetaSemSolucao = 'nao_monotonica' | 'intervalo_esgotado' | 'falha_execucao'
+
+export interface MetaEncontrada {
+  meta_venda: number
+  total_simulado: number
+  orcamento: number
+}
+
+export interface MetaSemSolucao {
+  sem_solucao: { motivo: MotivoMetaSemSolucao }
+}
+
+export type MetaSugerida = MetaEncontrada | MetaSemSolucao
 
 interface JobBase {
   id: string
   status: StatusJob
   origem: OrigemJob
   competencias: string[]
-  orcamento: number
   criado_em: string
   iniciado_em?: string | null
   finalizado_em?: string | null
@@ -148,20 +187,25 @@ interface JobBase {
 }
 
 export interface JobCriado extends JobBase {
+  orcamento: number
   regra: RegraVersionada
 }
 
 export interface Job extends JobBase {
+  orcamento?: number
+  meta_venda?: number
   regras: RegraVersionada[]
   simulacao?: Simulacao | null
   simulacoes?: Simulacao[]
+  meta_sugerida?: MetaSugerida
 }
 
 export interface JobResumo {
   id: string
   status: StatusJob
   competencias: string[]
-  orcamento: number
+  orcamento?: number
+  meta_venda?: number
   criado_em: string
   veredito?: Veredito
   finalizado_em?: string
@@ -180,10 +224,16 @@ export interface ListarJobsParametros {
   tamanho?: number
 }
 
+export interface Conflito {
+  elementos: string[]
+  motivo: string
+}
+
 export interface EventoEtapa {
   job_id: string
   etapa: string
   status: string
+  conflitos?: Conflito[]
 }
 
 export interface EventoEstado {

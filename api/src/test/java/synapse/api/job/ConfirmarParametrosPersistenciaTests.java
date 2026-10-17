@@ -3,6 +3,7 @@ package synapse.api.job;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -17,6 +18,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
@@ -29,16 +32,23 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
+import synapse.api.core.logging.CorrelationContext;
 import synapse.api.core.outbox.Outbox;
+import synapse.api.core.sse.EmissoresSse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 @EnabledIf("dockerIsAvailable")
 class ConfirmarParametrosPersistenciaTests {
 
 	private static final UUID USUARIO = CriarJobControllerTests.USUARIO;
+
+	private static final JsonMapper JSON = new JsonMapper();
 
 	private static PostgreSQLContainer postgres;
 
@@ -46,9 +56,7 @@ class ConfirmarParametrosPersistenciaTests {
 
 	private static JdbcTemplate jdbc;
 
-	private static CriarJobService criarService;
-
-	private static ConfirmarParametrosService confirmarService;
+	private static JobService service;
 
 	static boolean dockerIsAvailable() {
 		return DockerClientFactory.instance().isDockerAvailable();
@@ -80,10 +88,10 @@ class ConfirmarParametrosPersistenciaTests {
 		contexto.registerBean(DataSource.class, () -> dataSource);
 		contexto.registerBean(JdbcTemplate.class, () -> jdbc);
 		contexto.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
+		contexto.registerBean(EmissoresSse.class, () -> mock(EmissoresSse.class));
 		contexto.register(Config.class);
 		contexto.refresh();
-		criarService = contexto.getBean(CriarJobService.class);
-		confirmarService = contexto.getBean(ConfirmarParametrosService.class);
+		service = contexto.getBean(JobService.class);
 	}
 
 	@AfterAll
@@ -98,8 +106,8 @@ class ConfirmarParametrosPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ CriarJobService.class, ConfirmarParametrosService.class, MaquinaDeEstadosDoJob.class, Outbox.class,
-			VersoesDaRegra.class })
+	@Import({ JobRepository.class, JobService.class, MaquinaDeEstadosDoJob.class, Outbox.class, VersoesDaRegra.class,
+			CorrelationContext.class })
 	static class Config {
 
 	}
@@ -146,6 +154,66 @@ class ConfirmarParametrosPersistenciaTests {
 			.contains("nucleo.percentual");
 	}
 
+	/**
+	 * Uma versão anterior com parâmetros - o caso de um job de texto reprocessado, cujo
+	 * row 1 chega com {@code parametros} e um hash que os cobre - não pode parecer
+	 * editada quando o usuário confirma a mesma representação. Sem carregar os parâmetros
+	 * anteriores para o cálculo do hash novo, ele nunca bateria com o hash salvo, e toda
+	 * confirmação sem edição criaria uma versão espúria com a trilha dizendo que houve
+	 * correção.
+	 */
+	@Test
+	void confirmarSemEdicaoNaoCriaVersaoQuandoAAnteriorTemParametros() {
+		UUID jobId = criarJob();
+		RepresentacaoRegraDto repr = CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO).representacao();
+		ParametrosDaSimulacao params = new ParametrosDaSimulacao(new BigDecimal("500000"), null,
+				List.of("2025-09", "2025-10"));
+		String hashComParametros = HashDaRegra.calcular(repr, params);
+		comoDono().update("UPDATE regras SET hash = ?, parametros = ?::jsonb WHERE job_id = ? AND versao = 1",
+				hashComParametros, "{\"orcamento\":500000,\"competencias\":[\"2025-09\",\"2025-10\"]}", jobId);
+
+		JobCriadoDto confirmado = confirmar(jobId, corpo("0.025"));
+
+		assertThat(confirmado.regra().versao()).isEqualTo(1);
+		assertThat(versoes(jobId)).isEqualTo(1);
+		assertThat(parametros(jobId, 1))
+			.isEqualTo(JSON.readTree("{\"orcamento\":500000,\"competencias\":[\"2025-09\",\"2025-10\"]}"));
+		assertThat(
+				jdbc.queryForObject("SELECT conclusao->>'editado_pelo_usuario' FROM trilhas_auditoria WHERE job_id = ?",
+						String.class, jobId))
+			.isEqualTo("false");
+	}
+
+	/**
+	 * A mesma versão anterior com parâmetros, agora editada: a versão nova carrega os
+	 * parâmetros da anterior inalterados (T-217 ainda não existe para mudá-los por aqui),
+	 * e o hash os cobre, consistente com a coluna.
+	 */
+	@Test
+	void confirmarComEdicaoCarregaOsParametrosDaVersaoAnteriorParaANova() {
+		UUID jobId = criarJob();
+		RepresentacaoRegraDto repr = CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO).representacao();
+		ParametrosDaSimulacao params = new ParametrosDaSimulacao(new BigDecimal("500000"), null,
+				List.of("2025-09", "2025-10"));
+		comoDono().update("UPDATE regras SET hash = ?, parametros = ?::jsonb WHERE job_id = ? AND versao = 1",
+				HashDaRegra.calcular(repr, params), "{\"orcamento\":500000,\"competencias\":[\"2025-09\",\"2025-10\"]}",
+				jobId);
+
+		JobCriadoDto confirmado = confirmar(jobId, corpo("0.03"));
+
+		assertThat(confirmado.regra().versao()).isEqualTo(2);
+		assertThat(parametros(jobId, 2))
+			.isEqualTo(JSON.readTree("{\"orcamento\":500000,\"competencias\":[\"2025-09\",\"2025-10\"]}"));
+		assertThat(jdbc.queryForObject("SELECT hash FROM regras WHERE job_id = ? AND versao = 2", String.class, jobId))
+			.isEqualTo(
+					HashDaRegra.calcular(ConfirmarParametrosRequisicao.deJson(corpo("0.03")).representacao(), params));
+	}
+
+	private static JdbcTemplate comoDono() {
+		return new JdbcTemplate(
+				new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword()));
+	}
+
 	@Test
 	void confirmarSemEdicaoNaoCriaNovaVersao() {
 		UUID jobId = criarJob();
@@ -175,10 +243,12 @@ class ConfirmarParametrosPersistenciaTests {
 		assertThat(percentual(jobId, 3)).isEqualTo("0.04");
 	}
 
-	@Test
-	void confirmarEmEstadoInvalidoERecusadoSemEfeito() {
+	@ParameterizedTest
+	@ValueSource(strings = { "gerando_regra", "simulando" })
+	void confirmarEmEstadoInvalidoERecusadoSemEfeito(String estado) {
 		UUID jobId = criarJob();
 		confirmar(jobId, corpo("0.03"));
+		jdbc.update("UPDATE jobs SET status = ? WHERE id = ?", estado, jobId);
 
 		int versoesAntes = versoes(jobId);
 		Integer outboxAntes = jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE job_id = ?", Integer.class,
@@ -190,8 +260,7 @@ class ConfirmarParametrosPersistenciaTests {
 		assertThat(versoes(jobId)).isEqualTo(versoesAntes);
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE job_id = ?", Integer.class, jobId))
 			.isEqualTo(outboxAntes);
-		assertThat(jdbc.queryForObject("SELECT status FROM jobs WHERE id = ?", String.class, jobId))
-			.isEqualTo("gerando_regra");
+		assertThat(jdbc.queryForObject("SELECT status FROM jobs WHERE id = ?", String.class, jobId)).isEqualTo(estado);
 	}
 
 	@Test
@@ -228,13 +297,13 @@ class ConfirmarParametrosPersistenciaTests {
 	// Submissão de formulário não passa mais por aguardando_confirmacao_parametros;
 	// voltarParaConfirmacao simula o estado de uma origem que ainda precisa dela.
 	private static UUID criarJob() {
-		UUID jobId = criarService.criar(CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO)).id();
+		UUID jobId = service.criar(CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO)).id();
 		voltarParaConfirmacao(jobId);
 		return jobId;
 	}
 
 	private static JobCriadoDto confirmar(UUID jobId, String corpo) {
-		return confirmarService.confirmar(jobId, ConfirmarParametrosRequisicao.deJson(corpo));
+		return service.confirmar(jobId, ConfirmarParametrosRequisicao.deJson(corpo));
 	}
 
 	private static String corpo(String percentual) {
@@ -253,6 +322,12 @@ class ConfirmarParametrosPersistenciaTests {
 		return Objects.requireNonNull(
 				jdbc.queryForObject("SELECT nucleo->>'percentual' FROM regras WHERE job_id = ? AND versao = ?",
 						String.class, jobId, versao));
+	}
+
+	/** Comparado como árvore, nunca como texto: jsonb não preserva a ordem das chaves. */
+	private static JsonNode parametros(UUID jobId, int versao) {
+		return JSON.readTree(Objects.requireNonNull(jdbc.queryForObject(
+				"SELECT parametros::text FROM regras WHERE job_id = ? AND versao = ?", String.class, jobId, versao)));
 	}
 
 	private static void voltarParaConfirmacao(UUID jobId) {

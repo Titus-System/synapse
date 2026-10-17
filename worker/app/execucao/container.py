@@ -133,15 +133,18 @@ def serializar_payload(payload: PayloadContainer) -> bytes:
 
     Sem ``orcamento``: o critério que julga o número não entra onde o número é produzido
     (T-066). O executor recusa campo desconhecido ou faltante, então uma divergência
-    falha alto em vez de rodar com o payload errado.
+    falha alto em vez de rodar com o payload errado. ``meta_venda`` só vai quando o comando a
+    traz (T-270): sem ela, o payload é byte a byte o de antes do campo existir.
     """
-    corpo = {
+    corpo: dict[str, object] = {
         "job_id": str(payload.job_id),
         "codigo_gerado_id": str(payload.codigo_gerado_id),
         "linguagem": payload.linguagem,
         "fonte": payload.fonte,
         "competencias": list(payload.competencias),
     }
+    if payload.meta_venda is not None:
+        corpo["meta_venda"] = payload.meta_venda
     return json.dumps(corpo, ensure_ascii=False).encode("utf-8")
 
 

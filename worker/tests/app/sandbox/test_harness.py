@@ -18,6 +18,7 @@ from app.sandbox.harness import (
     carregar_regra,
     chamar,
     comissao_nao_negativa,
+    conferir_declaracao,
     conferir_saida,
     preparar,
     rodar_regra,
@@ -274,6 +275,95 @@ def test_coluna_a_mais_na_saida_e_aceita() -> None:
     saida["apuracao_simulada"]["auxiliar"] = 1
 
     assert conferir_saida(saida) is saida
+
+
+# ---- a declaração dos elementos implementados (T-241) ----
+
+DECLARACAO_DO_EXEMPLO = '        "elementos_implementados": [_ELEMENTO],\n'
+# O exemplo do contrato como era antes da declaração: o código gerado antes da T-240.
+EXEMPLO_SEM_DECLARACAO = EXEMPLO.replace(DECLARACAO_DO_EXEMPLO, "")
+
+
+def test_sem_a_chave_nada_foi_declarado() -> None:
+    assert conferir_declaracao(_saida_valida()) is None
+
+
+def test_lista_de_identificadores_e_aceita_mesmo_com_repeticao() -> None:
+    """O contrato pede uma lista de identificadores de elemento_ref, e não proíbe repetição: a
+    lista é aceita, com os elementos que o código declarou."""
+    declarados = ["nucleo.percentual", "elem.2", "elem.1", "elem.2"]
+
+    aceitos = conferir_declaracao(_saida_valida() | {"elementos_implementados": declarados})
+
+    assert aceitos is not None
+    assert set(aceitos) == {"nucleo.percentual", "elem.1", "elem.2"}
+
+
+def test_a_lista_vazia_e_uma_declaracao_e_quem_a_julga_e_o_worker() -> None:
+    assert conferir_declaracao(_saida_valida() | {"elementos_implementados": []}) == []
+
+
+@pytest.mark.parametrize(
+    "declarados",
+    [
+        "nucleo.percentual",
+        ("nucleo.percentual",),
+        {"elem.1"},
+        None,
+        [1],
+        [None],
+        ["nucleo.Percentual"],
+        ["elem.x"],
+        ["elem.1 "],
+        ["percentual"],
+    ],
+    ids=repr,
+)
+def test_declaracao_fora_do_contrato_e_recusada(declarados: object) -> None:
+    """Como uma tabela sem as colunas exigidas: só uma lista de identificadores de elemento_ref
+    é declaração."""
+    with pytest.raises(SaidaForaDoContratoError, match="elementos_implementados"):
+        conferir_declaracao(_saida_valida() | {"elementos_implementados": declarados})
+
+
+def test_o_exemplo_do_contrato_declara_o_elemento_que_implementa(entrada: Entrada) -> None:
+    saida = rodar_regra(EXEMPLO, entrada, ["2025-11"])
+
+    execucao = agregar(saida, entrada, ["2025-11"])
+
+    assert saida.elementos_implementados == ["nucleo.percentual"]
+    assert execucao.elementos_implementados == ["nucleo.percentual"]
+
+
+def test_a_declaracao_nao_entra_na_agregacao(entrada: Entrada) -> None:
+    assert EXEMPLO_SEM_DECLARACAO != EXEMPLO
+
+    com = agregar(rodar_regra(EXEMPLO, entrada, ["2025-11"]), entrada, ["2025-11"])
+    sem = agregar(rodar_regra(EXEMPLO_SEM_DECLARACAO, entrada, ["2025-11"]), entrada, ["2025-11"])
+
+    assert sem.elementos_implementados is None
+    assert com.resultado == sem.resultado
+
+
+def test_a_declaracao_nao_acompanha_uma_assercao_violada(entrada: Entrada) -> None:
+    fonte = """
+def aplicar_regra(bases, apuracao_base, competencias):
+    simulada = apuracao_base.copy()
+    simulada.loc[simulada.index[0], "comissao"] = -1.0
+    contribuicoes = simulada.iloc[:1].copy()
+    contribuicoes["elemento_ref"] = "elem.1"
+    contribuicoes["delta"] = -1.0
+    return {
+        "apuracao_simulada": simulada,
+        "contribuicoes": contribuicoes,
+        "elementos_implementados": ["elem.1"],
+    }
+"""
+
+    execucao = agregar(rodar_regra(fonte, entrada, ["2025-11"]), entrada, ["2025-11"])
+
+    assert execucao.resultado is None
+    assert execucao.elementos_implementados is None
 
 
 # ---- a invariante sem_comissao_negativa ----

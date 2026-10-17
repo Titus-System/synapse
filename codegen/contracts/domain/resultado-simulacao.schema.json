@@ -8,7 +8,7 @@
   "properties": {
     "totais": {
       "$ref": "resultado-totais.schema.json",
-      "description": "Os agregados do período: o comissionamento do baseline, o da regra proposta, a diferença absoluta entre os dois, a diferença em fração e o orçamento aplicado. É a diferença absoluta daqui que a decomposição quebra por dimensão."
+      "description": "Os agregados do período: o comissionamento do baseline, o da regra proposta, a diferença absoluta entre os dois, a diferença em fração e o orçamento aplicado. É a diferença absoluta daqui que as quebras da diferença distribuem por dimensão, e o simulado daqui que as quebras absolutas distribuem."
     },
     "assercoes": {
       "$ref": "resultado-assercoes.schema.json",
@@ -16,7 +16,7 @@
     },
     "decomposicao": {
       "$ref": "resultado-decomposicao.schema.json",
-      "description": "A quebra da diferença em relação ao baseline, nunca do total: somar qualquer quebra dá totais.diferenca_abs. As cinco quebras são exigidas, pelos motivos que o schema referenciado registra. Elemento que não aparece na quebra por elemento não teve efeito mensurável, o que num resultado de sucesso é distinto de implementação faltante, já barrada antes pela conferência de cobertura. Competência com zero foi simulada e a regra não a afetou, o que diz outra coisa que competência ausente."
+      "description": "As cinco quebras da diferença em relação ao baseline, nunca do total: somar qualquer uma delas dá totais.diferenca_abs. São exigidas, pelos motivos que o schema referenciado registra. As três quebras absolutas, opcionais, distribuem o comissionamento da regra proposta: somar qualquer uma delas dá totais.simulado. Elemento que não aparece na quebra por elemento não teve efeito mensurável, o que num resultado de sucesso é distinto de implementação faltante, já barrada antes pela conferência de cobertura. Competência com zero foi simulada e a regra não a afetou, o que diz outra coisa que competência ausente."
     }
   },
   "examples": [
