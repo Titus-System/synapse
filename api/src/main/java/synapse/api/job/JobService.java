@@ -366,7 +366,7 @@ class JobService {
 				throw ExecutarAcaoException.estadoInvalido(acao, estado);
 			}
 			this.repository.inserirAcao(jobId, acao.paraColuna(), Timestamp.from(Instant.now()));
-			return new AcaoAplicada(EventoEstadoDto.fotografia(jobId, estado), consultarJob(jobId));
+			return new AcaoAplicada(EventoEstadoDto.fotografia(jobId, estado), consultarJob(jobId), 0);
 		}
 		JobStatus origem;
 		try {
@@ -382,9 +382,13 @@ class JobService {
 			throw ExecutarAcaoException.estadoInvalido(acao, ex.origem());
 		}
 		this.repository.inserirAcao(jobId, acao.paraColuna(), Timestamp.from(Instant.now()));
+		int abandonadas = 0;
+		if (acao.destino() == JobStatus.CANCELADO || acao.destino() == JobStatus.ARQUIVADO) {
+			abandonadas = this.rodadas.abandonarAbertas(jobId, Instant.now().truncatedTo(ChronoUnit.MICROS));
+		}
 		EventoEstadoDto evento = EventoEstadoDto.transicao(jobId, origem, acao.destino(), null);
 		JobDetalhadoDto job = consultarJob(jobId);
-		return new AcaoAplicada(evento, job);
+		return new AcaoAplicada(evento, job, abandonadas);
 	}
 
 	@Transactional
@@ -393,7 +397,7 @@ class JobService {
 		return consultarJob(jobId);
 	}
 
-	record AcaoAplicada(EventoEstadoDto evento, JobDetalhadoDto job) {
+	record AcaoAplicada(EventoEstadoDto evento, JobDetalhadoDto job, int rodadasAbandonadas) {
 	}
 
 	@Transactional

@@ -123,6 +123,17 @@ public class AppMetrics {
 			.register(this.registry);
 	}
 
+	/**
+	 * Rodadas abertas marcadas como {@code abandonada} pelo cancelamento ou arquivamento
+	 * do job, contadas depois do commit. Conta rodadas, não jobs nem ações: a ação
+	 * repetida sobre um job já encerrado é recusada e não marca nenhuma.
+	 */
+	public Counter rodadasAbandonadas() {
+		return Counter.builder("correcao.rodadas.abandonadas")
+			.description("Rodadas abertas marcadas como abandonadas pelo encerramento do job, após commit")
+			.register(this.registry);
+	}
+
 	/** Tentativas de consumo, inclusive falhas que serão reentregues. */
 	public Timer etapaAlteradaDuracao(String resultado) {
 		return Timer.builder("etapa.alterada.consumo.duracao")

@@ -223,8 +223,8 @@ class AutorizacaoJobsTests {
 		when(this.service.confirmar(eq(JOB), any())).thenReturn(criado);
 		when(this.service.reprocessar(eq(JOB), any())).thenReturn(criado);
 		when(this.service.executarAcao(eq(JOB), any())).thenReturn(new JobService.AcaoAplicada(
-				EventoEstadoDto.transicao(JOB, JobStatus.AGUARDANDO_DECISAO_USUARIO, JobStatus.LIBERADO, null),
-				detalhe));
+				EventoEstadoDto.transicao(JOB, JobStatus.AGUARDANDO_DECISAO_USUARIO, JobStatus.LIBERADO, null), detalhe,
+				0));
 	}
 
 	private void verificarServico(String rota) {

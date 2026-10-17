@@ -81,6 +81,13 @@ class RodadasRepository {
 		}
 	}
 
+	int abandonarAbertas(UUID jobId, Instant agora) {
+		return this.jdbc.update("""
+				UPDATE rodadas_correcao SET estado = ?, atualizada_em = ?
+				WHERE job_id = ? AND estado IN ('pendente', 'em_reextracao')
+				""", EstadoRodada.ABANDONADA.paraColuna(), Timestamp.from(agora), jobId);
+	}
+
 	private static Rodada converter(ResultSet rs) throws SQLException {
 		Correcao correcao = rs.getObject("submissao_id") == null ? null
 				: new Correcao(Objects.requireNonNull(rs.getString("tipo")), rs.getString("transcricao"),

@@ -123,6 +123,15 @@ class JobController {
 	JobDetalhadoDto executar(@PathVariable UUID id, @RequestBody String corpo) {
 		AcaoJob acao = ExecutarAcaoRequisicao.deJson(corpo).acao();
 		AcaoAplicada aplicada = this.service.executarAcao(id, acao);
+		if (aplicada.rodadasAbandonadas() > 0) {
+			this.metricas.rodadasAbandonadas().increment(aplicada.rodadasAbandonadas());
+			try (var escopo = this.correlacao.abrir(id.toString(), null)) {
+				log.atInfo()
+					.addKeyValue("acao", acao.paraColuna())
+					.addKeyValue("rodadas_abandonadas", aplicada.rodadasAbandonadas())
+					.log("rodadas abertas abandonadas pelo encerramento do job");
+			}
+		}
 		// Os três destinos das ações de finalização (liberado, cancelado, arquivado) são
 		// terminais: emitir depois do commit fecha o stream do job, como a skill sse
 		// pede.
