@@ -44,7 +44,8 @@ class JobHttpCompatibilidadeTests {
 	void preparar() {
 		this.mvc = MockMvcBuilders
 			.standaloneSetup(new JobController(this.service, this.emissores, new CorrelationContext(),
-					org.mockito.Mockito.mock(synapse.api.core.metrics.AppMetrics.class)))
+					new synapse.api.core.metrics.AppMetrics(
+							new io.micrometer.core.instrument.simple.SimpleMeterRegistry())))
 			.setControllerAdvice(new JobAdvice(), new AutorizacaoDeJobAdvice())
 			.build();
 	}

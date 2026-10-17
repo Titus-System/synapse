@@ -10,6 +10,9 @@ import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
 
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.AmqpRejectAndDontRequeueException;
+import org.springframework.amqp.ImmediateRequeueAmqpException;
+import org.springframework.amqp.core.Message;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -24,6 +27,91 @@ import synapse.api.job.JobEventosService.DesfechoDaExtracao;
 import synapse.api.job.JobEventosService.ExtracaoAplicada;
 import synapse.api.job.JobEventosService.FimDaIteracao;
 import synapse.api.job.JobEventosService.SugestaoAplicada;
+
+/** Valida o corpo antes do DTO e só anuncia aplicação depois do commit do serviço. */
+@Component
+class CorrecaoPropostaConsumidor {
+
+	private static final Logger log = LoggerFactory.getLogger(CorrecaoPropostaConsumidor.class);
+
+	private final CorrecaoPropostaService servico;
+
+	private final CorrelationContext correlacao;
+
+	private final AppMetrics metricas;
+
+	private final EmissoresSse emissores;
+
+	CorrecaoPropostaConsumidor(CorrecaoPropostaService servico, CorrelationContext correlacao, AppMetrics metricas,
+			EmissoresSse emissores) {
+		this.servico = servico;
+		this.correlacao = correlacao;
+		this.metricas = metricas;
+		this.emissores = emissores;
+	}
+
+	@RabbitListener(id = "correcaoProposta", queues = RabbitTopologyConfig.CORRECAO_PROPOSTA,
+			containerFactory = "correcaoPropostaContainerFactory")
+	void receber(Message mensagem) {
+		long inicio = System.nanoTime();
+		JsonNode corpo = ValidacaoCorrecaoProposta.ler(mensagem.getBody());
+		UUID jobId = ValidacaoCorrecaoProposta.jobId(corpo);
+		String resultado = "falha";
+		String motivo = "processamento_falhou";
+		boolean confirmado = false;
+		UUID regraId = null;
+		UUID rodadaId = null;
+		UUID submissaoId = null;
+		try (var escopo = this.correlacao.abrir(jobId == null ? null : jobId.toString(), null)) {
+			this.metricas.jobRuns(RabbitTopologyConfig.CORRECAO_PROPOSTA).increment();
+			log.atInfo().log("consumo de correcao-proposta iniciado");
+			try {
+				CorrecaoPropostaDto evento = ValidacaoCorrecaoProposta.validar(corpo);
+				submissaoId = evento.submissao_id();
+				var aplicada = this.servico.aplicar(evento);
+				confirmado = true;
+				resultado = aplicada.resultado();
+				motivo = aplicada.motivo();
+				regraId = aplicada.regraId();
+				rodadaId = aplicada.rodadaId();
+				if ("aplicada".equals(resultado)) {
+					this.emissores.emitir(evento.job_id(),
+							EventoSse.de("estado", EventoEstadoDto.transicao(evento.job_id(),
+									JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS, JobStatus.GERANDO_REGRA, null)));
+				}
+			}
+			catch (AmqpRejectAndDontRequeueException ex) {
+				resultado = "invalida";
+				motivo = "contrato_invalido";
+				this.metricas.jobFailures(RabbitTopologyConfig.CORRECAO_PROPOSTA).increment();
+				throw ex;
+			}
+			catch (RuntimeException ex) {
+				if (!confirmado)
+					resultado = "falha";
+				motivo = confirmado ? "notificacao_falhou" : "processamento_falhou";
+				this.metricas.jobFailures(RabbitTopologyConfig.CORRECAO_PROPOSTA).increment();
+				throw new ImmediateRequeueAmqpException("correcao-proposta não confirmada");
+			}
+			finally {
+				this.metricas.correcaoProposta(resultado).increment();
+				this.metricas.jobDuration(RabbitTopologyConfig.CORRECAO_PROPOSTA)
+					.record(Duration.ofNanos(System.nanoTime() - inicio));
+				log.atLevel(switch (resultado) {
+					case "aplicada", "sem_alteracao", "duplicada" -> org.slf4j.event.Level.INFO;
+					default -> org.slf4j.event.Level.WARN;
+				})
+					.addKeyValue("resultado", resultado)
+					.addKeyValue("motivo", motivo)
+					.addKeyValue("submissao_id", submissaoId)
+					.addKeyValue("regra_id", regraId)
+					.addKeyValue("rodada_id", rodadaId)
+					.log("consumo de correcao-proposta encerrado");
+			}
+		}
+	}
+
+}
 
 /** Consome etapas e anuncia somente os efeitos confirmados pelo serviço transacional. */
 @Component

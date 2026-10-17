@@ -1,0 +1,136 @@
+FFFF.FFFFFFFFFFFFFFF                                                     [100%]
+================================== FAILURES ===================================
+________ test_altera_somente_percentual_sem_perder_regra_ou_parametros ________
+tests\app\extracao\test_reextracao.py:108: in test_altera_somente_percentual_sem_perder_regra_ou_parametros
+    assert resultado.representacao.para_contrato() == esperado
+E   AssertionError: assert {'especificac...: '2025-08'}}} == {'especificac...: '2025-08'}}}
+E     
+E     Omitting 1 identical items, use -vv to show
+E     Differing items:
+E     {'nucleo': {'loja': ['13'], 'percentual': Decimal('0.025'), 'vigencia': {'fim': '2025-12', 'inicio': '2025-08'}}} != {'nucleo': {'loja': ['13'], 'percentual': Decimal('0.03'), 'vigencia': {'fim': '2025-12', 'inicio': '2025-08'}}}
+E     Use -v to get more diff
+_________________ test_modifica_parametros_sem_alterar_regra __________________
+tests\app\extracao\test_reextracao.py:136: in test_modifica_parametros_sem_alterar_regra
+    assert resultado.parametros == {"orcamento": 600000, "competencias": ["2025-11"]}
+E   AssertionError: assert {'competencia...mal('500000')} == {'competencia...ento': 600000}
+E     
+E     Differing items:
+E     {'orcamento': Decimal('500000')} != {'orcamento': 600000}
+E     {'competencias': ['2025-08', '2025-09']} != {'competencias': ['2025-11']}
+E     Left contains 1 more item:
+E     {'meta_venda': Decimal('12000000')}
+E     Use -v to get more diff
+__________________ test_remove_substitui_adiciona_e_renumera __________________
+tests\app\extracao\test_reextracao.py:175: in test_remove_substitui_adiciona_e_renumera
+    assert resultado.representacao.para_contrato()["especificacoes"] == [
+E   AssertionError: assert [{'construto'...f': 'elem.2'}] == [{'construto'...f': 'elem.2'}]
+E     
+E     At index 0 diff: {'ref': 'elem.1', 'construto': 'generico', 'descricao': 'excluir gerentes'} != {'ref': 'elem.1', 'construto': 'generico', 'descricao': 'bônus de R$ 500'}
+E     Use -v to get more diff
+________ test_operacao_invalida_e_ref_inexistente_preservam_as_outras _________
+tests\app\extracao\test_reextracao.py:198: in test_operacao_invalida_e_ref_inexistente_preservam_as_outras
+    assert resultado.representacao.para_contrato()["nucleo"]["percentual"] == Decimal("0.03")
+E   AssertionError: assert Decimal('0.025') == Decimal('0.03')
+E    +  where Decimal('0.03') = Decimal('0.03')
+_______________ test_nao_vincula_ferramentas_e_pede_schema_json _______________
+tests\app\extracao\test_reextracao.py:249: in test_nao_vincula_ferramentas_e_pede_schema_json
+    assert len(modelo.seen_messages) == 1
+E   AssertionError: assert 0 == 1
+E    +  where 0 = len([])
+E    +    where [] = FakeChatModel(metadata={'lc_versions': {'langchain-core': '1.6.3'}}, messages=<list_iterator object at 0x00000299F6A786A0>, seen_messages=[], bound_tools=[]).seen_messages
+______ test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[-STOP] _______
+tests\app\extracao\test_reextracao.py:281: in test_saida_globalmente_inutilizavel_falha_sem_vazar_texto
+    with pytest.raises(FalhaExtracaoError) as erro:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'app.extracao.modelos.FalhaExtracaoError'>
+_ test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[n\xe3o \xe9 JSON-STOP] _
+tests\app\extracao\test_reextracao.py:281: in test_saida_globalmente_inutilizavel_falha_sem_vazar_texto
+    with pytest.raises(FalhaExtracaoError) as erro:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'app.extracao.modelos.FalhaExtracaoError'>
+______ test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[{-STOP] ______
+tests\app\extracao\test_reextracao.py:281: in test_saida_globalmente_inutilizavel_falha_sem_vazar_texto
+    with pytest.raises(FalhaExtracaoError) as erro:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'app.extracao.modelos.FalhaExtracaoError'>
+_ test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[{"operacoes":[]}-STOP] _
+tests\app\extracao\test_reextracao.py:281: in test_saida_globalmente_inutilizavel_falha_sem_vazar_texto
+    with pytest.raises(FalhaExtracaoError) as erro:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'app.extracao.modelos.FalhaExtracaoError'>
+_ test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[{"operacoes":[{"tipo":"remover_elemento","ref":"elem.1"}],"extra":"x"}-STOP] _
+tests\app\extracao\test_reextracao.py:281: in test_saida_globalmente_inutilizavel_falha_sem_vazar_texto
+    with pytest.raises(FalhaExtracaoError) as erro:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'app.extracao.modelos.FalhaExtracaoError'>
+_ test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[{"operacoes":[{"tipo":"remover_elemento","ref":"elem.1","ref":"elem.2"}]}-STOP] _
+tests\app\extracao\test_reextracao.py:281: in test_saida_globalmente_inutilizavel_falha_sem_vazar_texto
+    with pytest.raises(FalhaExtracaoError) as erro:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'app.extracao.modelos.FalhaExtracaoError'>
+_ test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[{"operacoes":[{"tipo":"remover_parametro","campo":"orcamento"}]}-SAFETY] _
+tests\app\extracao\test_reextracao.py:281: in test_saida_globalmente_inutilizavel_falha_sem_vazar_texto
+    with pytest.raises(FalhaExtracaoError) as erro:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'app.extracao.modelos.FalhaExtracaoError'>
+_ test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[{"operacoes":[{"tipo":"remover_parametro","campo":"orcamento"}]}-MAX_TOKENS] _
+tests\app\extracao\test_reextracao.py:281: in test_saida_globalmente_inutilizavel_falha_sem_vazar_texto
+    with pytest.raises(FalhaExtracaoError) as erro:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'app.extracao.modelos.FalhaExtracaoError'>
+_______ test_erro_do_modelo_e_sanitizado_mas_nao_vira_falha_permanente ________
+tests\app\extracao\test_reextracao.py:311: in test_erro_do_modelo_e_sanitizado_mas_nao_vira_falha_permanente
+    with pytest.raises(FalhaChamadaReextracaoError) as erro:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'app.extracao.reextracao.FalhaChamadaReextracaoError'>
+__________ test_resposta_esta_disponivel_para_a_t221_sem_expor_repr ___________
+tests\app\extracao\test_reextracao.py:338: in test_resposta_esta_disponivel_para_a_t221_sem_expor_repr
+    assert "operacoes" in resultado.chamada.resposta
+E   AssertionError: assert 'operacoes' in ''
+E    +  where '' = <app.extracao.modelos.ChamadaExtracao object at 0x00000299F7CE8780>.resposta
+E    +    where <app.extracao.modelos.ChamadaExtracao object at 0x00000299F7CE8780> = <app.extracao.reextracao.ResultadoReextracao object at 0x00000299F7CE8900>.chamada
+________ test_preserva_centavos_e_metadados_sem_compartilhar_entradas _________
+tests\app\extracao\test_reextracao.py:363: in test_preserva_centavos_e_metadados_sem_compartilhar_entradas
+    assert resultado.parametros == {
+E   AssertionError: assert {'competencia...mal('500000')} == {'competencia...90123456789')}
+E     
+E     Omitting 2 identical items, use -vv to show
+E     Differing items:
+E     {'orcamento': Decimal('500000')} != {'orcamento': Decimal('600000.1234567890123456789')}
+E     Use -v to get more diff
+_______________ test_rejeita_texto_vazio_antes_de_chamar_modelo _______________
+tests\app\extracao\test_reextracao.py:376: in test_rejeita_texto_vazio_antes_de_chamar_modelo
+    with pytest.raises(FalhaExtracaoError, match="Texto de correção vazio"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'app.extracao.modelos.FalhaExtracaoError'>
+___________ test_cancelamento_nao_e_convertido_em_falha_do_provedor ___________
+tests\app\extracao\test_reextracao.py:388: in test_cancelamento_nao_e_convertido_em_falha_do_provedor
+    with pytest.raises(CancelledError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'asyncio.exceptions.CancelledError'>
+________ test_resultado_incompativel_vira_falha_permanente_sanitizada _________
+tests\app\extracao\test_reextracao.py:397: in test_resultado_incompativel_vira_falha_permanente_sanitizada
+    with pytest.raises(FalhaExtracaoError, match="Resposta incompatível com o schema de correção") as erro:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'app.extracao.modelos.FalhaExtracaoError'>
+=========================== short test summary info ===========================
+FAILED tests/app/extracao/test_reextracao.py::test_altera_somente_percentual_sem_perder_regra_ou_parametros
+FAILED tests/app/extracao/test_reextracao.py::test_modifica_parametros_sem_alterar_regra
+FAILED tests/app/extracao/test_reextracao.py::test_remove_substitui_adiciona_e_renumera
+FAILED tests/app/extracao/test_reextracao.py::test_operacao_invalida_e_ref_inexistente_preservam_as_outras
+FAILED tests/app/extracao/test_reextracao.py::test_nao_vincula_ferramentas_e_pede_schema_json
+FAILED tests/app/extracao/test_reextracao.py::test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[-STOP]
+FAILED tests/app/extracao/test_reextracao.py::test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[n\xe3o \xe9 JSON-STOP]
+FAILED tests/app/extracao/test_reextracao.py::test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[{-STOP]
+FAILED tests/app/extracao/test_reextracao.py::test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[{"operacoes":[]}-STOP]
+FAILED tests/app/extracao/test_reextracao.py::test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[{"operacoes":[{"tipo":"remover_elemento","ref":"elem.1"}],"extra":"x"}-STOP]
+FAILED tests/app/extracao/test_reextracao.py::test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[{"operacoes":[{"tipo":"remover_elemento","ref":"elem.1","ref":"elem.2"}]}-STOP]
+FAILED tests/app/extracao/test_reextracao.py::test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[{"operacoes":[{"tipo":"remover_parametro","campo":"orcamento"}]}-SAFETY]
+FAILED tests/app/extracao/test_reextracao.py::test_saida_globalmente_inutilizavel_falha_sem_vazar_texto[{"operacoes":[{"tipo":"remover_parametro","campo":"orcamento"}]}-MAX_TOKENS]
+FAILED tests/app/extracao/test_reextracao.py::test_erro_do_modelo_e_sanitizado_mas_nao_vira_falha_permanente
+FAILED tests/app/extracao/test_reextracao.py::test_resposta_esta_disponivel_para_a_t221_sem_expor_repr
+FAILED tests/app/extracao/test_reextracao.py::test_preserva_centavos_e_metadados_sem_compartilhar_entradas
+FAILED tests/app/extracao/test_reextracao.py::test_rejeita_texto_vazio_antes_de_chamar_modelo
+FAILED tests/app/extracao/test_reextracao.py::test_cancelamento_nao_e_convertido_em_falha_do_provedor
+FAILED tests/app/extracao/test_reextracao.py::test_resultado_incompativel_vira_falha_permanente_sanitizada
+19 failed, 1 passed in 2.32s

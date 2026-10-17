@@ -89,6 +89,11 @@ class ConfirmarParametrosException extends RuntimeException {
 				"Este job não está aguardando confirmação de parâmetros.", List.of());
 	}
 
+	static ConfirmarParametrosException versaoJaAnalisada() {
+		return new ConfirmarParametrosException(HttpStatus.CONFLICT, "estado_invalido",
+				"Esta versão já foi analisada. Altere a regra ou os parâmetros antes de confirmar.", List.of());
+	}
+
 	HttpStatus status() {
 		return this.status;
 	}

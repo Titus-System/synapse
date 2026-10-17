@@ -147,9 +147,9 @@ class BuscarJobPersistenciaTests {
 	}
 
 	@TestConfiguration(proxyBeanMethods = false)
-	@Import({ JobRepository.class, JobService.class, AutorizadorDeJob.class, CorrelationContext.class,
-			MaquinaDeEstadosDoJob.class, JobEventosService.class, RodadasCorrecaoRepository.class, Outbox.class,
-			VersoesDaRegra.class })
+	@Import({ JobRepository.class, JobService.class, RodadasRepository.class, AutorizadorDeJob.class,
+			CorrelationContext.class, MaquinaDeEstadosDoJob.class, JobEventosService.class,
+			RodadasCorrecaoRepository.class, Outbox.class, VersoesDaRegra.class })
 	static class Config {
 
 	}

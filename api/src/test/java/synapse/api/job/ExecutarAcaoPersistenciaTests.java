@@ -152,8 +152,8 @@ class ExecutarAcaoPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ JobService.class, MaquinaDeEstadosDoJob.class, CorrelationContext.class, Outbox.class,
-			VersoesDaRegra.class })
+	@Import({ JobService.class, RodadasRepository.class, MaquinaDeEstadosDoJob.class, CorrelationContext.class,
+			Outbox.class, VersoesDaRegra.class })
 	static class Config {
 
 	}

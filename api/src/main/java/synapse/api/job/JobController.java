@@ -2,10 +2,12 @@ package synapse.api.job;
 
 import java.net.URI;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -87,8 +89,32 @@ class JobController {
 	@AutorizarJob(OperacaoJob.CONFIRMAR_PARAMETROS)
 	@PostMapping(path = "/jobs/{id}/parameters", consumes = "application/json", produces = "application/json")
 	ResponseEntity<JobCriadoDto> confirmar(@PathVariable("id") UUID id, @RequestBody String corpo) {
-		JobCriadoDto job = this.service.confirmar(id, ConfirmarParametrosRequisicao.deJson(corpo));
-		return ResponseEntity.status(HttpStatus.ACCEPTED).body(job);
+		long inicio = System.nanoTime();
+		String resultado = "falha";
+		try (var escopo = this.correlacao.abrir(id.toString(), null)) {
+			this.metricas.jobRuns("confirmacao_parametros").increment();
+			log.atInfo().log("confirmação de parâmetros iniciada");
+			try {
+				JobCriadoDto job = this.service.confirmar(id, ConfirmarParametrosRequisicao.deJson(corpo));
+				resultado = "confirmada";
+				return ResponseEntity.status(HttpStatus.ACCEPTED).body(job);
+			}
+			catch (RuntimeException ex) {
+				if (ex instanceof ConfirmarParametrosException || ex instanceof TransicaoDeStatusInvalidaException
+						|| ex instanceof JobNaoEncontradoException) {
+					resultado = "recusada";
+				}
+				this.metricas.jobFailures("confirmacao_parametros").increment();
+				throw ex;
+			}
+			finally {
+				this.metricas.jobDuration("confirmacao_parametros")
+					.record(System.nanoTime() - inicio, TimeUnit.NANOSECONDS);
+				Level nivel = "confirmada".equals(resultado) ? Level.INFO
+						: ("recusada".equals(resultado) ? Level.WARN : Level.ERROR);
+				log.atLevel(nivel).addKeyValue("resultado", resultado).log("confirmação de parâmetros encerrada");
+			}
+		}
 	}
 
 	@AutorizarJob(OperacaoJob.EXECUTAR_ACAO)

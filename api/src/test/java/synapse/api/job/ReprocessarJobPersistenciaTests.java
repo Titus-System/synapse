@@ -129,7 +129,9 @@ class ReprocessarJobPersistenciaTests {
 		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(DONO_ORIGINAL, PapelDoUsuario.PROFISSIONAL_RH));
 		mvc = MockMvcBuilders
 			.standaloneSetup(new JobController(contexto.getBean(JobService.class), mock(EmissoresSse.class),
-					new CorrelationContext(), org.mockito.Mockito.mock(synapse.api.core.metrics.AppMetrics.class)))
+					new CorrelationContext(),
+					new synapse.api.core.metrics.AppMetrics(
+							new io.micrometer.core.instrument.simple.SimpleMeterRegistry())))
 			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual,
 					new AutorizadorDeJob(contexto.getBean(JobRepository.class))))
 			.setControllerAdvice(new JobAdvice())
@@ -148,8 +150,8 @@ class ReprocessarJobPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ JobRepository.class, JobService.class, VersoesDaRegra.class, MaquinaDeEstadosDoJob.class, Outbox.class,
-			AutorizadorDeJob.class, CorrelationContext.class })
+	@Import({ JobRepository.class, JobService.class, RodadasRepository.class, VersoesDaRegra.class,
+			MaquinaDeEstadosDoJob.class, Outbox.class, AutorizadorDeJob.class, CorrelationContext.class })
 	static class Config {
 
 	}
@@ -353,7 +355,7 @@ class ReprocessarJobPersistenciaTests {
 		ObjectNode enviada = (ObjectNode) representacaoOriginal.deepCopy();
 		boolean mudaNucleo = edicao.equals("nucleo") || edicao.equals("ambos");
 		boolean mudaEspecificacoes = List.of("especificacoes", "ambos", "adicionar", "remover").contains(edicao);
-		boolean editado = mudaNucleo || mudaEspecificacoes;
+		boolean editado = mudaNucleo || mudaEspecificacoes || edicao.equals("parametros");
 		if (mudaNucleo) {
 			((ObjectNode) enviada.path("nucleo")).put("percentual", new BigDecimal("0.04"));
 		}
@@ -411,8 +413,10 @@ class ReprocessarJobPersistenciaTests {
 			.isEqualTo(enviada.path("especificacoes"));
 		assertThat(Objects.requireNonNull(utilizada.get("id")).toString())
 			.isEqualTo(confirmado.path("regra").path("id").asString());
+		String parametros = utilizada.get("parametros") == null ? null : utilizada.get("parametros").toString();
 		assertThat(utilizada.get("hash"))
-			.isEqualTo(HashDaRegra.calcular(ConfirmarParametrosRequisicao.deJson(corpo).representacao()));
+			.isEqualTo(HashDaRegra.calcular(ConfirmarParametrosRequisicao.deJson(corpo).representacao(),
+					ParametrosExtraidos.deVersaoExistente(parametros)));
 		if (editado) {
 			assertThat(utilizada.get("regra_origem_id")).isEqualTo(semeada.get("id"));
 			assertThat(utilizada.get("hash")).isNotEqualTo(semeada.get("hash"));
@@ -421,6 +425,9 @@ class ReprocessarJobPersistenciaTests {
 			assertThat(utilizada).isEqualTo(semeada);
 		}
 		if (edicao.equals("parametros")) {
+			assertThat(JSON.readTree(Objects.requireNonNull(parametros))).isEqualTo(JSON.readTree("""
+					{"orcamento":700000.123456789012345678901,"competencias":["2025-08","2025-10"]}
+					"""));
 			assertThat(jdbc.queryForObject("SELECT orcamento FROM jobs WHERE id = ?", BigDecimal.class, novoId))
 				.isEqualByComparingTo("700000.123456789012345678901");
 			assertThat(competencias(novoId)).containsExactly("2025-08", "2025-10");
@@ -450,6 +457,9 @@ class ReprocessarJobPersistenciaTests {
 		}
 		if (mudaEspecificacoes) {
 			corrigidos.add(edicao.equals("adicionar") ? "elem.2" : "elem.1");
+		}
+		if (edicao.equals("parametros")) {
+			corrigidos.addAll(List.of("parametros.orcamento", "parametros.competencias"));
 		}
 		assertThat(trilha.path("campos_corrigidos")).isEqualTo(JSON.valueToTree(corrigidos));
 		assertThat(trilha.path("resumo").asString())

@@ -28,7 +28,15 @@ record RegraSubmetidaDto(UUID job_id, String origem, List<String> competencias, 
 		@Nullable BigDecimal meta_venda, @Nullable UUID submissao_id, @Nullable UUID regra_id) {
 }
 
-record ParametrosConfirmadosDto(UUID job_id, UUID regra_id) {
+@JsonInclude(JsonInclude.Include.NON_NULL)
+record ParametrosConfirmadosDto(UUID job_id, UUID regra_id, @Nullable List<String> competencias,
+		@Nullable BigDecimal orcamento, @Nullable BigDecimal meta_venda) {
+
+	// T-217: migrar os chamadores para os parâmetros reais nas etapas 2 e 3.
+	ParametrosConfirmadosDto(UUID job_id, UUID regra_id) {
+		this(job_id, regra_id, null, null, null);
+	}
+
 }
 
 /**

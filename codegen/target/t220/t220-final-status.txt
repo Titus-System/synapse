@@ -1,0 +1,14 @@
+## feature/t-220-motor-reextracao...origin/develop
+ M codegen/.gitignore
+ M codegen/app/extracao/motor.py
+?? codegen/app/extracao/correcao.py
+?? codegen/app/extracao/montagem.py
+?? codegen/app/extracao/reextracao.py
+?? codegen/app/extracao/schema_correcao.py
+?? codegen/app/graph/prompts/reextraction.py
+?? codegen/docs/correcao.md
+?? codegen/tests/app/extracao/test_correcao.py
+?? codegen/tests/app/extracao/test_reextracao.py
+?? codegen/tests/app/extracao/test_reextracao_llm.py
+?? t220-etapa2.zip
+?? t220-etapa2/

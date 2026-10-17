@@ -195,6 +195,7 @@
 										<include>http/openapi.yaml</include>
 										<include>http/synapse-openapi.html</include>
 										<include>domain/*.schema.json</include>
+										<include>events/correcao-proposta.schema.json</include>
 									</includes>
 								</resource>
 							</resources>
