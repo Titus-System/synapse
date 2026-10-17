@@ -177,6 +177,16 @@ class VersoesDaRegra {
 		return new VersaoRegra(id, novaVersao, origem, agora);
 	}
 
+	/**
+	 * Preserva o artefato completo da proposta sem alterar a identidade canônica
+	 * existente.
+	 */
+	VersaoRegra resolver(UUID jobId, JsonNode representacao, @Nullable String parametrosJson, String hash,
+			UUID origemId, Timestamp timestamp, Instant agora) {
+		return resolver(jobId, hash, "correcao", agora, numero -> this.repository.inserirVersaoCorrecao(jobId, numero,
+				origemId, representacao, parametrosJson, hash, timestamp));
+	}
+
 	private int proximaVersao(UUID jobId) {
 		Integer maior = this.repository.buscarMaiorVersao(jobId);
 		return ((maior != null) ? maior : 0) + 1;

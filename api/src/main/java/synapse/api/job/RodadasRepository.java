@@ -52,6 +52,12 @@ class RodadasRepository {
 			.requireNonNull(this.jdbc.queryForObject(CONSULTA + " WHERE r.id = ?", (rs, numero) -> converter(rs), id));
 	}
 
+	boolean jaAnalisada(UUID jobId, UUID regraId) {
+		return Boolean.TRUE.equals(this.jdbc.queryForObject("""
+				SELECT EXISTS (SELECT 1 FROM rodadas_correcao WHERE job_id = ? AND regra_analisada_id = ?)
+				""", Boolean.class, jobId, regraId));
+	}
+
 	void receber(UUID rodadaId, UUID submissaoId, Instant agora) {
 		int alteradas = this.jdbc.update("""
 				UPDATE rodadas_correcao SET estado = ?, submissao_correcao_id = ?, atualizada_em = ?
@@ -59,6 +65,19 @@ class RodadasRepository {
 				""", EstadoRodada.EM_REEXTRACAO.paraColuna(), submissaoId, Timestamp.from(agora), rodadaId);
 		if (alteradas != 1) {
 			throw new IllegalStateException("A rodada não está mais pendente.");
+		}
+	}
+
+	void corrigir(UUID jobId, UUID rodadaId, UUID regraAnalisadaId, UUID regraResultanteId, Instant agora) {
+		int alteradas = this.jdbc.update("""
+				UPDATE rodadas_correcao SET estado = 'corrigida', regra_resultante_id = ?, atualizada_em = ?
+				WHERE id = ? AND job_id = ? AND regra_analisada_id = ? AND estado IN ('pendente', 'em_reextracao')
+				AND EXISTS (SELECT 1 FROM regras WHERE id = ? AND job_id = ?)
+				AND EXISTS (SELECT 1 FROM regras WHERE id = ? AND job_id = ?)
+				""", regraResultanteId, Timestamp.from(agora), rodadaId, jobId, regraAnalisadaId, regraAnalisadaId,
+				jobId, regraResultanteId, jobId);
+		if (alteradas != 1) {
+			throw new IllegalStateException("A rodada não corresponde à confirmação do job.");
 		}
 	}
 

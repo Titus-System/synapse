@@ -140,8 +140,8 @@ class ListarJobsPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ JobService.class, JobAdvice.class, MaquinaDeEstadosDoJob.class, Outbox.class, VersoesDaRegra.class,
-			CorrelationContext.class })
+	@Import({ JobService.class, RodadasRepository.class, JobAdvice.class, MaquinaDeEstadosDoJob.class, Outbox.class,
+			VersoesDaRegra.class, CorrelationContext.class })
 	static class Config {
 
 	}

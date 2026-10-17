@@ -344,6 +344,35 @@ class JobRepository {
 				jobId);
 	}
 
+	UUID inserirVersaoCorrecao(UUID jobId, int versao, UUID origemId, JsonNode representacao,
+			@Nullable String parametros, String hash, Timestamp agora) {
+		return Objects.requireNonNull(this.jdbc.queryForObject("""
+				INSERT INTO regras (job_id, versao, origem, regra_origem_id, representacao, nucleo,
+				    especificacoes, parametros, hash, criada_em)
+				VALUES (?, ?, 'correcao', ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?) RETURNING id
+				""", UUID.class, jobId, versao, origemId, representacao.toString(),
+				representacao.path("nucleo").toString(), representacao.path("especificacoes").toString(), parametros,
+				hash, agora));
+	}
+
+	JsonNode buscarRepresentacaoCompleta(UUID regraId) {
+		return this.json.readTree(Objects.requireNonNull(this.jdbc.queryForObject(
+				"""
+						SELECT COALESCE(representacao, jsonb_build_object('nucleo', nucleo, 'especificacoes', especificacoes))::text
+						FROM regras WHERE id = ?
+						""",
+				String.class, regraId)));
+	}
+
+	void substituirParametros(UUID jobId, ParametrosDaSimulacao parametros) {
+		List<String> competencias = parametros.periodoCanonico();
+		if (competencias == null)
+			competencias = CompetenciasPublicadas.TODAS;
+		this.jdbc.update("UPDATE jobs SET orcamento = ?, meta_venda = ?, competencias = ? WHERE id = ?",
+				parametros.orcamento(), parametros.meta_venda(), new SqlArrayValue("text", competencias.toArray()),
+				jobId);
+	}
+
 	DadosDoJob buscarDadosParaConfirmacao(UUID jobId) {
 		return Objects.requireNonNull(this.jdbc.queryForObject("""
 				SELECT CASE WHEN j.job_origem_id IS NOT NULL THEN 'reprocessamento' ELSE s.tipo END AS origem,
@@ -658,6 +687,11 @@ class JobRepository {
 	 */
 	List<String> buscarParametrosDaVersao(UUID regraId) {
 		return this.jdbc.queryForList("SELECT parametros::text FROM regras WHERE id = ?", String.class, regraId);
+	}
+
+	List<String> buscarParametrosDaVersao(UUID jobId, UUID regraId) {
+		return this.jdbc.queryForList("SELECT parametros::text FROM regras WHERE job_id = ? AND id = ?", String.class,
+				jobId, regraId);
 	}
 
 	/**

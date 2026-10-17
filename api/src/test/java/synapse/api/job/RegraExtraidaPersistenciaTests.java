@@ -182,8 +182,9 @@ class RegraExtraidaPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ JobRepository.class, JobService.class, JobEventosService.class, MaquinaDeEstadosDoJob.class, Outbox.class,
-			RodadasCorrecaoRepository.class, VersoesDaRegra.class, CorrelationContext.class, AutorizadorDeJob.class })
+	@Import({ JobRepository.class, JobService.class, RodadasRepository.class, JobEventosService.class,
+			MaquinaDeEstadosDoJob.class, Outbox.class, RodadasCorrecaoRepository.class, VersoesDaRegra.class,
+			CorrelationContext.class, AutorizadorDeJob.class })
 	static class Config {
 
 	}

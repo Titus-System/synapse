@@ -1,15 +1,11 @@
 package synapse.api.job;
 
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -17,11 +13,16 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import synapse.api.core.logging.CorrelationContext;
@@ -31,10 +32,12 @@ import synapse.api.core.security.AcessoDoUsuario;
 import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
 import synapse.api.job.JobRepository.DadosConsulta;
+import synapse.api.job.JobRepository.ContextoDoJob;
 import synapse.api.job.JobRepository.DadosDoJob;
 import synapse.api.job.JobRepository.JobDeOrigem;
 import synapse.api.job.JobRepository.VersaoAnterior;
 import synapse.api.job.VersoesDaRegra.VersaoRegra;
+import synapse.api.job.JobsDeSubmissoes.Rodada;
 
 @Service
 class JobService {
@@ -54,14 +57,21 @@ class JobService {
 
 	private final CorrelationContext correlacao;
 
+	private final RodadasRepository rodadas;
+
+	private static final JsonMapper JSON = JsonMapper.builder()
+		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+		.build();
+
 	JobService(JobRepository repository, MaquinaDeEstadosDoJob maquina, Outbox outbox, VersoesDaRegra versoes,
-			EmissoresSse emissores, CorrelationContext correlacao) {
+			EmissoresSse emissores, CorrelationContext correlacao, RodadasRepository rodadas) {
 		this.repository = repository;
 		this.maquina = maquina;
 		this.outbox = outbox;
 		this.versoes = versoes;
 		this.emissores = emissores;
 		this.correlacao = correlacao;
+		this.rodadas = rodadas;
 	}
 
 	@Transactional
@@ -207,26 +217,32 @@ class JobService {
 
 	@Transactional
 	JobCriadoDto confirmar(UUID jobId, ConfirmarParametrosRequisicao requisicao) {
+		List<ContextoDoJob> encontrados = this.repository.buscarContextoComTrava(jobId);
+		if (encontrados.isEmpty()) {
+			throw new JobNaoEncontradoException(jobId);
+		}
+		ContextoDoJob contexto = encontrados.getFirst();
 		DadosDoJob dados = carregarJob(jobId);
-		JobStatus origem = JobStatus.deColuna(this.repository.buscarStatusComTrava(jobId));
+		JobStatus origem = contexto.status();
 		// A volta de simulando para gerando_regra é da próxima proposta automática,
 		// não de uma confirmação do usuário durante a execução.
 		if (origem.emProcessamento()) {
 			throw new TransicaoDeStatusInvalidaException(origem, JobStatus.GERANDO_REGRA);
 		}
-		this.maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "usuario", null);
-
 		VersaoAnterior anterior = ultimaVersao(jobId);
+		Rodada rodada = rodadaParaConfirmacao(jobId, origem, anterior);
 		RepresentacaoRegraDto representacao = requisicao.representacao();
-		// Esta confirmação não edita parâmetro algum (T-217): os da versão anterior
-		// passam para a nova como estavam, e o hash os cobre pelo mesmo motivo de
-		// cobrir o núcleo - sem isso, uma versão nascida de texto com parâmetros
-		// pareceria sempre editada, porque o hash sem eles nunca bateria com o da
-		// versão anterior.
-		String parametrosJson = (anterior != null) ? anterior.parametros() : null;
+		List<String> parametrosCorrigidos = parametrosCorrigidos(contexto, requisicao);
+		String parametrosJson = parametrosDaConfirmacao((anterior != null) ? anterior.parametros() : null, contexto,
+				requisicao, parametrosCorrigidos);
 		ParametrosDaSimulacao parametros = ParametrosExtraidos.deVersaoExistente(parametrosJson);
 		String hash = HashDaRegra.calcular(representacao, parametros);
+		List<VersaoRegra> existentes = this.repository.buscarRegraPorHash(jobId, hash);
+		if (!existentes.isEmpty() && this.rodadas.jaAnalisada(jobId, existentes.getFirst().id())) {
+			throw ConfirmarParametrosException.versaoJaAnalisada();
+		}
 		boolean editado = anterior != null && !hash.equals(anterior.hash());
+		this.maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "usuario", null);
 
 		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		Timestamp timestamp = Timestamp.from(agora);
@@ -237,13 +253,76 @@ class JobService {
 		List<String> competencias = resolverCompetencias(jobId, requisicao);
 
 		this.outbox.registrar(jobId, EventoOutbox.PARAMETROS_CONFIRMADOS,
-				new ParametrosConfirmadosDto(jobId, versao.id()));
-		registrarTrilha(jobId, versao.id(), editado, representacao, anterior, timestamp);
+				new ParametrosConfirmadosDto(jobId, versao.id(), competencias, orcamento, contexto.metaVenda()));
+		TrilhaDaConfirmacao.registrar(this.repository, jobId, versao.id(), editado || !parametrosCorrigidos.isEmpty(),
+				representacao, anterior, parametrosCorrigidos, timestamp);
+		if (rodada != null) {
+			this.rodadas.corrigir(jobId, rodada.id(), rodada.regra_analisada_id(), versao.id(), agora);
+			registrarFechamento(jobId, rodada.id(), versao.id());
+		}
 
 		RegraCriadaDto regra = new RegraCriadaDto(versao.id(), versao.versao(), versao.origem(), representacao,
 				versao.criadaEm());
 		return new JobCriadoDto(jobId, JobStatus.GERANDO_REGRA.paraColuna(), dados.origem(), competencias, orcamento,
 				dados.criadoEm(), dados.submissaoId(), dados.jobOrigemId(), regra);
+	}
+
+	private @Nullable Rodada rodadaParaConfirmacao(UUID jobId, JobStatus status, @Nullable VersaoAnterior anterior) {
+		List<Rodada> abertas = this.rodadas.abertas(jobId);
+		if (abertas.isEmpty()) {
+			return null;
+		}
+		if (abertas.size() != 1 || status != JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS || anterior == null
+				|| !abertas.getFirst().regra_analisada_id().equals(anterior.id())) {
+			throw ConfirmarParametrosException.estadoInvalido();
+		}
+		return abertas.getFirst();
+	}
+
+	private static List<String> parametrosCorrigidos(ContextoDoJob contexto, ConfirmarParametrosRequisicao requisicao) {
+		List<String> campos = new ArrayList<>();
+		if (requisicao.orcamento() != null
+				&& TrilhaDaConfirmacao.decimalDiferente(contexto.orcamento(), requisicao.orcamento())) {
+			campos.add("parametros.orcamento");
+		}
+		if (requisicao.competencias() != null && !requisicao.competencias().equals(contexto.competencias())) {
+			campos.add("parametros.competencias");
+		}
+		return campos;
+	}
+
+	private static @Nullable String parametrosDaConfirmacao(@Nullable String anteriores, ContextoDoJob contexto,
+			ConfirmarParametrosRequisicao requisicao, List<String> corrigidos) {
+		if (corrigidos.isEmpty()) {
+			return anteriores;
+		}
+		// Sem edição efetiva, NULL e {} mantêm sua identidade histórica. Ao editar uma
+		// versão legada, os parâmetros preservados vêm do job, pois ela não tem artefato.
+		ObjectNode parametros = anteriores == null
+				? JSON.valueToTree(
+						new ParametrosDaSimulacao(contexto.orcamento(), contexto.metaVenda(), contexto.competencias()))
+				: (ObjectNode) JSON.readTree(anteriores);
+		if (corrigidos.contains("parametros.orcamento")) {
+			parametros.put("orcamento", Objects.requireNonNull(requisicao.orcamento()));
+		}
+		if (corrigidos.contains("parametros.competencias")) {
+			parametros.set("competencias", JSON.valueToTree(Objects.requireNonNull(requisicao.competencias())));
+		}
+		return JSON.writeValueAsString(parametros);
+	}
+
+	private void registrarFechamento(UUID jobId, UUID rodadaId, UUID regraId) {
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit() {
+				try (var escopo = JobService.this.correlacao.abrir(jobId.toString(), null)) {
+					log.atInfo()
+						.addKeyValue("rodada_id", rodadaId)
+						.addKeyValue("regra_id", regraId)
+						.log("rodada corrigida por confirmação direta");
+				}
+			}
+		});
 	}
 
 	private DadosDoJob carregarJob(UUID jobId) {
@@ -277,63 +356,6 @@ class JobService {
 			return novas;
 		}
 		return this.repository.buscarCompetencias(jobId);
-	}
-
-	private void registrarTrilha(UUID jobId, UUID regraId, boolean editado, RepresentacaoRegraDto atual,
-			@Nullable VersaoAnterior anterior, Timestamp timestamp) {
-		List<String> corrigidos = (anterior != null && editado) ? camposCorrigidos(atual.nucleo(), anterior.nucleo())
-				: new ArrayList<>();
-		if (anterior != null && editado) {
-			corrigidos.addAll(especificacoesCorrigidas(atual.especificacoes(), anterior.especificacoes()));
-		}
-		String resumo = editado ? "usuário corrigiu "
-				+ (corrigidos.isEmpty() ? "a representação" : String.join(", ", corrigidos)) + " antes de confirmar"
-				: "usuário confirmou os parâmetros";
-		Map<String, Object> conclusao = new LinkedHashMap<>();
-		conclusao.put("resumo", resumo);
-		conclusao.put("editado_pelo_usuario", editado);
-		conclusao.put("campos_corrigidos", corrigidos);
-		UUID eventoId = UUID.nameUUIDFromBytes(("confirmacao:" + regraId).getBytes(StandardCharsets.UTF_8));
-		this.repository.inserirTrilhaConfirmacao(eventoId, jobId, timestamp, regraId, conclusao);
-	}
-
-	private static List<String> camposCorrigidos(NucleoRegraDto atual, NucleoRegraDto anterior) {
-		List<String> corrigidos = new ArrayList<>();
-		if (!Objects.equals(atual.vigencia(), anterior.vigencia())) {
-			corrigidos.add("nucleo.vigencia");
-		}
-		if (!Objects.equals(atual.loja(), anterior.loja())) {
-			corrigidos.add("nucleo.loja");
-		}
-		if (!Objects.equals(atual.marca(), anterior.marca())) {
-			corrigidos.add("nucleo.marca");
-		}
-		if (!Objects.equals(atual.cargo(), anterior.cargo())) {
-			corrigidos.add("nucleo.cargo");
-		}
-		if (percentualDiferente(atual.percentual(), anterior.percentual())) {
-			corrigidos.add("nucleo.percentual");
-		}
-		return corrigidos;
-	}
-
-	private static boolean percentualDiferente(@Nullable BigDecimal atual, @Nullable BigDecimal anterior) {
-		if (atual == null || anterior == null) {
-			return (atual == null) != (anterior == null);
-		}
-		return atual.compareTo(anterior) != 0;
-	}
-
-	private static List<String> especificacoesCorrigidas(List<JsonNode> atuais, List<JsonNode> anteriores) {
-		var refs = new LinkedHashSet<String>();
-		atuais.forEach(elemento -> refs.add(elemento.path("ref").asString()));
-		anteriores.forEach(elemento -> refs.add(elemento.path("ref").asString()));
-		return refs.stream()
-			.filter(ref -> !atuais.stream()
-				.filter(elemento -> ref.equals(elemento.path("ref").asString()))
-				.toList()
-				.equals(anteriores.stream().filter(elemento -> ref.equals(elemento.path("ref").asString())).toList()))
-			.toList();
 	}
 
 	@Transactional

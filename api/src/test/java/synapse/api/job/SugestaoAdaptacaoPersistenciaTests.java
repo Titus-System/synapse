@@ -130,8 +130,9 @@ class SugestaoAdaptacaoPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ JobRepository.class, JobService.class, JobEventosService.class, MaquinaDeEstadosDoJob.class, Outbox.class,
-			RodadasCorrecaoRepository.class, VersoesDaRegra.class, CorrelationContext.class })
+	@Import({ JobRepository.class, JobService.class, RodadasRepository.class, JobEventosService.class,
+			MaquinaDeEstadosDoJob.class, Outbox.class, RodadasCorrecaoRepository.class, VersoesDaRegra.class,
+			CorrelationContext.class })
 	static class Config {
 
 	}

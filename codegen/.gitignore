@@ -145,3 +145,8 @@ __marimo__/
 .vscode/*
 !.vscode/settings.json
 !.vscode/launch.json
+
+# =========================
+# Artefatos temporários
+# =========================
+/target/

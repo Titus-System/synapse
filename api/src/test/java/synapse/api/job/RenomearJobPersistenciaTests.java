@@ -123,7 +123,7 @@ class RenomearJobPersistenciaTests {
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
 	@Import({ JobRepository.class, JobService.class, MaquinaDeEstadosDoJob.class, Outbox.class, JobAdvice.class,
-			VersoesDaRegra.class, CorrelationContext.class })
+			VersoesDaRegra.class, CorrelationContext.class, RodadasRepository.class })
 	static class Config {
 
 	}

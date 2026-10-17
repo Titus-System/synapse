@@ -126,7 +126,8 @@ class EtapaAlteradaConsumidorTests {
 					"--app.rabbitmq.user=" + rabbitmq.getAdminUsername(),
 					"--app.rabbitmq.password=" + rabbitmq.getAdminPassword(),
 					"--management.health.rabbit.enabled=false", "--management.health.db.enabled=false",
-					"--app.sse.heartbeat=200ms", "--spring.rabbitmq.listener.simple.concurrency=2");
+					"--app.sse.heartbeat=200ms", "--spring.rabbitmq.listener.simple.concurrency=2",
+					"--app.observability.log-level=INFO", "--debug=false");
 
 		porta = Integer.parseInt(Objects.requireNonNull(contexto.getEnvironment().getProperty("local.server.port")));
 		emissoresSse = contexto.getBean(EmissoresSse.class);

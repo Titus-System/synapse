@@ -107,6 +107,14 @@ public class AppMetrics {
 			.register(this.registry);
 	}
 
+	/** Tentativas por desfecho; aplicada, sem_alteracao e bloqueada exigem commit. */
+	public Counter correcaoProposta(String resultado) {
+		return Counter.builder("correcao.propostas")
+			.description("Tentativas de consumo de correcao-proposta por resultado; reentrega processada é duplicada")
+			.tag("resultado", resultado)
+			.register(this.registry);
+	}
+
 	/** Mensagens de correção confirmadas por resultado, não jobs distintos. */
 	public Counter etapaAlteradaCorrecao(String resultado) {
 		return Counter.builder("etapa.alterada.correcao")

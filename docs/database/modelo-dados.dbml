@@ -155,6 +155,7 @@ Table rodadas_correcao {
   rodada_anterior_id uuid [null, ref: > rodadas_correcao.id, note: 'null na primeira rodada; encadeia o historico sem bifurcacao']
   criada_em timestamptz [not null]
   atualizada_em timestamptz [not null]
+  proposta_nao_aplicada jsonb [null, note: 'Evento completo sem nova versao, preservado pela API: contracts/events/correcao-proposta.schema.json; sem exposicao HTTP/SSE']
 
   indexes {
     (rodada_anterior_id) [unique, name: 'uq_rodadas_correcao_rodada_anterior_id', note: 'indice PARCIAL: WHERE rodada_anterior_id IS NOT NULL; impede bifurcacao da cadeia']
@@ -240,6 +241,13 @@ Table regras {
   versao int [not null, note: 'sequencial dentro do job']
   origem text [not null, note: 'confirmacao_usuario | sugestao_adaptacao | reprocessamento | extracao | correcao']
   regra_origem_id uuid [ref: > regras.id, note: 'NULL na versao raiz. Self; de qual versao foi derivada. N-1: varias versoes podem sair da mesma origem (alternativas do laco de adaptacao), cada versao tem no maximo um pai']
+  representacao jsonb [note: '''
+Formato: contracts/domain/representacao-regra.schema.json. Artefato completo recebido
+por correcao-proposta, incluindo extensoes da raiz e estruturas internas. NULL nas
+versoes legadas, sem backfill. CHECK ck_regras_representacao_coerente exige objeto
+com nucleo e especificacoes iguais as colunas homonimas quando nao e SQL NULL.
+Nao altera o algoritmo do hash nem o consumo de extensoes pelo codegen.
+''']
   nucleo jsonb [not null, note: '''
 Formato: contracts/domain/regra-nucleo.schema.json
 Os cinco campos do vocabulario canonico da DEC-084: vigencia, loja, marca, cargo,

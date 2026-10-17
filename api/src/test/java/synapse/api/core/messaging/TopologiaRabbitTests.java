@@ -33,8 +33,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TopologiaRabbitTests {
 
 	private static final List<String> FILAS_SIMPLES = List.of(RabbitTopologyConfig.CORRECAO_SUBMETIDA,
-			RabbitTopologyConfig.REGRA_SUBMETIDA, RabbitTopologyConfig.PARAMETROS_CONFIRMADOS,
-			RabbitTopologyConfig.ETAPA_ALTERADA, RabbitTopologyConfig.NO_CONCLUIDO, RabbitTopologyConfig.REGRA_EXTRAIDA,
+			RabbitTopologyConfig.CORRECAO_PROPOSTA, RabbitTopologyConfig.REGRA_SUBMETIDA,
+			RabbitTopologyConfig.PARAMETROS_CONFIRMADOS, RabbitTopologyConfig.ETAPA_ALTERADA,
+			RabbitTopologyConfig.NO_CONCLUIDO, RabbitTopologyConfig.REGRA_EXTRAIDA,
 			RabbitTopologyConfig.META_VENDA_SUGERIDA);
 
 	private static final String FILA_CODEGEN_SIMULADA = "simulacao-concluida.codegen";
@@ -65,10 +66,10 @@ class TopologiaRabbitTests {
 	@BeforeEach
 	void limparOBroker() throws Exception {
 		for (String fila : List.of(RabbitTopologyConfig.CORRECAO_SUBMETIDA, RabbitTopologyConfig.REGRA_SUBMETIDA,
-				RabbitTopologyConfig.PARAMETROS_CONFIRMADOS, RabbitTopologyConfig.ETAPA_ALTERADA,
-				RabbitTopologyConfig.NO_CONCLUIDO, RabbitTopologyConfig.REGRA_EXTRAIDA,
-				RabbitTopologyConfig.SIMULACAO_CONCLUIDA_API, RabbitTopologyConfig.META_VENDA_SUGERIDA,
-				FILA_CODEGEN_SIMULADA)) {
+				RabbitTopologyConfig.CORRECAO_PROPOSTA, RabbitTopologyConfig.PARAMETROS_CONFIRMADOS,
+				RabbitTopologyConfig.ETAPA_ALTERADA, RabbitTopologyConfig.NO_CONCLUIDO,
+				RabbitTopologyConfig.REGRA_EXTRAIDA, RabbitTopologyConfig.SIMULACAO_CONCLUIDA_API,
+				RabbitTopologyConfig.META_VENDA_SUGERIDA, FILA_CODEGEN_SIMULADA)) {
 			manter("delete", "queue", "name=" + fila);
 		}
 		manter("delete", "exchange", "name=" + RabbitTopologyConfig.SIMULACAO_CONCLUIDA_EXCHANGE);

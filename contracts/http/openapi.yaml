@@ -829,8 +829,12 @@ paths:
           $ref: "#/components/responses/JobNaoEncontrado"
         "409":
           description: |
-            O job não está aguardando confirmação de parâmetros. Confirmar duas vezes
-            ou confirmar um job já finalizado cai aqui.
+            O job não está aguardando confirmação de parâmetros, ou a regra e os
+            parâmetros enviados correspondem a uma versão que a validação já analisou
+            e apontou com conflitos. Confirmar duas vezes ou confirmar um job já
+            finalizado cai no primeiro caso. No segundo, o `codigo` é o mesmo e a
+            `mensagem` pede que a regra ou os parâmetros sejam alterados antes de
+            confirmar: a versão já analisada não é retomada como está.
           content:
             application/json:
               schema:
@@ -840,6 +844,10 @@ paths:
                   value:
                     codigo: estado_invalido
                     mensagem: Este job não está aguardando confirmação de parâmetros.
+                versaoJaAnalisada:
+                  value:
+                    codigo: estado_invalido
+                    mensagem: Esta versão já foi analisada. Altere a regra ou os parâmetros antes de confirmar.
         "422":
           description: |
             A regra não pode ser simulada como está. `codigo` distingue campo ausente
