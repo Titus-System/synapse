@@ -56,7 +56,7 @@ record EntradaSubmissao(String texto, @Nullable UUID jobId) {
 	static EntradaSubmissao ler(JsonNode raiz, String tipo) {
 		boolean correcao = "correcao".equals(raiz.path("finalidade").asString());
 		if ((!"entrada_inicial".equals(raiz.path("finalidade").asString()) && !correcao)
-				|| !tipo.equals(raiz.path("tipo").asString()) || (correcao && !"texto".equals(tipo))) {
+				|| !tipo.equals(raiz.path("tipo").asString())) {
 			throw SubmissaoException.requisicao("Informe finalidade e tipo compatíveis com a submissão.");
 		}
 		String texto = "";

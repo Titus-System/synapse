@@ -22,6 +22,7 @@ import synapse.api.core.security.PapelDoUsuario;
 import synapse.api.core.sse.EmissoresSse;
 import synapse.api.job.JobsDeSubmissoes.CorrecaoRecusada;
 import synapse.api.job.JobsDeSubmissoes.Rodada;
+import synapse.api.job.JobsDeSubmissoes.TipoEntrada;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -60,7 +61,7 @@ class ReceberCorrecaoTests {
 
 	private final JobsDeSubmissoesService service = new JobsDeSubmissoesService(jobs, mock(MaquinaDeEstadosDoJob.class),
 			new AutorizadorDeJob(jobs), outbox, new CorrelationContext(), mock(AppMetrics.class),
-			mock(EmissoresSse.class), rodadas);
+			mock(EmissoresSse.class), rodadas, mock(RodadasCorrecaoRepository.class));
 
 	@BeforeEach
 	void preparar() {
@@ -85,13 +86,13 @@ class ReceberCorrecaoTests {
 
 	@Test
 	void autorizaTravaConfereAntesDeGravarERegistraOContratoDoEvento() throws Exception {
-		var recebida = service.corrigir(JOB, RH, gravar, AGORA);
+		var recebida = service.corrigir(JOB, TipoEntrada.TEXTO, RH, gravar, AGORA);
 		var ordem = inOrder(jobs, rodadas, gravar, outbox);
 		ordem.verify(jobs).buscarProprietario(JOB);
 		ordem.verify(jobs).buscarContextoComTrava(JOB);
 		ordem.verify(rodadas).abertas(JOB);
 		ordem.verify(gravar).apply(RODADA);
-		ordem.verify(rodadas).receber(RODADA, SUBMISSAO, AGORA);
+		ordem.verify(rodadas).receber(RODADA, SUBMISSAO, EstadoRodada.EM_REEXTRACAO, AGORA);
 		var evento = ArgumentCaptor.forClass(CorrecaoSubmetidaDto.class);
 		ordem.verify(outbox).registrar(eq(JOB), eq(EventoOutbox.CORRECAO_SUBMETIDA), evento.capture());
 		assertThat(recebida.submissaoId()).isEqualTo(SUBMISSAO);
@@ -103,10 +104,25 @@ class ReceberCorrecaoTests {
 	}
 
 	@Test
+	void vozDeixaARodadaEmTranscricaoSemRegistrarEvento() {
+		when(rodadas.buscar(RODADA)).thenReturn(rodada(EstadoRodada.EM_TRANSCRICAO));
+		var recebida = service.corrigir(JOB, TipoEntrada.VOZ, RH, gravar, AGORA);
+		var ordem = inOrder(jobs, rodadas, gravar);
+		ordem.verify(jobs).buscarProprietario(JOB);
+		ordem.verify(jobs).buscarContextoComTrava(JOB);
+		ordem.verify(rodadas).abertas(JOB);
+		ordem.verify(gravar).apply(RODADA);
+		ordem.verify(rodadas).receber(RODADA, SUBMISSAO, EstadoRodada.EM_TRANSCRICAO, AGORA);
+		verifyNoInteractions(outbox);
+		assertThat(recebida.submissaoId()).isEqualTo(SUBMISSAO);
+		assertThat(recebida.rodada().estado()).isEqualTo("em_transcricao");
+	}
+
+	@Test
 	void omiteParametrosAusentesConformeSchema() throws Exception {
 		when(jobs.buscarContextoComTrava(JOB)).thenReturn(List.of(new JobRepository.ContextoDoJob(JOB,
 				JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS, "texto", List.of("2025-11"), null, null, null)));
-		service.corrigir(JOB, RH, gravar, AGORA);
+		service.corrigir(JOB, TipoEntrada.TEXTO, RH, gravar, AGORA);
 		var evento = ArgumentCaptor.forClass(CorrecaoSubmetidaDto.class);
 		verify(outbox).registrar(eq(JOB), eq(EventoOutbox.CORRECAO_SUBMETIDA), evento.capture());
 		String payload = new JsonMapper().writeValueAsString(evento.getValue());
@@ -153,13 +169,13 @@ class ReceberCorrecaoTests {
 	}
 
 	private void recusa(AcessoDoUsuario acesso, int status, String codigo) {
-		assertThatThrownBy(() -> service.corrigir(JOB, acesso, gravar, AGORA))
+		assertThatThrownBy(() -> service.corrigir(JOB, TipoEntrada.TEXTO, acesso, gravar, AGORA))
 			.isInstanceOfSatisfying(CorrecaoRecusada.class, ex -> {
 				assertThat(ex.status()).isEqualTo(status);
 				assertThat(ex.codigo()).isEqualTo(codigo);
 			});
 		verifyNoInteractions(gravar, outbox);
-		verify(rodadas, never()).receber(any(), any(), any());
+		verify(rodadas, never()).receber(any(), any(), any(), any());
 	}
 
 }

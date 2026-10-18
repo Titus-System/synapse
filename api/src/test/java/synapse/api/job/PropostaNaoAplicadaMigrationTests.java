@@ -65,7 +65,7 @@ class PropostaNaoAplicadaMigrationTests {
 						String.class, rodada))
 					.isNull();
 				liquibase.update(new Contexts());
-				assertThat(jdbc.queryForObject("SELECT count(*) FROM databasechangelog", Integer.class)).isEqualTo(31);
+				assertThat(jdbc.queryForObject("SELECT count(*) FROM databasechangelog", Integer.class)).isEqualTo(32);
 				jdbc.execute("ALTER ROLE synapse_api WITH PASSWORD 'senha-de-teste'");
 				jdbc.execute("ALTER ROLE synapse_codegen WITH PASSWORD 'senha-de-teste'");
 				jdbc.execute("ALTER ROLE synapse_worker WITH PASSWORD 'senha-de-teste'");
@@ -90,7 +90,7 @@ class PropostaNaoAplicadaMigrationTests {
 					.isInstanceOfSatisfying(DataAccessException.class,
 							e -> assertThat(((java.sql.SQLException) e.getMostSpecificCause()).getSQLState())
 								.isEqualTo("42501"));
-				liquibase.rollback(1, new Contexts(), new LabelExpression());
+				liquibase.rollback(2, new Contexts(), new LabelExpression());
 				assertThat(jdbc.queryForObject(
 						"SELECT count(*) FROM information_schema.columns WHERE table_name = 'rodadas_correcao' AND column_name = 'proposta_nao_aplicada'",
 						Integer.class))

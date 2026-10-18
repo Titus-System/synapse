@@ -43,7 +43,8 @@ class RodadasRepository {
 	}
 
 	List<Rodada> abertas(UUID jobId) {
-		return this.jdbc.query(CONSULTA + " WHERE r.job_id = ? AND r.estado IN ('pendente', 'em_reextracao')",
+		return this.jdbc.query(
+				CONSULTA + " WHERE r.job_id = ? AND r.estado IN ('pendente', 'em_transcricao', 'em_reextracao')",
 				(rs, numero) -> converter(rs), jobId);
 	}
 
@@ -58,11 +59,11 @@ class RodadasRepository {
 				""", Boolean.class, jobId, regraId));
 	}
 
-	void receber(UUID rodadaId, UUID submissaoId, Instant agora) {
+	void receber(UUID rodadaId, UUID submissaoId, EstadoRodada destino, Instant agora) {
 		int alteradas = this.jdbc.update("""
 				UPDATE rodadas_correcao SET estado = ?, submissao_correcao_id = ?, atualizada_em = ?
 				WHERE id = ? AND estado = 'pendente'
-				""", EstadoRodada.EM_REEXTRACAO.paraColuna(), submissaoId, Timestamp.from(agora), rodadaId);
+				""", destino.paraColuna(), submissaoId, Timestamp.from(agora), rodadaId);
 		if (alteradas != 1) {
 			throw new IllegalStateException("A rodada não está mais pendente.");
 		}
@@ -71,7 +72,8 @@ class RodadasRepository {
 	void corrigir(UUID jobId, UUID rodadaId, UUID regraAnalisadaId, UUID regraResultanteId, Instant agora) {
 		int alteradas = this.jdbc.update("""
 				UPDATE rodadas_correcao SET estado = 'corrigida', regra_resultante_id = ?, atualizada_em = ?
-				WHERE id = ? AND job_id = ? AND regra_analisada_id = ? AND estado IN ('pendente', 'em_reextracao')
+				WHERE id = ? AND job_id = ? AND regra_analisada_id = ?
+				AND estado IN ('pendente', 'em_transcricao', 'em_reextracao')
 				AND EXISTS (SELECT 1 FROM regras WHERE id = ? AND job_id = ?)
 				AND EXISTS (SELECT 1 FROM regras WHERE id = ? AND job_id = ?)
 				""", regraResultanteId, Timestamp.from(agora), rodadaId, jobId, regraAnalisadaId, regraAnalisadaId,
@@ -84,7 +86,7 @@ class RodadasRepository {
 	int abandonarAbertas(UUID jobId, Instant agora) {
 		return this.jdbc.update("""
 				UPDATE rodadas_correcao SET estado = ?, atualizada_em = ?
-				WHERE job_id = ? AND estado IN ('pendente', 'em_reextracao')
+				WHERE job_id = ? AND estado IN ('pendente', 'em_transcricao', 'em_reextracao')
 				""", EstadoRodada.ABANDONADA.paraColuna(), Timestamp.from(agora), jobId);
 	}
 

@@ -54,12 +54,18 @@ class SubmissoesController {
 			HttpServletRequest request) throws IOException {
 		var acesso = this.usuario.obter();
 		request.setAttribute("submissao.usuario", acesso.usuarioId().toString());
-		try (var escopo = this.correlacao.abrir(null, acesso.usuarioId().toString())) {
-			var entrada = EntradaSubmissao.ler(parametros, "voz");
+		var raiz = EntradaSubmissao.analisar(parametros);
+		request.setAttribute("submissao.correcao", "correcao".equals(raiz.path("finalidade").asString()));
+		var jobId = EntradaSubmissao.jobDaCorrecao(raiz);
+		String job = jobId == null ? null : jobId.toString();
+		request.setAttribute("submissao.job", job);
+		try (var escopo = this.correlacao.abrir(job, acesso.usuarioId().toString())) {
+			var entrada = EntradaSubmissao.ler(raiz, "voz");
 			var audio = AudioSubmissao.ler(arquivo);
 			request.setAttribute("submissao.formato", audio.formato());
 			request.setAttribute("submissao.faixa", audio.faixa());
-			var resposta = this.service.voz(entrada, audio, acesso);
+			var resposta = this.service.voz(entrada, audio, acesso,
+					rodada -> request.setAttribute("submissao.rodada", rodada.toString()));
 			request.setAttribute("submissao.job", resposta.job().id().toString());
 			return resposta;
 		}

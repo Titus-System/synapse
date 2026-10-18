@@ -141,7 +141,7 @@ Table trabalhos_transcricao {
     (submissao_id) [unique, name: 'uq_trabalhos_transcricao_submissao_id']
   }
 
-  Note: 'Controle pertencente a API, com SELECT, INSERT e UPDATE, sem DELETE. Codegen e worker nao acessam. No maximo um trabalho por submissao. Audio e formato permanecem em submissoes; a transacao final do processamento preenche transcricao e transcrito_em. A reserva usa FOR UPDATE SKIP LOCKED e a chamada ao provedor fica fora de transacao. Falha transitoria agenda proxima_tentativa_em; tentativas persistem entre reinicios e incluem reservas vencidas. O limite de tentativas termina o job em erro_transcricao. Finalidade correcao fica para a T-238.'
+  Note: 'Controle pertencente a API, com SELECT, INSERT e UPDATE, sem DELETE. Codegen e worker nao acessam. No maximo um trabalho por submissao. Audio e formato permanecem em submissoes; a transacao final do processamento preenche transcricao e transcrito_em. A reserva usa FOR UPDATE SKIP LOCKED e a chamada ao provedor fica fora de transacao. Falha transitoria agenda proxima_tentativa_em; tentativas persistem entre reinicios e incluem reservas vencidas. O limite de tentativas termina o job em erro_transcricao. Na finalidade correcao, a transacao final leva a rodada de em_transcricao a em_reextracao e registra correcao-submetida; a falha fecha a rodada como reextracao_falhou e abre uma pendente nova, sem mudar o job.'
 }
 
 Table rodadas_correcao {
@@ -149,7 +149,7 @@ Table rodadas_correcao {
   job_id uuid [not null, ref: > jobs.id]
   regra_analisada_id uuid [not null, ref: > regras.id, note: 'versao que produziu os conflitos']
   conflitos jsonb [not null, note: 'Formato: contracts/domain/conflitos-rodada.schema.json']
-  estado text [not null, note: 'pendente | em_reextracao | reextracao_falhou | corrigida | abandonada']
+  estado text [not null, note: 'pendente | em_transcricao | em_reextracao | reextracao_falhou | corrigida | abandonada']
   submissao_correcao_id uuid [null, ref: > submissoes.id, note: 'null ate o envio da correcao; submissao propria e imutavel']
   regra_resultante_id uuid [null, ref: > regras.id, note: 'null ate existir uma versao resultante; a versao permanece imutavel']
   rodada_anterior_id uuid [null, ref: > rodadas_correcao.id, note: 'null na primeira rodada; encadeia o historico sem bifurcacao']
@@ -159,10 +159,10 @@ Table rodadas_correcao {
 
   indexes {
     (rodada_anterior_id) [unique, name: 'uq_rodadas_correcao_rodada_anterior_id', note: 'indice PARCIAL: WHERE rodada_anterior_id IS NOT NULL; impede bifurcacao da cadeia']
-    (job_id) [unique, name: 'uq_rodadas_correcao_job_id_aberta', note: "indice PARCIAL: WHERE estado IN ('pendente', 'em_reextracao'); no maximo uma rodada aberta por job"]
+    (job_id) [unique, name: 'uq_rodadas_correcao_job_id_aberta', note: "indice PARCIAL: WHERE estado IN ('pendente', 'em_transcricao', 'em_reextracao'); no maximo uma rodada aberta por job"]
   }
 
-  Note: 'Rodada mutavel: a API atualiza estado e referencias conforme o fluxo. A estrutura e da T-214; os fluxos pertencem a T-215/T-216/T-217/T-225.'
+  Note: 'Rodada mutavel: a API atualiza estado e referencias conforme o fluxo. A estrutura e da T-214; os fluxos pertencem a T-215/T-216/T-217/T-225/T-238.'
 }
 
 Table job_transicoes {

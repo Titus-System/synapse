@@ -327,7 +327,7 @@ class ConfirmarParametrosPersistenciaTests {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "pendente", "em_reextracao" })
+	@ValueSource(strings = { "pendente", "em_transcricao", "em_reextracao" })
 	void confirmacaoFechaSomenteARodadaAbertaDaVersaoAtual(String estado) throws Exception {
 		UUID job = criarJob();
 		UUID origem = regraId(job, 1);
@@ -490,7 +490,8 @@ class ConfirmarParametrosPersistenciaTests {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "pendente", "em_reextracao", "corrigida", "abandonada", "reextracao_falhou" })
+	@ValueSource(
+			strings = { "pendente", "em_transcricao", "em_reextracao", "corrigida", "abandonada", "reextracao_falhou" })
 	void versaoJaAnalisadaNaoReabreCicloNemModificaHistorico(String estado) throws Exception {
 		UUID job = criarJob();
 		UUID id = inserirRodada(job, regraId(job, 1), estado);

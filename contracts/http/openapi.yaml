@@ -2803,11 +2803,12 @@ components:
           description: |
             Situação reportada para a etapa iniciada. `erro` indica falha do
             processamento antes da simulação e é seguido de um evento `estado` para
-            `erro`, que encerra o stream. A exceção é a falha da reextração de uma
-            correção, `erro` na etapa `extracao_parametros` com o job em
-            `aguardando_confirmacao_parametros`: o job não muda de estado, e a correção
-            é reaberta numa rodada `pendente` nova, consultável em
-            `GET /jobs/{id}/rodadas`. `aguardando_correcao` na etapa `confirmacao`
+            `erro`, que encerra o stream. A exceção é a correção que não chegou a uma
+            versão, `erro` na etapa `extracao_parametros` com o job em
+            `aguardando_confirmacao_parametros`: o codegen não conseguiu reextrair a
+            regra ou, na correção por voz, a transcrição do áudio falhou. O job não muda
+            de estado, e a correção é reaberta numa rodada `pendente` nova, consultável
+            em `GET /jobs/{id}/rodadas`. `aguardando_correcao` na etapa `confirmacao`
             anuncia que a validação apontou os `conflitos` deste evento, e é seguido de
             um evento `estado` para `aguardando_confirmacao_parametros`.
             `aguardando_provedor` avisa que o serviço de IA está com alta demanda e que

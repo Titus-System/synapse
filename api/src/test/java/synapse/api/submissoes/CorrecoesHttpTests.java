@@ -253,7 +253,8 @@ class CorrecoesHttpTests {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "ausente", "em_reextracao", "corrigida", "abandonada", "reextracao_falhou" })
+	@ValueSource(
+			strings = { "ausente", "em_transcricao", "em_reextracao", "corrigida", "abandonada", "reextracao_falhou" })
 	void recusaSemRodadaPendente(String estado) throws Exception {
 		prepararJob();
 		if (estado.equals("ausente")) {
@@ -384,7 +385,7 @@ class CorrecoesHttpTests {
 	@Test
 	void portaNaoPodeSerChamadaSemTransacao() {
 		var porta = contexto.getBean(JobsDeSubmissoes.class);
-		assertThatThrownBy(() -> porta.corrigir(JOB,
+		assertThatThrownBy(() -> porta.corrigir(JOB, JobsDeSubmissoes.TipoEntrada.TEXTO,
 				new synapse.api.core.security.AcessoDoUsuario(USUARIO,
 						synapse.api.core.security.PapelDoUsuario.PROFISSIONAL_RH),
 				rodada -> UUID.randomUUID(), Instant.now()))
@@ -423,13 +424,13 @@ class CorrecoesHttpTests {
 			var scrape = get("/metrics", "");
 			assertThat(scrape.statusCode()).isEqualTo(200);
 			for (String resultado : resultados) {
-				assertThat(scrape.body())
-					.contains("submissoes_correcoes_total{resultado=\"" + resultado + "\"} " + contador(resultado));
+				assertThat(scrape.body()).contains("submissoes_correcoes_total{resultado=\"" + resultado
+						+ "\",tipo=\"texto\"} " + contador(resultado));
 			}
 			assertThat(scrape.body()).doesNotContain("Correção privada", JOB.toString(), RODADA.toString());
 			for (var meter : contexto.getBean(MeterRegistry.class).find("submissoes.correcoes").meters()) {
 				assertThat(meter.getId().getTags()).extracting(io.micrometer.core.instrument.Tag::getKey)
-					.containsExactly("resultado");
+					.containsExactlyInAnyOrder("resultado", "tipo");
 			}
 			assertThat(get("/actuator/prometheus", rh).statusCode()).isEqualTo(404);
 		}
@@ -457,6 +458,7 @@ class CorrecoesHttpTests {
 	private static double contador(String resultado) {
 		var counter = contexto.getBean(MeterRegistry.class)
 			.find("submissoes.correcoes")
+			.tag("tipo", "texto")
 			.tag("resultado", resultado)
 			.counter();
 		return counter == null ? 0 : counter.count();

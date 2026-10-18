@@ -64,7 +64,7 @@ sequenceDiagram
 | --- | --- | --- |
 | Estado do job, transições e motivos | api, só por `MaquinaDeEstadosDoJob` | codegen anuncia por evento; frontend exibe |
 | Rodadas (`rodadas_correcao`) | api | codegen com `SELECT`, para o histórico da reextração; frontend por `GET /jobs/{id}/rodadas` |
-| Submissão da correção (`submissoes`, `tipo = texto`, texto em `transcricao`) | api | codegen pelo `submissao_id` |
+| Submissão da correção (`submissoes`, `tipo = texto` ou `voz`, texto em `transcricao`) | api | codegen pelo `submissao_id`, depois de a api gravar a transcrição da voz |
 | Versões da regra (`regras`), inclusive as de origem `correcao` | api | codegen pelo `regra_id`; o codegen só propõe a representação no corpo de `correcao-proposta` |
 | Conflitos | codegen, por `validacao_dominio.verificar` | api grava como recebeu; frontend exibe o `motivo` como recebeu e troca as referências por rótulos do usuário |
 
@@ -75,8 +75,9 @@ Nenhum serviço reinterpreta os conflitos de outro. A api não os reescreve, e o
 | Estado | Aberta | Quem leva a ele | O usuário pode |
 | --- | --- | --- | --- |
 | `pendente` | sim | api, ao processar a pausa ou a falha de uma reextração | enviar uma correção |
-| `em_reextracao` | sim | api, ao aceitar `POST /submissoes` | esperar |
-| `reextracao_falhou` | não | api, ao processar o `erro` da reextração ou uma proposta que não muda a regra | tentar de novo na pendente nova |
+| `em_transcricao` | sim | api, ao aceitar `POST /submissoes` por voz | esperar |
+| `em_reextracao` | sim | api, ao aceitar `POST /submissoes` por texto ou ao gravar a transcrição da voz | esperar |
+| `reextracao_falhou` | não | api, ao processar o `erro` da reextração, uma proposta que não muda a regra ou a falha da transcrição da voz | tentar de novo na pendente nova |
 | `corrigida` | não | api, ao aplicar `correcao-proposta` ou uma confirmação direta | nada; a versão nova segue |
 | `abandonada` | não | api, ao cancelar ou arquivar o job com rodada aberta | nada |
 
@@ -90,7 +91,11 @@ O banco garante no máximo uma rodada aberta por job e no máximo uma sucessora 
 | --- | --- | --- | --- | --- |
 | `etapa-alterada` `confirmacao` + `aguardando_correcao` | job em `gerando_regra`, sem rodada para o `regra_id` | vai a `aguardando_confirmacao_parametros`, motivo `validacao_com_conflitos` | abre `pendente`, com `rodada_anterior_id` na última do job | SSE `etapa` e `estado` |
 | o mesmo | já existe rodada para o `regra_id` | nada | nada | nada (duplicada) |
-| `POST /submissoes` | job em `aguardando_confirmacao_parametros` com rodada `pendente` | nada | `pendente` vai a `em_reextracao`, com a submissão | `correcao-submetida` |
+| `POST /submissoes` por texto | job em `aguardando_confirmacao_parametros` com rodada `pendente` | nada | `pendente` vai a `em_reextracao`, com a submissão | `correcao-submetida` |
+| `POST /submissoes` por voz | o mesmo | nada | `pendente` vai a `em_transcricao`, com a submissão, e o trabalho de transcrição `correcao` é criado | nada |
+| transcrição da voz concluída | rodada daquela submissão em `em_transcricao`, job em `aguardando_confirmacao_parametros` | nada | `em_transcricao` vai a `em_reextracao`, com o texto gravado | `correcao-submetida` |
+| transcrição da voz falhou ou veio vazia | o mesmo | nada | `reextracao_falhou` e `pendente` nova com os mesmos conflitos e a mesma versão analisada | SSE `etapa` (`extracao_parametros`, `erro`) |
+| transcrição da voz terminada | rodada fora de `em_transcricao`, como depois do cancelamento | nada | nada | nada (trabalho descartado) |
 | o mesmo | qualquer outro caso | nada | nada | 409 `estado_invalido` |
 | `correcao-proposta` | rodada `em_reextracao` para `regra_origem_id`, representação nova | vai a `gerando_regra`, motivo `correcao_aplicada` | `corrigida`, com `regra_resultante_id` | `parametros-confirmados` com competências e orçamento |
 | o mesmo | hash igual ao de uma versão que o job já tem | nada | `reextracao_falhou` e `pendente` nova | nada |

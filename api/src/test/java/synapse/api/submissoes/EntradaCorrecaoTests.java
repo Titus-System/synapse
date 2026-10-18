@@ -1,5 +1,6 @@
 package synapse.api.submissoes;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -53,13 +54,23 @@ class EntradaCorrecaoTests {
 	}
 
 	@Test
-	void entradaInicialMantemLimiteEVozNaoRecebeCorrecao() {
+	void entradaInicialMantemLimite() {
 		String inicial = corpo("a".repeat(8000)).replace("correcao", "entrada_inicial");
 		assertThat(EntradaSubmissao.ler(inicial, "texto").jobId()).isNull();
 		assertThat(EntradaSubmissao.ler(inicial, "texto").texto()).hasSize(8000);
-		assertThatThrownBy(
-				() -> EntradaSubmissao.ler(corpo("texto").replace("\"tipo\":\"texto\"", "\"tipo\":\"voz\""), "voz"))
-			.isInstanceOf(SubmissaoException.class);
+	}
+
+	@Test
+	void parametrosDaCorrecaoPorVozLevamSoOJob() {
+		var entrada = EntradaSubmissao.ler("{\"finalidade\":\"correcao\",\"tipo\":\"voz\",\"job_id\":\"" + JOB + "\"}",
+				"voz");
+		assertThat(entrada.jobId()).isEqualTo(JOB);
+		assertThat(entrada.texto()).isEmpty();
+		for (String invalido : List.of("{\"finalidade\":\"correcao\",\"tipo\":\"voz\"}",
+				"{\"finalidade\":\"correcao\",\"tipo\":\"voz\",\"job_id\":\"não-é-uuid\"}",
+				"{\"finalidade\":\"correcao\",\"tipo\":\"texto\",\"job_id\":\"" + JOB + "\"}")) {
+			assertThatThrownBy(() -> EntradaSubmissao.ler(invalido, "voz")).isInstanceOf(SubmissaoException.class);
+		}
 	}
 
 }
