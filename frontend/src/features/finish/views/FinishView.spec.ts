@@ -59,7 +59,7 @@ describe('FinishView', () => {
     )
     const { wrapper } = await montar()
     expect(wrapper.get('h1').text()).toBe('Finalizar Regra')
-    expect(wrapper.get('h2').text()).toBe('Regra recent')
+    expect(wrapper.get('h2').text()).toBe('Regra · versão 2')
     expect(wrapper.text()).toContain('13')
     expect(wrapper.text()).toContain('482.000')
     wrapper.unmount()
