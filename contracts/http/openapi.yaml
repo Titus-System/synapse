@@ -577,8 +577,9 @@ paths:
       description: |
         Devolve o detalhamento completo do período, sem filtros nem paginação.
         Cada matrícula aparece uma única vez por competência, com a loja e a
-        marca da lotação no RH naquele mês, como no baseline congelado. Valores e
-        diferenças já vêm calculados pelo harness; o frontend só apresenta.
+        marca da lotação no RH naquele mês, como no baseline congelado. Comissões e
+        diferenças já vêm calculadas pelo harness, e o total vendido de cada linha
+        vem somado pelo worker, fora do container; o frontend só apresenta.
 
         Exige a mesma autenticação, papel e posse da consulta do job: o
         solicitante deve ser dono do job ou ter o papel `auditor` que autoriza
@@ -604,7 +605,8 @@ paths:
                     percentual a comissão da marca 10, e elem.1 dá R$ 500 à
                     MATRIC-1 em novembro. As comissões do baseline são congeladas.
                     MATRIC-422 também vendeu na marca 30, loja 47 em agosto, mas
-                    aparece uma vez, na marca 10 e loja 13 da lotação no RH.
+                    aparece uma vez, na marca 10 e loja 13 da lotação no RH, com as
+                    vendas das duas lojas somadas em vendas.
                   value:
                     simulacao_id: "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"
                     linhas:
@@ -613,6 +615,7 @@ paths:
                           cod_loja: "75"
                           cod_marca: "20"
                           cod_cargo: "200"
+                          vendas: 20970.0
                           comissao_baseline: 524.25
                           comissao_simulada: 524.25
                           diferenca: 0
@@ -621,6 +624,7 @@ paths:
                           cod_loja: "13"
                           cod_marca: "10"
                           cod_cargo: "150"
+                          vendas: 4733.0
                           comissao_baseline: 1065.03
                           comissao_simulada: 1597.55
                           diferenca: 532.52
@@ -630,6 +634,7 @@ paths:
                           cod_loja: "75"
                           cod_marca: "20"
                           cod_cargo: "200"
+                          vendas: 24785.01
                           comissao_baseline: 619.63
                           comissao_simulada: 1119.63
                           diferenca: 500.0

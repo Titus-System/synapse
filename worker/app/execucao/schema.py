@@ -77,16 +77,40 @@ def carregar_contratos() -> None:
     validador(ESQUEMA_LINHAS)
 
 
+# O que só o worker acrescenta a cada linha do detalhamento, da mesma fonte de
+# ``vendas_historicas``: o total vendido da matrícula na competência (T-282).
+CAMPOS_DA_LINHA_DO_WORKER = ("vendas",)
+
+
 def validar_linhas(linhas: object, competencias: Sequence[str]) -> list[Problema]:
     """Valida a forma e o período; conferência dos valores pertence à T-262.
 
     Caminhos do validador contêm chaves arbitrárias do container (inclusive matrícula).
     O diagnóstico e os logs levam somente a raiz estática e a classe do erro.
+
+    Um campo que só o worker acrescenta (``CAMPOS_DA_LINHA_DO_WORKER``) é válido no schema, então
+    a validação não o recusa sozinha. Presente numa linha que saiu do container, é reprovado: o
+    harness não o produz, e o código gerado não pode escolher o número que a tela mostra ao lado
+    da comissão.
     """
     palavras = {str(erro.validator) for erro in validador(ESQUEMA_LINHAS).iter_errors(linhas)}
     if isinstance(linhas, dict) and set(linhas) != set(competencias):
         palavras.add("competencias_divergentes")
+    if _tem_campo_do_worker(linhas):
+        palavras.add("fornecido_pelo_container")
     return [Problema(caminho="$.linhas", palavra_chave=p) for p in sorted(palavras)]
+
+
+def _tem_campo_do_worker(linhas: object) -> bool:
+    if not isinstance(linhas, Mapping):
+        return False
+    return any(
+        isinstance(linha, Mapping) and campo in linha
+        for colaboradores in linhas.values()
+        if isinstance(colaboradores, Mapping)
+        for linha in colaboradores.values()
+        for campo in CAMPOS_DA_LINHA_DO_WORKER
+    )
 
 
 # Os totais que só o worker acrescenta, de fontes que o código gerado não alcança: o orçamento

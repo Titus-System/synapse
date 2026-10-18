@@ -18,6 +18,11 @@ META_2025_11 = 14598849.661
 BASELINE_NA_META_2025_11 = 558870.26
 SIMULADO_DO_EXEMPLO_NA_META = 543091.28
 
+# O total vendido que o worker acrescenta à linha de MATRIC-1 em novembro (T-282): R$ 24.785,01
+# nas vendas históricas, e 1,1 vez isso, arredondado ao centavo, nas escaladas até a meta.
+VENDAS_MATRIC_1_2025_11 = 24785.01
+VENDAS_MATRIC_1_NA_META_2025_11 = 27263.51
+
 # Infla em 10% o baseline que o harness guarda, pelo gc: uma economia inventada que só a
 # conferência do worker denuncia.
 INFLA_O_BASELINE = REGRA_QUE_INFLA_O_BASELINE_DO_HARNESS

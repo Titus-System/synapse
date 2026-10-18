@@ -5,6 +5,7 @@ import re
 import threading
 import time
 from collections.abc import AsyncIterator, Callable, Iterator
+from decimal import ROUND_HALF_UP, Decimal
 from queue import Queue
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -30,7 +31,7 @@ from app.mensageria.retry import HEADER_RETRY
 from app.repositorio.codigos_gerados import CodigoGerado, CodigoNaoEncontradoError
 from app.repositorio.resultados import ResultadoGravado
 from tests.app.esquemas import erros_do_dominio, erros_do_evento, erros_do_log
-from tests.app.execucao.envelopes import FALHA, resultado_para
+from tests.app.execucao.envelopes import FALHA, linhas_para, resultado_para
 from tests.app.execucao.envelopes import saida as _saida
 from tests.app.mensageria.resultado_falso import DIARIO, BancoDeResultadosFalso, ExchangeFalsa
 from tests.app.mensageria.sandbox_falso import SandboxFalso, saida_para
@@ -1531,6 +1532,9 @@ class BasesQueRegistram:
     def vendas_historicas(self, competencias: list[str]) -> Any:
         return self._bases.vendas_historicas(competencias)
 
+    def vendas_por_linha(self, competencias: list[str], meta_venda: float | None) -> Any:
+        return self._bases.vendas_por_linha(competencias, meta_venda)
+
 
 @pytest.fixture
 def bases_que_registram(
@@ -1579,6 +1583,10 @@ async def test_na_meta_o_worker_reapura_antes_do_container_e_grava_e_publica_a_m
     assert linha["totais"]["baseline"] == reapurado != 363021.46
     assert linha["totais"]["vendas_historicas"] == VENDAS_2025_08
     assert erros_do_dominio("resultado-totais", linha["totais"]) == []
+    # MATRIC-1 vendeu R$ 20.970,00 em agosto; na meta, a linha mostra essa venda escalada (T-282).
+    fator = Decimal(str(META)) / Decimal(str(VENDAS_2025_08))
+    escalada = (Decimal("20970") * fator).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    assert linha["linhas"]["2025-08"]["MATRIC-1"]["vendas"] == float(escalada)
     (evento,) = _publicados(broker)
     assert evento["meta_venda"] == META and evento.get("proposito") == no_evento
     assert erros_do_evento("simulacao-concluida", evento) == []
@@ -1821,6 +1829,10 @@ async def test_envelope_medido_no_consumidor_e_exposto_em_metrics(
     assert gravacao["extra"]["linhas_detalhadas"] == (1 if status == "sucesso" else 0)
     assert "MATRIC-1" not in json.dumps(registros)
     linhas = json.loads(respostas[0].stdout)["linhas"]
+    if status == "sucesso":
+        # O worker acrescenta o total vendido das próprias bases (T-282): no dataset canônico,
+        # MATRIC-1 vendeu R$ 20.970,00 em 2025-08.
+        linhas["2025-08"]["MATRIC-1"]["vendas"] = 20970.0
     assert banco.gravados[0]["linhas"] == linhas
     assert "linhas" not in json.loads(broker.exchange.publicadas[0].body)
 
@@ -1856,6 +1868,83 @@ async def test_recusa_do_detalhamento_na_coleta_nao_expoe_chaves_nem_valores(
     assert segredo not in json.dumps(registros)
     assert banco.gravados[0]["linhas"] is None
     assert segredo not in json.dumps(banco.gravados[0]["diagnostico"])
+
+
+async def test_vendas_fabricadas_pelo_container_nao_chegam_ao_detalhamento(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    """O total vendido é do worker (T-282). Um container que o devolve não grava detalhamento, e o
+    log e o diagnóstico levam só a classe, nunca o valor escolhido por ele."""
+
+    def com_vendas(payload: PayloadContainer) -> SaidaBruta:
+        linhas = linhas_para(payload.competencias)
+        for colaboradores in linhas.values():
+            for linha in colaboradores.values():
+                linha["vendas"] = 987654.32
+        return saida_para(payload, linhas=linhas)
+
+    sandbox.resposta = com_vendas
+    mensagem = MensagemFalsa(body=_corpo_comando())
+    broker, _ = _preparar(monkeypatch, [mensagem], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    registros = linhas_de_log()
+    assert all(erros_do_log(r) == [] for r in registros)
+    recusa = next(r for r in registros if r["message"] == "detalhamento recusado")
+    assert recusa["job_id"] == json.loads(mensagem.body)["job_id"]
+    assert recusa["extra"] == {
+        "status": "erro_codigo",
+        "motivo": "resultado_fora_do_schema",
+        "classes": ["fornecido_pelo_container"],
+    }
+    (gravado,) = banco.gravados
+    assert (gravado["status"], gravado["linhas"]) == ("erro_codigo", None)
+    assert gravado["diagnostico"]["problemas"] == [
+        {"caminho": "$.linhas", "palavra_chave": "fornecido_pelo_container"}
+    ]
+    assert "987654" not in json.dumps(registros)
+
+
+async def test_o_julgamento_nao_bloqueia_o_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    """Somar o total vendido de cada linha percorre as vendas do período inteiro (T-282): no loop
+    pararia o heartbeat do RabbitMQ e o `/metrics` por todo esse tempo.
+
+    `liberar` só é acionado pelo loop, depois de o julgamento ter começado: se ele estivesse no
+    loop, a espera de dentro dele terminaria por timeout e não por progresso.
+    """
+    entrou, liberar = threading.Event(), threading.Event()
+    progrediu: list[bool] = []
+    real = consumidor.julgar
+
+    def julgar_devagar(*args: Any, **kwargs: Any) -> Any:
+        entrou.set()
+        progrediu.append(liberar.wait(2))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(consumidor, "julgar", julgar_devagar)
+    mensagem = MensagemFalsa(body=_corpo_comando())
+    broker, _ = _preparar(monkeypatch, [mensagem], _codigo())
+
+    consumo = asyncio.create_task(consumir_fila_execucao(broker))
+    await asyncio.to_thread(entrou.wait, 5)
+    liberar.set()
+    await consumo
+
+    assert progrediu == [True]
+    assert banco.gravados[0]["status"] == "sucesso"
+    assert banco.gravados[0]["linhas"]["2025-08"]["MATRIC-1"]["vendas"] == 20970.0
+    registros = linhas_de_log()
+    julgada = next(r for r in registros if r["message"] == "execução julgada")
+    assert julgada["job_id"] == json.loads(mensagem.body)["job_id"]
 
 
 async def test_a_classificacao_do_envelope_nao_bloqueia_o_event_loop(

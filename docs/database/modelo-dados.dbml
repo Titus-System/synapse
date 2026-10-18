@@ -453,6 +453,9 @@ Formato: contracts/domain/resultado-linhas.schema.json
 Objeto indexado por competencia e, dentro dela, por matricula: uma entrada por mes e
 colaborador, com loja, marca e cargo do RH no mes. Loja e marca sao as da lotacao,
 como no baseline congelado; vendas em outras lojas ou marcas ficam na mesma linha.
+vendas e o total vendido da matricula na competencia, somado pelo worker fora do
+container a partir das bases (T-282): as vendas historicas, ou as escaladas ate a meta
+numa execucao com meta_venda. Ausente nas linhas gravadas antes do campo.
 NULL quando status <> sucesso e nos resultados gravados antes desta mudanca.
 Escrito inteiro pelo worker no mesmo INSERT do resultado e lido pela API.
 jsonb porque e escrito de uma vez e lido inteiro, sem filtros nem paginacao.
