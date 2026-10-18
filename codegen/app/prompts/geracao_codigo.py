@@ -193,8 +193,7 @@ _CONVENCOES_CONDICAO_LIMIAR = {
 def _possui_construto(regra: dict[str, ValorRegra], construto: str) -> bool:
     especificacoes = regra.get("especificacoes")
     return isinstance(especificacoes, list) and any(
-        isinstance(item, dict) and item.get("construto") == construto
-        for item in especificacoes
+        isinstance(item, dict) and item.get("construto") == construto for item in especificacoes
     )
 
 

@@ -767,9 +767,7 @@ def test_condicao_limiar_do_caso_t245_recebe_orientacao_de_escopo_e_cobertura() 
     )
     condicao = caso["representacao"]["especificacoes"][0]
     schema = json.loads((CONTRATOS / "regra-especificacoes.schema.json").read_text())
-    instrucao = sistema_do_caso_t245("condicao-limiar-loja")["convencoes"][
-        "condicao_limiar"
-    ]
+    instrucao = sistema_do_caso_t245("condicao-limiar-loja")["convencoes"]["condicao_limiar"]
 
     assert (condicao["construto"], condicao["metrica"], condicao["escopo_agregacao"]) == (
         "condicao_limiar",
