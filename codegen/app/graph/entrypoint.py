@@ -250,10 +250,11 @@ async def resume_to_completion(
 
 
 async def ciclos_do_job(job_id: UUID) -> list[Ciclo]:
-    """Os ciclos do job no checkpointer, de todas as versões da regra e do formato legado.
+    """Os ciclos do job no checkpointer: de todas as versões da regra, das reextrações e legados.
 
-    O legado usa o próprio `job_id` como thread, e os ciclos versionados, `job_id:regra_id`
-    (`app/mensageria/roteamento.py::thread_do_ciclo`); nenhuma thread de outro job casa.
+    O legado usa o próprio `job_id` como thread, os ciclos versionados, `job_id:regra_id`
+    (`app/mensageria/roteamento.py::thread_do_ciclo`), e os de reextração,
+    `job_id:correcao:submissao_id` (`thread_da_correcao`); nenhuma thread de outro job casa.
     """
     async with get_checkpointer() as checkpointer:
         # `get_checkpointer` abre uma conexão, nunca um pool (`from_conn_string`).

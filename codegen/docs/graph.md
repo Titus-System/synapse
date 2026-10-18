@@ -12,6 +12,7 @@ graph TD;
 	__start__([<p>__start__</p>]):::first
 	load_rule(load_rule)
 	extract_rule(extract_rule)
+	reextract_rule(reextract_rule)
 	validate_domain(validate_domain)
 	report_conflicts(report_conflicts)
 	code_generation(code_generation)
@@ -26,6 +27,7 @@ graph TD;
 	__end__([<p>__end__</p>]):::last
 	__start__ -.-> extract_rule;
 	__start__ -.-> load_rule;
+	__start__ -.-> reextract_rule;
 	await_execution -.-> decision;
 	await_execution -.-> search_sales_target;
 	code_generation --> persist_response;
@@ -43,6 +45,7 @@ graph TD;
 	validate_domain -.-> report_conflicts;
 	extract_rule --> __end__;
 	publish_sales_target --> __end__;
+	reextract_rule --> __end__;
 	report_conflicts --> __end__;
 	suggest_adaptation --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2

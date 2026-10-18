@@ -16,12 +16,15 @@ from referencing import Registry, Resource
 from app.codigo_gerado import CodigoInvalidoError
 from app.config import Settings
 from app.contratos.mensagens import (
+    CorrecaoProposta,
+    CorrecaoSubmetida,
     EtapaAlterada,
     ExecutarCodigo,
     JobEncerrado,
     ModeloContrato,
     NoConcluido,
     ParametrosConfirmados,
+    ParametrosSimulacao,
     RegraSubmetida,
     SimulacaoConcluida,
     SugestaoAdaptacaoProposta,
@@ -68,6 +71,7 @@ async def test_consumer_entrega_dto_canonico_com_decimal_exato_e_campo_futuro() 
 ENTRADAS = (
     (RegraSubmetida, "regra-submetida"),
     (ParametrosConfirmados, "parametros-confirmados"),
+    (CorrecaoSubmetida, "correcao-submetida"),
     (SimulacaoConcluida, "simulacao-concluida"),
     (JobEncerrado, "job-encerrado"),
 )
@@ -319,6 +323,61 @@ async def test_producer_publica_a_pausa_com_a_versao_e_os_conflitos() -> None:
     canal = MagicMock()
     canal.default_exchange.publish = AsyncMock()
     nome = "etapa-alterada-conflitos"
+    dto = EtapaAlterada.model_validate_json(simplejson.dumps(exemplo(nome)))
+
+    await Producers(canal).etapa_alterada(dto)
+
+    corpo = simplejson.loads(canal.default_exchange.publish.call_args.args[0].body)
+    oficial("etapa-alterada").validate(corpo)
+    assert corpo == exemplo(nome)
+
+
+def proposta_do_exemplo(nome: str = "correcao-proposta") -> CorrecaoProposta:
+    payload = exemplo(nome)
+    proposta = CorrecaoProposta(
+        job_id=UUID(payload["job_id"]),
+        regra_origem_id=UUID(payload["regra_origem_id"]),
+        submissao_id=UUID(payload["submissao_id"]),
+        representacao=representacao_do_exemplo(nome),
+    )
+    # Atribuídos só quando o exemplo os tem: a proposta anterior ao campo sai sem eles.
+    if "parametros" in payload:
+        proposta.parametros = ParametrosSimulacao.model_validate(payload["parametros"])
+    return proposta
+
+
+@pytest.mark.parametrize("nome", ["correcao-proposta", "correcao-proposta-parametros"])
+async def test_producer_publica_a_correcao_proposta_no_payload_oficial(nome: str) -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+
+    await Producers(canal).correcao_proposta(proposta_do_exemplo(nome))
+
+    args = canal.default_exchange.publish.call_args
+    assert args.kwargs == {"routing_key": "correcao-proposta", "mandatory": True}
+    assert args.args[0].type == "correcao-proposta"
+    corpo = simplejson.loads(args.args[0].body, use_decimal=True)
+    oficial("correcao-proposta").validate(corpo)
+    assert corpo == exemplo(nome)
+
+
+async def test_producer_nao_publica_correcao_proposta_adulterada() -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+    dto = proposta_do_exemplo("correcao-proposta-parametros")
+    assert dto.parametros is not None
+    dto.parametros.competencias = []
+
+    with pytest.raises(ProdutorError):
+        await Producers(canal).correcao_proposta(dto)
+
+    canal.default_exchange.publish.assert_not_awaited()
+
+
+async def test_producer_publica_a_falha_da_reextracao_com_a_versao_e_a_correcao() -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+    nome = "etapa-alterada-falha-reextracao"
     dto = EtapaAlterada.model_validate_json(simplejson.dumps(exemplo(nome)))
 
     await Producers(canal).etapa_alterada(dto)
@@ -623,7 +682,7 @@ async def test_broker_usa_confirms_prefetch_e_consumers_com_ack_manual(
 
     conexao.channel.assert_awaited_once_with(publisher_confirms=True, on_return_raises=True)
     canal.set_qos.assert_awaited_once_with(prefetch_count=1)
-    assert len(broker.consumidores) == 4
+    assert len(broker.consumidores) == 5
     for fila, _, _ in broker.consumidores:
         assert fila.consume.call_args.kwargs == {"no_ack": False}
     await broker.fechar()
@@ -649,6 +708,7 @@ async def test_broker_consome_regra_submetida_e_o_resultado_do_worker(
     assert set(consumidos) == {
         "regra-submetida",
         "parametros-confirmados",
+        "correcao-submetida",
         "simulacao-concluida",
         "job-encerrado",
     }
@@ -656,6 +716,7 @@ async def test_broker_consome_regra_submetida_e_o_resultado_do_worker(
     assert consumidos["simulacao-concluida"] is broker.filas[FILA_SIMULACAO]
     assert consumidos["job-encerrado"] is broker.filas["job-encerrado"]
     assert consumidos["parametros-confirmados"] is broker.filas["parametros-confirmados"]
+    assert consumidos["correcao-submetida"] is broker.filas["correcao-submetida"]
 
 
 async def test_consumer_reenfileira_quando_o_grafo_ainda_nao_pausou() -> None:

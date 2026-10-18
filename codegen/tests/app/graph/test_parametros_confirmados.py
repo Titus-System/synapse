@@ -193,7 +193,6 @@ async def test_job_encerrado_confirma_sem_recriar_checkpoint(
         ("competencias", None),
         ("orcamento", None),
         ("orcamento", "100"),
-        ("orcamento", -1),
         ("orcamento", True),
         ("meta_venda", None),
         ("meta_venda", "100"),

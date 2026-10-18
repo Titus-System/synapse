@@ -32,6 +32,7 @@ from app.mensageria.consumers import Consumer
 from app.mensageria.roteamento import Entrada, GraphRouter
 from app.representacao_regra import RepresentacaoRegra
 from tests.app.confirmacao_falsa import ConfirmacaoFalsa
+from tests.app.graph.test_reextracao import AmbienteReextracao
 from tests.app.iteracao_falsa import NUCLEO, HistoricoFalso
 from tests.app.test_mensageria import SAIDAS, exemplo, oficial, sugestao_do_exemplo
 
@@ -458,6 +459,68 @@ async def test_regra_barrada_publica_a_pausa_no_broker_sem_chegar_ao_modelo(
     canal_verificacao = await broker_real.conexao.channel()
     try:
         fila = await canal_verificacao.declare_queue(nome, passive=True)
+        assert fila.declaration_result.message_count == 0
+    finally:
+        if not canal_verificacao.is_closed:
+            await canal_verificacao.close()
+
+
+async def test_correcao_submetida_drena_validas_duplicadas_e_invalidas_e_publica_a_proposta(
+    broker_real: ConexaoBroker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Consumer, roteador e producers reais no broker; o teste faz a api (T-221).
+
+    A fila de entrada fica vazia depois de uma correção válida, da reentrega dela, de uma sem
+    texto, de uma fora do contrato e de um corpo malformado. Só a válida chega à proposta.
+    """
+    ambiente = AmbienteReextracao(monkeypatch)
+    assentadas: asyncio.Queue[None] = asyncio.Queue()
+    receber = Consumer.receber
+
+    async def acompanhar(self: Consumer, mensagem: AbstractIncomingMessage) -> None:
+        await receber(self, mensagem)
+        assentadas.put_nowait(None)
+
+    monkeypatch.setattr(Consumer, "receber", acompanhar)
+    roteador = GraphRouter(ambiente.banco, broker_real.producers, ambiente.limpeza)
+    await broker_real.iniciar_consumers(roteador)
+    nome = "correcao-submetida"
+    valida = ambiente.entrada()
+    sem_texto = ambiente.entrada(None)
+    invalida = valida | {"competencias": []}
+    corpos = [
+        simplejson.dumps(p, use_decimal=True).encode()
+        for p in (valida, valida, sem_texto, invalida)
+    ]
+    corpos.append(b"{")
+    for corpo in corpos:
+        await broker_real.canal.default_exchange.publish(
+            Message(body=corpo, content_type="application/json"), routing_key=nome
+        )
+    for _ in corpos:
+        await asyncio.wait_for(assentadas.get(), timeout=30)
+
+    proposta = await _ler(
+        await _proxima(broker_real.filas["correcao-proposta"]), "correcao-proposta"
+    )
+    assert proposta["submissao_id"] == valida["submissao_id"]
+    assert proposta["regra_origem_id"] == valida["regra_origem_id"]
+    assert await broker_real.filas["correcao-proposta"].get(fail=False) is None
+    etapas = []
+    while (recebida := await broker_real.filas["etapa-alterada"].get(fail=False)) is not None:
+        etapas.append(await _ler(recebida, "etapa-alterada"))
+    assert [(e["job_id"], e["status"]) for e in etapas] == [
+        (valida["job_id"], "iniciada"),
+        (sem_texto["job_id"], "iniciada"),
+        (sem_texto["job_id"], "erro"),
+    ]
+    assert etapas[-1]["regra_id"] == sem_texto["regra_origem_id"]
+    assert etapas[-1]["submissao_id"] == sem_texto["submissao_id"]
+    assert len(ambiente.modelo_reextracao.seen_messages) == 1
+    canal_verificacao = await broker_real.conexao.channel()
+    try:
+        fila = await canal_verificacao.declare_queue(nome, passive=True)
+        assert fila.declaration_result.consumer_count == 1
         assert fila.declaration_result.message_count == 0
     finally:
         if not canal_verificacao.is_closed:

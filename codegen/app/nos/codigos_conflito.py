@@ -16,3 +16,8 @@ class CodigoConflito(StrEnum):
     FAIXA_INVERTIDA = "faixa_invertida"
     JANELA_INVERTIDA = "janela_invertida"
     LIMIAR_SEM_ESCOPO = "limiar_sem_escopo"
+    # Parâmetros da simulação (T-280).
+    ORCAMENTO_NEGATIVO = "orcamento_negativo"
+    META_VENDA_NAO_POSITIVA = "meta_venda_nao_positiva"
+    COMPETENCIA_NAO_PUBLICADA = "competencia_nao_publicada"
+    PARAMETRO_SEM_LASTRO = "parametro_sem_lastro"

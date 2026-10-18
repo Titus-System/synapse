@@ -152,22 +152,34 @@ async def test_ciclo_sem_orcamento_simula_e_termina_sem_sugestao_e_sem_erro(
 
 
 @pytest.mark.parametrize("meta", [Decimal("0"), Decimal("-1")])
-async def test_meta_sem_vendas_a_escalar_termina_o_job_em_erro_sem_voltar_a_fila(
+async def test_meta_sem_vendas_a_escalar_pausa_para_correcao_sem_chegar_a_geracao(
     ambiente: ConfirmacaoFalsa, meta: Decimal
 ) -> None:
-    """A entrada aceita a meta como foi dita, para a validação de domínio apontá-la (T-280). Se
-    ainda assim ela chega ao despacho, o job termina em erro: voltar à fila repetiria a mesma
-    falha a cada reentrega."""
+    """A entrada aceita a meta como foi dita, e a validação de domínio a aponta (T-280). A guarda
+    do despacho, que encerra o job em erro, tem o próprio teste em `test_artifact_nodes.py`."""
     payload = exemplo("parametros-confirmados-meta-venda") | {"meta_venda": meta}
     recebida = mensagem(payload)
 
     await ambiente.consumer.receber(recebida)
 
-    recebida.reject.assert_awaited_once_with(requeue=False)
+    recebida.ack.assert_awaited_once_with()
+    recebida.reject.assert_not_awaited()
     recebida.nack.assert_not_awaited()
-    recebida.ack.assert_not_awaited()
+    assert ambiente.modelo.seen_messages == []
     assert "executar-codigo" not in [n for n, _ in ambiente.publicacoes]
+    assert all(p.get("status") != "erro" for _, p in ambiente.publicacoes)
     assert ambiente.publicacoes[-1] == (
         "etapa-alterada",
-        {"job_id": payload["job_id"], "etapa": "delegacao_worker", "status": "erro"},
+        {
+            "job_id": payload["job_id"],
+            "etapa": "confirmacao",
+            "status": "aguardando_correcao",
+            "regra_id": payload["regra_id"],
+            "conflitos": [
+                {
+                    "elementos": ["parametros.meta_venda"],
+                    "motivo": "meta de venda zero ou negativa",
+                }
+            ],
+        },
     )

@@ -7,6 +7,7 @@ import simplejson
 from aio_pika.abc import AbstractIncomingMessage
 
 from app.contratos.mensagens import (
+    CorrecaoSubmetida,
     JobEncerrado,
     ParametrosConfirmados,
     RegraSubmetida,
@@ -34,7 +35,13 @@ type CausaDescarte = Literal[
 class Consumer:
     def __init__(
         self,
-        modelo: type[RegraSubmetida | ParametrosConfirmados | SimulacaoConcluida | JobEncerrado],
+        modelo: type[
+            RegraSubmetida
+            | ParametrosConfirmados
+            | CorrecaoSubmetida
+            | SimulacaoConcluida
+            | JobEncerrado
+        ],
         nome: str,
         roteador: RoteadorGrafo,
     ) -> None:

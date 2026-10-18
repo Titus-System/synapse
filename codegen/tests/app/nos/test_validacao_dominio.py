@@ -302,6 +302,10 @@ def test_conjunto_fechado_de_codigos_e_o_das_verificacoes_existentes() -> None:
         "faixa_invertida",
         "janela_invertida",
         "limiar_sem_escopo",
+        "orcamento_negativo",
+        "meta_venda_nao_positiva",
+        "competencia_nao_publicada",
+        "parametro_sem_lastro",
     }
 
 
@@ -316,13 +320,126 @@ def test_cada_verificacao_classifica_o_conflito_com_o_seu_codigo(
     assert [conflito.codigo for conflito in resultado.conflitos] == [codigo]
 
 
+PUBLICADAS = ("2025-08", "2025-09", "2025-10", "2025-11", "2025-12")
+_PARAMETROS_COM_UM_CONFLITO: list[tuple[CodigoConflito, dict[str, object], frozenset[str]]] = [
+    (CodigoConflito.ORCAMENTO_NEGATIVO, {"orcamento": Decimal("-1")}, frozenset()),
+    (CodigoConflito.META_VENDA_NAO_POSITIVA, {"meta_venda": Decimal("0")}, frozenset()),
+    (
+        CodigoConflito.COMPETENCIA_NAO_PUBLICADA,
+        {"competencias": ["2025-11", "2026-01"]},
+        frozenset(),
+    ),
+    (CodigoConflito.PARAMETRO_SEM_LASTRO, {}, frozenset({"orcamento"})),
+]
+
+
+def _com_parametros(
+    parametros: Mapping[str, object], sem_lastro: frozenset[str] = frozenset()
+) -> validacao_dominio.ResultadoValidacao:
+    return verificar(
+        _representacao(), parametros, competencias_publicadas=PUBLICADAS, sem_lastro=sem_lastro
+    )
+
+
 def test_toda_verificacao_do_modulo_produz_conflito_com_codigo_do_conjunto() -> None:
     cobertos = {codigo for codigo, _ in _REGRAS_COM_UM_CONFLITO}
+    cobertos |= {codigo for codigo, _, _ in _PARAMETROS_COM_UM_CONFLITO}
 
     assert cobertos == set(CodigoConflito)
     for _, regra in _REGRAS_COM_UM_CONFLITO:
         for conflito in verificar(regra).conflitos:
             assert isinstance(conflito.codigo, CodigoConflito)
+
+
+@pytest.mark.parametrize(
+    ("codigo", "parametros", "sem_lastro"),
+    _PARAMETROS_COM_UM_CONFLITO,
+    ids=[c.value for c, _, _ in _PARAMETROS_COM_UM_CONFLITO],
+)
+def test_cada_verificacao_de_parametro_barra_com_o_seu_codigo(
+    codigo: CodigoConflito, parametros: dict[str, object], sem_lastro: frozenset[str]
+) -> None:
+    resultado = _com_parametros(parametros, sem_lastro)
+
+    assert not resultado.liberado
+    assert [conflito.codigo for conflito in resultado.conflitos] == [codigo]
+
+
+@pytest.mark.parametrize(
+    ("parametros", "referencia", "codigo"),
+    [
+        ({"orcamento": Decimal("-0.01")}, "parametros.orcamento", "orcamento_negativo"),
+        ({"meta_venda": Decimal("0")}, "parametros.meta_venda", "meta_venda_nao_positiva"),
+        ({"meta_venda": Decimal("-5")}, "parametros.meta_venda", "meta_venda_nao_positiva"),
+        (
+            {"competencias": ["2025-11", "2026-01"]},
+            "parametros.competencias",
+            "competencia_nao_publicada",
+        ),
+    ],
+)
+def test_parametro_invalido_aponta_o_conflito_na_referencia_do_parametro(
+    parametros: dict[str, object], referencia: str, codigo: str
+) -> None:
+    resultado = _com_parametros(parametros)
+
+    assert [(c.elementos, c.codigo.value) for c in resultado.conflitos] == [((referencia,), codigo)]
+
+
+@pytest.mark.parametrize(
+    "parametros",
+    [
+        {},
+        {"orcamento": Decimal("0")},
+        {"competencias": list(PUBLICADAS)},
+        {
+            "orcamento": Decimal("500000"),
+            "meta_venda": Decimal("12000000"),
+            "competencias": ["2025-09", "2025-11"],
+        },
+    ],
+    ids=["sem_orcamento_e_sem_meta", "orcamento_zero", "todas_publicadas", "completos"],
+)
+def test_parametros_validos_ou_ausentes_nao_geram_conflito(parametros: dict[str, object]) -> None:
+    assert _com_parametros(parametros).liberado
+
+
+def test_parametros_sem_lastro_saem_na_ordem_do_contrato_com_a_referencia_de_cada_um() -> None:
+    resultado = _com_parametros({}, frozenset({"competencias", "meta_venda", "orcamento"}))
+
+    assert [(c.elementos, c.codigo) for c in resultado.conflitos] == [
+        (("parametros.orcamento",), CodigoConflito.PARAMETRO_SEM_LASTRO),
+        (("parametros.meta_venda",), CodigoConflito.PARAMETRO_SEM_LASTRO),
+        (("parametros.competencias",), CodigoConflito.PARAMETRO_SEM_LASTRO),
+    ]
+
+
+def test_motivo_do_parametro_e_texto_do_sistema_sem_o_valor_dito() -> None:
+    resultado = _com_parametros(
+        {
+            "orcamento": Decimal("-123456"),
+            "meta_venda": Decimal("-987654"),
+            "competencias": ["2031-07"],
+        }
+    )
+
+    assert len(resultado.conflitos) == 3
+    for conflito in resultado.conflitos:
+        for dito in ("123456", "987654", "2031", "07"):
+            assert dito not in conflito.motivo
+
+
+def test_conflitos_da_regra_vem_antes_dos_dos_parametros() -> None:
+    resultado = verificar(
+        _representacao(nucleo={"percentual": Decimal("-0.01")}),
+        {"orcamento": Decimal("-1")},
+        competencias_publicadas=PUBLICADAS,
+    )
+
+    assert [c.codigo for c in resultado.conflitos] == [
+        CodigoConflito.PERCENTUAL_NEGATIVO,
+        CodigoConflito.ORCAMENTO_NEGATIVO,
+    ]
 
 
 def test_regra_com_dois_conflitos_classifica_cada_um_pelo_seu_codigo() -> None:
