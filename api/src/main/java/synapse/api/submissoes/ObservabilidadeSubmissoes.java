@@ -52,7 +52,7 @@ class ObservabilidadeSubmissoes extends OncePerRequestFilter {
 			String resultado = falhou ? "falha_interna" : resultado(response.getStatus());
 			boolean correcao = Boolean.TRUE.equals(request.getAttribute("submissao.correcao"));
 			if (correcao) {
-				this.metrics.correcaoSubmetida(resultado).increment();
+				this.metrics.correcaoSubmetida(tipo, resultado).increment();
 			}
 			else {
 				this.metrics.submissaoCriacao(tipo, resultado).increment();

@@ -24,8 +24,23 @@ public interface JobsDeSubmissoes {
 	/** Confere a espera com trava, na transação que reagenda o trabalho. */
 	boolean aguardandoTranscricao(UUID jobId, UUID submissaoId);
 
-	/** Grava a submissão somente depois da autorização e da trava do job. */
-	CorrecaoRecebida corrigir(UUID jobId, AcessoDoUsuario acesso, Function<UUID, UUID> gravarSubmissao, Instant agora);
+	/**
+	 * Grava a submissão somente depois da autorização e da trava do job. A correção por
+	 * voz deixa a rodada em transcrição e não registra evento.
+	 */
+	CorrecaoRecebida corrigir(UUID jobId, TipoEntrada tipo, AcessoDoUsuario acesso,
+			Function<UUID, UUID> gravarSubmissao, Instant agora);
+
+	/**
+	 * Retorna false quando a rodada da submissão já não está em transcrição, como depois
+	 * do cancelamento do job.
+	 */
+	boolean concluirTranscricaoDaCorrecao(UUID jobId, UUID submissaoId);
+
+	boolean falharTranscricaoDaCorrecao(UUID jobId, UUID submissaoId);
+
+	/** Confere a rodada com trava, na transação que reagenda o trabalho. */
+	boolean aguardandoTranscricaoDaCorrecao(UUID jobId, UUID submissaoId);
 
 	record CorrecaoRecebida(UUID submissaoId, JobCriado job, Rodada rodada) {
 	}

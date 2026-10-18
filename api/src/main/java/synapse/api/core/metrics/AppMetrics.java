@@ -22,10 +22,16 @@ public class AppMetrics {
 		this.registry = registry;
 	}
 
-	/** Correções com desfecho HTTP; rollback nunca conta como aceita. */
-	public Counter correcaoSubmetida(String resultado) {
+	/**
+	 * Correções com desfecho HTTP, por {@code tipo} de entrada ({@code texto} ou
+	 * {@code voz}); rollback nunca conta como aceita. Uma recusa anterior à leitura dos
+	 * parâmetros, como a do corpo acima do teto da requisição, não tem finalidade
+	 * conhecida e conta em {@link #submissaoCriacao}.
+	 */
+	public Counter correcaoSubmetida(String tipo, String resultado) {
 		return Counter.builder("submissoes.correcoes")
-			.description("Correções aceitas após commit ou recusadas, por classe de resultado HTTP")
+			.description("Correções aceitas após commit ou recusadas, por tipo de entrada e classe de resultado HTTP")
+			.tag("tipo", tipo)
 			.tag("resultado", resultado)
 			.register(this.registry);
 	}
@@ -40,16 +46,19 @@ public class AppMetrics {
 	}
 
 	/**
-	 * Tentativas de transcrição com desfecho confirmado, não jobs únicos.
+	 * Tentativas de transcrição com desfecho confirmado, não jobs únicos, pela
+	 * {@code finalidade} do trabalho ({@code entrada_inicial} ou {@code correcao}).
 	 * {@code resultado} vem de um conjunto fechado - {@code concluida},
 	 * {@code nova_tentativa}, {@code esgotado}, {@code falhou_permanente},
 	 * {@code descartada}, {@code reserva_perdida} e {@code interrompida}. Só
 	 * {@code concluida} é conclusão de negócio: a retomada de uma reserva vencida e a
 	 * reserva perdida para outra instância não produzem texto nem evento.
 	 */
-	public Counter transcricaoTrabalho(String resultado) {
+	public Counter transcricaoTrabalho(String finalidade, String resultado) {
 		return Counter.builder("transcricao.trabalhos")
-			.description("Trabalhos de transcrição processados, por desfecho; só concluida produz texto e evento")
+			.description(
+					"Trabalhos de transcrição processados, por finalidade e desfecho; só concluida produz texto e evento")
+			.tag("finalidade", finalidade)
 			.tag("resultado", resultado)
 			.register(this.registry);
 	}

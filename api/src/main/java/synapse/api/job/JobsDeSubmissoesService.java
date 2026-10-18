@@ -2,6 +2,7 @@ package synapse.api.job;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.concurrent.TimeUnit;
@@ -23,6 +24,8 @@ import synapse.api.core.outbox.Outbox;
 import synapse.api.core.security.AcessoDoUsuario;
 import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
+import synapse.api.job.JobRepository.ContextoDoJob;
+import synapse.api.job.RodadasCorrecaoRepository.TentativaDeCorrecao;
 
 @Service
 @Transactional(propagation = Propagation.MANDATORY)
@@ -46,10 +49,13 @@ class JobsDeSubmissoesService implements JobsDeSubmissoes {
 
 	private final RodadasRepository rodadas;
 
+	private final RodadasCorrecaoRepository tentativas;
+
 	JobsDeSubmissoesService(JobRepository repository, MaquinaDeEstadosDoJob maquina, AutorizadorDeJob autorizador,
 			Outbox outbox, CorrelationContext correlacao, AppMetrics metrics, EmissoresSse emissores,
-			RodadasRepository rodadas) {
+			RodadasRepository rodadas, RodadasCorrecaoRepository tentativas) {
 		this.rodadas = rodadas;
+		this.tentativas = tentativas;
 		this.repository = repository;
 		this.maquina = maquina;
 		this.autorizador = autorizador;
@@ -76,8 +82,8 @@ class JobsDeSubmissoesService implements JobsDeSubmissoes {
 	}
 
 	@Override
-	public CorrecaoRecebida corrigir(UUID jobId, AcessoDoUsuario acesso, Function<UUID, UUID> gravarSubmissao,
-			Instant agora) {
+	public CorrecaoRecebida corrigir(UUID jobId, TipoEntrada tipo, AcessoDoUsuario acesso,
+			Function<UUID, UUID> gravarSubmissao, Instant agora) {
 		try {
 			this.autorizador.exigir(OperacaoJob.CONFIRMAR_PARAMETROS, jobId, acesso);
 		}
@@ -104,11 +110,109 @@ class JobsDeSubmissoesService implements JobsDeSubmissoes {
 		}
 		var rodada = abertas.getFirst();
 		UUID submissaoId = gravarSubmissao.apply(rodada.id());
-		this.rodadas.receber(rodada.id(), submissaoId, agora);
-		this.outbox.registrar(jobId, EventoOutbox.CORRECAO_SUBMETIDA, new CorrecaoSubmetidaDto(jobId,
-				rodada.regra_analisada_id(), submissaoId, job.competencias(), job.orcamento(), job.metaVenda()));
+		if (tipo == TipoEntrada.VOZ) {
+			this.rodadas.receber(rodada.id(), submissaoId, EstadoRodada.EM_TRANSCRICAO, agora);
+		}
+		else {
+			this.rodadas.receber(rodada.id(), submissaoId, EstadoRodada.EM_REEXTRACAO, agora);
+			registrarCorrecaoSubmetida(job, rodada.regra_analisada_id(), submissaoId);
+		}
 		return new CorrecaoRecebida(submissaoId, new JobCriado(jobId, job.status().paraColuna()),
 				this.rodadas.buscar(rodada.id()));
+	}
+
+	private void registrarCorrecaoSubmetida(ContextoDoJob job, UUID regraOrigemId, UUID submissaoId) {
+		this.outbox.registrar(job.jobId(), EventoOutbox.CORRECAO_SUBMETIDA, new CorrecaoSubmetidaDto(job.jobId(),
+				regraOrigemId, submissaoId, job.competencias(), job.orcamento(), job.metaVenda()));
+	}
+
+	@Override
+	public boolean concluirTranscricaoDaCorrecao(UUID jobId, UUID submissaoId) {
+		try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
+			var encontrados = this.repository.buscarContextoComTrava(jobId);
+			if (encontrados.isEmpty()) {
+				return false;
+			}
+			var job = encontrados.getFirst();
+			TentativaDeCorrecao rodada = rodadaEmTranscricao(job, submissaoId);
+			if (rodada == null) {
+				return false;
+			}
+			this.tentativas.encerrarTranscricao(rodada.id(), EstadoRodada.EM_REEXTRACAO, agora());
+			registrarCorrecaoSubmetida(job, rodada.regraId(), submissaoId);
+			registrarFechamento(jobId, rodada.id(), null);
+			return true;
+		}
+	}
+
+	@Override
+	public boolean falharTranscricaoDaCorrecao(UUID jobId, UUID submissaoId) {
+		try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
+			var encontrados = this.repository.buscarContextoComTrava(jobId);
+			if (encontrados.isEmpty()) {
+				return false;
+			}
+			TentativaDeCorrecao rodada = rodadaEmTranscricao(encontrados.getFirst(), submissaoId);
+			if (rodada == null) {
+				return false;
+			}
+			Timestamp agora = agora();
+			this.tentativas.encerrarTranscricao(rodada.id(), EstadoRodada.REEXTRACAO_FALHOU, agora);
+			UUID nova = this.tentativas.inserirPendente(jobId, rodada.regraId(), rodada.conflitos(), rodada.id(),
+					agora);
+			registrarFechamento(jobId, rodada.id(), nova);
+			return true;
+		}
+	}
+
+	@Override
+	public boolean aguardandoTranscricaoDaCorrecao(UUID jobId, UUID submissaoId) {
+		var encontrados = this.repository.buscarContextoComTrava(jobId);
+		return !encontrados.isEmpty() && rodadaEmTranscricao(encontrados.getFirst(), submissaoId) != null;
+	}
+
+	private @Nullable TentativaDeCorrecao rodadaEmTranscricao(ContextoDoJob job, UUID submissaoId) {
+		if (job.status() != JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS) {
+			return null;
+		}
+		var encontradas = this.tentativas.buscarPorSubmissao(job.jobId(), submissaoId);
+		if (encontradas.size() != 1
+				|| !EstadoRodada.EM_TRANSCRICAO.paraColuna().equals(encontradas.getFirst().estado())) {
+			return null;
+		}
+		return encontradas.getFirst();
+	}
+
+	/**
+	 * Registra o fechamento só depois do commit, para que um rollback não apareça como
+	 * feito. A falha é anunciada no stream como a da reextração: o job não muda e a
+	 * correção reabre numa rodada pendente nova.
+	 */
+	private void registrarFechamento(UUID jobId, UUID rodadaId, @Nullable UUID pendenteNova) {
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit() {
+				try (var escopo = correlacao.abrir(jobId.toString(), null)) {
+					if (pendenteNova == null) {
+						log.atInfo()
+							.addKeyValue("rodada_id", rodadaId)
+							.log("correção por voz transcrita; rodada em reextração");
+					}
+					else {
+						log.atWarn()
+							.addKeyValue("rodada_id", rodadaId)
+							.addKeyValue("rodada_nova_id", pendenteNova)
+							.log("rodada fechada pela falha da transcrição; rodada pendente reaberta");
+						emissores.emitir(jobId, EventoSse.de("etapa",
+								new EventoEtapaDto(jobId, EtapaDoGrafo.EXTRACAO_PARAMETROS.paraEvento(), "erro")));
+					}
+				}
+			}
+		});
+	}
+
+	private static Timestamp agora() {
+		return Timestamp.from(Instant.now().truncatedTo(ChronoUnit.MICROS));
 	}
 
 	@Override

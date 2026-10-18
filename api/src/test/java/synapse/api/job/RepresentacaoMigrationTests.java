@@ -62,7 +62,7 @@ class RepresentacaoMigrationTests {
 						job))
 					.isNull();
 				liquibase.update(new Contexts());
-				assertThat(jdbc.queryForObject("SELECT count(*) FROM databasechangelog", Integer.class)).isEqualTo(31);
+				assertThat(jdbc.queryForObject("SELECT count(*) FROM databasechangelog", Integer.class)).isEqualTo(32);
 				jdbc.execute("ALTER ROLE synapse_api WITH PASSWORD 'senha-de-teste'");
 				jdbc.execute("ALTER ROLE synapse_codegen WITH PASSWORD 'senha-de-teste'");
 				var api = new JdbcTemplate(
@@ -93,7 +93,7 @@ class RepresentacaoMigrationTests {
 									.isEqualTo("42501"));
 					}
 				}
-				liquibase.rollback(2, new Contexts(), new liquibase.LabelExpression());
+				liquibase.rollback(3, new Contexts(), new liquibase.LabelExpression());
 				assertThat(jdbc.queryForObject(
 						"SELECT count(*) FROM information_schema.columns WHERE table_name = 'regras' AND column_name = 'representacao'",
 						Integer.class))

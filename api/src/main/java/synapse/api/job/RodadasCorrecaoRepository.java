@@ -77,6 +77,14 @@ class RodadasCorrecaoRepository {
 				agora, rodadaId);
 	}
 
+	void encerrarTranscricao(UUID rodadaId, EstadoRodada destino, Timestamp agora) {
+		int alteradas = this.jdbc.update(
+				"UPDATE rodadas_correcao SET estado = ?, atualizada_em = ? WHERE id = ? AND estado = 'em_transcricao'",
+				destino.paraColuna(), agora, rodadaId);
+		if (alteradas != 1)
+			throw new IllegalStateException("A rodada não está mais em transcrição.");
+	}
+
 	void fecharProposta(UUID jobId, UUID rodadaId, UUID submissaoId, JsonNode corpo, Timestamp agora) {
 		int alteradas = this.jdbc.update("""
 				UPDATE rodadas_correcao SET estado = 'reextracao_falhou', proposta_nao_aplicada = ?::jsonb,

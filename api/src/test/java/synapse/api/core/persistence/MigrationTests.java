@@ -49,7 +49,7 @@ class MigrationTests {
 			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras",
 			"rodadas_correcao", "trabalhos_transcricao", "sugestoes_meta_venda");
 
-	private static final int CHANGESETS = 31;
+	private static final int CHANGESETS = 32;
 
 	private static final int CHANGESETS_ANTES_DA_TENTATIVA = 26;
 
@@ -803,7 +803,7 @@ class MigrationTests {
 		assertThat(definicaoDoIndice("uq_rodadas_correcao_rodada_anterior_id")).contains("UNIQUE",
 				"(rodada_anterior_id)", "WHERE (rodada_anterior_id IS NOT NULL)");
 		assertThat(definicaoDoIndice("uq_rodadas_correcao_job_id_aberta")).contains("UNIQUE", "(job_id)",
-				"WHERE (estado = ANY (ARRAY['pendente'::text, 'em_reextracao'::text]))");
+				"WHERE (estado = ANY (ARRAY['pendente'::text, 'em_transcricao'::text, 'em_reextracao'::text]))");
 		try (Connection connection = abrir();
 				Statement statement = connection.createStatement();
 				ResultSet rs = statement
@@ -827,8 +827,9 @@ class MigrationTests {
 	}
 
 	@ParameterizedTest
-	@CsvSource({ "pendente,pendente", "pendente,em_reextracao", "em_reextracao,pendente",
-			"em_reextracao,em_reextracao" })
+	@CsvSource({ "pendente,pendente", "pendente,em_reextracao", "em_reextracao,pendente", "em_reextracao,em_reextracao",
+			"em_transcricao,pendente", "pendente,em_transcricao", "em_transcricao,em_reextracao",
+			"em_reextracao,em_transcricao", "em_transcricao,em_transcricao" })
 	void recusaDuasRodadasAbertasNoMesmoJob(String primeira, String segunda) throws Exception {
 		atualizar();
 		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {

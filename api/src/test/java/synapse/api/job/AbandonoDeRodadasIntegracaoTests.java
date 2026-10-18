@@ -134,6 +134,7 @@ class AbandonoDeRodadasIntegracaoTests {
 	@ParameterizedTest
 	@CsvSource({ "cancelar, aguardando_confirmacao_parametros, pendente",
 			"cancelar, aguardando_confirmacao_parametros, em_reextracao",
+			"cancelar, aguardando_confirmacao_parametros, em_transcricao",
 			"arquivar, aguardando_decisao_usuario, pendente" })
 	void encerrarOJobAbandonaSoARodadaAbertaEPreservaOConteudo(String acao, String status, String aberta)
 			throws Exception {
@@ -195,6 +196,10 @@ class AbandonoDeRodadasIntegracaoTests {
 		assertThat(ultima.path("conflitos")).isEqualTo(JSON.readTree(CONFLITOS));
 		if ("em_reextracao".equals(aberta)) {
 			assertThat(ultima.path("correcao").path("texto").asString()).isEqualTo("segredo correcao 3 T225");
+		}
+		else if ("em_transcricao".equals(aberta)) {
+			assertThat(ultima.path("correcao").path("tipo").asString()).isEqualTo("voz");
+			assertThat(ultima.path("correcao").path("texto").isNull()).isTrue();
 		}
 		else {
 			assertThat(ultima.path("correcao").isNull()).isTrue();
@@ -325,7 +330,14 @@ class AbandonoDeRodadasIntegracaoTests {
 				UUID.class, v1));
 		UUID corrigida = rodada(job, v1, "corrigida", submissao("segredo correcao 1 T225"), v2, null, 3);
 		UUID falhou = rodada(job, v2, "reextracao_falhou", submissao("segredo correcao 2 T225"), null, corrigida, 2);
-		UUID submissao = "em_reextracao".equals(estadoAberto) ? submissao("segredo correcao 3 T225") : null;
+		UUID submissao = switch (estadoAberto) {
+			case "em_reextracao" -> submissao("segredo correcao 3 T225");
+			case "em_transcricao" -> Objects.requireNonNull(jdbc.queryForObject("""
+					INSERT INTO submissoes (usuario_id, tipo, binario, formato, criado_em)
+					VALUES (?, 'voz', '\\x52494646'::bytea, 'wav', now()) RETURNING id
+					""", UUID.class, usuario));
+			default -> null;
+		};
 		UUID aberta = rodada(job, v2, estadoAberto, submissao, null, falhou, 1);
 		return new Historico(job, v2, falhou, aberta, submissao);
 	}
