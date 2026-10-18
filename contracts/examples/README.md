@@ -14,7 +14,7 @@ Como todo `contracts/`, isto é insumo de build e nunca dependência de runtime.
 | [domain/parametros-simulacao.json](domain/parametros-simulacao.json) | `domain/parametros-simulacao.schema.json` | Orçamento, meta de venda e período ditos no texto |
 | [domain/parametros-simulacao-vazio.json](domain/parametros-simulacao-vazio.json) | `domain/parametros-simulacao.schema.json` | Texto que não diz nenhum parâmetro |
 | [domain/resultado-simulacao.json](domain/resultado-simulacao.json) | `domain/resultado-simulacao.schema.json` | Totais, asserções e as cinco quebras da decomposição |
-| [domain/resultado-linhas.json](domain/resultado-linhas.json) | `domain/resultado-linhas.schema.json` | Apuração por competência e matrícula, na lotação do RH: linha sem alteração, aumento percentual e bônus individual |
+| [domain/resultado-linhas.json](domain/resultado-linhas.json) | `domain/resultado-linhas.schema.json` | Apuração por competência e matrícula, na lotação do RH: linha sem alteração, aumento percentual e bônus individual, com o total vendido de cada linha |
 | [domain/resultado-diagnostico-resultado-incoerente.json](domain/resultado-diagnostico-resultado-incoerente.json) | `domain/resultado-diagnostico.schema.json` | Detalhamento que não fecha com totais ou quebras, recusado fora do container, sem exceção capturada |
 | [domain/resultado-diagnostico-excecao.json](domain/resultado-diagnostico-excecao.json) | `domain/resultado-diagnostico.schema.json` | Exceção da regra, com a falha estruturada que o sandbox capturou |
 | [domain/resultado-diagnostico-timeout.json](domain/resultado-diagnostico-timeout.json) | `domain/resultado-diagnostico.schema.json` | Execução encerrada por prazo: só a causa, sem falha nem traceback |

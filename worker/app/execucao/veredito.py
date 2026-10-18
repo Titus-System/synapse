@@ -1,5 +1,5 @@
 """Julgamento do resultado contra o baseline, a cobertura e o orçamento, fora do container
-(T-066, T-241, T-270, T-281).
+(T-066, T-241, T-270, T-281, T-282).
 
 O container produz números crus. O processo do worker, que o código gerado não alcança:
 
@@ -17,7 +17,9 @@ segue sem ``totais.orcamento`` e sem veredito, porque não há critério que o j
 
 Todo sucesso conferido leva ``totais.vendas_historicas``, o total de vendas das competências
 lido das bases do worker, e nunca do container (T-270). Na meta, o veredito compara o simulado
-na meta com o orçamento.
+na meta com o orçamento. Das mesmas bases, cada linha do detalhamento recebe ``vendas``, o total
+vendido da matrícula na competência: as vendas históricas, ou as escaladas até a meta, que são
+as que a execução usou para apurar as comissões da linha (T-282).
 
 O orçamento é o único parâmetro que **julga** o resultado, e nunca entrou no container: código
 gerado que o enxergasse poderia mirar nele (ARCHITECTURE.md §3.4).
@@ -30,9 +32,9 @@ evento (T-067), o veredito de um desfecho que não é ``sucesso`` vai nulo, como
 ``simulacao-concluida.schema.json`` e ``resultados_simulacao.veredito``.
 """
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal, NotRequired, TypedDict
 
 from app.execucao.baseline import BaselinesCongelados, CompetenciaSemBaselineError
@@ -44,7 +46,8 @@ from app.execucao.coleta import (
     classificar_falha_de_infra,
 )
 from app.sandbox.assercoes import Desfecho
-from app.sandbox.resultado import Decomposicao, Totais
+from app.sandbox.regras_base import CENTAVO
+from app.sandbox.resultado import Decomposicao, LinhaDetalhada, LinhasResultado, Totais
 
 type Veredito = Literal["viavel", "inviavel", "indeterminado"]
 
@@ -60,6 +63,16 @@ class TotaisJulgados(TypedDict):
     diferenca_pct: float
     vendas_historicas: float
     orcamento: NotRequired[float]
+
+
+class LinhaJulgada(LinhaDetalhada):
+    """``resultado-linhas.schema.json``: a linha do container mais o que só o worker acrescenta,
+    o total vendido da matrícula na competência."""
+
+    vendas: float
+
+
+type LinhasJulgadas = dict[str, dict[str, LinhaJulgada]]
 
 
 class ResultadoJulgado(TypedDict):
@@ -96,6 +109,8 @@ class Julgamento:
     # orçamento.
     resultado: ResultadoJulgado | None = field(default=None, repr=False)
     desfecho: DesfechoClassificado | None = field(default=None, repr=False)
+    # Só em sucesso: o detalhamento do container com ``vendas`` acrescentado a cada linha.
+    linhas: LinhasJulgadas | None = field(default=None, repr=False)
     # Só quando o motivo é cobertura_incompleta.
     cobertura: CoberturaIncompleta | None = None
 
@@ -160,6 +175,7 @@ def julgar(
     elementos_exigidos: Sequence[str] | None,
     bases: BasesDoWorker,
     baseline_na_meta: Decimal | None = None,
+    meta_venda: float | None = None,
 ) -> Julgamento:
     """``elementos_exigidos`` é o do comando, e None quando ele não o trouxe: aí a cobertura não
     é conferida, e um comando publicado antes da T-241 segue julgado como antes.
@@ -169,7 +185,12 @@ def julgar(
 
     ``baseline_na_meta`` é o total que o worker reapurou sobre as vendas escaladas, numa
     execução na meta de venda, e é contra ele que o baseline do container é conferido. None é a
-    execução sobre as vendas históricas, conferida contra o congelado como sempre foi."""
+    execução sobre as vendas históricas, conferida contra o congelado como sempre foi.
+
+    ``meta_venda`` é a do comando, e vem junto com ``baseline_na_meta``: com ela, o total vendido
+    de cada linha é o das vendas escaladas até a meta."""
+    if (baseline_na_meta is None) != (meta_venda is None):
+        raise ValueError("baseline_na_meta e meta_venda vêm juntos, ou nenhum dos dois")
     if desfecho.classe != "sucesso" or desfecho.resultado is None:
         return Julgamento(desfecho.classe, desfecho.motivo, "indeterminado", desfecho=desfecho)
 
@@ -222,7 +243,29 @@ def julgar(
         assercoes=desfecho.resultado["assercoes"],
         decomposicao=desfecho.resultado["decomposicao"],
     )
-    return Julgamento("sucesso", "ok", veredito, resultado=resultado, desfecho=desfecho)
+    linhas = None
+    if desfecho.linhas is not None:
+        linhas = _com_vendas(desfecho.linhas, bases.vendas_por_linha(competencias, meta_venda))
+    return Julgamento(
+        "sucesso", "ok", veredito, resultado=resultado, desfecho=desfecho, linhas=linhas
+    )
+
+
+def _com_vendas(
+    linhas: LinhasResultado, vendas: Mapping[tuple[str, str], Decimal]
+) -> LinhasJulgadas:
+    """Cada linha como veio do container, com o total vendido que o worker somou, arredondado a
+    centavos como as comissões da linha. A matrícula que não vendeu no mês fica com zero, e não
+    sem o campo, que é o que distingue as linhas gravadas antes dele."""
+    julgadas: LinhasJulgadas = {}
+    for competencia, colaboradores in linhas.items():
+        julgadas[competencia] = {}
+        for matricula, linha in colaboradores.items():
+            total = vendas.get((competencia, matricula), Decimal(0))
+            julgadas[competencia][matricula] = LinhaJulgada(
+                **linha, vendas=float(total.quantize(CENTAVO, rounding=ROUND_HALF_UP))
+            )
+    return julgadas
 
 
 def _totais_conferem(totais: Totais, baseline_do_worker: Decimal) -> bool:

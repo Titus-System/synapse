@@ -309,8 +309,11 @@ async def _processar(mensagem: AbstractIncomingMessage, broker: ConexaoBroker) -
                     classificar, saida, execucao.payload, execucao.orcamento
                 )
                 # Aqui, no processo do worker: nem o orçamento nem os elementos exigidos entraram
-                # no container.
-                julgamento = julgar(
+                # no container. Numa thread, como a classificação: o total vendido de cada linha
+                # do detalhamento percorre as vendas do período inteiro (perto de 50 ms, e de
+                # 0,1 s na meta, que escala as vendas de novo).
+                julgamento = await asyncio.to_thread(
+                    julgar,
                     desfecho,
                     execucao.payload.competencias,
                     execucao.orcamento,
@@ -318,6 +321,7 @@ async def _processar(mensagem: AbstractIncomingMessage, broker: ConexaoBroker) -
                     elementos_exigidos=execucao.elementos_exigidos,
                     bases=carregar_bases(),
                     baseline_na_meta=baseline_na_meta,
+                    meta_venda=execucao.payload.meta_venda,
                 )
                 _registrar_julgamento(julgamento, comando)
                 gravado = await _gravar(comando, julgamento)
