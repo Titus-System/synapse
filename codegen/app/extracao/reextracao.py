@@ -14,7 +14,11 @@ import simplejson
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
-from app.extracao.correcao import DiagnosticoCorrecao, aplicar_operacoes_correcao
+from app.extracao.correcao import (
+    DiagnosticoCorrecao,
+    ResultadoCorrecao,
+    aplicar_operacoes_correcao,
+)
 from app.extracao.modelos import ChamadaExtracao, FalhaExtracaoError
 from app.extracao.montagem import consumo_de_tokens, objeto_sem_duplicatas
 from app.extracao.schema_correcao import schema_operacoes_correcao
@@ -75,6 +79,34 @@ async def reextrair_regra(
     if not conteudo.strip() or motivo != "STOP":
         raise FalhaExtracaoError("Resposta de reextração vazia, bloqueada ou interrompida")
 
+    corrigida, completos, diagnosticos = aplicar_resposta_reextracao(
+        representacao, parametros, conteudo, texto_correcao, competencias_publicadas
+    )
+    return ResultadoReextracao(
+        representacao=corrigida,
+        parametros=completos,
+        rebaixamentos=diagnosticos,
+        chamada=ChamadaExtracao(
+            prompt=prompt,
+            resposta=conteudo,
+            modelo=deepcopy(metadados_modelo),
+            consumo_tokens=consumo_de_tokens(resposta),
+        ),
+    )
+
+
+def aplicar_resposta_reextracao(
+    representacao: RepresentacaoRegra,
+    parametros: dict[str, ValorRegra],
+    conteudo: str,
+    texto_correcao: str,
+    competencias_publicadas: Sequence[str],
+) -> ResultadoCorrecao:
+    """Lê a resposta do modelo e aplica as operações, de forma determinística.
+
+    Serve à resposta recém-recebida e à que já foi gravada, que a reexecução do nó reaplica sem
+    chamar o modelo de novo (T-221). Uma resposta que não serve falha em extracao_parametros.
+    """
     montado = None
     with suppress(ValueError, TypeError, KeyError, RecursionError, FalhaExtracaoError):
         operacoes = simplejson.loads(
@@ -90,18 +122,7 @@ async def reextrair_regra(
             competencias_publicadas,
             texto_correcao=texto_correcao,
         )
+    # Fora do `suppress`, para a exceção pública não reter o JSON em __context__.
     if montado is None:
         raise FalhaExtracaoError("Resposta incompatível com o schema de correção")
-
-    corrigida, completos, diagnosticos = montado
-    return ResultadoReextracao(
-        representacao=corrigida,
-        parametros=completos,
-        rebaixamentos=diagnosticos,
-        chamada=ChamadaExtracao(
-            prompt=prompt,
-            resposta=conteudo,
-            modelo=deepcopy(metadados_modelo),
-            consumo_tokens=consumo_de_tokens(resposta),
-        ),
-    )
+    return montado

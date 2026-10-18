@@ -214,7 +214,7 @@ async def test_falha_do_no_conta_duracao_e_falha_sem_expor_conteudo(
         ambiente.producers.no_concluido.side_effect = erro
     else:
         monkeypatch.setattr(
-            "app.nos.validacao_dominio.verificar", lambda _: (_ for _ in ()).throw(erro)
+            "app.nos.validacao_dominio.verificar", lambda *_, **__: (_ for _ in ()).throw(erro)
         )
     antes = (await cliente.get("/metrics")).text
     payload = exemplo("parametros-confirmados")
@@ -259,7 +259,7 @@ async def test_falha_do_job_dentro_do_no_propaga_sem_virar_transitoria(
 
     monkeypatch.setattr(
         "app.nos.validacao_dominio.verificar",
-        lambda _: (_ for _ in ()).throw(_FalhaPermanenteDaValidacaoError()),
+        lambda *_, **__: (_ for _ in ()).throw(_FalhaPermanenteDaValidacaoError()),
     )
     payload = exemplo("parametros-confirmados")
     estado = {
@@ -270,7 +270,9 @@ async def test_falha_do_job_dentro_do_no_propaga_sem_virar_transitoria(
     antes = (await cliente.get("/metrics")).text
 
     with pytest.raises(_FalhaPermanenteDaValidacaoError) as erro:
-        await validate_domain(estado, {"configurable": {"producers": ambiente.producers}})
+        await validate_domain(
+            estado, {"configurable": {"producers": ambiente.producers, "sessoes": ambiente.banco}}
+        )
 
     assert erro.value.etapa == "validacao_dominio"
     depois = (await cliente.get("/metrics")).text
@@ -292,7 +294,7 @@ async def test_erro_inesperado_ou_cancelamento_do_no_e_sanitizado_e_medido(
 
     erro = CancelledError("CONTEUDO_PRIVADO") if cancelamento else RuntimeError("CONTEUDO_PRIVADO")
     monkeypatch.setattr(
-        "app.nos.validacao_dominio.verificar", lambda _: (_ for _ in ()).throw(erro)
+        "app.nos.validacao_dominio.verificar", lambda *_, **__: (_ for _ in ()).throw(erro)
     )
     payload = exemplo("parametros-confirmados")
     estado = {
@@ -304,7 +306,10 @@ async def test_erro_inesperado_ou_cancelamento_do_no_e_sanitizado_e_medido(
     token = no_ctx.set("contexto-anterior")
     try:
         with pytest.raises(CancelledError if cancelamento else RuntimeError) as capturado:
-            await validate_domain(estado, {"configurable": {"producers": ambiente.producers}})
+            await validate_domain(
+                estado,
+                {"configurable": {"producers": ambiente.producers, "sessoes": ambiente.banco}},
+            )
         assert str(capturado.value) == (
             "Domain validation cancelled" if cancelamento else "Domain validation failed"
         )
@@ -329,7 +334,7 @@ async def test_trilha_reexecutada_mantem_identidade_da_versao(
         "regra_id": payload["regra_id"],
         "representacao_regra": regra(True).para_contrato(),
     }
-    config = {"configurable": {"producers": ambiente.producers}}
+    config = {"configurable": {"producers": ambiente.producers, "sessoes": ambiente.banco}}
 
     await validate_domain(estado, config)
     await validate_domain(estado, config)

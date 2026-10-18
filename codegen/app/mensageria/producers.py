@@ -3,6 +3,7 @@ from aio_pika import DeliveryMode, Message
 from aio_pika.abc import AbstractChannel
 
 from app.contratos.mensagens import (
+    CorrecaoProposta,
     EtapaAlterada,
     ExecutarCodigo,
     MetaVendaSugerida,
@@ -20,6 +21,7 @@ type Saida = (
     | SugestaoAdaptacaoProposta
     | RegraExtraida
     | MetaVendaSugerida
+    | CorrecaoProposta
 )
 
 
@@ -68,3 +70,6 @@ class Producers:
 
     async def meta_venda_sugerida(self, dto: MetaVendaSugerida) -> None:
         await self._publicar(dto, "meta-venda-sugerida")
+
+    async def correcao_proposta(self, dto: CorrecaoProposta) -> None:
+        await self._publicar(dto, "correcao-proposta")

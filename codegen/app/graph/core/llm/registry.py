@@ -39,6 +39,9 @@ def _google(model_id: str, **kwargs: Any) -> BaseChatModel:
 # project's free-tier key. `flash-lite` has real quota and the same 1,048,576-token input
 # window, comfortably above this prompt's size.
 _MODELS: dict[str, Callable[[], BaseChatModel]] = {
+    # Serves the initial extraction and the re-extraction of a correction: like the timeout of
+    # `code_generation`, it must stay below the consumer_timeout of regra-submetida and
+    # correcao-submetida.
     "extraction": lambda: _google(
         "gemini-3.1-flash-lite",
         temperature=0,

@@ -48,6 +48,11 @@ class ConfirmacaoFalsa:
 
         monkeypatch.setattr("app.graph.entrypoint.get_checkpointer", checkpointer)
         monkeypatch.setattr("app.graph.nodes.load_rule.buscar_regra", self.buscar_regra)
+        # A versão não nasceu da extração, ou nasceu sem parâmetro descartado.
+        self.sem_lastro = AsyncMock(return_value=frozenset())
+        monkeypatch.setattr(
+            "app.graph.nodes.validate_domain.parametros_sem_lastro", self.sem_lastro
+        )
         self.contar_tentativas = AsyncMock(
             return_value=TentativasDeTaxa(feitas=0, regra_e_tentativa=False)
         )

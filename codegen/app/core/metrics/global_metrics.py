@@ -96,6 +96,7 @@ CONSTRUTOS_DA_EXTRACAO = (
 MOTIVOS_DE_REBAIXAMENTO = ("construto_nao_habilitado", "campo_obrigatorio_ausente")
 CLASSES_DE_FALHA_EXTRACAO = (
     "entrada_invalida",
+    "regra_indisponivel",
     "transcricao_indisponivel",
     "saida_invalida",
     "provedor",
@@ -103,9 +104,14 @@ CLASSES_DE_FALHA_EXTRACAO = (
     "publicacao",
     "cancelamento",
 )
-job_runs.labels(job_name="extract_rule")
-job_failures.labels(job_name="extract_rule")
-job_duration.labels(job_name="extract_rule")
+# A extração inicial e a reextração de uma correção (T-221) contam execuções do nó nos mesmos
+# contadores de elementos, rebaixamentos e falhas; `job_name` separa o volume de cada uma. Na
+# reextração, os rebaixamentos incluem as operações da correção que não foram aplicadas, e os
+# elementos são os da regra corrigida inteira. A reentrega que o checkpoint descarta não conta.
+for _no in ("extract_rule", "reextract_rule"):
+    job_runs.labels(job_name=_no)
+    job_failures.labels(job_name=_no)
+    job_duration.labels(job_name=_no)
 elementos_extraidos = prometheus.register_counter(
     "codegen_extracao_elementos_total",
     "Campos do núcleo e especificações de extrações concluídas por construto",
@@ -113,7 +119,8 @@ elementos_extraidos = prometheus.register_counter(
 )
 rebaixamentos_extracao = prometheus.register_counter(
     "codegen_extracao_rebaixamentos_total",
-    "Elementos rebaixados em extrações concluídas por motivo",
+    "Elementos rebaixados e operações de correção não aplicadas em extrações concluídas,"
+    " por motivo",
     ["motivo"],
 )
 falhas_extracao = prometheus.register_counter(

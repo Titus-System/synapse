@@ -8,18 +8,20 @@ A implementação segue ADR-001, ADR-002, DEC-088 e DEC-089. Usa `aio-pika`, tam
 | --- | --- | --- | --- |
 | `RegraSubmetida` | entrada | `regra-submetida` | padrão (`""`) |
 | `ParametrosConfirmados` | entrada | `parametros-confirmados` | padrão (`""`) |
+| `CorrecaoSubmetida` | entrada | `correcao-submetida` | padrão (`""`) |
 | `SimulacaoConcluida` | entrada | `simulacao-concluida.codegen` / `""` | `simulacao-concluida` (fanout) |
 | `JobEncerrado` | entrada | `job-encerrado` | padrão (`""`) |
 | `ExecutarCodigo` | saída | `executar-codigo` | padrão (`""`) |
 | `EtapaAlterada` | saída | `etapa-alterada` | padrão (`""`) |
 | `NoConcluido` | saída | `no-concluido` | padrão (`""`) |
 | `SugestaoAdaptacaoProposta` | saída | `sugestao-adaptacao-proposta` | padrão (`""`) |
+| `CorrecaoProposta` | saída | `correcao-proposta` | padrão (`""`) |
 
 Os DTOs canônicos ficam em `app/contratos/mensagens.py` e são reutilizados pela mensageria, sem subclasses de transporte. Os nomes de mensagens e o roteamento ficam na camada de mensageria. A validação JSON Schema ocorre na fronteira de transporte, por `app/contratos/validacao.py`, antes de construir o DTO recebido ou publicar o corpo serializado por `app/contratos/serializacao.py`.
 
 Cada DTO corresponde a `contracts/events/<mensagem>.schema.json`, inclusive o comando `executar-codigo`. A topologia é durável, não exclusiva, sem auto-delete e sem argumentos `x-*`. Cada lado declara as filas em que participa de forma idempotente. O codegen não declara nem consome `simulacao-concluida.api`.
 
-`RegraSubmetida` e `ParametrosConfirmados` têm os campos opcionais `orcamento` (`Decimal`, `>= 0`, vindo de `jobs.orcamento`) e `meta_venda` (`Decimal`, vindo de `jobs.meta_venda`), aditivos ao contrato existente. A meta não tem limite inferior, como no contrato: zero ou negativa chega ao grafo como foi dita, para a validação de domínio apontá-la como conflito (T-280). O estado do grafo carrega os dois como texto decimal (nunca `float`), e `dispatch_execution` os repassa a `executar-codigo` quando presentes, com `proposito = simulacao`. O codegen não decide viabilidade com eles, que é apuração do worker sobre dados reais; a única decisão é recusar o despacho de uma meta zero ou negativa (`MetaVendaInvalidaError`, abaixo).
+`RegraSubmetida` e `ParametrosConfirmados` têm os campos opcionais `orcamento` (`Decimal`, vindo de `jobs.orcamento`) e `meta_venda` (`Decimal`, vindo de `jobs.meta_venda`), aditivos ao contrato existente. Nenhum dos dois tem limite inferior, como no contrato: o orçamento negativo e a meta zero ou negativa chegam ao grafo como foram ditos, e a validação de domínio os aponta como conflito (T-280). O estado do grafo carrega os dois como texto decimal (nunca `float`), e `dispatch_execution` os repassa a `executar-codigo` quando presentes, com `proposito = simulacao`. O codegen não decide viabilidade com eles, que é apuração do worker sobre dados reais. A recusa do despacho de uma meta zero ou negativa (`MetaVendaInvalidaError`, abaixo) fica como guarda, porque a validação já barra a versão antes da geração.
 
 `scripts/preparar_contratos.py` incorpora dinamicamente todos os schemas, mantendo os caminhos relativos e removendo cópias obsoletas. O Docker já copia `contracts/`. O runtime registra os schemas incorporados por `$id`, sem consulta ao monorepo nem download de referências. Os DTOs são independentes de `EstadoGrafo`.
 
@@ -62,9 +64,42 @@ O contador `codegen_parametros_confirmados_total{resultado}` é carregado na com
 
 Falhas transitórias mantêm o log existente e reenfileiram; só o resultado definitivo incrementa o contador. Cancelamento não conta como conclusão. Os logs de resultado levam `job_id` pelo contexto e `regra_id` como referência, quando este é UUID válido. As causas de descarte são fechadas: `contrato_invalido`, `contexto_ausente`, `job_desconhecido`, `job_encerrado` e `falha_do_job`. Nenhum identificador vira label e nenhum artefato vai para telemetria. O `Consumer` restaura a correlação em `finally`.
 
+## Reextração de correções (T-221)
+
+`correcao-submetida` abre o ciclo de reextração da correção `submissao_id`, com thread `thread_da_correcao(job_id, submissao_id)`, no formato `job_id:correcao:submissao_id`. Cada correção é uma submissão distinta, então a reentrega cai no mesmo checkpoint, e o segmento `correcao` impede a colisão com a thread `job_id:regra_id` de um ciclo de regra. O estado inicial leva só `job_id`, `regra_origem_id`, `submissao_correcao_id`, `competencias` e, quando informados, `orcamento` e `meta_venda` como texto decimal. O texto da correção e a regra não entram no estado, que o checkpointer persiste.
+
+A primeira aresta lê campos que o roteador copiou da mensagem validada, nunca saída de modelo: com `submissao_correcao_id`, o grafo começa em `reextract_rule`; sem ele e com `regra_id`, em `load_rule`; sem os dois, em `extract_rule`. O nó termina o ciclo e não pausa.
+
+`reextract_rule` (`app/graph/nodes/reextract_rule.py`) segue uma ordem fixa:
+
+1. `etapa-alterada` com `etapa = extracao_parametros` e `status = iniciada`.
+2. A leitura da versão analisada por `buscar_regra(job_id, regra_origem_id)`, que recusa a regra de outro job, e a do texto em `submissoes.transcricao`.
+3. O recálculo dos conflitos por `verificar_versao`, a mesma função da validação de domínio, com os parâmetros atuais e os parâmetros que a extração descartou por falta de lastro, para chegar ao resultado que a rodada guarda. Os conflitos, inclusive os dos parâmetros (T-280), entram no prompt como dados do sistema.
+4. A chamada ao motor da T-220 (`app/extracao/reextracao.py`) com o modelo `extraction`, os parâmetros atuais e as competências publicadas do vocabulário, e não as do job, para a correção poder levar o período a um mês que o job não tinha.
+5. A gravação do prompt e da resposta com `no = extracao_parametros`, ids derivados e `ON CONFLICT DO NOTHING`.
+6. `correcao-proposta` com a representação corrigida e o conjunto completo de parâmetros, mesmo quando a correção não os mudou.
+7. `no-concluido` com `prompt_id`, `regra_id` igual à versão analisada e `evento_id` derivado da submissão da correção.
+
+Com o ciclo terminado, a reentrega é descartada pelo checkpoint sem chamar o modelo nem publicar, e o roteador registra o log `correção já reextraída, reentrega ignorada`. Depois de uma falha transitória, o nó roda de novo desde o início. Com as mesmas entradas, o prompt é o mesmo, e o nó procura em `prompts` a resposta gravada para ele no job depois da submissão da correção: se ela existe, a reaplica sem chamar o modelo. Uma correção nova com o mesmo texto de uma anterior chama o modelo de novo. Uma segunda chamada poderia trazer outra proposta, e a trilha apontaria um prompt que não gerou a versão aplicada. Uma queda entre `correcao-proposta` e `no-concluido` republica a mesma proposta, que a `api` trata como duplicada, com o mesmo `evento_id` e o mesmo `prompt_id` na trilha.
+
+| Situação | Exceção | Decisão |
+| --- | --- | --- |
+| Texto ausente ou vazio | `TranscricaoIndisponivelError` | `etapa-alterada` com `erro` e `reject(requeue=False)` |
+| Versão inexistente, de outro job ou fora do contrato | `RegraDaCorrecaoIndisponivelError` | o mesmo |
+| Resposta do modelo inutilizável | `FalhaExtracaoError` | o mesmo |
+| Mensagem sem `competencias`, sem como preservar o período do job | `EntradaReextracaoInvalidaError` | o mesmo |
+| Provedor indisponível durante toda a janela | `ProvedorIndisponivelReextracaoError` | o mesmo, com `causa = provedor_indisponivel` |
+| Banco, broker ou erro não classificado da chamada ao modelo | `FalhaTransitoriaReextracaoError` | `nack(requeue=True)`, sem `erro` |
+
+Para toda `FalhaDoJobError` de uma `CorrecaoSubmetida`, o `GraphRouter` publica `etapa-alterada` com `etapa = extracao_parametros`, `status = erro`, `regra_id` igual ao `regra_origem_id` e `submissao_id`, qualquer que seja a etapa da exceção. A `api` só reconhece a falha da reextração nessa etapa e com essas referências: fecha a rodada daquela correção e reabre a correção numa rodada pendente nova, sem encerrar o job. Depois de `job-encerrado`, a correção recebe ACK sem abrir ciclo, como a submissão e a confirmação.
+
+O nó registra `reextraction started`, `reextraction finished`, com `prompt_id`, `elementos_por_construto` e `rebaixamentos_por_motivo`, e `reextraction failed`, com `classe`, `motivo` e `operacao`. A conclusão e a falha levam `resposta_reutilizada`, que diz se a resposta veio de uma execução anterior. Os três levam `job_id`, `no = extracao_parametros`, `regra_id` e `submissao_id`, e nunca o texto, o prompt, a resposta, a representação ou os conflitos.
+
+As métricas contam execuções do nó, e a reentrega que o checkpoint descarta não conta. `job_runs_total`, `job_failures_total` e `job_duration_seconds` usam `job_name = reextract_rule`, e a duração é observada também na falha. `codegen_extracao_elementos_total{construto}`, sobre a regra corrigida inteira, `codegen_extracao_rebaixamentos_total{motivo}`, com os rebaixamentos e as operações da correção não aplicadas, e `codegen_extracao_falhas_total{classe}` são os mesmos da extração inicial. A classe `regra_indisponivel` só ocorre nesta origem.
+
 ## Encerramento do job e limpeza dos checkpoints
 
-`job-encerrado` chega quando a `api` leva o job a um estado terminal. O `GraphRouter` registra o encerramento em `jobs_grafo_encerrados` e só então confirma a mensagem; uma falha ao registrar reenfileira, porque o fato ainda não está durável, e um job que não existe em `jobs` é rejeitado. Depois do registro, `app/mensageria/limpeza.py` remove os checkpoints, blobs e writes de todos os ciclos do job (`job_id:regra_id` e o legado `job_id`) e preenche `limpo_em` quando nenhum resta.
+`job-encerrado` chega quando a `api` leva o job a um estado terminal. O `GraphRouter` registra o encerramento em `jobs_grafo_encerrados` e só então confirma a mensagem; uma falha ao registrar reenfileira, porque o fato ainda não está durável, e um job que não existe em `jobs` é rejeitado. Depois do registro, `app/mensageria/limpeza.py` remove os checkpoints, blobs e writes de todos os ciclos do job (`job_id:regra_id`, as reextrações `job_id:correcao:submissao_id` e o legado `job_id`) e preenche `limpo_em` quando nenhum resta.
 
 Toda mensagem de submissão, confirmação ou resultado é processada sob o lock compartilhado do job e consulta o registro antes de tocar o grafo: depois da limpeza ela é confirmada sem efeito (`JobEncerradoError`), e uma submissão ou confirmação de job encerrado nunca recomeça a geração. Um resultado de job encerrado e ainda não limpo é processado normalmente, porque os efeitos dele, como as publicações de auditoria, não podem se perder; a limpeza adia enquanto algum ciclo espera um resultado e é tentada de novo ao fim de cada processamento do job. Uma limpeza interrompida é retomada na subida do serviço, antes de os consumers começarem. A decisão está na [DEC-095](../../docs/decisoes/dec-095.md).
 
@@ -101,9 +136,9 @@ Logs usam o logger do codegen, `job_id_ctx` com restauração ao sair e atributo
 
 ## Ciclo de vida e configuração
 
-O lifespan cria o engine assíncrono do banco (`app/db.py`, `asyncpg`) e o `async_sessionmaker`, roda `checkpointer.setup()` (idempotente), abre a conexão RabbitMQ robusta, habilita confirmações e limita prefetch (padrão 1), declara topologia e disponibiliza `aplicacao.state.producers`. `criar_aplicacao(roteador=...)` injeta a implementação real de `RoteadorGrafo` e inicia os consumers de **regra-submetida**, **parametros-confirmados**, **simulacao-concluida.codegen** e **job-encerrado**. Sem roteador configurado, o processo emite um aviso e mantém as mensagens no broker. `/health` continua sendo liveness do processo.
+O lifespan cria o engine assíncrono do banco (`app/db.py`, `asyncpg`) e o `async_sessionmaker`, roda `checkpointer.setup()` (idempotente), abre a conexão RabbitMQ robusta, habilita confirmações e limita prefetch (padrão 1), declara topologia e disponibiliza `aplicacao.state.producers`. `criar_aplicacao(roteador=...)` injeta a implementação real de `RoteadorGrafo` e inicia os consumers de **regra-submetida**, **parametros-confirmados**, **correcao-submetida**, **simulacao-concluida.codegen** e **job-encerrado**. Sem roteador configurado, o processo emite um aviso e mantém as mensagens no broker. `/health` continua sendo liveness do processo.
 
-`GraphRouter` (`app/mensageria/roteamento.py`) é o `RoteadorGrafo` real: traduz `RegraSubmetida` ou `ParametrosConfirmados` no estado inicial do grafo e chama `app/graph/entrypoint.py::run_to_completion`, nunca invocado diretamente pelo `Consumer`. Ele nasce sem `sessoes`/`producers`; o lifespan os atribui depois de criar o engine e conectar ao broker, porque `GraphRouter` existe antes de qualquer um dos dois estar pronto.
+`GraphRouter` (`app/mensageria/roteamento.py`) é o `RoteadorGrafo` real: traduz `RegraSubmetida`, `ParametrosConfirmados` ou `CorrecaoSubmetida` no estado inicial do grafo e chama `app/graph/entrypoint.py::run_to_completion`, nunca invocado diretamente pelo `Consumer`. Ele nasce sem `sessoes`/`producers`; o lifespan os atribui depois de criar o engine e conectar ao broker, porque `GraphRouter` existe antes de qualquer um dos dois estar pronto.
 
 Em uma reentrega, o entrypoint continua do último checkpoint do ciclo `job_id:regra_id` em vez de recomeçar do `START`: os nós já concluídos, como a chamada ao modelo e as gravações, não rodam de novo.
 
@@ -121,7 +156,10 @@ Em uma reentrega, o entrypoint continua do último checkpoint do ciclo `job_id:r
 | `sugestao-adaptacao-proposta` | `suggest_adaptation`, quando há alternativa, com a `tentativa` de 1 a 3 | estrutural |
 | `etapa-alterada` `sugestao_adaptacao`/`sem_alternativa` | `suggest_adaptation`, quando não há taxa a propor ou a terceira não coube | estrutural |
 | `no-concluido` `sugestao_adaptacao` | `suggest_adaptation`, depois da proposta ou do `sem_alternativa` | trilha |
-| `etapa-alterada` `status: erro` | `GraphRouter`, em qualquer `FalhaDoJobError` | estrutural |
+| `etapa-alterada` `extracao_parametros`/`iniciada` | `reextract_rule`, antes de ler a regra e o texto | progresso |
+| `correcao-proposta` | `reextract_rule`, depois de gravar o prompt e a resposta | estrutural |
+| `no-concluido` `extracao_parametros` | `reextract_rule`, depois da proposta | trilha |
+| `etapa-alterada` `status: erro` | `GraphRouter`, em qualquer `FalhaDoJobError`; na reextração, com `regra_id` e `submissao_id` | estrutural |
 
 **Estrutural** quer dizer que o fluxo quebra sem o evento. `delegacao_worker`/`iniciada` é o único caminho que move o job de `gerando_regra` para `simulando`; o `no-concluido` da geração é o que faz a `api` criar a linha de `simulacoes`, sem a qual o resultado do worker não tem a que se amarrar e o cliente nunca recebe o evento SSE `resultado`; e o `erro` é o que impede o job de ficar pendurado. Os outros dois alimentam progresso e trilha, e é por isso que ficaram para trás até serem cobrados: nada quebra quando faltam.
 

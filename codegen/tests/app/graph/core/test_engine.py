@@ -44,6 +44,7 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
         "__start__",
         "load_rule",
         "extract_rule",
+        "reextract_rule",
         "validate_domain",
         "report_conflicts",
         "code_generation",
@@ -61,7 +62,9 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
     assert edges == {
         ("__start__", "load_rule"),
         ("__start__", "extract_rule"),
+        ("__start__", "reextract_rule"),
         ("extract_rule", "__end__"),
+        ("reextract_rule", "__end__"),
         ("load_rule", "validate_domain"),
         ("validate_domain", "code_generation"),
         ("validate_domain", "report_conflicts"),
@@ -105,6 +108,10 @@ class _Execucao:
         regra: RepresentacaoRegra = _REGRA,
     ) -> None:
         monkeypatch.setattr("app.graph.nodes.load_rule.buscar_regra", AsyncMock(return_value=regra))
+        monkeypatch.setattr(
+            "app.graph.nodes.validate_domain.parametros_sem_lastro",
+            AsyncMock(return_value=frozenset()),
+        )
         monkeypatch.setattr(
             "app.graph.nodes.decision.contar_tentativas",
             AsyncMock(return_value=TentativasDeTaxa(feitas=0, regra_e_tentativa=False)),

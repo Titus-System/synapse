@@ -5,6 +5,7 @@ from aio_pika.abc import AbstractChannel, AbstractQueue, AbstractRobustConnectio
 
 from app.config import Settings
 from app.contratos.mensagens import (
+    CorrecaoSubmetida,
     JobEncerrado,
     ParametrosConfirmados,
     RegraSubmetida,
@@ -26,6 +27,8 @@ FILAS_SIMPLES = (
     "sugestao-adaptacao-proposta",
     "meta-venda-sugerida",
     "job-encerrado",
+    "correcao-submetida",
+    "correcao-proposta",
 )
 EXCHANGE_SIMULACAO = "simulacao-concluida"
 FILA_SIMULACAO = "simulacao-concluida.codegen"
@@ -56,6 +59,7 @@ class ConexaoBroker:
         entradas = (
             (RegraSubmetida, "regra-submetida", "regra-submetida"),
             (ParametrosConfirmados, "parametros-confirmados", "parametros-confirmados"),
+            (CorrecaoSubmetida, "correcao-submetida", "correcao-submetida"),
             (SimulacaoConcluida, "simulacao-concluida", FILA_SIMULACAO),
             (JobEncerrado, "job-encerrado", "job-encerrado"),
         )

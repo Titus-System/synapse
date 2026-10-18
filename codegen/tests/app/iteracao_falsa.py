@@ -9,6 +9,7 @@ e reabre o ciclo, e o do worker, que grava o resultado e o publica. As consultas
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -51,6 +52,10 @@ class HistoricoFalso:
 
     def instalar(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("app.graph.nodes.load_rule.buscar_regra", self.buscar_regra)
+        monkeypatch.setattr(
+            "app.graph.nodes.validate_domain.parametros_sem_lastro",
+            AsyncMock(return_value=frozenset()),
+        )
         monkeypatch.setattr(
             "app.mensageria.roteamento.buscar_regra_do_resultado", self.buscar_regra_do_resultado
         )

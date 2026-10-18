@@ -7,7 +7,7 @@ em quê ele conflita; enquanto houver conflito, o avanço para a geração de c�
 fica bloqueado.
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -31,14 +31,85 @@ class ResultadoValidacao:
         return not self.conflitos
 
 
-def verificar(representacao: Mapping[str, object]) -> ResultadoValidacao:
+def verificar(
+    representacao: Mapping[str, object],
+    parametros: Mapping[str, object] | None = None,
+    *,
+    competencias_publicadas: Collection[str] = (),
+    sem_lastro: Collection[str] = (),
+) -> ResultadoValidacao:
+    """Verifica a regra e, com `parametros`, os parâmetros da simulação do job (T-280).
+
+    `competencias_publicadas` são os meses com dados: com `parametros`, uma competência fora
+    delas é conflito, e por isso quem passa os parâmetros passa também a lista. `sem_lastro`
+    são os parâmetros que a extração inicial descartou por falta de lastro no texto; só a
+    versão nascida da extração os tem.
+    """
     conflitos: list[Conflito] = []
     conflitos.extend(_completude_do_nucleo(representacao))
     conflitos.extend(_coerencia_do_percentual(representacao))
     conflitos.extend(_coerencia_da_vigencia(representacao))
     conflitos.extend(_coerencia_de_exclusoes(representacao))
     conflitos.extend(_conflitos_dos_elementos(representacao))
+    if parametros is not None:
+        conflitos.extend(_conflitos_dos_parametros(parametros, competencias_publicadas))
+    conflitos.extend(_parametros_sem_lastro(sem_lastro))
     return ResultadoValidacao(tuple(conflitos))
+
+
+# O `motivo` é texto do sistema, sem o valor que o usuário disse (T-280).
+_SEM_LASTRO = {
+    "orcamento": "orçamento citado sem valor reconhecido",
+    "meta_venda": "meta de venda citada sem valor reconhecido",
+    "competencias": "período da simulação citado sem meses reconhecidos",
+}
+
+
+def _conflitos_dos_parametros(
+    parametros: Mapping[str, object], competencias_publicadas: Collection[str]
+) -> list[Conflito]:
+    # Orçamento e meta ausentes não são conflito: a simulação segue sem a verificação de
+    # orçamento ou sobre as vendas históricas. Orçamento zero também é válido.
+    conflitos: list[Conflito] = []
+    orcamento = _numero(parametros.get("orcamento"))
+    if orcamento is not None and orcamento < 0:
+        conflitos.append(
+            Conflito(
+                ("parametros.orcamento",), "orçamento negativo", CodigoConflito.ORCAMENTO_NEGATIVO
+            )
+        )
+    meta = _numero(parametros.get("meta_venda"))
+    if meta is not None and meta <= 0:
+        # Sem vendas a escalar, a simulação sobre a meta não tem o que calcular.
+        conflitos.append(
+            Conflito(
+                ("parametros.meta_venda",),
+                "meta de venda zero ou negativa",
+                CodigoConflito.META_VENDA_NAO_POSITIVA,
+            )
+        )
+    competencias = parametros.get("competencias")
+    if isinstance(competencias, list) and any(
+        competencia not in competencias_publicadas for competencia in competencias
+    ):
+        # Sem dado nem baseline para o mês, a simulação dele não existe.
+        conflitos.append(
+            Conflito(
+                ("parametros.competencias",),
+                "competência sem dados publicados",
+                CodigoConflito.COMPETENCIA_NAO_PUBLICADA,
+            )
+        )
+    return conflitos
+
+
+def _parametros_sem_lastro(campos: Collection[str]) -> list[Conflito]:
+    # Na ordem do contrato, e não na do chamador, para o resultado ser determinístico.
+    return [
+        Conflito((f"parametros.{campo}",), motivo, CodigoConflito.PARAMETRO_SEM_LASTRO)
+        for campo, motivo in _SEM_LASTRO.items()
+        if campo in campos
+    ]
 
 
 def _completude_do_nucleo(representacao: Mapping[str, object]) -> list[Conflito]:

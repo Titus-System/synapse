@@ -80,3 +80,8 @@ class AgentState(TypedDict, total=False):
     tentativas_de_taxa: int
 
     busca_meta: BuscaMeta
+
+    # T-221 (estado inicial do ciclo de reextração, a partir de `correcao-submetida`). Só
+    # referências: o texto da correção e a regra ficam no banco e são lidos pelo nó.
+    regra_origem_id: str
+    submissao_correcao_id: str
