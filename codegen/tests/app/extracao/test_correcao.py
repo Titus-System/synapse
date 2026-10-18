@@ -20,12 +20,18 @@ RASCUNHO = {"construto_pretendido": "bonus_fixo", "descricao": BONUS, "trecho": 
 
 
 def definir(tipo: str, campo: str, valor: Any, trecho: str) -> dict[str, Any]:
-    return {"tipo": tipo, "campo": campo, "valor": {"valor": valor, "trecho": trecho}}
+    return {
+        "tipo": tipo,
+        "trecho": trecho,
+        "campo": campo,
+        "valor": {"valor": valor, "trecho": trecho},
+    }
 
 
 def codigos(campo: str, *itens: tuple[str, str]) -> dict[str, Any]:
     return {
         "tipo": "definir_nucleo",
+        "trecho": itens[0][1] if itens else "vale para todas as marcas",
         "campo": campo,
         "valor": [{"valor": valor, "trecho": trecho} for valor, trecho in itens],
     }
@@ -157,7 +163,8 @@ def test_codigo_do_nucleo_e_resolvido_no_vocabulario(
             "valor_sem_lastro",
         ),
         (
-            definir("definir_nucleo", "percentual", Decimal("0.03"), "3%"),
+            definir("definir_nucleo", "percentual", Decimal("0.03"), "3%")
+            | {"trecho": "passa para três"},
             "passa para três",
             "valor_sem_lastro",
         ),
@@ -223,7 +230,12 @@ def test_valor_sem_lastro_no_texto_da_correcao_mantem_o_anterior(
 
 
 def test_remove_so_o_elemento_e_renumera_na_ordem(regra: RepresentacaoRegra) -> None:
-    corrigida, _, diagnosticos = aplicar(regra, {}, {"tipo": "remover_elemento", "ref": "elem.2"})
+    corrigida, _, diagnosticos = aplicar(
+        regra,
+        {},
+        {"tipo": "remover_elemento", "ref": "elem.2", "trecho": "remova critério 2"},
+        texto="remova critério 2",
+    )
 
     assert corrigida["especificacoes"] == [
         {"ref": "elem.1", "construto": "generico", "descricao": "critério 1"},
@@ -234,7 +246,9 @@ def test_remove_so_o_elemento_e_renumera_na_ordem(regra: RepresentacaoRegra) -> 
 
 def test_substitui_na_mesma_posicao_com_montagem_e_rebaixamento(regra: RepresentacaoRegra) -> None:
     corrigida, _, diagnosticos = aplicar(
-        regra, {}, {"tipo": "substituir_elemento", "ref": "elem.2", "elemento": RASCUNHO}
+        regra,
+        {},
+        {"tipo": "substituir_elemento", "ref": "elem.2", "trecho": BONUS, "elemento": RASCUNHO},
     )
 
     assert corrigida["especificacoes"] == [
@@ -268,17 +282,23 @@ def test_substituicao_sem_lastro_mantem_o_elemento_atual(
     corrigida, _, diagnosticos = aplicar(
         regra,
         {},
-        {"tipo": "substituir_elemento", "ref": "elem.2", "elemento": elemento},
+        {"tipo": "substituir_elemento", "ref": "elem.2", "trecho": texto, "elemento": elemento},
         texto=texto,
     )
 
-    assert corrigida == regra.para_contrato()
-    assert diagnosticos == [DiagnosticoOperacao(1, "valor_sem_lastro")]
+    assert corrigida["especificacoes"][1] == {
+        "ref": "elem.2",
+        "construto": "generico",
+        "descricao": texto,
+    }
+    assert diagnosticos == [Rebaixamento("elem.2", "valor_sem_lastro", "generico")]
 
 
 def test_adiciona_no_final_sem_copiar_campos_do_modelo(regra: RepresentacaoRegra) -> None:
     corrigida, _, diagnosticos = aplicar(
-        regra, {}, {"tipo": "adicionar_elemento", "elemento": {**RASCUNHO, "ref": "elem.99"}}
+        regra,
+        {},
+        {"tipo": "adicionar_elemento", "trecho": BONUS, "elemento": {**RASCUNHO, "ref": "elem.99"}},
     )
 
     assert corrigida["especificacoes"] == [
@@ -302,7 +322,7 @@ def test_lista_vazia_devolve_a_regra_e_os_parametros_atuais(
 def test_ref_inexistente_preserva_regra_e_registra_diagnostico_local(
     regra: RepresentacaoRegra, tipo: str
 ) -> None:
-    operacao: dict[str, Any] = {"tipo": tipo, "ref": "elem.99"}
+    operacao: dict[str, Any] = {"tipo": tipo, "ref": "elem.99", "trecho": BONUS}
     if tipo == "substituir_elemento":
         operacao["elemento"] = RASCUNHO
 
@@ -334,7 +354,12 @@ def test_ref_inexistente_preserva_regra_e_registra_diagnostico_local(
 def test_ignora_operacao_invalida_sem_perder_as_validas(
     regra: RepresentacaoRegra, invalida: object
 ) -> None:
-    corrigida, _, diagnosticos = aplicar(regra, {}, invalida, PERCENTUAL)
+    corrigida, _, diagnosticos = aplicar(
+        regra,
+        {},
+        {**invalida, "trecho": "3%"} if isinstance(invalida, dict) else invalida,
+        PERCENTUAL,
+    )
 
     esperado: Any = deepcopy(regra.para_contrato())
     esperado["nucleo"]["percentual"] = Decimal("0.03")
@@ -346,9 +371,10 @@ def test_refs_do_lote_se_referem_a_versao_original(regra: RepresentacaoRegra) ->
     corrigida, _, diagnosticos = aplicar(
         regra,
         {},
-        {"tipo": "remover_elemento", "ref": "elem.1"},
-        {"tipo": "substituir_elemento", "ref": "elem.2", "elemento": RASCUNHO},
-        {"tipo": "remover_elemento", "ref": "elem.1"},
+        {"tipo": "remover_elemento", "ref": "elem.1", "trecho": "remova critério 1"},
+        {"tipo": "substituir_elemento", "ref": "elem.2", "trecho": BONUS, "elemento": RASCUNHO},
+        {"tipo": "remover_elemento", "ref": "elem.1", "trecho": "remova critério 1"},
+        texto="remova critério 1 e faça bônus especial",
     )
 
     assert corrigida["especificacoes"] == [
@@ -367,8 +393,9 @@ def test_descarta_rebaixamento_de_elemento_removido_no_mesmo_lote(
     corrigida, _, diagnosticos = aplicar(
         regra,
         {},
-        {"tipo": "substituir_elemento", "ref": "elem.2", "elemento": RASCUNHO},
-        {"tipo": "remover_elemento", "ref": "elem.2"},
+        {"tipo": "substituir_elemento", "ref": "elem.2", "trecho": BONUS, "elemento": RASCUNHO},
+        {"tipo": "remover_elemento", "ref": "elem.2", "trecho": "remova critério 2"},
+        texto="bônus especial e remova critério 2",
     )
 
     assert [e["descricao"] for e in corrigida["especificacoes"]] == ["critério 1", "critério 3"]
@@ -402,7 +429,10 @@ def test_remove_parametro_por_ausencia_sem_null(
     regra: RepresentacaoRegra, parametros: dict[str, Any], campo: str
 ) -> None:
     _, completos, diagnosticos = aplicar(
-        regra, parametros, {"tipo": "remover_parametro", "campo": campo}
+        regra,
+        parametros,
+        {"tipo": "remover_parametro", "campo": campo, "trecho": "remova"},
+        texto=f"remova {campo}",
     )
 
     assert completos == {k: v for k, v in parametros.items() if k != campo}
@@ -465,7 +495,7 @@ def test_reutiliza_conversor_habilitado(
     elemento = {**RASCUNHO, "construto_pretendido": "generico"}
 
     corrigida, _, diagnosticos = aplicar(
-        regra, {}, {"tipo": "adicionar_elemento", "elemento": elemento}
+        regra, {}, {"tipo": "adicionar_elemento", "trecho": BONUS, "elemento": elemento}
     )
 
     assert corrigida["especificacoes"][-1] == {
@@ -476,14 +506,16 @@ def test_reutiliza_conversor_habilitado(
     assert diagnosticos == []
 
 
-def test_preserva_lastro_da_montagem_existente(regra: RepresentacaoRegra) -> None:
+def test_rebaixa_elemento_sem_lastro_usando_trecho_da_operacao(
+    regra: RepresentacaoRegra,
+) -> None:
     elemento = {**RASCUNHO, "trecho": "ausente da correção"}
 
     corrigida, _, diagnosticos = aplicar(
-        regra, {}, {"tipo": "adicionar_elemento", "elemento": elemento}
+        regra, {}, {"tipo": "adicionar_elemento", "trecho": BONUS, "elemento": elemento}
     )
 
-    assert corrigida["especificacoes"][-1]["descricao"] == "Elemento sem lastro verificável"
+    assert corrigida["especificacoes"][-1]["descricao"] == BONUS
     assert diagnosticos == [Rebaixamento("elem.4", "valor_sem_lastro", "bonus_fixo")]
 
 
@@ -515,3 +547,116 @@ def test_schema_fecha_envelope_e_exatamente_seis_operacoes() -> None:
     assert not validador.is_valid(
         {"operacoes": [{"tipo": "adicionar_elemento", "elemento": {**RASCUNHO, "extra": 1}}]}
     )
+
+
+@pytest.mark.parametrize("trecho", [None, "", "  ", "Trecho INVENTADO"])
+@pytest.mark.parametrize(
+    "operacao",
+    [
+        PERCENTUAL,
+        {"tipo": "remover_elemento", "ref": "elem.1"},
+        {"tipo": "substituir_elemento", "ref": "elem.1", "elemento": RASCUNHO},
+        {"tipo": "adicionar_elemento", "elemento": RASCUNHO},
+        {"tipo": "remover_parametro", "campo": "orcamento"},
+        definir("definir_parametro", "orcamento", 600000, "R$ 600 mil"),
+    ],
+)
+def test_operacao_sem_trecho_literal_nao_altera_nada(
+    regra: RepresentacaoRegra,
+    parametros: dict[str, Any],
+    operacao: dict[str, Any],
+    trecho: str | None,
+) -> None:
+    candidata = {**operacao}
+    if trecho is None:
+        candidata.pop("trecho", None)
+    else:
+        candidata["trecho"] = trecho
+
+    corrigida, completos, diagnosticos = aplicar(regra, parametros, candidata)
+
+    assert corrigida == regra.para_contrato()
+    assert completos == parametros
+    assert diagnosticos == [DiagnosticoOperacao(1, "operacao_sem_trecho")]
+
+
+def test_uma_operacao_sem_trecho_nao_impede_as_outras_validas(
+    regra: RepresentacaoRegra,
+) -> None:
+    corrigida, _, diagnosticos = aplicar(
+        regra,
+        {},
+        {"tipo": "remover_elemento", "ref": "elem.1"},
+        PERCENTUAL,
+    )
+
+    assert len(corrigida["especificacoes"]) == 3
+    assert corrigida["nucleo"]["percentual"] == Decimal("0.03")
+    assert diagnosticos == [DiagnosticoOperacao(1, "operacao_sem_trecho")]
+
+
+def test_valor_do_historico_nao_justifica_parametro_novo(
+    regra: RepresentacaoRegra, parametros: dict[str, Any]
+) -> None:
+    trecho = "mantenha a regra"
+    corrigida, completos, diagnosticos = aplicar(
+        regra,
+        parametros,
+        definir("definir_parametro", "orcamento", 700000, "R$ 700 mil") | {"trecho": trecho},
+        texto="por favor, mantenha a regra",
+    )
+
+    assert corrigida == regra.para_contrato()
+    assert completos == parametros
+    assert diagnosticos == [DiagnosticoOperacao(1, "valor_sem_lastro")]
+
+
+def test_elemento_com_valor_nao_sustentado_vira_generico_sem_o_numero_inventado(
+    regra: RepresentacaoRegra,
+) -> None:
+    texto = "Troque a faixa anterior pela faixa de R$ 40 mil."
+    elemento = {
+        "construto_pretendido": "faixa_valor",
+        "descricao": "faixa de R$ 90 mil",
+        "trecho": "faixa de R$ 40 mil",
+    }
+
+    corrigida, _, diagnosticos = aplicar(
+        regra,
+        {},
+        {
+            "tipo": "substituir_elemento",
+            "ref": "elem.2",
+            "trecho": "faixa de R$ 40 mil",
+            "elemento": elemento,
+        },
+        texto=texto,
+    )
+
+    assert corrigida["especificacoes"][1] == {
+        "ref": "elem.2",
+        "construto": "generico",
+        "descricao": "faixa de R$ 40 mil",
+    }
+    assert diagnosticos == [Rebaixamento("elem.2", "valor_sem_lastro", "faixa_valor")]
+
+
+def test_elemento_adicionado_com_numero_inventado_nunca_insere_esse_numero(
+    regra: RepresentacaoRegra,
+) -> None:
+    corrigida, _, diagnosticos = aplicar(
+        regra,
+        {},
+        {
+            "tipo": "adicionar_elemento",
+            "trecho": BONUS,
+            "elemento": {"descricao": "bônus de 700 mil", "construto_pretendido": "generico"},
+        },
+    )
+
+    assert corrigida["especificacoes"][-1] == {
+        "ref": "elem.4",
+        "construto": "generico",
+        "descricao": BONUS,
+    }
+    assert diagnosticos == [Rebaixamento("elem.4", "valor_sem_lastro", "generico")]

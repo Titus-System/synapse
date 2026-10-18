@@ -1,4 +1,4 @@
-# Extração e aplicação de correções — T-220
+# Extração e aplicação de correções — T-220/T-224
 
 `reextracao.reextrair_regra` pede ao modelo as operações que uma correção faz sobre a regra e os parâmetros atuais, e `correcao.aplicar_operacoes_correcao` as aplica de forma determinística. Nenhum dos dois acessa banco, grafo ou broker. O nó do grafo que os chama, a persistência e a publicação pertencem à T-221.
 
@@ -14,12 +14,13 @@ async def reextrair_regra(
     *,
     modelo: BaseChatModel,
     metadados_modelo: dict[str, Any],
+    historico: Sequence[CorrecaoAnterior] = (),
 ) -> ResultadoReextracao: ...
 ```
 
 O resultado contém `representacao`, os `parametros` completos, `rebaixamentos` (a união dos diagnósticos definida abaixo) e `chamada: ChamadaExtracao`. A chamada guarda o prompt, a resposta original, uma cópia independente dos metadados e o consumo de tokens quando o provedor o informa, para a auditoria. As dataclasses de resultado e de chamada não expõem esses conteúdos em `repr`.
 
-O prompt separa as instruções fixas, o contexto estruturado da regra, dos parâmetros e dos conflitos, e o texto da correção, identificado como não confiável. Os textos do contexto também não são comandos. O modelo recebe o schema fechado, sem ferramentas vinculadas. A resposta é lida com `simplejson`, com `use_decimal=True`, recusando NaN e chaves duplicadas, inclusive em objetos aninhados, e depois passa ao aplicador.
+O prompt separa as instruções fixas, o contexto estruturado da regra, dos parâmetros e dos conflitos, e o texto da correção, identificado como não confiável. Na T-224, o histórico (textos e conflitos das rodadas anteriores) fica **exclusivamente** em `dados_nao_confiaveis_da_correcao.historico`, em ordem cronológica. Ausência de histórico mantém apenas a chave `texto`, como na T-220. O histórico é contexto interpretativo, nunca fonte de lastro para valores novos. Os textos do contexto também não são comandos. O modelo recebe o schema fechado, sem ferramentas vinculadas. A resposta é lida com `simplejson`, com `use_decimal=True`, recusando NaN e chaves duplicadas, inclusive em objetos aninhados, e depois passa ao aplicador.
 
 Texto vazio, resposta vazia, bloqueada ou truncada, JSON inválido, envelope incompatível ou falha na validação do resultado geram `FalhaExtracaoError`, derivada de `FalhaDoJobError`, com etapa `extracao_parametros`. Uma operação recuperável vira diagnóstico, sem tornar o lote inteiro uma falha permanente.
 
@@ -58,9 +59,9 @@ A primeira posição é a regra corrigida, e a segunda, os parâmetros completos
 
 ## Schema das operações
 
-`schema_correcao.schema_operacoes_correcao()` produz um JSON Schema fechado. O envelope tem só `operacoes`, obrigatório, um array que pode ser vazio. Cada item tem `tipo` como discriminador e só os campos indicados:
+`schema_correcao.schema_operacoes_correcao()` produz um JSON Schema fechado. O envelope tem só `operacoes`, obrigatório, um array que pode ser vazio. Cada item tem `tipo` como discriminador, exige também `trecho` (citação literal não vazia do texto **corrente**, inclusive em remoções) e só os campos adicionais indicados:
 
-| Tipo | Campos obrigatórios além de `tipo` | Semântica |
+| Tipo | Campos obrigatórios além de `tipo` e `trecho` | Semântica |
 | --- | --- | --- |
 | `definir_nucleo` | `campo`, `valor` | Define percentual, vigencia, loja, marca ou cargo. |
 | `substituir_elemento` | `ref`, `elemento` | Monta o substituto na posição do original. |
@@ -76,10 +77,10 @@ Em `definir_nucleo` e `definir_parametro`, `valor` tem a forma do campo na extra
 ```json
 {
   "operacoes": [
-    {"tipo": "definir_nucleo", "campo": "percentual", "valor": {"valor": 0.03, "trecho": "3%"}},
-    {"tipo": "definir_parametro", "campo": "orcamento", "valor": {"valor": 600000, "trecho": "R$ 600 mil"}},
-    {"tipo": "remover_parametro", "campo": "meta_venda"},
-    {"tipo": "definir_parametro", "campo": "competencias", "valor": {"valor": ["2025-11"], "trecho": "só novembro"}}
+    {"tipo": "definir_nucleo", "trecho": "3%", "campo": "percentual", "valor": {"valor": 0.03, "trecho": "3%"}},
+    {"tipo": "definir_parametro", "trecho": "R$ 600 mil", "campo": "orcamento", "valor": {"valor": 600000, "trecho": "R$ 600 mil"}},
+    {"tipo": "remover_parametro", "trecho": "tire a meta", "campo": "meta_venda"},
+    {"tipo": "definir_parametro", "trecho": "só novembro", "campo": "competencias", "valor": {"valor": ["2025-11"], "trecho": "só novembro"}}
   ]
 }
 ```
@@ -99,9 +100,9 @@ Todo valor novo passa pela conferência da extração inicial (T-210), contra o 
 
 O valor que não confere não é aplicado: o campo fica como estava, e a operação sai como `DiagnosticoOperacao` com o motivo da conferência (`valor_sem_lastro`, `codigo_fora_do_vocabulario`, `termo_ambiguo` ou `periodo_nao_resolvido`). Uma lista de códigos só é aplicada se todos resolverem, para o escopo não encolher sem o usuário pedir.
 
-A substituição sem lastro também mantém o elemento atual. A montagem da extração inicial põe o trecho no lugar da descrição de um elemento sem lastro, e na correção o trecho é uma frase sobre o elemento, como "o limite inferior da faixa é 40 mil", e não o elemento: a troca apagaria o que o texto não mencionou. Por isso a correção parcial de um elemento não é aplicada, e o usuário precisa descrever o elemento inteiro. Aceitar a regra atual como lastro dos valores que a correção não mudou é da T-224. O elemento acrescentado sem lastro segue a extração inicial e entra como `generico`, porque não há elemento anterior a preservar.
+Cada operação passa antes pela validação de `trecho_literal(texto_correcao, operacao["trecho"])`. Trecho inexistente, vazio ou não presente no texto corrente produz `DiagnosticoOperacao(indice, "operacao_sem_trecho")`, sem aplicar qualquer mutação. Isso abrange todas as seis operações, inclusive remoções e filtros vazios. O trecho é necessário, mas não substitui a conferência individual dos valores.
 
-A conferência não cobre a operação em si: uma remoção, ou uma lista de códigos vazia, não tem valor a conferir. Conferir que o texto pediu a operação é da T-224.
+Na T-224, uma operação com trecho válido, mas **valor de elemento** não conferido, produz elemento `generico` e `Rebaixamento(..., "valor_sem_lastro", ...)`, usando o trecho literal da operação como descrição segura, sem introduzir números inventados. A mesma regra vale para a substituição e a inclusão. Sem trecho da operação, o elemento atual não é removido nem substituído. Um núcleo ou parâmetro com valor sem lastro permanece inalterado; valores do histórico não justificam alterações.
 
 ## Invariantes e falhas
 
@@ -129,7 +130,7 @@ class DiagnosticoOperacao:
     motivo: MotivoDiagnostico
 ```
 
-`MotivoDiagnostico` é `operacao_invalida`, `referencia_inexistente` ou um dos motivos de lastro da seção anterior. O tipo não tem `para_contrato`, não guarda payload nem texto e não é subtipo de `Rebaixamento`. Não deve ser passado a `validar_conteudo`, da extração inicial: esse validador exige que todo genérico da regra tenha seu rebaixamento, e a correção recebe uma regra pronta, sem o histórico.
+`MotivoDiagnostico` é `operacao_invalida`, `operacao_sem_trecho`, `referencia_inexistente` ou um dos motivos de lastro da seção anterior. O tipo não tem `para_contrato`, não guarda payload nem texto e não é subtipo de `Rebaixamento`. Não deve ser passado a `validar_conteudo`, da extração inicial: esse validador exige que todo genérico da regra tenha seu rebaixamento, e a correção recebe uma regra pronta, sem o histórico.
 
 ### Destino dos diagnósticos de operação
 
@@ -138,3 +139,9 @@ class DiagnosticoOperacao:
 ## Integração
 
 O chamador obtém a versão e os parâmetros atuais, os conflitos e o texto, e passa as competências publicadas a `reextrair_regra`. O resultado traz o conjunto completo de parâmetros, nunca um patch. O motor não emite logs nem métricas: a observabilidade da reextração é da T-221, que o chama no caminho real e precisa cumprir os critérios do `AGENTS.md`, inclusive sucesso, falha, duração e correlação.
+
+## Histórico e métricas — T-224
+
+O repositório `app/repositorio/rodadas_correcao.py` recebe `job_id` e a `submissao_correcao_id` atual. Uma CTE recursiva parte da rodada dessa submissão, percorre `rodada_anterior_id` e confere `job_id` **em cada elo**, sem depender de ordem global de criação; seleciona, via `SELECT`, os conflitos e textos das até **cinco** rodadas anteriores (`LIMITE_HISTORICO_CORRECOES = 5`). Rodadas `reextracao_falhou` estão incluídas; uma primeira correção sem predecessora retorna `[]`. A leitura não grava nada em `rodadas_correcao` e não altera o evento `correcao-submetida`.
+
+`reextract_rule` passa exatamente o mesmo histórico para a consulta da resposta previamente gravada e para a chamada nova ao modelo. O estado persistente do grafo conserva apenas referências, sem cópias dos textos. As operações rejeitadas contam em `codegen_extracao_rebaixamentos_total{motivo=...}` junto às demais da T-204; os motivos são definidos por código, nunca por conteúdo do usuário. Logs carregam apenas referências e contagens, sem histórico, texto, prompt ou resposta.

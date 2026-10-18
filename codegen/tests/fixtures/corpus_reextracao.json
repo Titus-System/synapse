@@ -1,0 +1,74 @@
+[
+  {
+    "id": "primeira_correcao_sem_historico",
+    "texto": "Corrija o percentual para 3%.",
+    "historico": [],
+    "operacoes_falsas": [
+      {"tipo": "definir_nucleo", "trecho": "3%", "campo": "percentual", "valor": {"valor": 0.03, "trecho": "3%"}}
+    ],
+    "percentual_esperado": 0.03,
+    "orcamento_esperado": 500000,
+    "meta_esperada": 12000000,
+    "motivos_esperados": [],
+    "modelo_real": true
+  },
+  {
+    "id": "terceira_correcao_com_conflitos_e_textos",
+    "texto": "Agora o percentual deve ser 3% e o orçamento deve ser de R$ 600 mil.",
+    "historico": [
+      {"conflitos": [{"elementos": ["nucleo.percentual"], "motivo": "percentual conflitante"}], "texto": "Na primeira revisão, pedi para rever o percentual."},
+      {"conflitos": [{"elementos": ["parametros.orcamento"], "motivo": "orçamento insuficiente"}], "texto": "Na segunda revisão, disse que o orçamento precisava mudar."}
+    ],
+    "operacoes_falsas": [
+      {"tipo": "definir_nucleo", "trecho": "3%", "campo": "percentual", "valor": {"valor": 0.03, "trecho": "3%"}},
+      {"tipo": "definir_parametro", "trecho": "R$ 600 mil", "campo": "orcamento", "valor": {"valor": 600000, "trecho": "R$ 600 mil"}}
+    ],
+    "percentual_esperado": 0.03,
+    "orcamento_esperado": 600000,
+    "meta_esperada": 12000000,
+    "motivos_esperados": [],
+    "modelo_real": true
+  },
+  {
+    "id": "historico_nao_e_fonte_de_valores_novos",
+    "texto": "Mantenha os valores atuais.",
+    "historico": [
+      {"conflitos": [{"elementos": ["parametros.orcamento"], "motivo": "orçamento anterior"}], "texto": "Antes eu mencionei R$ 700 mil."}
+    ],
+    "operacoes_falsas": [
+      {"tipo": "definir_parametro", "trecho": "Mantenha os valores atuais", "campo": "orcamento", "valor": {"valor": 700000, "trecho": "R$ 700 mil"}}
+    ],
+    "percentual_esperado": 0.025,
+    "orcamento_esperado": 500000,
+    "meta_esperada": 12000000,
+    "motivos_esperados": ["valor_sem_lastro"],
+    "modelo_real": true
+  },
+  {
+    "id": "remocao_precisa_trecho_da_correcao",
+    "texto": "Retire a meta de venda da simulação.",
+    "historico": [],
+    "operacoes_falsas": [
+      {"tipo": "remover_parametro", "campo": "meta_venda"}
+    ],
+    "percentual_esperado": 0.025,
+    "orcamento_esperado": 500000,
+    "meta_esperada": 12000000,
+    "motivos_esperados": ["operacao_sem_trecho"],
+    "modelo_real": false
+  },
+  {
+    "id": "orcamento_hallucinado_com_trecho_validado",
+    "texto": "A comissão passa a 3%; sem alteração do orçamento.",
+    "historico": [],
+    "operacoes_falsas": [
+      {"tipo": "definir_nucleo", "trecho": "3%", "campo": "percentual", "valor": {"valor": 0.03, "trecho": "3%"}},
+      {"tipo": "definir_parametro", "trecho": "sem alteração do orçamento", "campo": "orcamento", "valor": {"valor": 600000, "trecho": "sem alteração do orçamento"}}
+    ],
+    "percentual_esperado": 0.03,
+    "orcamento_esperado": 500000,
+    "meta_esperada": 12000000,
+    "motivos_esperados": ["valor_sem_lastro"],
+    "modelo_real": false
+  }
+]

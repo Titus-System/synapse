@@ -7,7 +7,8 @@ from typing import Any, Literal, cast
 from jsonschema import Draft202012Validator
 from pydantic import ConfigDict, TypeAdapter
 
-from app.extracao.lastro import conferir_numero, conferir_periodo
+from app.extracao.construtos.generico import montar_generico
+from app.extracao.lastro import conferir_numero, conferir_periodo, numeros_citados, trecho_literal
 from app.extracao.modelos import FalhaExtracaoError, Rebaixamento
 from app.extracao.montagem import montar_elemento
 from app.extracao.parametros import validar_parametros
@@ -18,6 +19,7 @@ from app.tipos_estado import ValorRegra
 
 type MotivoDiagnostico = Literal[
     "operacao_invalida",
+    "operacao_sem_trecho",
     "referencia_inexistente",
     "valor_sem_lastro",
     "codigo_fora_do_vocabulario",
@@ -79,6 +81,23 @@ def _conferir(
     return bruto, None
 
 
+def _montar_elemento_correcao(
+    elemento: dict[str, Any], trecho: str, texto: str
+) -> tuple[dict[str, ValorRegra], Rebaixamento | None]:
+    """Nunca transfere números inventados em uma paráfrase para o elemento genérico."""
+    descricao = elemento.get("descricao")
+    if isinstance(descricao, str) and not numeros_citados(descricao).issubset(
+        numeros_citados(texto)
+    ):
+        return montar_generico("elem.1", trecho), Rebaixamento(
+            "elem.1", "valor_sem_lastro", elemento.get("construto_pretendido")
+        )
+    convertido, rebaixamento = montar_elemento(elemento, "elem.1", texto)
+    if rebaixamento is not None and rebaixamento.motivo == "valor_sem_lastro":
+        return montar_generico("elem.1", trecho), rebaixamento
+    return convertido, rebaixamento
+
+
 def _aplicar(
     operacao: dict[str, Any],
     nucleo: dict[str, ValorRegra],
@@ -104,7 +123,9 @@ def _aplicar(
     elif tipo == "remover_parametro":
         parametros.pop(operacao["campo"], None)
     elif tipo == "adicionar_elemento":
-        convertido, rebaixamento = montar_elemento(operacao["elemento"], "elem.1", texto)
+        convertido, rebaixamento = _montar_elemento_correcao(
+            operacao["elemento"], operacao["trecho"], texto
+        )
         elementos.append(_Elemento(None, convertido, rebaixamento))
     else:
         posicao = next(
@@ -115,12 +136,9 @@ def _aplicar(
         if tipo == "remover_elemento":
             elementos.pop(posicao)
         else:
-            convertido, rebaixamento = montar_elemento(operacao["elemento"], "elem.1", texto)
-            # Sem lastro, a montagem põe o trecho no lugar da descrição. Na correção o trecho é
-            # uma frase sobre o elemento, e não o elemento: trocá-lo apagaria o que o texto não
-            # mencionou.
-            if rebaixamento is not None and rebaixamento.motivo == "valor_sem_lastro":
-                return "valor_sem_lastro"
+            convertido, rebaixamento = _montar_elemento_correcao(
+                operacao["elemento"], operacao["trecho"], texto
+            )
             elementos[posicao] = _Elemento(operacao["ref"], convertido, rebaixamento)
     return None
 
@@ -154,6 +172,11 @@ def aplicar_operacoes_correcao(
     # A montagem da T-203 recupera rascunhos incompletos; o envelope do item segue fechado.
     validador = Draft202012Validator(schema_operacao_correcao(validar_elemento=False))
     for indice, operacao in enumerate(envelope["operacoes"], 1):
+        if isinstance(operacao, dict) and not trecho_literal(
+            texto_correcao, operacao.get("trecho")
+        ):
+            diagnosticos.append(DiagnosticoOperacao(indice, "operacao_sem_trecho"))
+            continue
         if not validador.is_valid(operacao):
             diagnosticos.append(DiagnosticoOperacao(indice, "operacao_invalida"))
             continue
