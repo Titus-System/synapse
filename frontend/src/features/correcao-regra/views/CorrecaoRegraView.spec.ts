@@ -1,14 +1,30 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '@/services/api'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { listarRodadas } from '../services/correcao.api'
+import { pendente, jobCorrecao } from '../services/correcao.fixtures'
+vi.mock('@/services/jobEvents', () => ({
+  abrirAcompanhamentoJob: vi.fn<() => { fechar: () => void }>(() => ({
+    fechar: vi.fn<() => void>(),
+  })),
+}))
+vi.mock('../services/correcao.api', () => ({
+  listarRodadas: vi.fn<typeof import('../services/correcao.api').listarRodadas>(),
+  enviarCorrecaoTexto: vi.fn<typeof import('../services/correcao.api').enviarCorrecaoTexto>(),
+  enviarCorrecaoVoz: vi.fn<typeof import('../services/correcao.api').enviarCorrecaoVoz>(),
+}))
+beforeEach(() => {
+  vi.mocked(listarRodadas).mockResolvedValue([pendente])
+  vi.spyOn(apiClient, 'consultarJob').mockResolvedValue(jobCorrecao)
+})
 import CorrecaoRegraView from './CorrecaoRegraView.vue'
 
 afterEach(() => vi.restoreAllMocks())
 
 describe('visual do chatbot', () => {
-  it('mostra a conversa de exemplo e o processo com envio desabilitado', async () => {
+  it('mostra conflitos reais e mantém o envio vazio desabilitado', async () => {
     vi.spyOn(console, 'info').mockImplementation(() => undefined)
     vi.spyOn(apiClient, 'listarJobs').mockResolvedValue({
       itens: [],
@@ -25,8 +41,9 @@ describe('visual do chatbot', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('Refine sua Regra')
     expect(wrapper.find('[aria-label="Etapas do processo"]').exists()).toBe(true)
-    expect(wrapper.find('[role="status"]').text()).toContain('Exemplo de conversa')
-    expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('percentual ausente')
+    expect(wrapper.text()).not.toContain('Exemplo de conversa')
+    expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined()
     expect(wrapper.get('button[aria-label="Enviar correção"]').attributes('disabled')).toBeDefined()
     wrapper.unmount()
   })
