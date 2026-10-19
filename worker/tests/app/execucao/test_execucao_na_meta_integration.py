@@ -75,6 +75,7 @@ def executar_na_meta(
         elementos_exigidos=execucao.elementos_exigidos,
         bases=bases,
         baseline_na_meta=baseline_na_meta,
+        meta_venda=meta_venda,
     )
     return saida, julgamento
 

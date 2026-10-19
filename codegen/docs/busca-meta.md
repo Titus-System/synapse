@@ -1,6 +1,6 @@
 # Busca da meta de venda — T-273
 
-`BUSCA_META_ENABLED` é `false` por padrão. Habilite somente depois de integrar a T-274: a API precisa separar `busca_meta` da simulação do job e consumir `meta-venda-sugerida`. A flag controla a abertura de buscas; uma busca já gravada continua pelo seu checkpoint. A apresentação e a aceitação pertencem à API e ao frontend.
+`BUSCA_META_ENABLED` é `true` por padrão. A API separa `busca_meta` da simulação do job e consome `meta-venda-sugerida` (T-274), e expõe a busca em curso em `busca_meta_em_curso` (T-283). A flag controla a abertura de buscas: desligada, nenhuma busca nova começa, e uma busca já gravada continua pelo seu checkpoint. A apresentação e a aceitação pertencem à API e ao frontend.
 
 ## Elegibilidade e algoritmo
 

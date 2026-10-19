@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://synapse.local/contracts/domain/resultado-linhas.schema.json",
   "title": "Detalhamento do resultado por competência e matrícula",
-  "description": "Coluna resultados_simulacao.linhas. Há uma entrada por mês e colaborador, indexada primeiro por competência e depois por matrícula, na granularidade mensal dos dados enviados pela DomRock. A marca e a loja são as da lotação no RH naquela competência, como no baseline congelado; vendas em outras marcas ou lojas ficam consolidadas na mesma linha. O cargo também é o da pessoa naquele mês. O harness monta o detalhamento a partir de apuracao_simulada e contribuicoes, com a diferença calculada a partir das mesmas parcelas em centavos. O worker grava o objeto inteiro no mesmo INSERT do resultado, e a api o lê pela rota de detalhamento. Só um resultado com status sucesso tem números válidos; a coluna é nula nos demais status e nos resultados anteriores à inclusão do detalhamento. Fica fora de decomposicao e de resultado-simulacao para que a consulta do job não carregue o período inteiro de todas as simulações. A conferência das linhas contra os totais e as quebras é determinística e pertence ao worker, não ao frontend nem a este schema.",
+  "description": "Coluna resultados_simulacao.linhas. Há uma entrada por mês e colaborador, indexada primeiro por competência e depois por matrícula, na granularidade mensal dos dados enviados pela DomRock. A marca e a loja são as da lotação no RH naquela competência, como no baseline congelado; vendas em outras marcas ou lojas ficam consolidadas na mesma linha. O cargo também é o da pessoa naquele mês. O harness monta o detalhamento a partir de apuracao_simulada e contribuicoes, com a diferença calculada a partir das mesmas parcelas em centavos. O worker acrescenta a cada linha, fora do container, o total vendido (vendas), lido das bases que o código gerado não alcança. O worker grava o objeto inteiro no mesmo INSERT do resultado, e a api o lê pela rota de detalhamento. Só um resultado com status sucesso tem números válidos; a coluna é nula nos demais status e nos resultados anteriores à inclusão do detalhamento. Fica fora de decomposicao e de resultado-simulacao para que a consulta do job não carregue o período inteiro de todas as simulações. A conferência das linhas contra os totais e as quebras é determinística e pertence ao worker, não ao frontend nem a este schema.",
   "type": "object",
   "propertyNames": { "$ref": "comum.schema.json#/$defs/competencia" },
   "additionalProperties": {
@@ -35,6 +35,10 @@
         "cod_cargo": {
           "$ref": "comum.schema.json#/$defs/codigo",
           "description": "Cargo da pessoa no RH no mês."
+        },
+        "vendas": {
+          "$ref": "comum.schema.json#/$defs/brl",
+          "description": "Total vendido pela matrícula na competência, em qualquer loja ou marca, somado nesta linha da lotação. Numa execução na meta de venda, é a soma das vendas escaladas até a meta, sobre as quais as comissões da linha foram apuradas. Zero quando a matrícula não vendeu no mês. É a venda do próprio colaborador, e não a base da comissão, que no caso do gerente é a venda da loja de lotação. O worker o acrescenta fora do container, e o harness não o produz. Ausente nos resultados gravados antes do campo."
         },
         "comissao_baseline": {
           "$ref": "comum.schema.json#/$defs/brl",

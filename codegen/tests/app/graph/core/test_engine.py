@@ -13,6 +13,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from app.codigo_gerado import CodigoInvalidoError
+from app.config import get_settings
 from app.graph.core.engine import build_graph
 from app.graph.core.state import AgentState
 from app.prompts.geracao_codigo import montar_prompt_geracao
@@ -108,6 +109,9 @@ class _Execucao:
         regra: RepresentacaoRegra = _REGRA,
     ) -> None:
         monkeypatch.setattr("app.graph.nodes.load_rule.buscar_regra", AsyncMock(return_value=regra))
+        # O banco falso não responde às consultas da busca da meta maior, que tem testes
+        # próprios (`tests/app/graph/test_busca_meta.py`).
+        monkeypatch.setattr(get_settings(), "BUSCA_META_ENABLED", False)
         monkeypatch.setattr(
             "app.graph.nodes.validate_domain.parametros_sem_lastro",
             AsyncMock(return_value=frozenset()),

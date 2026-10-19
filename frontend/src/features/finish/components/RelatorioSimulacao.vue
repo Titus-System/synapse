@@ -78,17 +78,28 @@ function competencia(valor: string) {
           aria-label="Comissões por colaborador"
         >
           <table
-            class="w-full min-w-[66rem] border-separate border-spacing-x-2 border-spacing-y-3 text-left text-sm"
+            class="w-full min-w-[73rem] border-separate border-spacing-x-2 border-spacing-y-3 text-left text-sm"
           >
             <caption class="sr-only">
               Detalhamento das comissões da simulação
             </caption>
             <thead class="sticky top-0 z-10 bg-white text-[#2e1a10]">
               <tr>
-                <th scope="col">Competência</th>
+                <th
+                  scope="col"
+                  class="sticky left-2 w-28 min-w-28 bg-white shadow-[0_0_0_0.5rem_white]"
+                >
+                  Competência
+                </th>
+                <th
+                  scope="col"
+                  class="sticky left-32 w-32 min-w-32 bg-white shadow-[0_0_0_0.5rem_white]"
+                >
+                  Matrícula
+                </th>
                 <th scope="col">Marca</th>
                 <th scope="col">Loja</th>
-                <th scope="col">Matrícula</th>
+                <th scope="col">Venda</th>
                 <th scope="col">Cargo</th>
                 <th scope="col">Comissão atual</th>
                 <th scope="col">Comissão simulada</th>
@@ -98,8 +109,15 @@ function competencia(valor: string) {
             </thead>
             <tbody>
               <tr v-for="linha in visiveis" :key="`${linha.competencia}/${linha.matricula}`">
-                <td class="rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] px-3 py-2">
+                <td
+                  class="sticky left-2 z-[1] w-28 min-w-28 rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] px-3 py-2 shadow-[0_0_0_0.5rem_white]"
+                >
                   {{ competencia(linha.competencia) }}
+                </td>
+                <td
+                  class="sticky left-32 z-[1] w-32 min-w-32 rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] px-3 py-2 shadow-[0_0_0_0.5rem_white]"
+                >
+                  {{ linha.matricula }}
                 </td>
                 <td class="rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] px-3 py-2">
                   {{ linha.cod_marca }}
@@ -107,8 +125,10 @@ function competencia(valor: string) {
                 <td class="rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] px-3 py-2">
                   {{ linha.cod_loja }}
                 </td>
-                <td class="rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] px-3 py-2">
-                  {{ linha.matricula }}
+                <td
+                  class="whitespace-nowrap rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] px-3 py-2"
+                >
+                  {{ linha.vendas === undefined ? '—' : formatarReais(linha.vendas) }}
                 </td>
                 <td class="rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] px-3 py-2">
                   {{ linha.cod_cargo }}

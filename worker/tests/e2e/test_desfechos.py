@@ -55,6 +55,11 @@ async def test_sucesso_grava_a_linha_e_publica_o_evento_nas_duas_filas(
     )
     assert totais["orcamento"] == orcamento
     assert linha["diagnostico"] is None
+    # O total vendido de cada linha vem das bases do worker, fora do container (T-282).
+    detalhamento = json.loads(linha["linhas"])
+    assert all("vendas" in colaborador for colaborador in detalhamento["2025-11"].values())
+    assert detalhamento["2025-11"]["MATRIC-1"]["vendas"] == regras.VENDAS_MATRIC_1_2025_11
+    assert erros_do_dominio("resultado-linhas", detalhamento) == []
     (gravado,) = worker.mensagens("resultado gravado")
     assert gravado["extra"]["com_diagnostico"] is False
     assert da_api == do_codegen
@@ -151,6 +156,8 @@ async def test_na_meta_o_resultado_e_gravado_e_publicado_com_a_meta_e_o_proposit
     )
     assert totais["vendas_historicas"] == regras.VENDAS_2025_11
     assert erros_do_dominio("resultado-totais", totais) == []
+    detalhamento = json.loads(linha["linhas"])
+    assert detalhamento["2025-11"]["MATRIC-1"]["vendas"] == regras.VENDAS_MATRIC_1_NA_META_2025_11
     assert da_api == do_codegen
     assert da_api["resultado_id"] == str(linha["id"])
     assert (da_api["meta_venda"], da_api["proposito"]) == (regras.META_2025_11, "busca_meta")
