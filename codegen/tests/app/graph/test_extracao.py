@@ -325,6 +325,43 @@ async def test_bonus_fixo_extraido_conta_o_construto_e_nao_vaza_a_matricula(
     assert "MATRIC-422" not in simplejson.dumps(logs)
 
 
+async def test_janela_datas_extraida_conta_o_construto(
+    monkeypatch: pytest.MonkeyPatch,
+    cliente: AsyncClient,
+) -> None:
+    texto = "Vendas de 24/11 a 30/11 terão +1% no percentual"
+    janela = {
+        "construto_pretendido": "janela_datas",
+        "descricao": texto,
+        "trecho": texto,
+        "data_inicial": "2025-11-24",
+        "data_final": "2025-11-30",
+        "efeito": {
+            "tipo": "acrescimo_pct",
+            "valor": {"valor": Decimal("0.01"), "trecho": "+1%"},
+        },
+    }
+    ambiente = AmbienteExtracao(
+        monkeypatch, [{"nucleo": {}, "elementos": [janela], "parametros": {}}]
+    )
+    payload = ambiente.entrada()
+    ambiente.banco.transcricoes[UUID(payload["submissao_id"])] = texto
+    rotulos = {"construto": "janela_datas"}
+    antes = (await cliente.get("/metrics")).text
+
+    recebida = mensagem(payload)
+    await ambiente.consumer.receber(recebida)
+
+    recebida.ack.assert_awaited_once_with()
+    [extracao] = ambiente.banco.tabela("extracoes_regras")
+    [elemento] = simplejson.loads(extracao["representacao"], use_decimal=True)["especificacoes"]
+    assert elemento["construto"] == "janela_datas"
+    assert (elemento["data_inicial"], elemento["data_final"]) == ("2025-11-24", "2025-11-30")
+    depois = (await cliente.get("/metrics")).text
+    nome = "codegen_extracao_elementos_total"
+    assert amostra(depois, nome, rotulos) - amostra(antes, nome, rotulos) == 1
+
+
 async def test_nao_descarta_elemento_generico(monkeypatch: pytest.MonkeyPatch) -> None:
     elemento = {
         "construto_pretendido": "forma_privada",
