@@ -100,6 +100,8 @@ def test_extra_is_namespaced_under_extra(envelope: Envelope) -> None:
 
 Run `make test` while working, `make pre-commit` before committing.
 
+Tests marked `llm` call the real provider, so they are deselected by default (`-m 'not llm'` in `addopts`) and run only with `make test-llm`. Each run spends provider quota (Gemini free tier: 500 requests a day), so run it on purpose, not on every commit.
+
 Tests run with pytest, and coverage comes from `pytest-cov` (branch coverage, measured over `app/`, configured in `[tool.coverage.run]` in `pyproject.toml`):
 
 ```bash
