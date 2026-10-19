@@ -193,6 +193,7 @@ export interface JobCriado extends JobBase {
 }
 
 export interface Job extends JobBase {
+  nome?: string | null
   orcamento?: number
   meta_venda?: number
   regras: RegraVersionada[]
@@ -203,6 +204,7 @@ export interface Job extends JobBase {
 
 export interface JobResumo {
   id: string
+  nome?: string | null
   status: StatusJob
   competencias: string[]
   orcamento?: number
