@@ -342,6 +342,7 @@ async def test_registra_a_tentativa_e_o_motivo_sem_taxas_nem_totais(
 
     [proposta] = [r for r in caplog.records if r.getMessage() == "adaptation proposal published"]
     assert proposta.tentativa == 2
+    assert proposta.metodo == "refinamento"
     [conclusao] = [r for r in caplog.records if r.getMessage() == "node conclusion published"]
     assert conclusao.motivo == "proposta"
     assert conclusao.tentativas_de_taxa == 1
@@ -351,6 +352,36 @@ async def test_registra_a_tentativa_e_o_motivo_sem_taxas_nem_totais(
         [{k: v for k, v in r.__dict__.items() if k not in padrao} for r in caplog.records]
     )
     for valor in ("0.0175", "0.02", "0.025", "1800", "1700", "1200", "2000"):
+        assert valor not in extras
+
+
+async def test_com_orcamento_abaixo_do_baseline_propoe_a_sondagem_e_registra_o_metodo(
+    monkeypatch: pytest.MonkeyPatch, taxas_simuladas: AsyncMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """O job que terminava sem tentar taxa nenhuma: 10% na meta, orçamento abaixo do baseline
+    (T-283)."""
+    _totais(monkeypatch, "7400123.65", "5000000", baseline="5730771.25")
+    taxas_simuladas.return_value = [TaxaSimulada(Decimal("0.1"), Decimal("7400123.65"))]
+    estado = _estado()
+    estado["representacao_regra"]["nucleo"]["percentual"] = Decimal("0.1")
+    producers = _producers()
+
+    with caplog.at_level("INFO", logger="app.graph.nodes.suggest_adaptation"):
+        await modulo.suggest_adaptation(estado, _config(producers))
+
+    [proposta] = producers.sugestao_adaptacao_proposta.await_args.args
+    assert proposta.tentativa == 1
+    assert proposta.representacao.para_contrato()["nucleo"]["percentual"] == Decimal("0.0675")
+    assert [e.status for e in (c.args[0] for c in producers.etapa_alterada.await_args_list)] == [
+        "iniciada"
+    ]
+    [registro] = [r for r in caplog.records if r.getMessage() == "adaptation proposal published"]
+    assert (registro.tentativa, registro.metodo) == (1, "sondagem")
+    padrao = logging.makeLogRecord({}).__dict__.keys()
+    extras = repr(
+        [{k: v for k, v in r.__dict__.items() if k not in padrao} for r in caplog.records]
+    )
+    for valor in ("0.0675", "0.1", "7400123", "5000000", "5730771"):
         assert valor not in extras
 
 

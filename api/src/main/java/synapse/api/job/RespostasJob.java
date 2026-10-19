@@ -42,20 +42,22 @@ record SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, String status, @N
  * Forma de {@code JobDetalhado} no contrato HTTP. {@code orcamento} e {@code meta_venda}
  * são os parâmetros da simulação deste job: ficam ausentes do JSON quando o job não os
  * tem, que é o caso antes da extração e quando o usuário não os disse.
+ * {@code busca_meta_em_curso} é {@code true} ou ausente, nunca {@code false}.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 record JobDetalhadoDto(UUID id, String status, String origem, List<String> competencias, @Nullable BigDecimal orcamento,
 		@Nullable BigDecimal meta_venda, Instant criado_em, @Nullable Instant iniciado_em,
 		@Nullable Instant finalizado_em, @Nullable UUID submissao_id, @Nullable UUID job_origem_id,
 		@Nullable String motivo, List<RegraCriadaDto> regras, @Nullable SimulacaoDto simulacao,
-		List<SimulacaoDto> simulacoes, @Nullable MetaSugeridaDto meta_sugerida, @Nullable String nome) {
+		List<SimulacaoDto> simulacoes, @Nullable MetaSugeridaDto meta_sugerida, @Nullable String nome,
+		@Nullable Boolean busca_meta_em_curso) {
 	JobDetalhadoDto(UUID id, String status, String origem, List<String> competencias, @Nullable BigDecimal orcamento,
 			@Nullable BigDecimal meta_venda, Instant criado_em, @Nullable Instant iniciado_em,
 			@Nullable Instant finalizado_em, @Nullable UUID submissao_id, @Nullable UUID job_origem_id,
 			@Nullable String motivo, List<RegraCriadaDto> regras, @Nullable SimulacaoDto simulacao,
 			List<SimulacaoDto> simulacoes, @Nullable MetaSugeridaDto meta_sugerida) {
 		this(id, status, origem, competencias, orcamento, meta_venda, criado_em, iniciado_em, finalizado_em,
-				submissao_id, job_origem_id, motivo, regras, simulacao, simulacoes, meta_sugerida, null);
+				submissao_id, job_origem_id, motivo, regras, simulacao, simulacoes, meta_sugerida, null, null);
 	}
 
 	JobDetalhadoDto(UUID id, String status, String origem, List<String> competencias, @Nullable BigDecimal orcamento,
@@ -64,7 +66,7 @@ record JobDetalhadoDto(UUID id, String status, String origem, List<String> compe
 			@Nullable String motivo, List<RegraCriadaDto> regras, @Nullable SimulacaoDto simulacao,
 			List<SimulacaoDto> simulacoes) {
 		this(id, status, origem, competencias, orcamento, meta_venda, criado_em, iniciado_em, finalizado_em,
-				submissao_id, job_origem_id, motivo, regras, simulacao, simulacoes, null, null);
+				submissao_id, job_origem_id, motivo, regras, simulacao, simulacoes, null, null, null);
 	}
 }
 
