@@ -93,6 +93,9 @@ class Settings(BaseSettings):
             f"{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
+    # Desligar impede só a abertura de buscas novas; uma busca já gravada segue pelo checkpoint.
+    BUSCA_META_ENABLED: bool = True
+
     # Graph / LLM
     GOOGLE_API_KEY: str | None = None
 

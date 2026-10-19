@@ -1,0 +1,23 @@
+{
+  "id": "generico-aniversario-loja",
+  "descricao": "Elemento generico que os dados não permitem calcular: dobrar a comissão no aniversário da loja, data que não existe em nenhuma base. O esperado é a falha, e não um número. A representação é a de contracts/examples/domain/representacao-regra-generico.json, e o período tem um mês só.",
+  "leitura": "Nenhuma base traz a data de fundação ou de aniversário da loja, então elem.1 não pode ser implementado. Como o contrato do harness manda, a regra não declara o elemento e levanta NotImplementedError nomeando-o; o job termina em erro_codigo com motivo excecao. Declarar elem.1 com efeito zero, ou aproximá-lo com outra data, devolveria um número que parece completo sem a parte da regra que faltou.",
+  "representacao": {
+    "nucleo": {
+      "vigencia": { "inicio": "2025-11", "fim": "2025-11" },
+      "loja": ["13"],
+      "marca": [],
+      "cargo": ["100"],
+      "percentual": 0.02
+    },
+    "especificacoes": [
+      {
+        "ref": "elem.1",
+        "construto": "generico",
+        "descricao": "dobrar a comissão no dia do aniversário da loja",
+        "campos": { "evento": "aniversario_loja", "multiplicador": 2 }
+      }
+    ]
+  },
+  "competencias": ["2025-11"]
+}

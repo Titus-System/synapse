@@ -11,6 +11,8 @@ its skill — nothing here is documented twice.
 | Skill | Read before |
 | --- | --- |
 | [`sandbox`](.agents/skills/sandbox/SKILL.md) | Touching `app/sandbox/`, `app/execucao/container.py` or `sandbox/Dockerfile`; wiring execution into the consumer; investigating an execution that failed. |
+| [`logging`](.agents/skills/logging/SKILL.md) | Changing a consumer, execution path, failure handling or log emission. |
+| [`metrics`](.agents/skills/metrics/SKILL.md) | Instrumenting execution counts, failures, durations or active containers. |
 
 Conventions that cross services live in [`../.agents/skills/`](../.agents/skills/):
 `architecture` (monorepo boundaries), `contract-change` (changing a schema under
@@ -20,6 +22,16 @@ Conventions that cross services live in [`../.agents/skills/`](../.agents/skills
 The notes for each delivery — what goes into the image, the measured isolation flags, the
 result decomposition, the invariant assertions and the frozen baselines — live in
 [`docs/`](docs/).
+
+## Observability is required for delivery
+
+- Apply the root observability criteria to command consumption, sandbox execution, output validation, result persistence, publication and cleanup. Observability belongs to the execution path being delivered, not a later instrumentation task.
+- Record relevant starts and outcomes with job correlation, artifact references, sanitized failure class and duration. Distinguish infrastructure error, generated-code error, timeout, violated assertion and a successful simulation with an infeasible verdict; infeasibility is not an execution failure.
+- Set the job correlation context at the consumer boundary and reset it in `finally`. Consecutive commands and redeliveries must not inherit the previous job context, including failures before container creation.
+- Load collectors into the registry exported by `/metrics` and update them in the real consumer and execution paths. An unused metric module or a working scrape endpoint with only process metrics is not sufficient.
+- Define which counters measure execution attempts, persisted results or redeliveries. Returning an existing result or retrying publication must not count as a new sandbox execution. Measure execution duration on errors and timeouts as well as success; active-container gauges must be restored when cleanup finishes or creation fails.
+- Use the worker process to emit operational telemetry. Never log container stdout/stderr, raw rule exceptions, generated code or dataset lines; keep diagnostics in the designated artifact store and log only safe classifications and references. Do not relax isolation to expose sandbox metrics.
+- Verify emission through the actual consumer/executor for success and relevant failure paths, including timeout, redelivery and cleanup when those behaviors change. Inspect serialized logs and metric samples in the registry and `/metrics`; mocking a logger call does not establish operational visibility.
 
 ## Security
 

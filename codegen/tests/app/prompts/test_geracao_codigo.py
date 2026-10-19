@@ -2,9 +2,10 @@ import json
 import re
 import subprocess
 import sys
+from collections import defaultdict
 from copy import deepcopy
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from shutil import copytree
 from typing import Any
@@ -133,6 +134,20 @@ def test_convencoes_conferem_com_oraculo_de_dominio(prompt: dict[str, Any], conv
             "converter_para_inteiro": capturar(r": (\w+) converter para inteiro", texto) != "não",
             "tipo_no_join": capturar(r"joins precisam preservar (\w+)", texto),
         }
+    elif convencao == "cod_cargo":
+        observado = {
+            "tabela_sem_cargo": capturar(r"^(\w+) não tem", texto),
+            "colunas_ausentes": capturar(r"não tem (.+?):", texto).split(" nem "),
+            "tabelas_com_cargo": re.split(r", | e ", capturar(r"só existe em (.+?)\.", texto)),
+        }
+    elif convencao == "valor de venda":
+        observado = {
+            "coluna": capturar(r"vem de (\w+) em", texto),
+            "tabela": capturar(r"em bases\['(\w+)'\]", texto),
+            "agrupamento": re.split(r", | e ", capturar(r"somado por (.+?), e nunca", texto)),
+            "reconstruir_do_baseline": capturar(r"e (\w+) de dividir a comissão", texto) != "nunca",
+            "regras_do_baseline": re.split(r", | e ", capturar(r"já aplica (.+?) antes", texto)),
+        }
     else:
         observado = {
             "descricoes": capturar(r"origem possui (.*?) para o cargo", texto).split(" e "),
@@ -143,6 +158,161 @@ def test_convencoes_conferem_com_oraculo_de_dominio(prompt: dict[str, Any], conv
         }
 
     assert observado == oraculo["fatos"], oraculo["fontes"]
+
+
+def colunas_canonicas() -> dict[str, set[str]]:
+    canonico = json.loads((CANONICO / "schema.json").read_text(encoding="utf-8"))
+    return {
+        tabela: {campo["name"] for campo in dados["fields"]}
+        for tabela, dados in canonico["tables"].items()
+    }
+
+
+# O oráculo é manual, e os dois fatos abaixo são sobre colunas que o dataset publica: uma coluna
+# nova em vendas, ou um cargo que saia de rh, tem de reprovar aqui, não silenciosamente no prompt.
+def test_oraculo_do_cargo_confere_com_o_dataset_e_com_o_contrato(prompt: dict[str, Any]) -> None:
+    fatos = FATOS_ESPERADOS["convencoes"]["cod_cargo"]["fatos"]
+    colunas = colunas_canonicas()
+
+    assert not colunas[fatos["tabela_sem_cargo"]] & set(fatos["colunas_ausentes"])
+    do_dataset = [t for t in fatos["tabelas_com_cargo"] if t in colunas]
+    assert do_dataset == ["rh", "comissoes"]
+    for tabela in do_dataset:
+        assert "cod_cargo" in colunas[tabela]
+
+    # A linha de apuracao_base na tabela de tipos do contrato, não a da assinatura.
+    contrato = prompt["instrucoes_fixas_do_sistema"]["contrato_regrafn"]
+    assert "cod_cargo" in capturar(r"\| `apuracao_base` \| (`matricula`[^|]+)", contrato)
+
+
+def test_convencao_do_percentual_do_nucleo_esta_ancorada_no_schema(prompt: dict[str, Any]) -> None:
+    """O schema diz que o percentual é o %_Comiss proposto; a convenção diz o que isso faz com a
+    comissão da linha, porque o modelo somou o percentual ao baseline em vez de substituí-lo."""
+    sistema = prompt["instrucoes_fixas_do_sistema"]
+    descricao = sistema["regra_schema_bundle"]["regra-nucleo.schema.json"]["properties"][
+        "percentual"
+    ]["description"]
+    texto = sistema["convencoes"]["percentual do núcleo"]
+
+    assert "%_Comiss proposto" in descricao
+    assert (
+        capturar(r"a comissão da linha passa a ser (.+?), que substitui", texto)
+        == "vlr_venda vezes o percentual"
+    )
+
+
+def test_oraculo_do_valor_de_venda_confere_com_o_dataset_e_com_as_regras_base() -> None:
+    fatos = FATOS_ESPERADOS["convencoes"]["valor de venda"]["fatos"]
+    colunas = colunas_canonicas()
+
+    assert {fatos["coluna"], *fatos["agrupamento"]} <= colunas[fatos["tabela"]]
+    assert set(fatos["regras_do_baseline"]) <= set(FATOS_ESPERADOS["regras_base"]["conceitos"])
+
+
+def sistema_da_regra(nucleo: dict[str, Any], especificacoes: list[Any]) -> dict[str, Any]:
+    regra = {"nucleo": {**nucleo, "percentual": Decimal("0.025")}, "especificacoes": especificacoes}
+    documento = simplejson.loads(
+        montar_prompt_geracao(RepresentacaoRegra.model_validate(regra)), use_decimal=True
+    )
+    return dict(documento["instrucoes_fixas_do_sistema"])
+
+
+def exclusao_de_cargo(cargo: str) -> dict[str, Any]:
+    return {"ref": "elem.1", "construto": "exclusao", "dimensao": "cargo", "valores": [cargo]}
+
+
+@pytest.mark.parametrize(
+    ("nucleo", "especificacoes", "alcanca"),
+    [
+        ({"cargo": ["100"]}, [], False),
+        ({}, [], True),
+        ({"cargo": ["150"]}, [], True),
+        ({"cargo": ["100", "150"]}, [], True),
+        ({"marca": ["10"]}, [exclusao_de_cargo("150")], False),
+        ({"marca": ["10"]}, [exclusao_de_cargo("100")], True),
+    ],
+    ids=[
+        "so-vendedor",
+        "sem-filtro-de-cargo",
+        "so-gerente",
+        "vendedor-e-gerente",
+        "gerente-excluido",
+        "outro-cargo-excluido",
+    ],
+)
+def test_venda_do_gerente_so_entra_no_prompt_da_regra_que_alcanca_o_cargo_150(
+    nucleo: dict[str, Any], especificacoes: list[Any], alcanca: bool
+) -> None:
+    """Presente numa regra sem gerente, a convenção leva o modelo a montar a venda da loja sem
+    uso, e o código de uma regra só de vendedores quebrou com o merge a mais."""
+    sem_gerente = sistema_da_regra({"cargo": ["100"]}, [])
+
+    sistema = sistema_da_regra(nucleo, especificacoes)
+
+    convencoes = sistema.pop("convencoes")
+    assert ("venda do gerente" in convencoes) is alcanca
+    assert ("exceto no cargo 150" in convencoes["percentual do núcleo"]) is alcanca
+    if not alcanca:
+        assert convencoes == sem_gerente["convencoes"]
+    del sem_gerente["convencoes"]
+    assert sistema == sem_gerente
+
+
+def test_convencao_da_venda_do_gerente_confere_com_oraculo_de_dominio() -> None:
+    texto = sistema_da_regra({"cargo": ["150"]}, [])["convencoes"]["venda do gerente"]
+    oraculo = FATOS_ESPERADOS["venda_do_gerente"]
+
+    observado = {
+        "cargo": capturar(r"^Numa linha do cargo (\d+),", texto),
+        "base_do_percentual": capturar(r"incide sobre a (.+?), e não sobre", texto),
+        "base_recusada": capturar(r"e não sobre o (.+?);", texto),
+        "loja_da_venda": capturar(r"conta para a loja do (\w+) que ela mesma traz", texto),
+        "vendas_contadas": capturar(r"matrículas que têm linha\s+em (\w+) na competência", texto),
+        "chave_do_quadro": re.findall(r"'(\w+)'", capturar(r"apuracao_base\[\[(.+?)\]\]", texto)),
+        "juncao": capturar(r"how='(\w+)'", texto),
+        "agrupamento": re.findall(r"'(\w+)'", capturar(r"groupby\(\[(.+?)\]", texto)),
+        "faixa_valor": capturar(r"continua usando a (.+?)\.$", texto),
+    }
+
+    assert observado == oraculo["fatos"], oraculo["fontes"]
+
+
+def ler_jsonl(caminho: Path) -> list[dict[str, Any]]:
+    return [json.loads(linha) for linha in caminho.read_text(encoding="utf-8").splitlines()]
+
+
+def test_oraculo_da_venda_do_gerente_reproduz_a_base_do_gerente_no_baseline_congelado() -> None:
+    """A auditoria do baseline guarda a venda da loja que cada gerente recebeu. Somar também as
+    vendas de quem está fora do quadro muda essa base, então o filtro não é detalhe."""
+    fatos = FATOS_ESPERADOS["venda_do_gerente"]["fatos"]
+    vendas = ler_jsonl(CANONICO / "vendas.jsonl")
+    centavo = Decimal("0.01")
+    gerentes = 0
+    bases_que_mudam_sem_o_quadro = 0
+
+    for arquivo in sorted((CANONICO / "baselines").glob("baseline-*.jsonl")):
+        quadro = {tuple(linha[c] for c in fatos["chave_do_quadro"]) for linha in ler_jsonl(arquivo)}
+        do_quadro: defaultdict[tuple[Any, ...], Decimal] = defaultdict(Decimal)
+        de_todos: defaultdict[tuple[Any, ...], Decimal] = defaultdict(Decimal)
+        for venda in vendas:
+            loja = tuple(venda[c] for c in fatos["agrupamento"])
+            valor = Decimal(str(venda["vlr_venda"]))
+            de_todos[loja] += valor
+            if tuple(venda[c] for c in fatos["chave_do_quadro"]) in quadro:
+                do_quadro[loja] += valor
+        for linha in ler_jsonl(CANONICO / "baselines" / "auditoria" / arquivo.name):
+            if linha["nivel"] != "matricula" or str(linha["cargo"]) != fatos["cargo"]:
+                continue
+            loja = tuple(linha[c] for c in fatos["agrupamento"])
+            base = Decimal(str(linha["rastreabilidade"]["base_original"]))
+            gerentes += 1
+
+            assert do_quadro[loja].quantize(centavo, ROUND_HALF_UP) == base, linha["matricula"]
+            if de_todos[loja].quantize(centavo, ROUND_HALF_UP) != base:
+                bases_que_mudam_sem_o_quadro += 1
+
+    assert gerentes > 0
+    assert bases_que_mudam_sem_o_quadro > 0
 
 
 def test_regras_base_sao_contexto_materializado_sem_ensinar_recalculo(
@@ -329,10 +499,19 @@ def test_contrato_explica_como_declarar_o_elemento_implementado(prompt: dict[str
     observado = {
         "nucleo": capturar(r"campo do núcleo é `(.*?)`", secao),
         "especificacao": capturar(r"item de `especificacoes` é `(.*?)`", secao),
-        "declarado_em": capturar(r"preenchendo `elemento_ref` em\s+`(\w+)`", secao),
+        "declarado_em": capturar(r"declara os elementos que implementa na lista `(\w+)`", secao),
+        "atribuido_em": capturar(r"preenchendo `elemento_ref` em\s+`(\w+)`", secao),
     }
 
     assert observado == oraculo["fatos"], oraculo["fontes"]
+
+
+def test_prompt_pede_declaracao_mesmo_sem_contribuicao(prompt: dict[str, Any]) -> None:
+    texto = prompt["instrucoes_fixas_do_sistema"]["contrato_regrafn"]
+
+    assert "**`elementos_implementados`**" in texto
+    assert "Entra todo elemento implementado, tenha ou não gerado contribuição no período." in texto
+    assert "Todo `elemento_ref` que aparece em `contribuicoes` também está nesta lista." in texto
 
 
 def test_regra_schema_bundle_descreve_a_entrada_com_referencias_resolviveis(

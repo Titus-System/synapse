@@ -16,11 +16,15 @@ from referencing import Registry, Resource
 from app.codigo_gerado import CodigoInvalidoError
 from app.config import Settings
 from app.contratos.mensagens import (
+    CorrecaoProposta,
+    CorrecaoSubmetida,
     EtapaAlterada,
     ExecutarCodigo,
+    JobEncerrado,
     ModeloContrato,
     NoConcluido,
     ParametrosConfirmados,
+    ParametrosSimulacao,
     RegraSubmetida,
     SimulacaoConcluida,
     SugestaoAdaptacaoProposta,
@@ -29,7 +33,7 @@ from app.contratos.serializacao import serializar
 from app.core.logger import job_id_ctx
 from app.falhas import FalhaDoJobError
 from app.graph.nodes.code_generation import RespostaModeloInvalidaError
-from app.graph.nodes.dispatch_execution import OrcamentoAusenteError
+from app.graph.nodes.dispatch_execution import MetaVendaInvalidaError
 from app.mensageria import broker as modulo_broker
 from app.mensageria.broker import FILA_SIMULACAO, FILAS_SIMPLES, conectar, declarar_topologia
 from app.mensageria.consumers import Consumer
@@ -37,6 +41,7 @@ from app.mensageria.producers import Producers, ProdutorError
 from app.mensageria.roteamento import (
     Entrada,
     JobDesconhecidoError,
+    JobEncerradoError,
     RetomadaIndisponivelError,
 )
 from app.repositorio.regras import RegraInvalidaError
@@ -66,7 +71,9 @@ async def test_consumer_entrega_dto_canonico_com_decimal_exato_e_campo_futuro() 
 ENTRADAS = (
     (RegraSubmetida, "regra-submetida"),
     (ParametrosConfirmados, "parametros-confirmados"),
+    (CorrecaoSubmetida, "correcao-submetida"),
     (SimulacaoConcluida, "simulacao-concluida"),
+    (JobEncerrado, "job-encerrado"),
 )
 SAIDAS = (
     (ExecutarCodigo, "executar-codigo", "executar_codigo"),
@@ -81,15 +88,13 @@ def exemplo(nome: str) -> dict[str, Any]:
     )
 
 
-def representacao_do_exemplo() -> RepresentacaoRegra:
+def representacao_do_exemplo(nome: str = "sugestao-adaptacao-proposta") -> RepresentacaoRegra:
     """A representação do exemplo com os números como Decimal, que é como o nó a monta.
 
     Este DTO não tem volta por texto JSON: o parser devolveria float, e os tipos da regra o
     recusam justamente para não perder precisão. O consumidor do evento é a `api`, em Java.
     """
-    return RepresentacaoRegra.model_validate(
-        exemplo("sugestao-adaptacao-proposta")["representacao"]
-    )
+    return RepresentacaoRegra.model_validate(exemplo(nome)["representacao"])
 
 
 def oficial(nome: str) -> Draft202012Validator:
@@ -151,6 +156,46 @@ async def test_consumer_aceita_voz_sem_regra_id() -> None:
     dto = roteador.entregar.call_args.args[1]
     assert simplejson.loads(serializar(dto)) == payload
     mensagem.ack.assert_awaited_once_with()
+
+
+@pytest.mark.parametrize(
+    ("modelo", "fila", "nome"),
+    [
+        (RegraSubmetida, "regra-submetida", "regra-submetida-parametros"),
+        (ParametrosConfirmados, "parametros-confirmados", "parametros-confirmados-meta-venda"),
+    ],
+)
+async def test_consumer_entrega_a_meta_de_venda_do_evento(
+    modelo: type[Entrada], fila: str, nome: str
+) -> None:
+    roteador = MagicMock(entregar=AsyncMock())
+    payload = exemplo(nome)
+    mensagem = AsyncMock(body=simplejson.dumps(payload).encode())
+
+    await Consumer(modelo, fila, roteador).receber(mensagem)
+
+    mensagem.ack.assert_awaited_once_with()
+    dto = roteador.entregar.call_args.args[1]
+    assert simplejson.loads(serializar(dto), use_decimal=True) == payload
+
+
+@pytest.mark.parametrize(
+    "nome",
+    ["executar-codigo-meta-venda", "executar-codigo-sem-orcamento", "executar-codigo-busca-meta"],
+)
+async def test_producer_publica_o_comando_sem_orcamento_com_meta_e_com_proposito(
+    nome: str,
+) -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+    dto = ExecutarCodigo.model_validate_json(simplejson.dumps(exemplo(nome)))
+
+    await Producers(canal).executar_codigo(dto)
+
+    corpo = canal.default_exchange.publish.call_args.args[0].body
+    payload = simplejson.loads(corpo, use_decimal=True)
+    oficial("executar-codigo").validate(payload)
+    assert payload == exemplo(nome)
 
 
 async def test_producer_preserva_decimal_exato_no_corpo_json() -> None:
@@ -228,21 +273,28 @@ async def test_producer_nao_publica_dto_adulterado(
     canal.default_exchange.publish.assert_not_awaited()
 
 
-def sugestao_do_exemplo() -> SugestaoAdaptacaoProposta:
-    payload = exemplo("sugestao-adaptacao-proposta")
-    return SugestaoAdaptacaoProposta(
+def sugestao_do_exemplo(nome: str = "sugestao-adaptacao-proposta") -> SugestaoAdaptacaoProposta:
+    payload = exemplo(nome)
+    sugestao = SugestaoAdaptacaoProposta(
         job_id=UUID(payload["job_id"]),
         regra_origem_id=UUID(payload["regra_origem_id"]),
         resultado_id=UUID(payload["resultado_id"]),
-        representacao=representacao_do_exemplo(),
+        representacao=representacao_do_exemplo(nome),
     )
+    # Atribuída só quando o exemplo a tem: a proposta anterior ao campo sai sem ele.
+    if "tentativa" in payload:
+        sugestao.tentativa = payload["tentativa"]
+    return sugestao
 
 
-async def test_producer_publica_a_sugestao_no_payload_oficial() -> None:
+@pytest.mark.parametrize(
+    "nome", ["sugestao-adaptacao-proposta", "sugestao-adaptacao-proposta-tentativa"]
+)
+async def test_producer_publica_a_sugestao_no_payload_oficial(nome: str) -> None:
     canal = MagicMock()
     canal.default_exchange.publish = AsyncMock()
 
-    await Producers(canal).sugestao_adaptacao_proposta(sugestao_do_exemplo())
+    await Producers(canal).sugestao_adaptacao_proposta(sugestao_do_exemplo(nome))
 
     args = canal.default_exchange.publish.call_args
     assert args.kwargs == {
@@ -251,7 +303,88 @@ async def test_producer_publica_a_sugestao_no_payload_oficial() -> None:
     }
     corpo = simplejson.loads(args.args[0].body, use_decimal=True)
     oficial("sugestao-adaptacao-proposta").validate(corpo)
-    assert corpo == exemplo("sugestao-adaptacao-proposta")
+    assert corpo == exemplo(nome)
+
+
+async def test_producer_publica_o_fim_da_iteracao_sem_alternativa() -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+    nome = "etapa-alterada-sem-alternativa"
+    dto = EtapaAlterada.model_validate_json(simplejson.dumps(exemplo(nome)))
+
+    await Producers(canal).etapa_alterada(dto)
+
+    corpo = simplejson.loads(canal.default_exchange.publish.call_args.args[0].body)
+    oficial("etapa-alterada").validate(corpo)
+    assert corpo == exemplo(nome)
+
+
+async def test_producer_publica_a_pausa_com_a_versao_e_os_conflitos() -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+    nome = "etapa-alterada-conflitos"
+    dto = EtapaAlterada.model_validate_json(simplejson.dumps(exemplo(nome)))
+
+    await Producers(canal).etapa_alterada(dto)
+
+    corpo = simplejson.loads(canal.default_exchange.publish.call_args.args[0].body)
+    oficial("etapa-alterada").validate(corpo)
+    assert corpo == exemplo(nome)
+
+
+def proposta_do_exemplo(nome: str = "correcao-proposta") -> CorrecaoProposta:
+    payload = exemplo(nome)
+    proposta = CorrecaoProposta(
+        job_id=UUID(payload["job_id"]),
+        regra_origem_id=UUID(payload["regra_origem_id"]),
+        submissao_id=UUID(payload["submissao_id"]),
+        representacao=representacao_do_exemplo(nome),
+    )
+    # Atribuídos só quando o exemplo os tem: a proposta anterior ao campo sai sem eles.
+    if "parametros" in payload:
+        proposta.parametros = ParametrosSimulacao.model_validate(payload["parametros"])
+    return proposta
+
+
+@pytest.mark.parametrize("nome", ["correcao-proposta", "correcao-proposta-parametros"])
+async def test_producer_publica_a_correcao_proposta_no_payload_oficial(nome: str) -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+
+    await Producers(canal).correcao_proposta(proposta_do_exemplo(nome))
+
+    args = canal.default_exchange.publish.call_args
+    assert args.kwargs == {"routing_key": "correcao-proposta", "mandatory": True}
+    assert args.args[0].type == "correcao-proposta"
+    corpo = simplejson.loads(args.args[0].body, use_decimal=True)
+    oficial("correcao-proposta").validate(corpo)
+    assert corpo == exemplo(nome)
+
+
+async def test_producer_nao_publica_correcao_proposta_adulterada() -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+    dto = proposta_do_exemplo("correcao-proposta-parametros")
+    assert dto.parametros is not None
+    dto.parametros.competencias = []
+
+    with pytest.raises(ProdutorError):
+        await Producers(canal).correcao_proposta(dto)
+
+    canal.default_exchange.publish.assert_not_awaited()
+
+
+async def test_producer_publica_a_falha_da_reextracao_com_a_versao_e_a_correcao() -> None:
+    canal = MagicMock()
+    canal.default_exchange.publish = AsyncMock()
+    nome = "etapa-alterada-falha-reextracao"
+    dto = EtapaAlterada.model_validate_json(simplejson.dumps(exemplo(nome)))
+
+    await Producers(canal).etapa_alterada(dto)
+
+    corpo = simplejson.loads(canal.default_exchange.publish.call_args.args[0].body)
+    oficial("etapa-alterada").validate(corpo)
+    assert corpo == exemplo(nome)
 
 
 async def test_producer_nao_publica_sugestao_adulterada() -> None:
@@ -313,12 +446,60 @@ async def test_job_desconhecido_rejeitado_e_consumer_continua(
 
 
 @pytest.mark.parametrize(
+    ("modelo", "nome"),
+    [(RegraSubmetida, "regra-submetida"), (SimulacaoConcluida, "simulacao-concluida")],
+)
+async def test_mensagem_de_job_encerrado_e_confirmada_sem_processar(
+    monkeypatch: pytest.MonkeyPatch, modelo: type[Entrada], nome: str
+) -> None:
+    """Confirmar é o que tira da fila a mensagem antiga sem recomeçar nada do job."""
+    log = MagicMock()
+    monkeypatch.setattr("app.mensageria.consumers.logger", log)
+    roteador = MagicMock(entregar=AsyncMock(side_effect=JobEncerradoError("segredo")))
+    mensagem = AsyncMock(body=simplejson.dumps(exemplo(nome)).encode())
+
+    await Consumer(modelo, nome, roteador).receber(mensagem)
+
+    mensagem.ack.assert_awaited_once_with()
+    mensagem.nack.assert_not_awaited()
+    mensagem.reject.assert_not_awaited()
+    assert log.info.call_args.args == ("mensagem de job encerrado descartada",)
+    assert log.info.call_args.kwargs["extra"] == {
+        "tipo_mensagem": nome,
+        "causa": "job_encerrado",
+        "decisao": "ack_sem_processar",
+    }
+    assert "segredo" not in str(log.mock_calls)
+
+
+async def test_encerramento_de_job_inexistente_e_rejeitado_sem_requeue() -> None:
+    roteador = MagicMock(entregar=AsyncMock(side_effect=JobDesconhecidoError("job")))
+    mensagem = AsyncMock(body=simplejson.dumps(exemplo("job-encerrado")).encode())
+
+    await Consumer(JobEncerrado, "job-encerrado", roteador).receber(mensagem)
+
+    mensagem.reject.assert_awaited_once_with(requeue=False)
+    mensagem.ack.assert_not_awaited()
+
+
+async def test_falha_ao_registrar_o_encerramento_reentrega_a_mensagem() -> None:
+    """Sem o registro, o fato ainda não está durável: a reentrega é o que o salva."""
+    roteador = MagicMock(entregar=AsyncMock(side_effect=ConnectionError("banco fora")))
+    mensagem = AsyncMock(body=simplejson.dumps(exemplo("job-encerrado")).encode())
+
+    await Consumer(JobEncerrado, "job-encerrado", roteador).receber(mensagem)
+
+    mensagem.nack.assert_awaited_once_with(requeue=True)
+    mensagem.ack.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
     ("falha", "etapa"),
     [
-        (RegraInvalidaError, "geracao_codigo"),
+        (RegraInvalidaError, "validacao_dominio"),
         (RespostaModeloInvalidaError, "geracao_codigo"),
         (CodigoInvalidoError, "geracao_codigo"),
-        (OrcamentoAusenteError, "delegacao_worker"),
+        (MetaVendaInvalidaError, "delegacao_worker"),
     ],
 )
 async def test_falha_permanente_rejeitada_sem_requeue(
@@ -453,18 +634,27 @@ async def test_lifespan_liga_sessoes_e_producers_num_graph_router_real(
     engine = MagicMock(dispose=AsyncMock())
     sessoes = MagicMock()
     checkpointer = AsyncMock()
-    broker = MagicMock(iniciar_consumers=AsyncMock(), fechar=AsyncMock())
+    ordem: list[str] = []
+    broker = MagicMock(
+        iniciar_consumers=AsyncMock(side_effect=lambda _: ordem.append("consumers")),
+        fechar=AsyncMock(),
+    )
+    limpeza = MagicMock(retomar_pendentes=AsyncMock(side_effect=lambda: ordem.append("retomada")))
     monkeypatch.setattr("app.main.criar_engine", MagicMock(return_value=engine))
     monkeypatch.setattr("app.main.criar_sessionmaker", MagicMock(return_value=sessoes))
     monkeypatch.setattr("app.main.get_checkpointer", _checkpointer_fixo(checkpointer))
     monkeypatch.setattr("app.main.conectar", AsyncMock(return_value=broker))
     monkeypatch.setattr("app.main.stop_logger", MagicMock())
+    monkeypatch.setattr("app.main.LimpezaDeCheckpoints", MagicMock(return_value=limpeza))
     roteador = GraphRouter()
     aplicacao = criar_aplicacao(roteador)
 
     async with aplicacao.router.lifespan_context(aplicacao):
         assert roteador.sessoes is sessoes
         assert roteador.producers is broker.producers
+        assert roteador.limpeza is limpeza
+    # Uma limpeza que caiu no meio termina antes de qualquer mensagem nova ser consumida.
+    assert ordem == ["retomada", "consumers"]
 
 
 async def test_producer_revalida_restricao_schema_depois_de_mutacao() -> None:
@@ -492,7 +682,7 @@ async def test_broker_usa_confirms_prefetch_e_consumers_com_ack_manual(
 
     conexao.channel.assert_awaited_once_with(publisher_confirms=True, on_return_raises=True)
     canal.set_qos.assert_awaited_once_with(prefetch_count=1)
-    assert len(broker.consumidores) == 2
+    assert len(broker.consumidores) == 5
     for fila, _, _ in broker.consumidores:
         assert fila.consume.call_args.kwargs == {"no_ack": False}
     await broker.fechar()
@@ -515,10 +705,18 @@ async def test_broker_consome_regra_submetida_e_o_resultado_do_worker(
     await broker.iniciar_consumers(MagicMock())
 
     consumidos = {consumer.nome: fila for fila, _, consumer in broker.consumidores}
-    assert set(consumidos) == {"regra-submetida", "simulacao-concluida"}
+    assert set(consumidos) == {
+        "regra-submetida",
+        "parametros-confirmados",
+        "correcao-submetida",
+        "simulacao-concluida",
+        "job-encerrado",
+    }
     assert consumidos["regra-submetida"] is broker.filas["regra-submetida"]
     assert consumidos["simulacao-concluida"] is broker.filas[FILA_SIMULACAO]
-    assert "parametros-confirmados" not in consumidos
+    assert consumidos["job-encerrado"] is broker.filas["job-encerrado"]
+    assert consumidos["parametros-confirmados"] is broker.filas["parametros-confirmados"]
+    assert consumidos["correcao-submetida"] is broker.filas["correcao-submetida"]
 
 
 async def test_consumer_reenfileira_quando_o_grafo_ainda_nao_pausou() -> None:

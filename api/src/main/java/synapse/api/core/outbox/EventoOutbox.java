@@ -10,7 +10,11 @@ public enum EventoOutbox {
 
 	REGRA_SUBMETIDA(RabbitTopologyConfig.REGRA_SUBMETIDA),
 
-	PARAMETROS_CONFIRMADOS(RabbitTopologyConfig.PARAMETROS_CONFIRMADOS);
+	PARAMETROS_CONFIRMADOS(RabbitTopologyConfig.PARAMETROS_CONFIRMADOS),
+
+	CORRECAO_SUBMETIDA(RabbitTopologyConfig.CORRECAO_SUBMETIDA),
+
+	JOB_ENCERRADO(RabbitTopologyConfig.JOB_ENCERRADO);
 
 	private final String tipo;
 

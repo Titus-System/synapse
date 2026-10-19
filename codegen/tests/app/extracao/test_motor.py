@@ -1,0 +1,225 @@
+from decimal import Decimal
+from typing import Any
+
+import pytest
+import simplejson
+from langchain_core.messages import AIMessage
+
+from app.extracao.modelos import ResultadoExtracao
+from app.extracao.motor import extrair_regra
+from tests.app.graph.conftest import FakeChatModel
+
+METADADOS = {"provedor": "google", "modelo": "fake", "versao": "test"}
+TEXTO = "Pague 2,5% na loja 13 e um bônus de R$ 500 em 2025-11."
+ELEMENTO = {
+    "construto_pretendido": "bonus_fixo",
+    "descricao": "um bônus de R$ 500 em 2025-11",
+    "trecho": "um bônus de R$ 500 em 2025-11",
+}
+
+
+def modelo_falso(conteudo: object, *, motivo: str | None = "STOP") -> FakeChatModel:
+    texto = conteudo if isinstance(conteudo, str) else simplejson.dumps(conteudo, use_decimal=True)
+    return FakeChatModel(
+        messages=iter([AIMessage(content=texto, response_metadata={"finish_reason": motivo})])
+    )
+
+
+async def extrair(modelo: FakeChatModel, texto: str = TEXTO) -> ResultadoExtracao:
+    return await extrair_regra(texto, ["2025-11"], modelo=modelo, metadados_modelo=METADADOS)
+
+
+@pytest.mark.parametrize(
+    ("texto", "rascunho", "esperado"),
+    [
+        (
+            "Pague 2,5% na loja 13",
+            {
+                "percentual": {"valor": Decimal("0.025"), "trecho": "2,5%"},
+                "loja": [{"valor": "13", "trecho": "loja 13"}],
+            },
+            {"percentual": Decimal("0.025"), "loja": ["13"]},
+        ),
+        (
+            "Comissão em novembro de 2025",
+            {
+                "vigencia": {
+                    "valor": {"inicio": "2025-11", "fim": "2025-11"},
+                    "trecho": "novembro de 2025",
+                },
+            },
+            {"vigencia": {"inicio": "2025-11", "fim": "2025-11"}},
+        ),
+        (
+            "Pague -10% de dezembro a agosto de 2025",
+            {
+                "vigencia": {
+                    "valor": {"inicio": "2025-12", "fim": "2025-08"},
+                    "trecho": "de dezembro a agosto de 2025",
+                },
+                "percentual": {"valor": Decimal("-0.1"), "trecho": "-10%"},
+            },
+            {"vigencia": {"inicio": "2025-12", "fim": "2025-08"}, "percentual": Decimal("-0.1")},
+        ),
+    ],
+)
+async def test_preserva_apenas_nucleo_com_lastro(
+    texto: str, rascunho: dict[str, Any], esperado: dict[str, Any]
+) -> None:
+    resultado = await extrair(
+        modelo_falso({"nucleo": rascunho, "elementos": [], "parametros": {}}), texto
+    )
+
+    assert resultado.representacao.para_contrato() == {"nucleo": esperado, "especificacoes": []}
+    assert resultado.rebaixamentos == []
+
+
+async def test_texto_sem_regra_produz_representacao_minima() -> None:
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [], "parametros": {}}), "Bom dia!"
+    )
+
+    assert resultado.representacao.para_contrato() == {"nucleo": {}, "especificacoes": []}
+
+
+async def test_rebaixa_todos_os_elementos_e_atribui_refs_na_ordem() -> None:
+    elementos = [ELEMENTO, {**ELEMENTO, "construto_pretendido": "aniversario_loja"}]
+
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": elementos, "parametros": {}})
+    )
+
+    assert resultado.representacao.para_contrato()["especificacoes"] == [
+        {"ref": f"elem.{i}", "construto": "generico", "descricao": ELEMENTO["descricao"]}
+        for i in (1, 2)
+    ]
+    assert [r.para_contrato() for r in resultado.rebaixamentos] == [
+        {
+            "ref": f"elem.{i}",
+            "construto_pretendido": elemento["construto_pretendido"],
+            "motivo": "construto_nao_habilitado",
+        }
+        for i, elemento in enumerate(elementos, 1)
+    ]
+
+
+@pytest.mark.parametrize("campo", ["construto_pretendido", "descricao", "trecho"])
+async def test_rebaixa_campo_obrigatorio_ausente_sem_perder_elemento(campo: str) -> None:
+    elemento = {k: v for k, v in ELEMENTO.items() if k != campo}
+
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [elemento], "parametros": {}})
+    )
+
+    assert resultado.representacao.para_contrato()["especificacoes"] == [
+        {"ref": "elem.1", "construto": "generico", "descricao": ELEMENTO["descricao"]}
+    ]
+    assert resultado.rebaixamentos[0].motivo == "campo_obrigatorio_ausente"
+    assert resultado.rebaixamentos[0].construto_pretendido == elemento.get("construto_pretendido")
+
+
+@pytest.mark.parametrize("descricao", [None, 12, [], "", "   "])
+async def test_recupera_descricao_inutilizavel_pelo_trecho_literal(descricao: object) -> None:
+    elemento = {**ELEMENTO, "descricao": descricao}
+
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [elemento], "parametros": {}})
+    )
+
+    assert resultado.representacao.para_contrato()["especificacoes"] == [
+        {"ref": "elem.1", "construto": "generico", "descricao": ELEMENTO["trecho"]}
+    ]
+    assert resultado.rebaixamentos[0].motivo == "campo_obrigatorio_ausente"
+
+
+async def test_campo_extra_no_elemento_e_rebaixado_sem_ser_copiado() -> None:
+    elemento = {**ELEMENTO, "ref": "elem.99", "campo_desconhecido": "conteudo-teste"}
+
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [elemento], "parametros": {}})
+    )
+
+    assert resultado.representacao.para_contrato()["especificacoes"] == [
+        {"ref": "elem.1", "construto": "generico", "descricao": ELEMENTO["descricao"]}
+    ]
+    assert resultado.rebaixamentos[0].motivo == "construto_nao_habilitado"
+
+
+TEXTO_PARAMETROS = (
+    TEXTO + " orçamento de R$ 500 mil, meta de vender R$ 12 milhões "
+    "entre setembro e novembro de 2025."
+)
+
+PARAMETROS_BRUTOS = {
+    "orcamento": {"valor": Decimal("500000"), "trecho": "orçamento de R$ 500 mil"},
+    "meta_venda": {"valor": Decimal("12000000"), "trecho": "meta de vender R$ 12 milhões"},
+    "competencias": {
+        "valor": ["2025-09", "2025-10", "2025-11"],
+        "trecho": "entre setembro e novembro de 2025",
+    },
+}
+
+
+async def test_parametros_completos_entram_com_valor_e_trecho_auditavel() -> None:
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [], "parametros": PARAMETROS_BRUTOS}),
+        TEXTO_PARAMETROS,
+    )
+
+    assert resultado.parametros == {
+        "orcamento": Decimal("500000"),
+        "meta_venda": Decimal("12000000"),
+        "competencias": ["2025-09", "2025-10", "2025-11"],
+    }
+    resposta = simplejson.loads(resultado.chamada.resposta, use_decimal=True)
+    assert resposta["parametros"] == PARAMETROS_BRUTOS
+
+
+async def test_texto_sem_parametros_produz_parametros_vazios() -> None:
+    resultado = await extrair(modelo_falso({"nucleo": {}, "elementos": [], "parametros": {}}))
+
+    assert resultado.parametros == {}
+
+
+@pytest.mark.parametrize("campo", ["orcamento", "meta_venda", "competencias"])
+async def test_parametro_isolado_nao_afeta_os_demais(campo: str) -> None:
+    resultado = await extrair(
+        modelo_falso(
+            {"nucleo": {}, "elementos": [], "parametros": {campo: PARAMETROS_BRUTOS[campo]}}
+        ),
+        TEXTO_PARAMETROS,
+    )
+
+    assert resultado.parametros == {campo: PARAMETROS_BRUTOS[campo]["valor"]}
+
+
+async def test_preserva_orcamento_negativo_sem_corrigir() -> None:
+    bruto = {"orcamento": {"valor": Decimal("-100"), "trecho": "orçamento de -100 reais"}}
+
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [], "parametros": bruto}),
+        "orçamento de -100 reais",
+    )
+
+    assert resultado.parametros == {"orcamento": Decimal("-100")}
+
+
+async def test_condicao_de_meta_dentro_da_regra_fica_em_elemento_sem_virar_meta_venda() -> None:
+    """Quem separa a condição de meta da meta de venda é o modelo, instruído pelo prompt, e o caso
+    real está em test_llm.py. Aqui se fixa a montagem: o elemento não perde nem cede nada aos
+    parâmetros."""
+    texto = "Pague 2% na loja 13 e um bônus de R$ 300 para quem bater a meta de R$ 50 mil."
+    elemento = {
+        "construto_pretendido": "bonus_por_meta",
+        "descricao": "bônus de R$ 300 para quem bater a meta de R$ 50 mil",
+        "trecho": "um bônus de R$ 300 para quem bater a meta de R$ 50 mil",
+    }
+
+    resultado = await extrair(
+        modelo_falso({"nucleo": {}, "elementos": [elemento], "parametros": {}}), texto
+    )
+
+    assert resultado.parametros == {}
+    assert resultado.representacao.para_contrato()["especificacoes"] == [
+        {"ref": "elem.1", "construto": "generico", "descricao": elemento["descricao"]}
+    ]

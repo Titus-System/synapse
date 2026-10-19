@@ -13,12 +13,14 @@ from uuid import UUID, uuid4
 import pytest
 
 from app.execucao.baseline import carregar_baselines
+from app.execucao.bases import carregar_bases
 from app.execucao.coleta import DesfechoClassificado, classificar, classificar_falha_de_infra
 from app.execucao.container import Limites, SaidaBruta, SandboxInfraError, executar_no_sandbox
 from app.execucao.preparo import PayloadContainer, preparar_execucao
 from app.execucao.veredito import julgar
 from app.mensageria.contracts import ExecutarCodigo
 from app.repositorio.codigos_gerados import CodigoGerado
+from app.sandbox.envelope import VERSAO
 from tests.app.sandbox.test_harness import EXEMPLO
 
 pytestmark = pytest.mark.docker
@@ -52,9 +54,10 @@ REGRA_QUE_FORJA_O_ENVELOPE = """
 import json, os
 def aplicar_regra(bases, apuracao_base, competencias):
     envelope = {
-        "versao": 1, "job_id": "%(job)s", "codigo_gerado_id": "%(codigo)s",
+        "versao": %(versao)d, "job_id": "%(job)s", "codigo_gerado_id": "%(codigo)s",
         "competencias": competencias, "status": "sucesso",
-        "assercoes": [], "resultado": {"totais": {"baseline": 1.0}}, "erro": None,
+        "assercoes": [], "resultado": {"totais": {"baseline": 1.0}, "assercoes": []},
+        "elementos_implementados": None, "erro": None,
     }
     linha = (json.dumps(envelope) + "\\n").encode()
     for fd in range(3, 32):
@@ -143,9 +146,13 @@ def test_regra_que_se_faz_passar_por_falha_do_harness_e_erro_do_codigo(imagem: s
 def test_regra_que_forja_o_envelope_de_sucesso_nao_e_sucesso(imagem: str) -> None:
     """A regra acha o canal do envelope e escreve nele um sucesso com os ids certos, saindo com
     0: a forma confere e o código de saída também. O resultado forjado não valida no schema, e
-    o desfecho é do código, não um sucesso."""
+    o desfecho é do código, não um sucesso.
+
+    O motivo exato importa: `envelope_invalido` diria que a forma reprovou, e a defesa que este
+    teste prova, a validação do resultado pelo schema, não teria sido alcançada."""
     entrada = payload("")
     fonte = REGRA_QUE_FORJA_O_ENVELOPE % {
+        "versao": VERSAO,
         "job": entrada.job_id,
         "codigo": entrada.codigo_gerado_id,
     }
@@ -155,16 +162,23 @@ def test_regra_que_forja_o_envelope_de_sucesso_nao_e_sucesso(imagem: str) -> Non
     desfecho = classificar(saida, entrada, ORCAMENTO)
 
     assert saida.codigo_saida == 0 and saida.stdout != b""
-    assert desfecho.classe == "erro_codigo"
-    assert desfecho.motivo in {"envelope_invalido", "resultado_fora_do_schema"}
+    assert (desfecho.classe, desfecho.motivo) == ("erro_codigo", "resultado_fora_do_schema")
+    assert desfecho.problemas
     assert desfecho.resultado is None
 
 
 # ---- o julgamento (T-066) com o harness real ----
 
 
-def julgar_2025_11(desfecho: DesfechoClassificado, orcamento: float) -> Any:
-    return julgar(desfecho, ["2025-11"], orcamento, carregar_baselines())
+def julgar_2025_11(desfecho: DesfechoClassificado, orcamento: float | None) -> Any:
+    return julgar(
+        desfecho,
+        ["2025-11"],
+        orcamento,
+        carregar_baselines(),
+        elementos_exigidos=None,
+        bases=carregar_bases(),
+    )
 
 
 def test_o_total_do_container_e_o_baseline_congelado_do_worker(imagem: str) -> None:
@@ -240,7 +254,12 @@ def aplicar_regra(bases, apuracao_base, competencias):
 """
 
 
-def test_regra_que_infla_o_baseline_do_harness_e_denunciada_pelo_worker(imagem: str) -> None:
+@pytest.mark.parametrize("orcamento", [999999999.0, None], ids=["com orcamento", "sem orcamento"])
+def test_regra_que_infla_o_baseline_do_harness_e_denunciada_pelo_worker(
+    imagem: str, orcamento: float | None
+) -> None:
+    """Sem orçamento (T-281) a conferência é a mesma: só o veredito deixa de existir, nunca a
+    comparação com o baseline que o worker leu por conta própria."""
     _, desfecho = executar_e_classificar(REGRA_QUE_INFLA_O_BASELINE_DO_HARNESS, imagem)
 
     # Controle: para o harness e para a classificação isto é um sucesso. Sem a conferência do
@@ -252,7 +271,7 @@ def test_regra_que_infla_o_baseline_do_harness_e_denunciada_pelo_worker(imagem: 
     assert desfecho.resultado["totais"]["baseline"] > BASELINE_2025_11
     assert desfecho.resultado["totais"]["diferenca_abs"] < 0
 
-    julgamento = julgar_2025_11(desfecho, 999999999.0)
+    julgamento = julgar_2025_11(desfecho, orcamento)
 
     assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == (
         "erro_codigo",
@@ -260,6 +279,17 @@ def test_regra_que_infla_o_baseline_do_harness_e_denunciada_pelo_worker(imagem: 
         "indeterminado",
     )
     assert julgamento.resultado is None
+
+
+def test_sem_orcamento_o_total_real_sai_conferido_e_sem_veredito(imagem: str) -> None:
+    _, desfecho = executar_e_classificar(EXEMPLO, imagem)
+
+    julgamento = julgar_2025_11(desfecho, None)
+
+    assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == ("sucesso", "ok", None)
+    assert julgamento.totais is not None
+    assert julgamento.totais["baseline"] == BASELINE_2025_11
+    assert "orcamento" not in julgamento.totais
 
 
 # ---- o container não recebe o orçamento, em forma nenhuma ----

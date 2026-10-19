@@ -9,10 +9,13 @@ const mensagensPorCodigo: Record<CodigoErro, string> = {
   nao_autenticado: 'Sua sessão não está disponível. Tente novamente.',
   sem_permissao: 'Você não tem permissão para realizar esta ação.',
   job_nao_encontrado: 'Não foi possível encontrar o processamento solicitado.',
+  simulacao_nao_encontrada: 'Não foi possível encontrar a simulação solicitada.',
   estado_invalido: 'Esta ação não está disponível no estado atual do processamento.',
   simulacao_inviavel: 'A simulação foi concluída, mas a regra não cabe no orçamento informado.',
   nucleo_incompleto: 'Preencha os campos obrigatórios da regra antes de continuar.',
   regra_incoerente: 'Existem informações conflitantes na regra. Revise os campos indicados.',
+  audio_invalido: 'Não foi possível usar a gravação. Grave o áudio novamente.',
+  audio_muito_grande: 'A gravação ficou grande demais. Grave um áudio mais curto.',
 }
 
 const nomesDeCampo: Record<string, string> = {
@@ -37,7 +40,11 @@ export class HttpError extends Error {
   readonly code?: CodigoErro
   readonly fieldErrors: FieldError[]
 
-  constructor(status: number, message: string, options?: { code?: CodigoErro; fieldErrors?: FieldError[] }) {
+  constructor(
+    status: number,
+    message: string,
+    options?: { code?: CodigoErro; fieldErrors?: FieldError[] },
+  ) {
     super(message)
     this.name = 'HttpError'
     this.status = status
@@ -136,7 +143,10 @@ async function enviar(url: string, requestInit: RequestInit): Promise<Response> 
     response = await fetch(url, { ...requestInit, headers })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error
-    throw new HttpError(0, 'Não foi possível se conectar ao serviço. Verifique sua conexão e tente novamente.')
+    throw new HttpError(
+      0,
+      'Não foi possível se conectar ao serviço. Verifique sua conexão e tente novamente.',
+    )
   }
 
   if (response.status === 401) {
@@ -160,7 +170,8 @@ async function request<TResponse>(
   const headers = new Headers({ Accept: 'application/json' })
   const hasBody = options?.body !== undefined
 
-  if (hasBody) headers.set('Content-Type', 'application/json')
+  const multipart = options?.body instanceof FormData
+  if (hasBody && !multipart) headers.set('Content-Type', 'application/json')
 
   const requestInit: RequestInit =
     method === 'GET'
@@ -172,7 +183,9 @@ async function request<TResponse>(
       : {
           method: 'POST',
           headers,
-          ...(hasBody ? { body: JSON.stringify(options.body) } : {}),
+          ...(hasBody
+            ? { body: multipart ? (options.body as FormData) : JSON.stringify(options.body) }
+            : {}),
           signal: options?.signal,
         }
 

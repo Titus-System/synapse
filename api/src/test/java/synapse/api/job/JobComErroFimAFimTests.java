@@ -19,12 +19,12 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
-import org.jspecify.annotations.Nullable;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.BindMode;
 import org.testcontainers.containers.GenericContainer;
@@ -75,7 +75,7 @@ class JobComErroFimAFimTests {
 
 	/**
 	 * Trechos das razões localizadas que a api põe no campo {@code motivo} do evento
-	 * {@code estado} ({@code EtapaAlteradaService} e {@code DesfechoDaSimulacao}). Sem
+	 * {@code estado} ({@code JobEventosService} e {@code DesfechoDaSimulacao}). Sem
 	 * acento de propósito: servem de marcador de busca no stream, e o marcador não deve
 	 * depender de como o serializador trata caracteres fora do ASCII.
 	 */
@@ -201,7 +201,7 @@ class JobComErroFimAFimTests {
 	}
 
 	@Test
-	void falhaPermanenteNaGeracaoEncerraOJobEEncerraOStream() throws Exception {
+	void falhaPermanenteAoCarregarARegraEncerraOJobEEncerraOStream() throws Exception {
 		JsonNode job = criarJob();
 		UUID jobId = UUID.fromString(job.path("id").asString());
 		UUID regraId = UUID.fromString(job.path("regra").path("id").asString());
@@ -232,20 +232,23 @@ class JobComErroFimAFimTests {
 
 			codegen = iniciarCodegen();
 
-			// A geração começa e anuncia: a tela sabe em que passo está antes de saber
-			// que
-			// falhou.
-			assertThat(conforme("etapa", stream.aguardarBloco("event:etapa", Duration.ofMinutes(1))))
+			// load_rule anuncia validacao_dominio antes de tentar ler a regra, para que
+			// uma leitura que falhe ainda mostre progresso de etapa; é por isso que a
+			// etapa reportada aqui e na falha abaixo é validacao_dominio, nunca
+			// geracao_codigo - o grafo não chega a esse nó, porque RegraInvalidaError
+			// (que carrega etapa="validacao_dominio", em RegraInvalidaError.etapa)
+			// interrompe load_rule antes dele.
+			assertThat(
+					conforme("etapa", stream.aguardarBloco("\"etapa\":\"validacao_dominio\"", Duration.ofMinutes(1))))
 				.contains(jobId.toString())
-				.contains("\"etapa\":\"geracao_codigo\"")
+				.contains("\"etapa\":\"validacao_dominio\"")
 				.contains("\"status\":\"iniciada\"");
 
 			// E a etapa que falhou chega antes da transição: é o que permite à tela dizer
-			// em
-			// que passo o job morreu, e não só que morreu.
+			// em que passo o job morreu, e não só que morreu.
 			assertThat(conforme("etapa", stream.aguardarBloco("\"status\":\"erro\"", Duration.ofMinutes(1))))
 				.contains(jobId.toString())
-				.contains("\"etapa\":\"geracao_codigo\"");
+				.contains("\"etapa\":\"validacao_dominio\"");
 
 			// A razão localizada é o que a tela mostra; o vocabulário de máquina fica na
 			// trilha. O marcador é a razão porque `"status":"erro"` também aparece no
@@ -278,7 +281,7 @@ class JobComErroFimAFimTests {
 		}
 
 		assertThat(transicoes(jobId)).containsExactly("gerando_regra", "erro");
-		assertThat(motivoDaUltimaTransicao(jobId)).isEqualTo("erro_geracao_codigo");
+		assertThat(motivoDaUltimaTransicao(jobId)).isEqualTo("erro_validacao_dominio");
 
 		// A mensagem foi rejeitada sem requeue, não devolvida à fila: uma falha
 		// permanente

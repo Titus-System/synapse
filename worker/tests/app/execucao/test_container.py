@@ -135,6 +135,28 @@ def test_o_payload_tem_exatamente_os_campos_do_contrato() -> None:
     assert "orcamento" not in corpo
 
 
+def test_sem_meta_o_payload_e_byte_a_byte_o_de_antes_da_meta() -> None:
+    """Uma execução sem meta não pode mudar em nada (T-270): o campo nem vai ao container."""
+    assert serializar_payload(payload()) == json.dumps(
+        {
+            "job_id": str(JOB_ID),
+            "codigo_gerado_id": str(CODIGO_ID),
+            "linguagem": "python",
+            "fonte": FONTE,
+            "competencias": ["2025-11"],
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+def test_com_meta_o_payload_leva_a_meta_e_o_executor_a_le() -> None:
+    corpo = json.loads(serializar_payload(payload(meta_venda=26000000.0)))
+
+    assert corpo.keys() == set(CAMPOS_PAYLOAD) | {"meta_venda"}
+    assert corpo["meta_venda"] == 26000000.0
+    assert ler_payload(serializar_payload(payload(meta_venda=26000000.0))).meta_venda == 26000000.0
+
+
 def test_o_payload_e_aceito_pelo_executor_da_imagem() -> None:
     """A paridade com o outro lado do stdin, conferida sem subir container: o executor
     recusa campo que sobra ou que falta."""

@@ -6,25 +6,29 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Os nove estados do job e as transições permitidas entre eles - o único lugar do código
+ * Os dez estados do job e as transições permitidas entre eles - o único lugar do código
  * que os declara. {@code simulacao_inviavel} não tem aresta direta para {@code liberado}:
  * o único predecessor de {@code liberado} é {@code aguardando_decisao_usuario},
  * alcançável apenas por uma simulação concluída ({@code simulando}). Uma nova tentativa
  * após adaptação da regra volta a {@code gerando_regra} e precisa passar de novo por uma
- * simulação; não há atalho.
+ * simulação; não há atalho. A primeira sai de {@code simulacao_inviavel}, o desfecho da
+ * regra original; as seguintes saem de {@code simulando}, porque a alternativa que não
+ * coube não é desfecho enquanto o codegen pode propor outra taxa.
  */
 public enum JobStatus {
 
-	AGUARDANDO_CONFIRMACAO_PARAMETROS, GERANDO_REGRA, SIMULANDO, SIMULACAO_INVIAVEL, AGUARDANDO_DECISAO_USUARIO,
-	LIBERADO, CANCELADO, ARQUIVADO, ERRO;
+	AGUARDANDO_TRANSCRICAO, AGUARDANDO_CONFIRMACAO_PARAMETROS, GERANDO_REGRA, SIMULANDO, SIMULACAO_INVIAVEL,
+	AGUARDANDO_DECISAO_USUARIO, LIBERADO, CANCELADO, ARQUIVADO, ERRO;
 
 	private static final Map<JobStatus, Set<JobStatus>> TRANSICOES_PERMITIDAS = Map.of(
 
+			AGUARDANDO_TRANSCRICAO, Set.of(GERANDO_REGRA, ERRO, CANCELADO),
+
 			AGUARDANDO_CONFIRMACAO_PARAMETROS, Set.of(GERANDO_REGRA, CANCELADO),
 
-			GERANDO_REGRA, Set.of(SIMULANDO, ERRO),
+			GERANDO_REGRA, Set.of(SIMULANDO, ERRO, AGUARDANDO_CONFIRMACAO_PARAMETROS),
 
-			SIMULANDO, Set.of(AGUARDANDO_DECISAO_USUARIO, SIMULACAO_INVIAVEL, ERRO),
+			SIMULANDO, Set.of(AGUARDANDO_DECISAO_USUARIO, SIMULACAO_INVIAVEL, ERRO, GERANDO_REGRA),
 
 			SIMULACAO_INVIAVEL, Set.of(GERANDO_REGRA, AGUARDANDO_CONFIRMACAO_PARAMETROS, CANCELADO, ARQUIVADO),
 
@@ -44,6 +48,10 @@ public enum JobStatus {
 
 	public boolean terminal() {
 		return TRANSICOES_PERMITIDAS.getOrDefault(this, Set.of()).isEmpty();
+	}
+
+	public boolean emProcessamento() {
+		return this == GERANDO_REGRA || this == SIMULANDO;
 	}
 
 	/**

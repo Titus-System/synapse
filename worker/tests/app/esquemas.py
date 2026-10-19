@@ -45,6 +45,15 @@ def erros_do_evento(nome: str, corpo: object) -> list[str]:
     ]
 
 
+def erros_do_dominio(nome: str, corpo: object) -> list[str]:
+    """Os erros de `corpo` contra `contracts/domain/<nome>.schema.json` (vazio = válido)."""
+    validador = _validador(f"domain/{nome}.schema.json")
+    return [
+        f"{'/'.join(str(p) for p in erro.absolute_path) or '$'}: {erro.message}"
+        for erro in validador.iter_errors(corpo)
+    ]
+
+
 def erros_do_log(registro: object) -> list[str]:
     """Os erros de uma linha de log contra `contracts/observability/log.schema.json`."""
     validador = _validador("observability/log.schema.json")

@@ -78,6 +78,24 @@ describe('http', () => {
     })
   })
 
+  it('usa a mensagem do código quando a gravação passa do tamanho máximo', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          codigo: 'audio_muito_grande',
+          mensagem: 'A gravação passa do tamanho máximo de 5 MB.',
+        }),
+        { status: 413, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+
+    await expect(http.post('/submissoes', {})).rejects.toMatchObject({
+      status: 413,
+      code: 'audio_muito_grande',
+      message: 'A gravação ficou grande demais. Grave um áudio mais curto.',
+    })
+  })
+
   it('não envia body em requisição GET', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ itens: [] }), {

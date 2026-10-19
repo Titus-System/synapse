@@ -9,6 +9,7 @@ The same derivation also produces the idempotency key of the `no-concluido` even
 references these rows - see `id_do_evento_de_trilha`.
 """
 
+from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
 from uuid import UUID, uuid5
@@ -36,6 +37,23 @@ _INSERIR_CODIGO = text(
     " VALUES (:id, :job_id, :regra_id, :linguagem, :fonte, :prompt_id, now())"
     " ON CONFLICT DO NOTHING"
 )
+
+
+_BUSCAR_RESPOSTA = text(
+    "SELECT p.id AS prompt_id, r.id AS resposta_id, r.conteudo"
+    " FROM prompts p JOIN respostas_modelo r ON r.prompt_id = p.id"
+    " JOIN submissoes s ON s.id = :submissao_id"
+    " WHERE p.job_id = :job_id AND p.no = :no AND p.conteudo = :prompt"
+    " AND r.criado_em >= s.criado_em"
+    " ORDER BY r.criado_em, r.id LIMIT 1"
+)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class RespostaGravada:
+    prompt_id: UUID
+    resposta_id: UUID
+    conteudo: str
 
 
 def id_do_prompt(job_id: UUID, no: str, prompt: str, resposta: str) -> UUID:
@@ -82,34 +100,85 @@ async def gravar_prompt_e_resposta(
 
     Returns `(prompt_id, resposta_id)`.
     """
+    async with sessoes() as sessao, sessao.begin():
+        return await gravar_prompt_e_resposta_na_sessao(
+            sessao,
+            job_id=job_id,
+            no=no,
+            prompt=prompt,
+            modelo=modelo,
+            resposta=resposta,
+            consumo_tokens=consumo_tokens,
+        )
+
+
+async def gravar_prompt_e_resposta_na_sessao(
+    sessao: AsyncSession,
+    *,
+    job_id: UUID,
+    no: str,
+    prompt: str,
+    modelo: dict[str, Any],
+    resposta: str,
+    consumo_tokens: dict[str, Any] | None,
+) -> tuple[UUID, UUID]:
+    """A transação pertence ao chamador para incluir o artefato derivado atomicamente."""
     prompt_id = id_do_prompt(job_id, no, prompt, resposta)
     resposta_id = id_da_resposta(prompt_id)
-    async with sessoes() as sessao, sessao.begin():
-        await sessao.execute(
-            _INSERIR_PROMPT,
-            {
-                "id": prompt_id,
-                "job_id": job_id,
-                "no": no,
-                "conteudo": prompt,
-                "modelo": simplejson.dumps(modelo, use_decimal=True),
-            },
-        )
-        await sessao.execute(
-            _INSERIR_RESPOSTA,
-            {
-                "id": resposta_id,
-                "job_id": job_id,
-                "prompt_id": prompt_id,
-                "conteudo": resposta,
-                "consumo_tokens": (
-                    None
-                    if consumo_tokens is None
-                    else simplejson.dumps(consumo_tokens, use_decimal=True)
-                ),
-            },
-        )
+    await sessao.execute(
+        _INSERIR_PROMPT,
+        {
+            "id": prompt_id,
+            "job_id": job_id,
+            "no": no,
+            "conteudo": prompt,
+            "modelo": simplejson.dumps(modelo, use_decimal=True),
+        },
+    )
+    await sessao.execute(
+        _INSERIR_RESPOSTA,
+        {
+            "id": resposta_id,
+            "job_id": job_id,
+            "prompt_id": prompt_id,
+            "conteudo": resposta,
+            "consumo_tokens": (
+                None
+                if consumo_tokens is None
+                else simplejson.dumps(consumo_tokens, use_decimal=True)
+            ),
+        },
+    )
     return prompt_id, resposta_id
+
+
+async def buscar_resposta_gravada(
+    sessoes: async_sessionmaker[AsyncSession],
+    *,
+    job_id: UUID,
+    no: str,
+    prompt: str,
+    submissao_id: UUID,
+) -> RespostaGravada | None:
+    """A resposta já gravada para o mesmo prompt do job neste nó, desde a submissão `submissao_id`.
+
+    O id do prompt depende da resposta, então é pelo conteúdo que uma reexecução acha a chamada
+    que já fez. A mais antiga vem primeiro: é a que a primeira execução publicou.
+
+    Só conta a resposta gravada depois da submissão: uma correção nova com o mesmo texto de uma
+    anterior recebe uma chamada própria ao modelo, e não a resposta da outra. A api grava a
+    submissão com o relógio dela, e o banco grava a resposta com o seu; uma diferença entre os
+    dois só pode fazer a reexecução chamar o modelo de novo.
+    """
+    async with sessoes() as sessao:
+        consulta = await sessao.execute(
+            _BUSCAR_RESPOSTA,
+            {"job_id": job_id, "no": no, "prompt": prompt, "submissao_id": submissao_id},
+        )
+        linha = consulta.mappings().one_or_none()
+    if linha is None:
+        return None
+    return RespostaGravada(linha["prompt_id"], linha["resposta_id"], linha["conteudo"])
 
 
 async def gravar_codigo(

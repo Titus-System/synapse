@@ -7,25 +7,36 @@ from uuid import uuid4
 import pytest
 import simplejson
 
-from app.repositorio.resultados import ResultadoIndisponivelError, buscar_totais
+from app.repositorio.resultados import (
+    ResultadoIndisponivelError,
+    buscar_taxas_simuladas,
+    buscar_totais,
+)
+from app.sugestao_adaptacao import TaxaSimulada
 
 JOB_ID = uuid4()
 RESULTADO_ID = uuid4()
+REGRA_ID = uuid4()
 
 
 class _ResultadoFalso:
-    def __init__(self, linha: dict[str, Any] | None) -> None:
+    def __init__(self, linha: Any) -> None:
         self._linha = linha
 
     def mappings(self) -> "_ResultadoFalso":
         return self
 
     def one_or_none(self) -> dict[str, Any] | None:
-        return self._linha
+        linha: dict[str, Any] | None = self._linha
+        return linha
+
+    def all(self) -> list[dict[str, Any]]:
+        linhas: list[dict[str, Any]] = self._linha
+        return linhas
 
 
 class _SessaoFalsa:
-    def __init__(self, linha: dict[str, Any] | None) -> None:
+    def __init__(self, linha: Any) -> None:
         self._linha = linha
         self.executado_com: tuple[Any, Any] | None = None
 
@@ -34,7 +45,7 @@ class _SessaoFalsa:
         return _ResultadoFalso(self._linha)
 
 
-def _sessionmaker(linha: dict[str, Any] | None) -> Any:
+def _sessionmaker(linha: Any) -> Any:
     sessao = _SessaoFalsa(linha)
 
     @asynccontextmanager
@@ -102,3 +113,48 @@ async def test_buscar_totais_recusa_desfecho_sem_os_tres_totais(totais: dict[str
     """Fora de `sucesso` o worker não grava totais, e não há razão a aplicar."""
     with pytest.raises(ResultadoIndisponivelError):
         await buscar_totais(_sessionmaker({"totais": totais}), JOB_ID, RESULTADO_ID)
+
+
+async def test_buscar_taxas_simuladas_le_taxa_e_comissao_em_decimal_exato() -> None:
+    linhas = [
+        {
+            "nucleo": simplejson.dumps({"percentual": Decimal("0.0183"), "loja": ["13"]}),
+            "totais": simplejson.dumps({"simulado": Decimal("492100.012345678901234567")}),
+        },
+        {
+            "nucleo": simplejson.dumps({"percentual": Decimal("0.025")}),
+            "totais": simplejson.dumps({"simulado": Decimal("500000")}),
+        },
+    ]
+
+    taxas = await buscar_taxas_simuladas(_sessionmaker(linhas), JOB_ID, REGRA_ID)
+
+    assert taxas == [
+        TaxaSimulada(Decimal("0.0183"), Decimal("492100.012345678901234567")),
+        TaxaSimulada(Decimal("0.025"), Decimal("500000")),
+    ]
+
+
+async def test_buscar_taxas_simuladas_parte_da_regra_simulada_no_job() -> None:
+    sessoes = _sessionmaker([])
+
+    await buscar_taxas_simuladas(sessoes, JOB_ID, REGRA_ID)
+
+    _, parametros = sessoes.sessao.executado_com
+    assert parametros == {"regra_id": str(REGRA_ID), "job_id": str(JOB_ID), "limite": 3}
+
+
+@pytest.mark.parametrize(
+    "linha",
+    [
+        {"nucleo": "{}", "totais": '{"simulado": 1}'},
+        {"nucleo": '{"percentual": 0.02}', "totais": "{}"},
+        {"nucleo": '{"percentual": 0.02}', "totais": None},
+    ],
+    ids=["sem_percentual", "sem_simulado", "sem_totais"],
+)
+async def test_buscar_taxas_simuladas_recusa_versao_sem_taxa_ou_comissao(
+    linha: dict[str, Any],
+) -> None:
+    with pytest.raises(ResultadoIndisponivelError):
+        await buscar_taxas_simuladas(_sessionmaker([linha]), JOB_ID, REGRA_ID)

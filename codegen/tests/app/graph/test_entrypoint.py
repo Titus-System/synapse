@@ -80,13 +80,15 @@ async def test_run_to_completion_resumes_the_same_thread_id(
     monkeypatch.setattr(entrypoint, "build_graph", _fake_graph_builder(calls))
     sessoes, producers = MagicMock(), MagicMock()
 
-    await entrypoint.run_to_completion(
+    primeiro = await entrypoint.run_to_completion(
         "job-1", {"regra_id": "first"}, sessoes=sessoes, producers=producers
     )
-    await entrypoint.run_to_completion(
+    repetido = await entrypoint.run_to_completion(
         "job-1", {"regra_id": "second"}, sessoes=sessoes, producers=producers
     )
 
+    assert primeiro is entrypoint.RunOutcome.PROCESSED
+    assert repetido is entrypoint.RunOutcome.IGNORED
     saved = saver.get_tuple({"configurable": {"thread_id": "job-1"}})
     assert saved is not None
     assert saved.checkpoint["channel_values"]["regra_id"] == "first"

@@ -1,4 +1,4 @@
-// Synapse - Modelo de dados da Sprint 1 (T-086)
+// Synapse - Modelo de dados
 // Documento oficial de modelagem: este arquivo é a fonte canônica do modelo -
 // entidades, atributos e relacionamentos. Contexto de arquitetura em
 // docs/ARCHITECTURE.md; contratos entre serviços em contracts/.
@@ -37,15 +37,20 @@
 
 Table usuarios {
   id uuid [pk, default: `uuidv7()`]
-  login text [not null, unique, note: 'identificador exibido da conta no Keycloak']
-  senha_hash text [note: 'legado de autenticação local; nulo para contas do Keycloak']
-  keycloak_sub text [unique, note: 'claim sub do Keycloak; identifica a conta de forma estável']
+  login text [not null, note: 'identificador exibido da conta; no provisionamento, usa preferred_username com fallback para sub']
+  senha_hash text [null, note: 'credencial local opcional; nao utilizada na autenticacao OIDC. Contas provisionadas pelo Keycloak recebem NULL']
+  keycloak_sub text [null, note: 'claim sub do Keycloak; identificador estavel e unico quando preenchido. NULL identifica uma conta local sem vinculo ao Keycloak']
   nome text [not null, note: 'nome de exibicao']
   papel text [not null, note: 'profissional_rh | auditor (DEC-087)']
   ativo bool [not null, default: true, note: 'desativacao logica; false impede a resolucao da conta local pela API, sem encerrar a sessao no Keycloak']
   criado_em timestamptz [not null]
   atualizado_em timestamptz [note: 'null ate a primeira alteracao']
   ultimo_login_em timestamptz [note: 'null ate o primeiro acesso']
+
+  indexes {
+    (login) [unique, name: 'uq_usuarios_login']
+    (keycloak_sub) [unique, name: 'uq_usuarios_keycloak_sub', note: 'indice PARCIAL: WHERE keycloak_sub IS NOT NULL. O DBML nao expressa o predicado; permite varias contas locais sem vinculo ao Keycloak']
+  }
 }
 
 // ─────────────── Grupo 1 - Estado e decisões (escrita exclusiva da API) ───────────────
@@ -53,49 +58,58 @@ Table usuarios {
 Table submissoes {
   id uuid [pk, default: `uuidv7()`]
   usuario_id uuid [not null, ref: > usuarios.id]
-  tipo text [not null, note: 'formulario | voz. Determina qual das duas cargas vem preenchida: formulario tem conteudo, voz tem binario e formato']
+  tipo text [not null, note: 'formulario | texto | voz. Determina qual carga vem preenchida: formulario tem conteudo; texto tem transcricao, gravada no envio; voz tem binario e formato, e transcricao depois de transcrita. POST /submissoes grava texto e voz, na entrada inicial e na correcao']
   conteudo jsonb [note: '''
 Formato: contracts/domain/submissao-conteudo.schema.json
-NULL quando tipo = voz - ali o que o usuario enviou e o audio.
-E a ENTRADA do fluxo. Tudo a jusante e derivado: regras.nucleo ja passou pela
-confirmacao, e trilhas_auditoria.conclusao registra so o que cada no concluiu. Sem esta
-linha nao ha como conferir o que o sistema recebeu contra o que ele produziu.
-Append-only: nunca sofre UPDATE.
+NULL quando tipo = texto ou voz - ali o que o usuario enviou e o texto digitado ou o audio.
+Entrada original do fluxo; regras.nucleo e a representacao derivada, e trilhas_auditoria.conclusao registra o que cada no concluiu. O conteudo original nao e sobrescrito; a API pode preencher transcricao e transcrito_em depois do envio de voz. A tabela rodadas_correcao armazena separadamente as referencias das correcoes.
 ''']
-  binario bytea [null, note: 'null quando tipo = formulario. O audio enviado pelo usuario']
-  formato text [null, note: 'null quando tipo = formulario. ex. webm | ogg | wav']
-  transcricao text [null, note: 'null quando tipo = formulario, e enquanto a submissao de voz nao foi transcrita. Texto transcrito, verbatim; e o insumo do no de extracao (Sprint 2), que o codegen le e nao escreve']
+  binario bytea [null, note: 'null quando tipo != voz. O audio enviado pelo usuario']
+  formato text [null, note: 'null quando tipo != voz. webm | ogg | wav | mp4: o conteiner gravado pelo navegador, declarado no Content-Type da parte audio']
+  transcricao text [null, note: 'null quando tipo = formulario, e enquanto a submissao de voz nao foi transcrita. Texto digitado (tipo = texto) ou transcrito (tipo = voz), verbatim; e o insumo da extracao e da reextracao, que o codegen le e nao escreve']
   transcrito_em timestamptz [null, note: 'null ate a transcricao concluir']
   criado_em timestamptz [not null]
 }
 
 Table jobs {
   id uuid [pk, default: `uuidv7()`]
+  nome text [note: 'somente o nome definido pelo usuario, sem espacos nas extremidades, compartilhado por todas as versoes da regra; null quando nao definido. O nome padrao nao e gravado: a API o resolve na leitura pela submissao inicial, seguindo job_origem_id no reprocessamento. O nome definido pelo usuario e copiado ao reprocessar; renomeacoes posteriores sao independentes']
   status text [not null, note: 'enum da maquina de estados']
   usuario_id uuid [not null, ref: > usuarios.id]
   submissao_id uuid [ref: > submissoes.id, note: '''
 NULL quando o job nasceu de reprocessamento - ali a procedencia e job_origem_id.
 De qual submissao este job nasceu. N-1: uma submissao pode gerar varios jobs, e um job
 nunca vem de mais de uma.
-Determina o ponto de entrada do grafo, sem precisar de coluna propria:
-null -> reprocessamento, entra direto no no de confirmacao;
-senao submissoes.tipo diz formulario (aguardando_confirmacao_parametros) ou voz
-(aguardando_transcricao).
+Procedencia original, preservada durante as correcoes. Formulario inicia geracao com regra estruturada; texto inicia gerando_regra sem versao; voz inicia aguardando_transcricao com trabalho pendente (T-231). Reprocessamento usa aguardando_confirmacao_parametros; as referencias de correcoes ficam nas rodadas.
 ''']
   competencias text[] [not null, note: '''
 Competencias a simular, formato AAAA-MM. O job cobre o periodo inteiro em UMA simulacao,
 com os meses agregados - nao existe uma simulacao por competencia. A quebra mensal sai
 em resultados_simulacao.decomposicao, na quebra competencia.
-["2025-07" ... "2025-12"] = periodo todo. Subconjunto qualquer = fatia, e nao precisa
-ser contiguo (ex. ["2025-08", "2025-11"]).
+["2025-08" ... "2025-12"] = periodo canonico publicado. Subconjuntos podem ser nao contiguos, como ["2025-08", "2025-11"].
 DEFAULT = periodo inteiro: nao informado na requisicao, a API preenche com todas as
 competencias do dataset. Nunca vazio - array vazio seria um job que nao simula nada.
+Job de texto ou voz: nasce com todas as competencias publicadas e, depois da extracao,
+recebe o periodo dito, quando o texto o diz, como foi dito. Uma competencia fora das
+publicadas fica gravada, e a validacao de dominio a aponta como conflito.
 Forma canonica: ordem crescente, sem repeticao.
 AAAA-MM e nao data: o dataset so tem Date_Ref com granularidade mensal (DEC-084).
 Excecao: o construto janela_datas usa dia, porque a base de vendas de novembro carrega
 data real (Black Friday) - ver regras.especificacoes.
 ''']
-  orcamento numeric [not null, note: 'parametro da simulacao (US01), informado pelo usuario junto com as competencias (ARCHITECTURE.md §1.3)']
+  orcamento numeric [note: '''
+Orcamento de comissao do periodo, parametro da simulacao (US01). NULL quando o job nao tem
+orcamento, e entao a simulacao e feita sem a verificacao de orcamento.
+Formulario: informado no campo da requisicao. Texto ou voz: NULL ate a extracao e quando
+o texto nao diz orcamento; quando diz, o valor como foi dito. Sem restricao de faixa no
+banco: um orcamento negativo e gravado e a validacao de dominio o aponta como conflito.
+''']
+  meta_venda numeric [note: '''
+Meta de venda do periodo, dita no texto ou no audio: o total de vendas sobre o qual a regra
+e simulada. NULL quando nao dita, e entao a simulacao usa as vendas historicas.
+Valor como foi dito, sem restricao de faixa no banco: meta zero ou negativa e gravada e a
+validacao de dominio a aponta como conflito.
+''']
   job_origem_id uuid [ref: > jobs.id, note: 'NULL no job original. Self; reprocessamento (US07 c3). Exatamente uma das duas procedencias e preenchida: submissao_id (nasceu de gente) ou job_origem_id (nasceu de outro job)']
   criado_em timestamptz [not null]
   iniciado_em timestamptz [note: 'null ate o processamento comecar']
@@ -110,6 +124,47 @@ data real (Black Friday) - ver regras.especificacoes.
   }
 }
 
+Table trabalhos_transcricao {
+  id uuid [pk, default: `uuidv7()`]
+  job_id uuid [not null, ref: > jobs.id]
+  submissao_id uuid [not null, ref: > submissoes.id]
+  finalidade text [not null, note: 'entrada_inicial | correcao']
+  estado text [not null, note: 'pendente | em_andamento | concluido | falhou | descartado']
+  tentativas int [not null, default: 0, note: 'quantidade de tentativas de transcricao iniciadas']
+  reservado_ate timestamptz [null, note: 'null enquanto nao ha reserva; prazo de exclusividade do processamento']
+  proxima_tentativa_em timestamptz [null, note: 'null enquanto nao ha nova tentativa agendada']
+  resposta_invalida boolean [not null, default: false, note: 'o provedor ja respondeu fora do formato esperado neste trabalho; preservado nas novas tentativas']
+  criado_em timestamptz [not null]
+  atualizado_em timestamptz [not null, note: 'instante da ultima alteracao do controle; igual a criado_em na insercao']
+
+  indexes {
+    (submissao_id) [unique, name: 'uq_trabalhos_transcricao_submissao_id']
+  }
+
+  Note: 'Controle pertencente a API, com SELECT, INSERT e UPDATE, sem DELETE. Codegen e worker nao acessam. No maximo um trabalho por submissao. Audio e formato permanecem em submissoes; a transacao final do processamento preenche transcricao e transcrito_em. A reserva usa FOR UPDATE SKIP LOCKED e a chamada ao provedor fica fora de transacao. Falha transitoria agenda proxima_tentativa_em; tentativas persistem entre reinicios e incluem reservas vencidas. O limite de tentativas termina o job em erro_transcricao. Na finalidade correcao, a transacao final leva a rodada de em_transcricao a em_reextracao e registra correcao-submetida; a falha fecha a rodada como reextracao_falhou e abre uma pendente nova, sem mudar o job.'
+}
+
+Table rodadas_correcao {
+  id uuid [pk, default: `uuidv7()`]
+  job_id uuid [not null, ref: > jobs.id]
+  regra_analisada_id uuid [not null, ref: > regras.id, note: 'versao que produziu os conflitos']
+  conflitos jsonb [not null, note: 'Formato: contracts/domain/conflitos-rodada.schema.json']
+  estado text [not null, note: 'pendente | em_transcricao | em_reextracao | reextracao_falhou | corrigida | abandonada']
+  submissao_correcao_id uuid [null, ref: > submissoes.id, note: 'null ate o envio da correcao; submissao propria e imutavel']
+  regra_resultante_id uuid [null, ref: > regras.id, note: 'null ate existir uma versao resultante; a versao permanece imutavel']
+  rodada_anterior_id uuid [null, ref: > rodadas_correcao.id, note: 'null na primeira rodada; encadeia o historico sem bifurcacao']
+  criada_em timestamptz [not null]
+  atualizada_em timestamptz [not null]
+  proposta_nao_aplicada jsonb [null, note: 'Evento completo sem nova versao, preservado pela API: contracts/events/correcao-proposta.schema.json; sem exposicao HTTP/SSE']
+
+  indexes {
+    (rodada_anterior_id) [unique, name: 'uq_rodadas_correcao_rodada_anterior_id', note: 'indice PARCIAL: WHERE rodada_anterior_id IS NOT NULL; impede bifurcacao da cadeia']
+    (job_id) [unique, name: 'uq_rodadas_correcao_job_id_aberta', note: "indice PARCIAL: WHERE estado IN ('pendente', 'em_transcricao', 'em_reextracao'); no maximo uma rodada aberta por job"]
+  }
+
+  Note: 'Rodada mutavel: a API atualiza estado e referencias conforme o fluxo. A estrutura e da T-214; os fluxos pertencem a T-215/T-216/T-217/T-225/T-238.'
+}
+
 Table job_transicoes {
   id uuid [pk, default: `uuidv7()`]
   job_id uuid [not null, ref: > jobs.id]
@@ -117,7 +172,7 @@ Table job_transicoes {
   status_novo text [not null]
   ocorrido_em timestamptz [not null]
   ator text [not null, note: 'usuario | sistema | evento']
-  motivo text [note: 'null fora de paradas; razao localizada de parada (§3.3)']
+  motivo text [note: 'null fora de paradas; codigo do motivo, traduzido pela API para exibicao']
 
   indexes {
     (job_id, ocorrido_em)
@@ -127,7 +182,7 @@ Table job_transicoes {
 Table job_acoes {
   id uuid [pk, default: `uuidv7()`]
   job_id uuid [not null, ref: > jobs.id]
-  acao text [not null, note: 'confirmar_liberar | cancelar | salvar | arquivar']
+  acao text [not null, note: 'confirmar_liberar | cancelar | salvar | arquivar | aceitar_meta. aceitar_meta torna vigente a simulacao da meta sugerida (meta-venda-sugerida)']
   executado_em timestamptz [not null]
 
   indexes {
@@ -140,7 +195,7 @@ Table simulacoes {
   criado_em timestamptz [not null, note: 'timestamp (US04)']
   regra_id uuid [not null, ref: > regras.id, note: 'versao exata (US04) - ON DELETE RESTRICT']
   job_id uuid [not null, ref: > jobs.id, note: 'competencias e orcamento vivem em jobs. Uma simulacao cobre TODAS as competencias de jobs.competencias de uma vez']
-  codigo_gerado_id uuid [not null, ref: - codigos_gerados.id, note: 'codigo executado. Escrito no INSERT; e por ele que a API acha a simulacao ao consumir simulacao-concluida']
+  codigo_gerado_id uuid [not null, ref: - codigos_gerados.id, note: 'codigo executado. Escrito no INSERT; e por ele que a API acha a simulacao ao consumir simulacao-concluida. As execucoes candidatas da busca da meta (resultados_simulacao.proposito = busca_meta) usam o mesmo codigo e nao sao ligadas a esta tabela por esse caminho']
   resultado_id uuid [ref: - resultados_simulacao.id, note: 'null ate concluir; o veredito vive em resultados_simulacao.veredito']
   flag_baixa_rastreabilidade bool [not null, default: false, note: 'US05 c2']
 
@@ -154,10 +209,10 @@ Table simulacoes {
 
 Table trilhas_auditoria {
   id uuid [pk, default: `uuidv7()`]
-  evento_id uuid [not null, note: 'uuid aleatorio gerado pelo publicador e carregado na mensagem; a API grava o que recebeu. Chave de idempotencia contra reentrega do broker.']
+  evento_id uuid [not null, note: 'UUIDv5 deterministico do job, no e referencia do artefato, gerado pelo codegen; a API grava o recebido. Idempotencia contra reentrega e republicacao do mesmo evento logico.']
   job_id uuid [not null, ref: > jobs.id]
   simulacao_id uuid [ref: > simulacoes.id, note: 'null p/ nos 1-2 (voz, Sprint 2)']
-  no text [not null, note: 'enum dos nos 1..8, mais sugestao_adaptacao (desvio do no decisao)']
+  no text [not null, note: 'nome do no concluido, conforme o contrato no-concluido; inclui suggest_adaptation']
   concluido_em timestamptz [not null, note: 'conclusao do no, vinda do evento no-concluido']
   regra_id uuid [ref: > regras.id, note: 'null enquanto a regra nao esta formada']
   conclusao jsonb [not null, note: '''
@@ -184,8 +239,15 @@ Table regras {
   id uuid [pk, default: `uuidv7()`]
   job_id uuid [not null, ref: > jobs.id]
   versao int [not null, note: 'sequencial dentro do job']
-  origem text [not null, note: 'confirmacao_usuario | sugestao_adaptacao | reprocessamento']
+  origem text [not null, note: 'confirmacao_usuario | sugestao_adaptacao | reprocessamento | extracao | correcao']
   regra_origem_id uuid [ref: > regras.id, note: 'NULL na versao raiz. Self; de qual versao foi derivada. N-1: varias versoes podem sair da mesma origem (alternativas do laco de adaptacao), cada versao tem no maximo um pai']
+  representacao jsonb [note: '''
+Formato: contracts/domain/representacao-regra.schema.json. Artefato completo recebido
+por correcao-proposta, incluindo extensoes da raiz e estruturas internas. NULL nas
+versoes legadas, sem backfill. CHECK ck_regras_representacao_coerente exige objeto
+com nucleo e especificacoes iguais as colunas homonimas quando nao e SQL NULL.
+Nao altera o algoritmo do hash nem o consumo de extensoes pelo codegen.
+''']
   nucleo jsonb [not null, note: '''
 Formato: contracts/domain/regra-nucleo.schema.json
 Os cinco campos do vocabulario canonico da DEC-084: vigencia, loja, marca, cargo,
@@ -206,7 +268,30 @@ Identificacao: o ref de cada item (elem.1, elem.2, sequencial) e os campos do nu
 lado - a cobertura declarada pelo codigo gerado e a quebra por elemento em
 resultados_simulacao.decomposicao.
 ''']
-  hash char64 [not null, note: 'sha-256 da serializacao canonica']
+  parametros jsonb [note: '''
+Formato: contracts/domain/parametros-simulacao.schema.json
+Parametros da simulacao com que a versao nasceu: orcamento, meta de venda e periodo ditos
+no texto ou na correcao. Nao fazem parte da regra e nao entram em nucleo nem em
+especificacoes.
+Preenchida nas versoes nascidas do texto: na de origem extracao, com
+extracoes_regras.parametros; na de origem correcao, com correcao-proposta.parametros, ou
+com os da versao corrigida quando o evento nao os traz. {} quando nenhum foi dito.
+NULL nas demais origens e nas versoes anteriores a coluna.
+''']
+  hash char64 [not null, note: '''
+sha-256 da serializacao canonica da representacao (nucleo e especificacoes) e, quando
+parametros nao e NULL, tambem dos parametros. Com parametros NULL, a serializacao e a de
+antes da coluna, e o hash das versoes de formulario, de reprocessamento e anteriores nao
+muda. Uma correcao que muda so os parametros gera hash novo e, por isso, versao nova com a
+mesma representacao, sem violar (job_id, hash).
+''']
+  tentativa smallint [note: '''
+Numero da tentativa de taxa nova, de 1 a 3, que o codegen informou em
+sugestao-adaptacao-proposta.tentativa, gravado com a versao que a proposta cria. A api so o
+registra: o limite de tentativas e do codegen. CHECK de 1 a 3, a faixa do contrato.
+NULL nas demais origens e nas versoes de sugestao anteriores a coluna, que eram tentativa
+unica. Nao sai em GET /jobs/{id}.
+''']
   criada_em timestamptz [not null]
 
   indexes {
@@ -251,6 +336,32 @@ Table respostas_modelo {
   }
 }
 
+Table extracoes_regras {
+  id uuid [pk, default: `uuidv7()`, note: 'O codegen fornece UUIDv5 derivado do job e da submissao, estavel entre reentregas']
+  job_id uuid [not null, ref: > jobs.id]
+  submissao_id uuid [not null, ref: > submissoes.id]
+  resposta_id uuid [not null, ref: > respostas_modelo.id, note: 'Resposta bruta que originou esta proposta; prompt e modelo sao alcancados pela resposta']
+  representacao jsonb [not null, note: 'Formato: contracts/domain/representacao-regra.schema.json. Proposta montada deterministicamente, com nucleo e especificacoes; a API cria a versao em regras']
+  rebaixamentos jsonb [not null, note: 'Formato: contracts/domain/rebaixamentos-extracao.schema.json. Diagnosticos separados da representacao e dos parametros, nunca no evento']
+  parametros jsonb [not null, default: `'{}'::jsonb`, note: '''
+Formato: contracts/domain/parametros-simulacao.schema.json
+Orcamento, meta de venda e periodo que o texto diz, extraidos junto com a regra e fora da
+representacao. {} quando o texto nao diz nenhum. O valor e o que foi dito, inclusive um
+invalido, que a validacao de dominio aponta como conflito; um parametro dito sem lastro nao
+entra aqui e aparece em rebaixamentos com a referencia parametros.<campo>.
+A API le esta coluna ao consumir regra-extraida e grava os valores no job. O evento continua
+levando so referencias. O default mantem valido o INSERT de uma versao do codegen anterior
+a coluna.
+''']
+  criado_em timestamptz [not null]
+
+  indexes {
+    (job_id, submissao_id) [unique, name: 'uq_extracoes_regras_job_id_submissao_id', note: 'Uma extracao inicial por job e submissao; o indice tambem atende consultas por job']
+    (submissao_id)
+    (resposta_id)
+  }
+}
+
 Table codigos_gerados {
   id uuid [pk, default: `uuidv7()`]
   job_id uuid [not null, ref: > jobs.id]
@@ -292,9 +403,35 @@ veredito para o conjunto. A contribuicao de cada mes esta na quebra competencia 
 decomposicao.
 orcamento e duplicado de jobs.orcamento de proposito: o worker nao tem permissao em jobs
 e esta tabela e INSERT-only, entao o insumo do veredito acompanha o veredito e nao pode
-ser alterado depois.
+ser alterado depois. Ausente quando o comando executar-codigo nao trouxe orcamento.
+Com meta_venda, baseline e simulado sao apurados sobre as vendas escaladas ate a meta.
+vendas_historicas e o total de vendas das competencias antes do escalonamento, acrescentado
+pelo worker fora do container; ausente nas linhas gravadas antes do campo.
 ''']
-  veredito text [note: 'null quando status <> sucesso. viavel | inviavel | indeterminado - derivado de totais.simulado vs totais.orcamento']
+  veredito text [note: '''
+null quando status <> sucesso, e tambem num sucesso sem orcamento (totais.orcamento
+ausente): o numero vale, mas nao ha criterio que o julgue. viavel | inviavel |
+indeterminado - derivado de totais.simulado vs totais.orcamento.
+''']
+  meta_venda numeric [note: '''
+Meta de venda em que a execucao foi simulada, recebida em executar-codigo.meta_venda: na
+simulacao do job, a meta do job; na execucao candidata da busca da meta maior, a meta
+candidata. NULL quando a execucao usou as vendas historicas, inclusive nas linhas gravadas
+antes da coluna. Gravada aqui, e nao lida de jobs.meta_venda, pelo mesmo motivo de
+totais.orcamento: o worker nao tem permissao em jobs, e a entrada que produziu o numero
+acompanha o numero.
+Escrita pelo worker no mesmo INSERT do resultado. Estritamente positiva quando presente.
+''']
+  proposito text [not null, default: 'simulacao', note: '''
+simulacao | busca_meta, recebido em executar-codigo.proposito (ausente = simulacao).
+E o que distingue a simulacao do job da execucao candidata da busca da meta maior. A
+candidata roda o mesmo codigo_gerado_id numa meta candidata e e gravada aqui como qualquer
+resultado, mas nao e desfecho do job: a API nao muda o estado, nao anuncia o resultado e nao
+a liga a uma linha de simulacoes ao consumir simulacao-concluida. So a candidata que fecha a
+busca e referenciada, por meta-venda-sugerida.resultado_id; se o usuario aceita a meta,
+ela passa a ser a simulacao vigente do job (a forma de registrar a aceitacao e da T-274).
+Linhas anteriores a coluna sao simulacoes do job, e o default as cobre sem backfill.
+''']
   assercoes jsonb [not null, note: '''
 Formato: contracts/domain/resultado-assercoes.schema.json
 Desfecho das assercoes invariantes (ARCHITECTURE.md §1.4); [] em erro_infra.
@@ -310,6 +447,36 @@ jsonb e nao tabela: e escrita de uma vez, lida inteira e nunca filtrada por valo
 tabela exigia um discriminador de tipo, uma coluna de chave polimorfica e uma dimensao
 nula em metade das linhas, tudo para caber duas quebras numa estrutura so.
 A forma de objeto torna chave repetida dentro de uma quebra impossivel de representar.
+''']
+  linhas jsonb [note: '''
+Formato: contracts/domain/resultado-linhas.schema.json
+Objeto indexado por competencia e, dentro dela, por matricula: uma entrada por mes e
+colaborador, com loja, marca e cargo do RH no mes. Loja e marca sao as da lotacao,
+como no baseline congelado; vendas em outras lojas ou marcas ficam na mesma linha.
+vendas e o total vendido da matricula na competencia, somado pelo worker fora do
+container a partir das bases (T-282): as vendas historicas, ou as escaladas ate a meta
+numa execucao com meta_venda. Ausente nas linhas gravadas antes do campo.
+NULL quando status <> sucesso e nos resultados gravados antes desta mudanca.
+Escrito inteiro pelo worker no mesmo INSERT do resultado e lido pela API.
+jsonb porque e escrito de uma vez e lido inteiro, sem filtros nem paginacao.
+Separado de decomposicao e de resultado-simulacao para que GET /jobs/{id} nao carregue
+o detalhamento do periodo inteiro de todas as simulacoes. So a rota
+GET /jobs/{id}/simulacoes/{simulacaoId}/linhas carrega este artefato.
+A API cria a coluna pela migration da T-258; nao exige novas permissoes.
+''']
+  diagnostico jsonb [note: '''
+Formato: contracts/domain/resultado-diagnostico.schema.json
+NULL quando status <> erro_codigo, e nas linhas gravadas por versao do worker que ainda
+nao preenche a coluna - por isso a coluna nasce nullable e sem backfill. Em erro_codigo
+novo, sempre presente com a causa; a falha estruturada do sandbox so vem quando houve
+excecao capturada, os problemas de validacao so quando o resultado saiu do schema, e os elementos ausentes ou fora da regra so quando a cobertura ficou incompleta.
+Escrito pelo worker no mesmo INSERT do resultado e imutavel como o resto da linha. A API e
+o codegen leem pelo SELECT que ja tem na tabela.
+Nao viaja no evento: o leitor chega aqui pelo resultado_id de simulacao-concluida.
+Separado de totais e decomposicao, que so existem em sucesso: o diagnostico nao e numero.
+jsonb porque e escrito de uma vez, lido inteiro e nunca filtrado por valor.
+Mensagem, traceback e caminhos vieram de codigo nao confiavel: sao dado, nunca vao para
+log nem evento.
 ''']
   criado_em timestamptz [not null]
 
@@ -339,6 +506,11 @@ regra-submetida:        { "job_id": "<uuid>", "submissao_id": "<uuid>", "origem"
                           "competencias": ["2025-08", "2025-11"], "orcamento": 485000.0,
                           "regra_id": "<uuid>" }
 parametros-confirmados: { "job_id": "<uuid>", "regra_id": "<uuid>" }
+job-encerrado:          { "evento_id": "<uuid>", "job_id": "<uuid>", "status": "cancelado",
+                          "encerrado_em": "2025-11-28T15:02:44.318204Z" }
+- job-encerrado: gravado na mesma transacao da transicao terminal; evento_id e o id dessa
+  transicao em job_transicoes e encerrado_em e o ocorrido_em dela, entao toda emissao do
+  mesmo encerramento leva os mesmos valores.
 - origem: NAO existe como coluna de jobs. A API a resolve de submissoes.tipo, ou de
   "reprocessamento" quando jobs.submissao_id e null.
 - competencias: vem de jobs.competencias, pelo mesmo motivo.
@@ -354,4 +526,37 @@ campos novos sempre opcionais (evolucao aditiva - ADR-002).
   indexes {
     (criado_em) [note: 'na migration deve ser PARCIAL - WHERE publicado_em IS NULL - para o poller ler so os pendentes; o DBML nao expressa indice parcial']
   }
+}
+
+// ─────────────── Grupo 5 - Controle da limpeza do codegen (criada pela API, escrita pelo codegen) ───────────────
+// Nao e artefato auditavel: e o registro com que o codegen limpa os checkpoints de um job
+// encerrado e, depois da limpeza, reconhece as mensagens antigas dele, papel que o checkpoint
+// final cumpria. O codegen tem SELECT, INSERT e UPDATE so em limpo_em; a API cria a estrutura
+// e nao escreve nela. A linha permanece depois da limpeza.
+
+Table jobs_grafo_encerrados {
+  id uuid [pk, default: `uuidv7()`]
+  job_id uuid [not null, ref: > jobs.id, note: 'um registro por job: o encerramento e um fato unico do job']
+  evento_id uuid [not null, note: 'evento_id do job-encerrado recebido, o id da transicao terminal em job_transicoes']
+  status text [not null, note: 'liberado | cancelado | arquivado | erro - o status terminal anunciado']
+  encerrado_em timestamptz [not null, note: 'instante da transicao terminal, como veio no evento']
+  limpo_em timestamptz [note: 'null enquanto a limpeza dos checkpoints nao terminou: adiada por um ciclo que ainda espera o resultado, ou interrompida por falha. Preenchido so quando nenhum checkpoint do job resta']
+
+  indexes {
+    (job_id) [unique]
+    (job_id) [name: 'idx_jobs_grafo_encerrados_pendentes', note: 'na migration e PARCIAL - WHERE limpo_em IS NULL - para a retomada na subida do codegen; o DBML nao expressa indice parcial']
+  }
+}
+
+Table sugestoes_meta_venda {
+  job_id uuid [not null, ref: > jobs.id]
+  regra_id uuid [not null, ref: > regras.id]
+  resultado_id uuid [ref: > resultados_simulacao.id, note: 'Candidata da busca da meta; ausente no desfecho sem solução. Artefato somente lido pela api.']
+  motivo_sem_solucao text [note: 'nao_monotonica | intervalo_esgotado | falha_execucao']
+  criada_em timestamptz [not null, default: `now()`]
+  aceita_em timestamptz [note: 'Aceitação troca simulacoes.resultado_id; mantém esta linha para impedir reentrega da sugestão.']
+  indexes {
+    (job_id, regra_id) [pk, name: 'pk_sugestoes_meta_venda']
+  }
+  Note: 'api escreve e lê; codegen e worker não têm acesso. Uma conclusão por versão, incluído o desfecho sem solução. A aceitação não cria regra nem simulação.'
 }

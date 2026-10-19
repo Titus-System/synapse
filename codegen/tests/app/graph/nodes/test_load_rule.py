@@ -71,11 +71,10 @@ async def test_load_rule_propagates_the_repository_failure(
         await modulo.load_rule(state, _config("sessoes-falsas"))
 
 
-async def test_load_rule_anuncia_a_entrada_da_etapa_de_geracao(
+async def test_load_rule_anuncia_a_entrada_da_etapa_de_validacao(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """O contrato manda disparar `etapa-alterada` na ENTRADA da etapa, e esta é a entrada de
-    `geracao_codigo` - o único sinal de progresso que a tela recebe durante a geração."""
+    """A leitura começa a validação, antes de qualquer geração."""
     regra = RepresentacaoRegra.model_validate({"nucleo": {}, "especificacoes": []})
     monkeypatch.setattr(modulo, "buscar_regra", AsyncMock(return_value=regra))
     producers = _producers()
@@ -85,7 +84,9 @@ async def test_load_rule_anuncia_a_entrada_da_etapa_de_geracao(
     )
 
     [evento] = producers.etapa_alterada.await_args.args
-    assert evento == EtapaAlterada(job_id=UUID(JOB_ID), etapa="geracao_codigo", status="iniciada")
+    assert evento == EtapaAlterada(
+        job_id=UUID(JOB_ID), etapa="validacao_dominio", status="iniciada"
+    )
     oficial("etapa-alterada").validate(simplejson.loads(serializar(evento), use_decimal=True))
 
 

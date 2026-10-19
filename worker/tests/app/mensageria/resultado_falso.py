@@ -41,18 +41,31 @@ class BancoDeResultadosFalso:
     def __init__(self) -> None:
         self.gravados: list[dict[str, Any]] = []
         self.retornados: list[ResultadoGravado] = []
-        self.consultas: list[tuple[UUID, UUID]] = []
+        self.consultas: list[tuple[UUID, UUID, float | None, str]] = []
+        # Devolvido só à consulta da mesma meta e do mesmo propósito, como a consulta real.
         self.existente: ResultadoGravado | None = None
         self.erro_gravacao: Exception | None = None
         self.erro_consulta: Exception | None = None
 
     async def buscar(
-        self, sessao: object, job_id: UUID, codigo_gerado_id: UUID
+        self,
+        sessao: object,
+        job_id: UUID,
+        codigo_gerado_id: UUID,
+        *,
+        meta_venda: float | None,
+        proposito: str,
     ) -> ResultadoGravado | None:
-        self.consultas.append((job_id, codigo_gerado_id))
+        self.consultas.append((job_id, codigo_gerado_id, meta_venda, proposito))
         if self.erro_consulta is not None:
             raise self.erro_consulta
-        return self.existente
+        existente = self.existente
+        if existente is None or (existente.meta_venda, existente.proposito) != (
+            meta_venda,
+            proposito,
+        ):
+            return None
+        return existente
 
     async def gravar(self, sessao: object, **campos: Any) -> ResultadoGravado:
         DIARIO.append("gravar")
@@ -65,6 +78,8 @@ class BancoDeResultadosFalso:
             status=campos["status"],
             veredito=campos["veredito"],
             totais=campos["totais"],
+            meta_venda=campos["meta_venda"],
+            proposito=campos["proposito"],
         )
         self.retornados.append(gravado)
         return gravado

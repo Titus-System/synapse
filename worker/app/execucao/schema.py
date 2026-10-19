@@ -1,4 +1,5 @@
-"""Valida o resultado que saiu do container contra o schema da T-034.
+"""Valida o resultado que saiu do container contra o schema da T-034, e o diagnóstico que o
+worker grava quando ele falha (T-204).
 
 A validação roda no processo do worker, fora do container: a imagem do sandbox só admite
 pandas e a biblioteca padrão, e quem escreveu o resultado é código não confiável, que não
@@ -10,10 +11,10 @@ que serve ao repositório (``<raiz>/contracts``) e à imagem (``/app/contracts``
 """
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from jsonschema import Draft202012Validator, FormatChecker
 from referencing import Registry, Resource
@@ -21,6 +22,19 @@ from referencing.jsonschema import DRAFT202012
 
 ESQUEMA_RESULTADO = "resultado-simulacao.schema.json"
 ESQUEMA_ASSERCOES = "resultado-assercoes.schema.json"
+ESQUEMA_DIAGNOSTICO = "resultado-diagnostico.schema.json"
+ESQUEMA_LINHAS = "resultado-linhas.schema.json"
+
+
+class Problema(TypedDict):
+    """Onde um valor falhou num schema: o caminho e a palavra-chave que o reprovou, nunca o valor.
+
+    É o item de ``problemas`` em ``resultado-diagnostico.schema.json``. As chaves do caminho vêm do
+    que foi validado, e no resultado do container são dado não confiável.
+    """
+
+    caminho: str
+    palavra_chave: str
 
 
 class ContratosIndisponiveisError(RuntimeError):
@@ -59,43 +73,98 @@ def carregar_contratos() -> None:
     """Falha na subida, e não no primeiro job, se algum schema usado não estiver ao alcance."""
     validador(ESQUEMA_RESULTADO)
     validador(ESQUEMA_ASSERCOES)
+    validador(ESQUEMA_DIAGNOSTICO)
+    validador(ESQUEMA_LINHAS)
 
 
-def validar_resultado(resultado: Mapping[str, Any], orcamento: float) -> list[str]:
+# O que só o worker acrescenta a cada linha do detalhamento, da mesma fonte de
+# ``vendas_historicas``: o total vendido da matrícula na competência (T-282).
+CAMPOS_DA_LINHA_DO_WORKER = ("vendas",)
+
+
+def validar_linhas(linhas: object, competencias: Sequence[str]) -> list[Problema]:
+    """Valida a forma e o período; conferência dos valores pertence à T-262.
+
+    Caminhos do validador contêm chaves arbitrárias do container (inclusive matrícula).
+    O diagnóstico e os logs levam somente a raiz estática e a classe do erro.
+
+    Um campo que só o worker acrescenta (``CAMPOS_DA_LINHA_DO_WORKER``) é válido no schema, então
+    a validação não o recusa sozinha. Presente numa linha que saiu do container, é reprovado: o
+    harness não o produz, e o código gerado não pode escolher o número que a tela mostra ao lado
+    da comissão.
+    """
+    palavras = {str(erro.validator) for erro in validador(ESQUEMA_LINHAS).iter_errors(linhas)}
+    if isinstance(linhas, dict) and set(linhas) != set(competencias):
+        palavras.add("competencias_divergentes")
+    if _tem_campo_do_worker(linhas):
+        palavras.add("fornecido_pelo_container")
+    return [Problema(caminho="$.linhas", palavra_chave=p) for p in sorted(palavras)]
+
+
+def _tem_campo_do_worker(linhas: object) -> bool:
+    if not isinstance(linhas, Mapping):
+        return False
+    return any(
+        isinstance(linha, Mapping) and campo in linha
+        for colaboradores in linhas.values()
+        if isinstance(colaboradores, Mapping)
+        for linha in colaboradores.values()
+        for campo in CAMPOS_DA_LINHA_DO_WORKER
+    )
+
+
+# Os totais que só o worker acrescenta, de fontes que o código gerado não alcança: o orçamento
+# do comando (T-066) e o total de vendas das competências (T-270).
+TOTAIS_DO_WORKER = ("orcamento", "vendas_historicas")
+
+
+def validar_resultado(resultado: Mapping[str, Any], orcamento: float | None) -> list[Problema]:
     """Erros do resultado contra ``resultado-simulacao.schema.json`` (vazio = válido).
 
-    O container não recebe o orçamento, então ``totais`` chega sem ``orcamento`` e o schema,
-    que o exige, reprovaria todo resultado. A validação vê uma **cópia** com o orçamento do
-    worker acrescentado; ``resultado`` não é alterado, e é ele que segue adiante. Um
-    ``totais.orcamento`` já presente na saída é reprovado: o harness não o produz, então
-    alguém o fabricou, e ele não pode chegar ao veredito parecendo dado do container.
+    O container não recebe o orçamento, então ``totais`` chega sem ``orcamento``. Com
+    orçamento, a validação vê uma **cópia** com o orçamento do worker acrescentado, a forma que
+    será gravada; sem ele (job sem orçamento), vê os totais como vieram. ``resultado`` não é
+    alterado, e é ele que segue adiante. Um total que só o worker acrescenta
+    (``TOTAIS_DO_WORKER``) já presente na saída é reprovado: o harness não o produz, então
+    alguém o fabricou, e ele não pode chegar ao veredito nem à linha parecendo dado do container.
 
-    Cada erro é ``<caminho>: <palavra-chave do schema>``, nunca o valor nem a mensagem do
+    Cada problema é o caminho e a palavra-chave do schema, nunca o valor nem a mensagem do
     validador: o conteúdo veio de código não confiável e não pode chegar a um log.
     """
     candidato: dict[str, Any] = dict(resultado)
-    fabricado = False
+    fabricados: list[str] = []
     totais = candidato.get("totais")
     if isinstance(totais, Mapping):
-        fabricado = "orcamento" in totais
-        candidato["totais"] = {**totais, "orcamento": orcamento}
+        fabricados = [campo for campo in TOTAIS_DO_WORKER if campo in totais]
+        candidato["totais"] = {k: v for k, v in totais.items() if k not in TOTAIS_DO_WORKER}
+        if orcamento is not None:
+            candidato["totais"]["orcamento"] = orcamento
     erros = _erros(validador(ESQUEMA_RESULTADO), candidato)
-    if fabricado:
-        erros.insert(0, "$.totais.orcamento: fornecido_pelo_container")
-    return erros
+    return [
+        Problema(caminho=f"$.totais.{campo}", palavra_chave="fornecido_pelo_container")
+        for campo in fabricados
+    ] + erros
 
 
-def validar_assercoes(assercoes: object) -> list[str]:
+def validar_assercoes(assercoes: object) -> list[Problema]:
     """Erros de uma lista de desfechos contra ``resultado-assercoes.schema.json``."""
     return _erros(validador(ESQUEMA_ASSERCOES), assercoes)
 
 
-def _erros(esquema: Draft202012Validator, instancia: object) -> list[str]:
+def validar_diagnostico(diagnostico: Mapping[str, object]) -> list[Problema]:
+    """Erros do diagnóstico montado pelo worker contra ``resultado-diagnostico.schema.json``."""
+    return _erros(validador(ESQUEMA_DIAGNOSTICO), diagnostico)
+
+
+def _erros(esquema: Draft202012Validator, instancia: object) -> list[Problema]:
     erros = sorted(
         esquema.iter_errors(instancia),
         key=lambda erro: tuple(str(parte) for parte in erro.absolute_path),
     )
-    return [f"{_caminho(list(erro.absolute_path))}: {erro.validator}" for erro in erros]
+    return [
+        Problema(caminho=_caminho(list(erro.absolute_path)), palavra_chave=str(erro.validator))
+        for erro in erros
+    ]
 
 
 def _caminho(partes: list[Any]) -> str:

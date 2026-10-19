@@ -3,11 +3,13 @@ package synapse.api.job;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+
 import javax.sql.DataSource;
 
 import liquibase.Contexts;
@@ -30,8 +32,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
-import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.MediaType;
@@ -43,18 +45,20 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
+import synapse.api.core.logging.CorrelationContext;
 import synapse.api.core.outbox.Outbox;
 import synapse.api.core.security.AcessoDoUsuario;
 import synapse.api.core.security.PapelDoUsuario;
 import synapse.api.core.security.UsuarioAtual;
+import synapse.api.core.sse.EmissoresSse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -83,7 +87,7 @@ class ReprocessarJobPersistenciaTests {
 
 	private static JdbcTemplate dono;
 
-	private static ReprocessarJobService service;
+	private static JobService service;
 
 	private static MockMvc mvc;
 
@@ -117,17 +121,20 @@ class ReprocessarJobPersistenciaTests {
 		contexto.registerBean(DataSource.class, () -> dataSource);
 		contexto.registerBean(JdbcTemplate.class, () -> jdbc);
 		contexto.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
+		contexto.registerBean(EmissoresSse.class, () -> mock(EmissoresSse.class));
 		contexto.register(Config.class);
 		contexto.refresh();
-		service = contexto.getBean(ReprocessarJobService.class);
+		service = contexto.getBean(JobService.class);
 		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
 		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(DONO_ORIGINAL, PapelDoUsuario.PROFISSIONAL_RH));
 		mvc = MockMvcBuilders
-			.standaloneSetup(contexto.getBean(ReprocessarJobController.class),
-					new BuscarJobController(contexto.getBean(BuscarJobService.class)),
-					contexto.getBean(ConfirmarParametrosController.class))
-			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual, new AutorizadorDeJob(jdbc)))
-			.setControllerAdvice(new ReprocessarJobAdvice(), new ConfirmarParametrosAdvice())
+			.standaloneSetup(new JobController(contexto.getBean(JobService.class), mock(EmissoresSse.class),
+					new CorrelationContext(),
+					new synapse.api.core.metrics.AppMetrics(
+							new io.micrometer.core.instrument.simple.SimpleMeterRegistry())))
+			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual,
+					new AutorizadorDeJob(contexto.getBean(JobRepository.class))))
+			.setControllerAdvice(new JobAdvice())
 			.build();
 	}
 
@@ -143,10 +150,8 @@ class ReprocessarJobPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ CriarJobService.class, ReprocessarJobService.class, BuscarJobService.class,
-			ConfirmarParametrosService.class, VersoesDaRegra.class, ExecutarAcaoService.class,
-			MaquinaDeEstadosDoJob.class, Outbox.class, ReprocessarJobController.class, AutorizadorDeJob.class,
-			ConfirmarParametrosController.class })
+	@Import({ JobRepository.class, JobService.class, RodadasRepository.class, VersoesDaRegra.class,
+			MaquinaDeEstadosDoJob.class, Outbox.class, AutorizadorDeJob.class, CorrelationContext.class })
 	static class Config {
 
 	}
@@ -245,6 +250,35 @@ class ReprocessarJobPersistenciaTests {
 			.isEqualTo(JSON.readTree(mudaOrcamento ? "[\"2025-11\"]" : "[\"2025-08\"]"));
 	}
 
+	/**
+	 * A versão de origem com parâmetros - o caso de um job de texto arquivado - tem o
+	 * hash cobrindo-os. Copiar só o hash e não os parâmetros deixaria a versão nova com
+	 * um hash que não corresponde ao que ela guarda, e a confirmação seguinte trataria
+	 * qualquer confirmação sem edição como se tivesse editado.
+	 */
+	@Test
+	void copiaOsParametrosDaVersaoDeOrigemJuntoComOHash() throws Exception {
+		UUID origem = criarOrigem(false);
+		RepresentacaoRegraDto representacao = ConfirmarParametrosRequisicao
+			.deJson(ConfirmarParametrosControllerTests.CONFIRMAR)
+			.representacao();
+		ParametrosDaSimulacao params = new ParametrosDaSimulacao(new BigDecimal("500000"), null, List.of("2025-11"));
+		dono.update("UPDATE regras SET hash = ?, parametros = ?::jsonb WHERE job_id = ? AND versao = 7",
+				HashDaRegra.calcular(representacao, params), "{\"orcamento\":500000,\"competencias\":[\"2025-11\"]}",
+				origem);
+		String hashDaOrigem = Objects.requireNonNull(
+				jdbc.queryForObject("SELECT hash FROM regras WHERE job_id = ? AND versao = 7", String.class, origem));
+
+		JsonNode novo = reprocessar(origem, "");
+		UUID novoId = UUID.fromString(novo.path("id").asString());
+
+		Map<String, Object> regra = jdbc.queryForMap(
+				"SELECT hash, parametros::text AS parametros FROM regras " + "WHERE job_id = ? AND versao = 1", novoId);
+		assertThat(regra.get("hash")).isEqualTo(hashDaOrigem);
+		assertThat(JSON.readTree((String) regra.get("parametros")))
+			.isEqualTo(JSON.readTree("{\"orcamento\":500000,\"competencias\":[\"2025-11\"]}"));
+	}
+
 	@ParameterizedTest
 	@EnumSource(value = JobStatus.class, names = "ARQUIVADO", mode = EnumSource.Mode.EXCLUDE)
 	void recusaTodosOsDemaisEstadosSemEfeitos(JobStatus estado) throws Exception {
@@ -316,11 +350,12 @@ class ReprocessarJobPersistenciaTests {
 		JsonNode novo = reprocessar(origem, "");
 		UUID novoId = UUID.fromString(novo.path("id").asString());
 		Map<String, Object> semeada = jdbc.queryForMap("SELECT * FROM regras WHERE job_id = ?", novoId);
+		assertThat(jdbc.queryForObject("SELECT iniciado_em FROM jobs WHERE id = ?", Timestamp.class, novoId)).isNull();
 		JsonNode representacaoOriginal = consultar(novoId).path("regras").path(0).path("representacao");
 		ObjectNode enviada = (ObjectNode) representacaoOriginal.deepCopy();
 		boolean mudaNucleo = edicao.equals("nucleo") || edicao.equals("ambos");
 		boolean mudaEspecificacoes = List.of("especificacoes", "ambos", "adicionar", "remover").contains(edicao);
-		boolean editado = mudaNucleo || mudaEspecificacoes;
+		boolean editado = mudaNucleo || mudaEspecificacoes || edicao.equals("parametros");
 		if (mudaNucleo) {
 			((ObjectNode) enviada.path("nucleo")).put("percentual", new BigDecimal("0.04"));
 		}
@@ -363,6 +398,11 @@ class ReprocessarJobPersistenciaTests {
 		assertThat(jdbc.queryForMap("SELECT * FROM regras WHERE job_id = ? AND versao = 1", novoId)).isEqualTo(semeada);
 		assertThat(jdbc.queryForObject("SELECT status FROM jobs WHERE id = ?", String.class, novoId))
 			.isEqualTo("gerando_regra");
+		assertThat(jdbc.queryForObject("SELECT iniciado_em FROM jobs WHERE id = ?", Timestamp.class, novoId))
+			.isNotNull()
+			.isEqualTo(jdbc.queryForObject(
+					"SELECT ocorrido_em FROM job_transicoes WHERE job_id = ? AND status_novo = 'gerando_regra'",
+					Timestamp.class, novoId));
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM regras WHERE job_id = ?", Integer.class, novoId))
 			.isEqualTo(editado ? 2 : 1);
 		Map<String, Object> utilizada = jdbc.queryForMap("SELECT * FROM regras WHERE job_id = ? AND versao = ?", novoId,
@@ -373,8 +413,10 @@ class ReprocessarJobPersistenciaTests {
 			.isEqualTo(enviada.path("especificacoes"));
 		assertThat(Objects.requireNonNull(utilizada.get("id")).toString())
 			.isEqualTo(confirmado.path("regra").path("id").asString());
+		String parametros = utilizada.get("parametros") == null ? null : utilizada.get("parametros").toString();
 		assertThat(utilizada.get("hash"))
-			.isEqualTo(HashDaRegra.calcular(ConfirmarParametrosRequisicao.deJson(corpo).representacao()));
+			.isEqualTo(HashDaRegra.calcular(ConfirmarParametrosRequisicao.deJson(corpo).representacao(),
+					ParametrosExtraidos.deVersaoExistente(parametros)));
 		if (editado) {
 			assertThat(utilizada.get("regra_origem_id")).isEqualTo(semeada.get("id"));
 			assertThat(utilizada.get("hash")).isNotEqualTo(semeada.get("hash"));
@@ -383,6 +425,9 @@ class ReprocessarJobPersistenciaTests {
 			assertThat(utilizada).isEqualTo(semeada);
 		}
 		if (edicao.equals("parametros")) {
+			assertThat(JSON.readTree(Objects.requireNonNull(parametros))).isEqualTo(JSON.readTree("""
+					{"orcamento":700000.123456789012345678901,"competencias":["2025-08","2025-10"]}
+					"""));
 			assertThat(jdbc.queryForObject("SELECT orcamento FROM jobs WHERE id = ?", BigDecimal.class, novoId))
 				.isEqualByComparingTo("700000.123456789012345678901");
 			assertThat(competencias(novoId)).containsExactly("2025-08", "2025-10");
@@ -412,6 +457,9 @@ class ReprocessarJobPersistenciaTests {
 		}
 		if (mudaEspecificacoes) {
 			corrigidos.add(edicao.equals("adicionar") ? "elem.2" : "elem.1");
+		}
+		if (edicao.equals("parametros")) {
+			corrigidos.addAll(List.of("parametros.orcamento", "parametros.competencias"));
 		}
 		assertThat(trilha.path("campos_corrigidos")).isEqualTo(JSON.valueToTree(corrigidos));
 		assertThat(trilha.path("resumo").asString())
@@ -447,7 +495,7 @@ class ReprocessarJobPersistenciaTests {
 	}
 
 	private static UUID criarOrigem(boolean extensoes) {
-		JobCriadoDto job = contexto.getBean(CriarJobService.class)
+		JobCriadoDto job = contexto.getBean(JobService.class)
 			.criar(CriarJobRequisicao.deJson(CriarJobControllerTests.FORMULARIO));
 		var representacao = ConfirmarParametrosRequisicao.deJson(ConfirmarParametrosControllerTests.CONFIRMAR)
 			.representacao();
@@ -461,7 +509,7 @@ class ReprocessarJobPersistenciaTests {
 		var maquina = contexto.getBean(MaquinaDeEstadosDoJob.class);
 		maquina.transicionar(job.id(), JobStatus.SIMULANDO, "evento", null);
 		maquina.transicionar(job.id(), JobStatus.AGUARDANDO_DECISAO_USUARIO, "evento", null);
-		contexto.getBean(ExecutarAcaoService.class).aplicar(job.id(), AcaoJob.ARQUIVAR);
+		contexto.getBean(JobService.class).executarAcao(job.id(), AcaoJob.ARQUIVAR);
 		jdbc.update("UPDATE jobs SET usuario_id = ?, tentativas = 3, iniciado_em = criado_em WHERE id = ?",
 				DONO_ORIGINAL, job.id());
 		jdbc.update("""

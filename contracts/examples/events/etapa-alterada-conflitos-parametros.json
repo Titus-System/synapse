@@ -1,0 +1,26 @@
+{
+  "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+  "etapa": "confirmacao",
+  "status": "aguardando_correcao",
+  "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
+  "conflitos": [
+    {
+      "elementos": [
+        "parametros.orcamento"
+      ],
+      "motivo": "orçamento negativo"
+    },
+    {
+      "elementos": [
+        "parametros.meta_venda"
+      ],
+      "motivo": "meta de venda deve ser maior que zero"
+    },
+    {
+      "elementos": [
+        "parametros.competencias"
+      ],
+      "motivo": "competência sem dados publicados"
+    }
+  ]
+}

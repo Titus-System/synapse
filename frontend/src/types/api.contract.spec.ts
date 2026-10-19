@@ -4,10 +4,14 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
+import { regraMaisRecente } from '@/services/job'
+
 import type {
   ConfirmarParametrosRequisicao,
   ConteudoSubmissao,
   CriarJobRequisicao,
+  EventoEtapa,
+  Job,
   RepresentacaoRegra,
   ResultadoSimulacao,
 } from './api'
@@ -58,5 +62,28 @@ describe('tipos do contrato HTTP', () => {
     expect(resultado.totais).not.toBeNull()
     expect(resultado.totais?.orcamento).toBe(485000)
     expect(resultado.assercoes).toHaveLength(3)
+  })
+
+  it('desserializa os conflitos da pausa para correção no evento de etapa', async () => {
+    const evento = await desserializarExemplo<EventoEtapa>('events/etapa-alterada-conflitos.json')
+
+    expect(evento.status).toBe('aguardando_correcao')
+    expect(evento.conflitos).toHaveLength(2)
+    expect(evento.conflitos?.[1]?.elementos).toEqual(['nucleo.loja', 'elem.2'])
+  })
+
+  it('aceita o job de uma descrição em texto ainda sem regra extraída', () => {
+    const job: Job = {
+      id: 'a2c4e6f8-0b1d-4e3f-8a5c-7e9b1d3f5a70',
+      status: 'gerando_regra',
+      origem: 'texto',
+      competencias: ['2025-11'],
+      orcamento: 485000,
+      criado_em: '2025-11-24T15:10:00Z',
+      submissao_id: 'e1f3a5c7-9b2d-4f6e-8a0c-2d4f6a8c0e19',
+      regras: [],
+    }
+
+    expect(regraMaisRecente(job.regras)).toBeUndefined()
   })
 })

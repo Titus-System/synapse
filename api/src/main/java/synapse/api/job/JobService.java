@@ -1,0 +1,438 @@
+package synapse.api.job;
+
+import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
+
+import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
+
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import synapse.api.core.logging.CorrelationContext;
+import synapse.api.core.outbox.EventoOutbox;
+import synapse.api.core.outbox.Outbox;
+import synapse.api.core.security.AcessoDoUsuario;
+import synapse.api.core.sse.EmissoresSse;
+import synapse.api.core.sse.EventoSse;
+import synapse.api.job.JobRepository.DadosConsulta;
+import synapse.api.job.JobRepository.ContextoDoJob;
+import synapse.api.job.JobRepository.DadosDoJob;
+import synapse.api.job.JobRepository.JobDeOrigem;
+import synapse.api.job.JobRepository.VersaoAnterior;
+import synapse.api.job.VersoesDaRegra.VersaoRegra;
+import synapse.api.job.JobsDeSubmissoes.Rodada;
+
+@Service
+class JobService {
+
+	// Mantém a identificação operacional do logger anterior à consolidação.
+	private static final Logger log = LoggerFactory.getLogger("synapse.api.job.BuscarJobService");
+
+	private final JobRepository repository;
+
+	private final MaquinaDeEstadosDoJob maquina;
+
+	private final Outbox outbox;
+
+	private final VersoesDaRegra versoes;
+
+	private final EmissoresSse emissores;
+
+	private final CorrelationContext correlacao;
+
+	private final RodadasRepository rodadas;
+
+	private static final JsonMapper JSON = JsonMapper.builder()
+		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+		.build();
+
+	JobService(JobRepository repository, MaquinaDeEstadosDoJob maquina, Outbox outbox, VersoesDaRegra versoes,
+			EmissoresSse emissores, CorrelationContext correlacao, RodadasRepository rodadas) {
+		this.repository = repository;
+		this.maquina = maquina;
+		this.outbox = outbox;
+		this.versoes = versoes;
+		this.emissores = emissores;
+		this.correlacao = correlacao;
+		this.rodadas = rodadas;
+	}
+
+	@Transactional
+	JobCriadoDto criar(CriarJobRequisicao requisicao) {
+		List<UUID> usuarios = this.repository.buscarPrimeiroUsuarioAtivo();
+		if (usuarios.isEmpty()) {
+			throw CriarJobException.semUsuarioAtivo();
+		}
+		return criar(requisicao, usuarios.getFirst());
+	}
+
+	@Transactional
+	JobCriadoDto criar(CriarJobRequisicao requisicao, UUID usuarioId) {
+		Integer usuariosAtivos = this.repository.contarUsuarioAtivo(usuarioId);
+		if (usuariosAtivos == null || usuariosAtivos == 0) {
+			throw CriarJobException.semUsuarioAtivo();
+		}
+		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		Timestamp timestamp = Timestamp.from(agora);
+		RepresentacaoRegraDto representacao = requisicao.representacao();
+		String hash = HashDaRegra.calcular(representacao);
+		UUID submissaoId = this.repository.inserirSubmissao(usuarioId, requisicao.origem(), requisicao.conteudo(),
+				timestamp);
+		String status = JobStatus.GERANDO_REGRA.paraColuna();
+		UUID jobId = this.repository.inserirJob(status, usuarioId, submissaoId, requisicao.competencias(),
+				requisicao.orcamento(), timestamp);
+		this.maquina.registrarCriacao(jobId, JobStatus.GERANDO_REGRA, "usuario");
+		UUID regraId = this.repository.inserirRegraInicial(jobId, representacao, hash, timestamp);
+		RegraCriadaDto regra = new RegraCriadaDto(regraId, 1, "confirmacao_usuario", representacao, agora);
+		// O formulário tem campo de orçamento e nenhum de meta: a meta de venda só é dita
+		// na descrição de uma regra por texto ou voz, que nasce por outro caminho.
+		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, new RegraSubmetidaDto(jobId, requisicao.origem(),
+				requisicao.competencias(), requisicao.orcamento(), null, submissaoId, regraId));
+		return new JobCriadoDto(jobId, status, requisicao.origem(), requisicao.competencias(), requisicao.orcamento(),
+				agora, submissaoId, null, regra);
+	}
+
+	/**
+	 * {@code REPEATABLE_READ} faz a contagem e a página lerem o mesmo snapshot. O
+	 * veredito é o da simulação mais recente do job, e só quando ela terminou com
+	 * sucesso.
+	 */
+	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+	PaginaJobsDto listar(ListarJobsRequisicao requisicao, AcessoDoUsuario acesso) {
+		long total = this.repository.contarJobs(acesso.usuarioId());
+		List<JobResumoDto> itens = this.repository.listarJobs(acesso.usuarioId(), requisicao.tamanho(),
+				requisicao.deslocamento());
+		return new PaginaJobsDto(itens, requisicao.pagina(), requisicao.tamanho(), total);
+	}
+
+	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+	JobDetalhadoDto buscar(UUID jobId) {
+		return consultarJob(jobId);
+	}
+
+	/**
+	 * O detalhamento sai como foi gravado. Os logs registram só referências e se havia
+	 * detalhamento, nunca o conteúdo.
+	 */
+	@Transactional(readOnly = true)
+	DetalhamentoSimulacaoDto detalharSimulacao(UUID jobId, UUID simulacaoId) {
+		try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
+			List<DetalhamentoSimulacaoDto> encontrados = this.repository.buscarDetalhamento(jobId, simulacaoId);
+			if (encontrados.isEmpty()) {
+				log.atWarn()
+					.addKeyValue("simulacao_id", simulacaoId)
+					.log("detalhamento recusado: simulação não encontrada no job");
+				throw new SimulacaoNaoEncontradaException(simulacaoId);
+			}
+			DetalhamentoSimulacaoDto detalhamento = encontrados.getFirst();
+			log.atDebug()
+				.addKeyValue("simulacao_id", simulacaoId)
+				.addKeyValue("com_detalhamento", detalhamento.linhas() != null)
+				.log("detalhamento da simulação consultado");
+			return detalhamento;
+		}
+	}
+
+	private JobDetalhadoDto consultarJob(UUID jobId) {
+		try {
+			DadosConsulta dados = this.repository.consultarJob(jobId);
+			String motivo = motivo(dados.id(), JobStatus.deColuna(dados.status()), dados.motivoDaTrilha());
+			List<RegraCriadaDto> regras = this.repository.mapearRegras(dados.regrasJson());
+			JobDetalhadoDto job = new JobDetalhadoDto(dados.id(), dados.status(), dados.origem(), dados.competencias(),
+					dados.orcamento(), dados.metaVenda(), dados.criadoEm(), dados.iniciadoEm(), dados.finalizadoEm(),
+					dados.submissaoId(), dados.jobOrigemId(), motivo, regras, null, List.of());
+			List<SimulacaoDto> simulacoes = this.repository.listarSimulacoes(jobId);
+			SimulacaoDto simulacao = simulacoes.isEmpty() ? null : simulacoes.getLast();
+			return new JobDetalhadoDto(job.id(), job.status(), job.origem(), job.competencias(), job.orcamento(),
+					job.meta_venda(), job.criado_em(), job.iniciado_em(), job.finalizado_em(), job.submissao_id(),
+					job.job_origem_id(), job.motivo(), job.regras(), simulacao, simulacoes,
+					this.repository.buscarMetaSugerida(jobId), dados.nome(),
+					this.repository.buscaMetaEmCurso(jobId) ? Boolean.TRUE : null);
+		}
+		catch (EmptyResultDataAccessException ex) {
+			throw new JobNaoEncontradoException(jobId);
+		}
+	}
+
+	/**
+	 * A razão da parada corrente. Um job em {@code erro} ou {@code simulacao_inviavel}
+	 * cuja causa não se reconhece devolve a resposta sem {@code motivo} e deixa o rastro
+	 * no log: a tela cai na mensagem genérica, e quem opera precisa saber que isso
+	 * aconteceu.
+	 */
+	private @Nullable String motivo(UUID jobId, JobStatus status, @Nullable String motivoDaTrilha) {
+		String razao = MotivoDaParada.razaoLocalizada(status, motivoDaTrilha);
+		if (razao == null && (status == JobStatus.ERRO || status == JobStatus.SIMULACAO_INVIAVEL)) {
+			try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
+				log.atWarn()
+					.addKeyValue("status", status.paraColuna())
+					.addKeyValue("motivo_registrado", motivoDaTrilha != null)
+					.log("job parado sem motivo reconhecível; consulta devolvida sem motivo");
+			}
+		}
+		return razao;
+	}
+
+	/**
+	 * Abre o stream de {@code jobId}. A fotografia é lida uma única vez, sob a trava de
+	 * {@link EmissoresSse#inscrever}: se o job não existir,
+	 * {@link JobNaoEncontradoException} propaga e nenhum emissor fica registrado - a
+	 * requisição responde 404 em vez de virar stream.
+	 */
+	SseEmitter acompanhar(UUID jobId) {
+		return this.emissores.inscrever(jobId, () -> fotografia(jobId));
+	}
+
+	private EventoSse fotografia(UUID jobId) {
+		JobStatus status = statusAtual(jobId);
+		EventoEstadoDto evento = EventoEstadoDto.fotografia(jobId, status);
+		return status.terminal() ? EventoSse.ultimo("estado", evento) : EventoSse.de("estado", evento);
+	}
+
+	private JobStatus statusAtual(UUID jobId) {
+		try {
+			String status = this.repository.buscarStatus(jobId);
+			return JobStatus.deColuna(status);
+		}
+		catch (EmptyResultDataAccessException ex) {
+			throw new JobNaoEncontradoException(jobId);
+		}
+	}
+
+	@Transactional
+	JobCriadoDto confirmar(UUID jobId, ConfirmarParametrosRequisicao requisicao) {
+		List<ContextoDoJob> encontrados = this.repository.buscarContextoComTrava(jobId);
+		if (encontrados.isEmpty()) {
+			throw new JobNaoEncontradoException(jobId);
+		}
+		ContextoDoJob contexto = encontrados.getFirst();
+		DadosDoJob dados = carregarJob(jobId);
+		JobStatus origem = contexto.status();
+		// A volta de simulando para gerando_regra é da próxima proposta automática,
+		// não de uma confirmação do usuário durante a execução.
+		if (origem.emProcessamento()) {
+			throw new TransicaoDeStatusInvalidaException(origem, JobStatus.GERANDO_REGRA);
+		}
+		VersaoAnterior anterior = ultimaVersao(jobId);
+		Rodada rodada = rodadaParaConfirmacao(jobId, origem, anterior);
+		RepresentacaoRegraDto representacao = requisicao.representacao();
+		List<String> parametrosCorrigidos = parametrosCorrigidos(contexto, requisicao);
+		String parametrosJson = parametrosDaConfirmacao((anterior != null) ? anterior.parametros() : null, contexto,
+				requisicao, parametrosCorrigidos);
+		ParametrosDaSimulacao parametros = ParametrosExtraidos.deVersaoExistente(parametrosJson);
+		String hash = HashDaRegra.calcular(representacao, parametros);
+		List<VersaoRegra> existentes = this.repository.buscarRegraPorHash(jobId, hash);
+		if (!existentes.isEmpty() && this.rodadas.jaAnalisada(jobId, existentes.getFirst().id())) {
+			throw ConfirmarParametrosException.versaoJaAnalisada();
+		}
+		boolean editado = anterior != null && !hash.equals(anterior.hash());
+		this.maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "usuario", null);
+
+		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		Timestamp timestamp = Timestamp.from(agora);
+		VersaoRegra versao = this.versoes.resolver(jobId, representacao, parametrosJson, hash, "confirmacao_usuario",
+				(anterior != null) ? anterior.id() : null, timestamp, agora);
+
+		BigDecimal orcamento = resolverOrcamento(jobId, requisicao, dados.orcamento());
+		List<String> competencias = resolverCompetencias(jobId, requisicao);
+
+		this.outbox.registrar(jobId, EventoOutbox.PARAMETROS_CONFIRMADOS,
+				new ParametrosConfirmadosDto(jobId, versao.id(), competencias, orcamento, contexto.metaVenda()));
+		TrilhaDaConfirmacao.registrar(this.repository, jobId, versao.id(), editado || !parametrosCorrigidos.isEmpty(),
+				representacao, anterior, parametrosCorrigidos, timestamp);
+		if (rodada != null) {
+			this.rodadas.corrigir(jobId, rodada.id(), rodada.regra_analisada_id(), versao.id(), agora);
+			registrarFechamento(jobId, rodada.id(), versao.id());
+		}
+
+		RegraCriadaDto regra = new RegraCriadaDto(versao.id(), versao.versao(), versao.origem(), representacao,
+				versao.criadaEm());
+		return new JobCriadoDto(jobId, JobStatus.GERANDO_REGRA.paraColuna(), dados.origem(), competencias, orcamento,
+				dados.criadoEm(), dados.submissaoId(), dados.jobOrigemId(), regra);
+	}
+
+	private @Nullable Rodada rodadaParaConfirmacao(UUID jobId, JobStatus status, @Nullable VersaoAnterior anterior) {
+		List<Rodada> abertas = this.rodadas.abertas(jobId);
+		if (abertas.isEmpty()) {
+			return null;
+		}
+		if (abertas.size() != 1 || status != JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS || anterior == null
+				|| !abertas.getFirst().regra_analisada_id().equals(anterior.id())) {
+			throw ConfirmarParametrosException.estadoInvalido();
+		}
+		return abertas.getFirst();
+	}
+
+	private static List<String> parametrosCorrigidos(ContextoDoJob contexto, ConfirmarParametrosRequisicao requisicao) {
+		List<String> campos = new ArrayList<>();
+		if (requisicao.orcamento() != null
+				&& TrilhaDaConfirmacao.decimalDiferente(contexto.orcamento(), requisicao.orcamento())) {
+			campos.add("parametros.orcamento");
+		}
+		if (requisicao.competencias() != null && !requisicao.competencias().equals(contexto.competencias())) {
+			campos.add("parametros.competencias");
+		}
+		return campos;
+	}
+
+	private static @Nullable String parametrosDaConfirmacao(@Nullable String anteriores, ContextoDoJob contexto,
+			ConfirmarParametrosRequisicao requisicao, List<String> corrigidos) {
+		if (corrigidos.isEmpty()) {
+			return anteriores;
+		}
+		// Sem edição efetiva, NULL e {} mantêm sua identidade histórica. Ao editar uma
+		// versão legada, os parâmetros preservados vêm do job, pois ela não tem artefato.
+		ObjectNode parametros = anteriores == null
+				? JSON.valueToTree(
+						new ParametrosDaSimulacao(contexto.orcamento(), contexto.metaVenda(), contexto.competencias()))
+				: (ObjectNode) JSON.readTree(anteriores);
+		if (corrigidos.contains("parametros.orcamento")) {
+			parametros.put("orcamento", Objects.requireNonNull(requisicao.orcamento()));
+		}
+		if (corrigidos.contains("parametros.competencias")) {
+			parametros.set("competencias", JSON.valueToTree(Objects.requireNonNull(requisicao.competencias())));
+		}
+		return JSON.writeValueAsString(parametros);
+	}
+
+	private void registrarFechamento(UUID jobId, UUID rodadaId, UUID regraId) {
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit() {
+				try (var escopo = JobService.this.correlacao.abrir(jobId.toString(), null)) {
+					log.atInfo()
+						.addKeyValue("rodada_id", rodadaId)
+						.addKeyValue("regra_id", regraId)
+						.log("rodada corrigida por confirmação direta");
+				}
+			}
+		});
+	}
+
+	private DadosDoJob carregarJob(UUID jobId) {
+		try {
+			return this.repository.buscarDadosParaConfirmacao(jobId);
+		}
+		catch (EmptyResultDataAccessException ex) {
+			throw new JobNaoEncontradoException(jobId);
+		}
+	}
+
+	private @Nullable VersaoAnterior ultimaVersao(UUID jobId) {
+		List<VersaoAnterior> versoes = this.repository.buscarUltimaVersao(jobId);
+		return versoes.isEmpty() ? null : versoes.getFirst();
+	}
+
+	private @Nullable BigDecimal resolverOrcamento(UUID jobId, ConfirmarParametrosRequisicao requisicao,
+			@Nullable BigDecimal atual) {
+		BigDecimal novo = requisicao.orcamento();
+		if (novo == null) {
+			return atual;
+		}
+		this.repository.atualizarOrcamento(jobId, novo);
+		return novo;
+	}
+
+	private List<String> resolverCompetencias(UUID jobId, ConfirmarParametrosRequisicao requisicao) {
+		List<String> novas = requisicao.competencias();
+		if (novas != null) {
+			this.repository.atualizarCompetencias(jobId, novas);
+			return novas;
+		}
+		return this.repository.buscarCompetencias(jobId);
+	}
+
+	@Transactional
+	AcaoAplicada executarAcao(UUID jobId, AcaoJob acao) {
+		if (acao == AcaoJob.ACEITAR_META) {
+			JobStatus estado = this.maquina.statusAtual(jobId);
+			if (estado != JobStatus.AGUARDANDO_DECISAO_USUARIO || !this.repository.aceitarMetaSugerida(jobId)) {
+				throw ExecutarAcaoException.estadoInvalido(acao, estado);
+			}
+			this.repository.inserirAcao(jobId, acao.paraColuna(), Timestamp.from(Instant.now()));
+			return new AcaoAplicada(EventoEstadoDto.fotografia(jobId, estado), consultarJob(jobId), 0);
+		}
+		JobStatus origem;
+		try {
+			origem = this.maquina.transicionar(jobId, acao.destino(), "usuario", null);
+		}
+		catch (EmptyResultDataAccessException ex) {
+			throw new JobNaoEncontradoException(jobId);
+		}
+		catch (TransicaoDeStatusInvalidaException ex) {
+			if (acao.destino() == JobStatus.LIBERADO && ex.origem() == JobStatus.SIMULACAO_INVIAVEL) {
+				throw ExecutarAcaoException.simulacaoInviavel();
+			}
+			throw ExecutarAcaoException.estadoInvalido(acao, ex.origem());
+		}
+		this.repository.inserirAcao(jobId, acao.paraColuna(), Timestamp.from(Instant.now()));
+		int abandonadas = 0;
+		if (acao.destino() == JobStatus.CANCELADO || acao.destino() == JobStatus.ARQUIVADO) {
+			abandonadas = this.rodadas.abandonarAbertas(jobId, Instant.now().truncatedTo(ChronoUnit.MICROS));
+		}
+		EventoEstadoDto evento = EventoEstadoDto.transicao(jobId, origem, acao.destino(), null);
+		JobDetalhadoDto job = consultarJob(jobId);
+		return new AcaoAplicada(evento, job, abandonadas);
+	}
+
+	@Transactional
+	JobDetalhadoDto renomear(UUID jobId, RenomearJobRequisicao requisicao) {
+		this.repository.atualizarNome(jobId, requisicao.nome());
+		return consultarJob(jobId);
+	}
+
+	record AcaoAplicada(EventoEstadoDto evento, JobDetalhadoDto job, int rodadasAbandonadas) {
+	}
+
+	@Transactional
+	JobCriadoDto reprocessar(UUID origemId, ReprocessarJobRequisicao requisicao) {
+		JobDeOrigem origem = carregarOrigem(origemId);
+		if (origem.status() != JobStatus.ARQUIVADO) {
+			throw ReprocessarJobException.estadoInvalido();
+		}
+		List<UUID> regras = this.repository.buscarIdUltimaRegra(origemId);
+		if (regras.isEmpty()) {
+			throw ReprocessarJobException.semRegra();
+		}
+		List<String> competencias = requisicao.competencias() != null ? requisicao.competencias()
+				: origem.competencias();
+		BigDecimal orcamento = requisicao.orcamento() != null ? requisicao.orcamento() : origem.orcamento();
+		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		Timestamp timestamp = Timestamp.from(agora);
+		JobStatus status = JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS;
+		UUID jobId = this.repository.inserirJobReprocessado(status.paraColuna(), origem.usuarioId(), origemId,
+				competencias, orcamento, origem.nome(), timestamp);
+		this.maquina.registrarCriacao(jobId, status, "usuario");
+		RegraCriadaDto regra = this.repository.copiarRegra(jobId, regras.getFirst(), timestamp, agora);
+		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA,
+				new RegraSubmetidaDto(jobId, "reprocessamento", competencias, orcamento, null, null, regra.id()));
+		return new JobCriadoDto(jobId, status.paraColuna(), "reprocessamento", competencias, orcamento, agora, null,
+				origemId, regra);
+	}
+
+	private JobDeOrigem carregarOrigem(UUID jobId) {
+		List<JobDeOrigem> jobs = this.repository.buscarJobDeOrigem(jobId);
+		if (jobs.isEmpty()) {
+			throw new JobNaoEncontradoException(jobId);
+		}
+		return jobs.getFirst();
+	}
+
+}

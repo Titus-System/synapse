@@ -9,20 +9,27 @@ info:
     deste arquivo: `frontend` e `api` são escritos em paralelo contra ele e só se
     encontram na integração.
 
-    Sete operações, todas sobre o recurso `job`, que é a unidade de trabalho do
-    sistema e o que a `api` possui de ponta a ponta. O ciclo é assíncrono: a criação
-    devolve o job em processamento, o acompanhamento é por stream de eventos e o
-    resultado aparece na consulta do job quando existe.
+    Onze operações. Dez são sobre o recurso `job`, que é a unidade de trabalho do
+    sistema e o que a `api` possui de ponta a ponta, e uma recebe as submissões do
+    usuário: a descrição de uma regra nova, digitada ou falada, e a correção
+    enviada pelo chatbot. O ciclo é assíncrono: a criação devolve o job em
+    processamento, o acompanhamento é por stream de eventos e o resultado aparece
+    na consulta do job quando existe.
 
-    **Fluxo de trabalho padrão:** As sete operações formam um ciclo, não uma lista solta de
+    **Fluxo de trabalho padrão:** As operações formam um ciclo, não uma lista solta de
     endpoints. Da submissão ao fechamento:
 
     * Job é a entidade que envelopa todo o fluxo de trabalho, desde a validação da regra até o resultado da simulação.
 
-    1. `POST /jobs` submete a regra e cria o job. Na Sprint 1 a regra já nasce
-       validada e estruturada a partir do formulário, então o job entra direto em
-       `gerando_regra`: submissão de formulário não passa por uma etapa
-       intermediária de confirmação do usuário.
+    1. `POST /submissoes`, com `finalidade = entrada_inicial`, recebe a descrição
+       da regra, em texto ou em áudio, e cria a submissão e o job que a processa.
+       O orçamento, a meta de venda e o período da simulação são ditos na própria
+       descrição, e a extração os tira dela junto com a regra. O job de texto
+       nasce em `gerando_regra`, porque a descrição já está pronta para a
+       extração; o de voz nasce em `aguardando_transcricao`. `POST /jobs`
+       continua recebendo o formulário de
+       campos fixos da Sprint 1, cuja regra já nasce estruturada e cujo job entra
+       direto em `gerando_regra`.
     2. O cliente abre conexão SSE `GET /jobs/{id}/events` logo em seguida. O primeiro
        evento é a fotografia do estado atual; os demais chegam conforme o job avança,
        inclusive o que os próximos passos disparam. A conexão pode cair e ser
@@ -38,11 +45,24 @@ info:
     4. Quando o stream anuncia o evento `resultado`, o cliente consulta
        `GET /jobs/{id}` para ler os números: totais, asserções e decomposição. O
        evento no stream anuncia o desfecho; não carrega os valores.
+       O detalhamento por competência e matrícula é consultado inteiro em
+       `GET /jobs/{id}/simulacoes/{simulacaoId}/linhas`, quando a tela precisa dele.
     5. `POST /jobs/{id}/actions` fecha o ciclo: confirmar e liberar (recusado se a
        simulação for inviável), cancelar, salvar ou arquivar.
     6. Job fechado aparece em `GET /jobs`, o histórico. `POST /jobs/{id}/reprocessar`
        parte de um job arquivado e cria um job novo, que reabre o ciclo a partir do
        passo 2 com a regra da versão anterior já semeada.
+
+    **Loop de correção.** Quando a validação aponta conflitos na regra, o stream
+    anuncia o evento `etapa` com `status` `aguardando_correcao` e os `conflitos`, e o
+    job vai a `aguardando_confirmacao_parametros`. O chatbot lê o histórico em
+    `GET /jobs/{id}/rodadas` - na conexão inicial e em toda reconexão, porque o stream
+    não guarda histórico - e, havendo rodada `pendente`, envia a correção por
+    `POST /submissoes`. É essa rota que distingue o loop da confirmação do passo 3:
+    no loop, a rodada mais recente está aberta. A reextração e a revalidação da
+    versão corrigida são assíncronas e chegam pelo stream: uma versão ainda com
+    conflitos abre outra rodada, e uma sem conflitos segue para a geração de código
+    e a simulação, como no passo 3.
 
     **A forma da regra e a do resultado não são declaradas aqui.** Elas vêm por
     `$ref` aos schemas de `contracts/domain/`, que são a autoridade sobre o formato
@@ -57,9 +77,10 @@ info:
     nem renomeado sem decisão explícita. Nenhum schema fecha o objeto com
     `additionalProperties: false`, e um cliente ignora campo que não conhece.
 
-    **Fora do escopo desta versão.** O upload de áudio, a consulta de
-    auditoria `GET /jobs/{id}/audit` e a rota de autenticação que emite a
-    sessão exigida por `security`. As três entram quando suas tarefas entrarem.
+    **Fora do escopo desta versão.** A consulta de auditoria
+    `GET /jobs/{id}/audit` e a rota de autenticação que emite a sessão exigida por
+    `security`. As duas entram quando suas tarefas entrarem. Nenhuma rota devolve
+    o áudio enviado nem o texto transcrito da entrada inicial.
 
 servers:
   - url: /api
@@ -75,6 +96,8 @@ security:
 tags:
   - name: jobs
     description: Criação, acompanhamento, finalização e reprocessamento de jobs de simulação.
+  - name: submissoes
+    description: Entradas do usuário, por texto ou voz - a descrição de uma regra nova e a correção enviada pelo chatbot.
 
 paths:
   /jobs:
@@ -226,6 +249,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaginaJobs"
+              examples:
+                nomesResolvidos:
+                  summary: Nome definido pelo usuário, nome padrão e nome ausente
+                  value:
+                    itens:
+                      - id: "a2c4e6f8-0b1d-4e3f-8a5c-7e9b1d3f5a70"
+                        nome: Comissão de 2,5% para vendedores da loja 13
+                        status: gerando_regra
+                        competencias: ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
+                        criado_em: "2025-11-24T15:10:00Z"
+                      - id: "c3d5e7f9-1a2b-4c6d-8e0f-2a4b6c8d0e12"
+                        status: aguardando_transcricao
+                        competencias: ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
+                        criado_em: "2025-11-24T15:00:00Z"
+                      - id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                        nome: Comissão de novembro
+                        status: simulacao_inviavel
+                        competencias: ["2025-11"]
+                        orcamento: 485000.0
+                        criado_em: "2025-11-24T14:02:00Z"
+                    pagina: 0
+                    tamanho: 20
+                    total: 3
         "400":
           $ref: "#/components/responses/RequisicaoInvalida"
         "401":
@@ -244,7 +290,9 @@ paths:
         Estado corrente do job e tudo que já existe dele. `regras` contém todas as
         versões formadas para o job, em ordem crescente de versão. Os demais campos
         opcionais aparecem conforme o job avança: `simulacao` depois que a execução
-        termina, `motivo` quando o job parou.
+        termina, `busca_meta_em_curso` enquanto a busca da meta maior roda,
+        `meta_sugerida` quando ela termina e a meta ainda não foi aceita, `motivo`
+        quando o job parou.
 
         É a fonte dos números exibidos. Nenhum valor aqui deve ser recalculado ou
         derivado pelo cliente: a aritmética é determinística, roda sobre os dados
@@ -258,9 +306,10 @@ paths:
                 $ref: "#/components/schemas/JobDetalhado"
               examples:
                 simulacaoInviavel:
-                  summary: Simulação concluída, acima do orçamento
+                  summary: Simulação concluída, acima do orçamento, com nome definido pelo usuário
                   value:
                     id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                    nome: Comissão de novembro
                     status: simulacao_inviavel
                     origem: formulario
                     competencias: ["2025-11"]
@@ -342,12 +391,334 @@ paths:
                             marca: { "10": 11788.0 }
                             cargo: { "100": 9200.0, "150": 2588.0 }
                             competencia: { "2025-11": 11788.0 }
+                descricaoEmExtracao:
+                  summary: Descrição em texto com nome padrão, ainda sem regra extraída
+                  description: |
+                    A submissão inicial contém "  Comissão de 2,5%\tpara vendedores\nda loja 13  ".
+                    A API normaliza os espaços; o resultado tem menos de 50 caracteres.
+                  value:
+                    id: "a2c4e6f8-0b1d-4e3f-8a5c-7e9b1d3f5a70"
+                    nome: Comissão de 2,5% para vendedores da loja 13
+                    status: gerando_regra
+                    origem: texto
+                    competencias: ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
+                    criado_em: "2025-11-24T15:10:00Z"
+                    submissao_id: "e1f3a5c7-9b2d-4f6e-8a0c-2d4f6a8c0e19"
+                    regras: []
+                descricaoComParametros:
+                  summary: Descrição em texto com o orçamento, a meta e o período extraídos
+                  description: |
+                    A submissão inicial contém "Comissão de 2,5% para o cargo 100 da
+                    marca 10 de setembro a novembro de 2025. Simular esse período com
+                    orçamento de R$ 500 mil e meta de vender R$ 12 milhões." Os
+                    parâmetros estão no job, e não na representação da regra.
+                  value:
+                    id: "b7d9f1a3-5c6e-4b8d-9f0a-6c8e0a2b4d68"
+                    nome: Comissão de 2,5% para o cargo 100 da marca 10 de s
+                    status: gerando_regra
+                    origem: texto
+                    competencias: ["2025-09", "2025-10", "2025-11"]
+                    orcamento: 500000.0
+                    meta_venda: 12000000.0
+                    criado_em: "2025-11-24T15:20:00Z"
+                    submissao_id: "c2e4a6b8-0d1f-4a3c-8e5b-7d9f1b3d5e79"
+                    regras:
+                      - id: "5b8e2f14-7c3a-4d9e-a1f6-0e2d4c6b8a13"
+                        versao: 1
+                        origem: extracao
+                        representacao:
+                          nucleo:
+                            vigencia: { inicio: "2025-09", fim: "2025-11" }
+                            marca: ["10"]
+                            cargo: ["100"]
+                            percentual: 0.025
+                          especificacoes: []
+                        criada_em: "2025-11-24T15:20:20Z"
+                simulacaoNaMetaComMetaSugerida:
+                  summary: Simulação na meta de venda, abaixo do orçamento, com a meta maior sugerida
+                  description: |
+                    O usuário disse orçamento de R$ 600 mil e meta de R$ 26 milhões. A
+                    simulação na meta coube com margem, e a busca encontrou a maior meta
+                    que o orçamento comporta, ainda não aceita. As vendas históricas do
+                    período ficam ao lado da meta, em `totais.vendas_historicas`.
+                  value:
+                    id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                    nome: Comissão de 2% para o cargo 100 da loja 13
+                    status: aguardando_decisao_usuario
+                    origem: texto
+                    competencias: ["2025-08", "2025-11"]
+                    orcamento: 600000.0
+                    meta_venda: 26000000.0
+                    criado_em: "2025-11-24T16:00:00Z"
+                    iniciado_em: "2025-11-24T16:00:40Z"
+                    submissao_id: "d1e2f3a4-b5c6-4d7e-8f90-a1b2c3d4e5f6"
+                    regras:
+                      - id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                        versao: 1
+                        origem: extracao
+                        representacao:
+                          nucleo:
+                            vigencia: { inicio: "2025-08", fim: "2025-11" }
+                            loja: ["13"]
+                            cargo: ["100"]
+                            percentual: 0.02
+                          especificacoes: []
+                        criada_em: "2025-11-24T16:00:30Z"
+                    simulacao:
+                      id: "e5f6a7b8-c9d0-4e1f-8a2b-3c4d5e6f7a8b"
+                      regra_id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                      criado_em: "2025-11-24T16:03:12Z"
+                      status: sucesso
+                      veredito: viavel
+                      meta_venda: 26000000.0
+                      flag_baixa_rastreabilidade: false
+                      resultado:
+                        totais:
+                          baseline: 529520.0
+                          simulado: 541900.0
+                          diferenca_abs: 12380.0
+                          diferenca_pct: 0.0234
+                          orcamento: 600000.0
+                          vendas_historicas: 23583194.87
+                        assercoes:
+                          - nome: sem_comissao_negativa
+                            resultado: ok
+                            detalhe: null
+                        decomposicao:
+                          elemento: { "nucleo.percentual": 12380.0 }
+                          loja: { "13": 12380.0 }
+                          marca: { "10": 7480.0, "20": 4900.0 }
+                          cargo: { "100": 12380.0 }
+                          competencia: { "2025-08": 4980.0, "2025-11": 7400.0 }
+                    meta_sugerida:
+                      meta_venda: 28500000.0
+                      total_simulado: 594000.0
+                      orcamento: 600000.0
+                simulacaoNaMetaComBuscaEmCurso:
+                  summary: Simulação na meta de venda, abaixo do orçamento, com a busca da meta maior em curso
+                  description: |
+                    O mesmo job, antes de a busca terminar. A simulação na meta coube
+                    com margem, e a busca da maior meta que o orçamento comporta ainda
+                    roda: `busca_meta_em_curso` aparece, e `meta_sugerida` ainda não.
+                  value:
+                    id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                    nome: Comissão de 2% para o cargo 100 da loja 13
+                    status: aguardando_decisao_usuario
+                    origem: texto
+                    competencias: ["2025-08", "2025-11"]
+                    orcamento: 600000.0
+                    meta_venda: 26000000.0
+                    criado_em: "2025-11-24T16:00:00Z"
+                    iniciado_em: "2025-11-24T16:00:40Z"
+                    submissao_id: "d1e2f3a4-b5c6-4d7e-8f90-a1b2c3d4e5f6"
+                    regras:
+                      - id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                        versao: 1
+                        origem: extracao
+                        representacao:
+                          nucleo:
+                            vigencia: { inicio: "2025-08", fim: "2025-11" }
+                            loja: ["13"]
+                            cargo: ["100"]
+                            percentual: 0.02
+                          especificacoes: []
+                        criada_em: "2025-11-24T16:00:30Z"
+                    simulacao:
+                      id: "e5f6a7b8-c9d0-4e1f-8a2b-3c4d5e6f7a8b"
+                      regra_id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                      criado_em: "2025-11-24T16:03:12Z"
+                      status: sucesso
+                      veredito: viavel
+                      meta_venda: 26000000.0
+                      flag_baixa_rastreabilidade: false
+                      resultado:
+                        totais:
+                          baseline: 529520.0
+                          simulado: 541900.0
+                          diferenca_abs: 12380.0
+                          diferenca_pct: 0.0234
+                          orcamento: 600000.0
+                          vendas_historicas: 23583194.87
+                        assercoes:
+                          - nome: sem_comissao_negativa
+                            resultado: ok
+                            detalhe: null
+                        decomposicao:
+                          elemento: { "nucleo.percentual": 12380.0 }
+                          loja: { "13": 12380.0 }
+                          marca: { "10": 7480.0, "20": 4900.0 }
+                          cargo: { "100": 12380.0 }
+                          competencia: { "2025-08": 4980.0, "2025-11": 7400.0 }
+                    busca_meta_em_curso: true
+                simulacaoSemOrcamento:
+                  summary: Simulação de um job sem orçamento, só com o valor da comissão
+                  description: |
+                    O texto não disse orçamento. A simulação foi feita sem a verificação
+                    de orçamento: o resultado vale e não tem veredito, `totais.orcamento`
+                    fica ausente e não há meta sugerida.
+                  value:
+                    id: "4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d"
+                    status: aguardando_decisao_usuario
+                    origem: texto
+                    competencias: ["2025-08", "2025-11"]
+                    criado_em: "2025-11-24T17:00:00Z"
+                    iniciado_em: "2025-11-24T17:00:35Z"
+                    submissao_id: "f6a7b8c9-d0e1-4f2a-8b3c-4d5e6f7a8b9c"
+                    regras:
+                      - id: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e"
+                        versao: 1
+                        origem: extracao
+                        representacao:
+                          nucleo:
+                            vigencia: { inicio: "2025-11", fim: "2025-11" }
+                            loja: ["13"]
+                            marca: ["10"]
+                            cargo: ["100"]
+                            percentual: 0.025
+                          especificacoes: []
+                        criada_em: "2025-11-24T17:00:30Z"
+                    simulacao:
+                      id: "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f"
+                      regra_id: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e"
+                      criado_em: "2025-11-24T17:02:50Z"
+                      status: sucesso
+                      flag_baixa_rastreabilidade: false
+                      resultado:
+                        totais:
+                          baseline: 480312.0
+                          simulado: 492100.0
+                          diferenca_abs: 11788.0
+                          diferenca_pct: 0.0245
+                          vendas_historicas: 23583194.87
+                        assercoes:
+                          - nome: sem_comissao_negativa
+                            resultado: ok
+                            detalhe: null
+                        decomposicao:
+                          elemento: { "nucleo.percentual": 11788.0 }
+                          loja: { "13": 11788.0 }
+                          marca: { "10": 11788.0 }
+                          cargo: { "100": 11788.0 }
+                          competencia: { "2025-08": 0, "2025-11": 11788.0 }
+                vozSemNome:
+                  summary: Voz ainda sem transcrição e sem nome definido pelo usuário
+                  value:
+                    id: "c3d5e7f9-1a2b-4c6d-8e0f-2a4b6c8d0e12"
+                    status: aguardando_transcricao
+                    origem: voz
+                    competencias: ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
+                    criado_em: "2025-11-24T15:00:00Z"
+                    submissao_id: "f2a4b6c8-0d1e-4f3a-8b5c-7d9e1f3a5b70"
+                    regras: []
         "401":
           $ref: "#/components/responses/NaoAutenticado"
         "403":
           $ref: "#/components/responses/SemPermissao"
         "404":
           $ref: "#/components/responses/JobNaoEncontrado"
+
+  /jobs/{id}/simulacoes/{simulacaoId}/linhas:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+      - name: simulacaoId
+        in: path
+        required: true
+        description: Identificador da simulação pertencente ao job.
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [jobs]
+      operationId: consultarLinhasSimulacao
+      summary: Consulta o detalhamento da simulação por competência e matrícula.
+      description: |
+        Devolve o detalhamento completo do período, sem filtros nem paginação.
+        Cada matrícula aparece uma única vez por competência, com a loja e a
+        marca da lotação no RH naquele mês, como no baseline congelado. Comissões e
+        diferenças já vêm calculadas pelo harness, e o total vendido de cada linha
+        vem somado pelo worker, fora do container; o frontend só apresenta.
+
+        Exige a mesma autenticação, papel e posse da consulta do job: o
+        solicitante deve ser dono do job ou ter o papel `auditor` que autoriza
+        a consulta. A simulação precisa pertencer ao job informado.
+
+        Sem detalhamento, responde 200 e omite `linhas`: isso inclui simulações
+        ainda sem resultado, resultados com status diferente de `sucesso` e
+        resultados anteriores à inclusão do detalhamento. Uma simulação
+        inexistente ou pertencente a outro job responde 404 com
+        `simulacao_nao_encontrada`; um job inexistente usa `job_nao_encontrado`.
+      responses:
+        "200":
+          description: A simulação consultada e seu detalhamento, quando disponível.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetalhamentoSimulacao"
+              examples:
+                comDetalhamento:
+                  summary: Competências com comissão preservada, aumento percentual e bônus
+                  description: |
+                    Regra hipotética: nucleo.percentual aumenta em 0,5 ponto
+                    percentual a comissão da marca 10, e elem.1 dá R$ 500 à
+                    MATRIC-1 em novembro. As comissões do baseline são congeladas.
+                    MATRIC-422 também vendeu na marca 30, loja 47 em agosto, mas
+                    aparece uma vez, na marca 10 e loja 13 da lotação no RH, com as
+                    vendas das duas lojas somadas em vendas.
+                  value:
+                    simulacao_id: "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"
+                    linhas:
+                      "2025-08":
+                        MATRIC-1:
+                          cod_loja: "75"
+                          cod_marca: "20"
+                          cod_cargo: "200"
+                          vendas: 20970.0
+                          comissao_baseline: 524.25
+                          comissao_simulada: 524.25
+                          diferenca: 0
+                          contribuicoes: {}
+                        MATRIC-422:
+                          cod_loja: "13"
+                          cod_marca: "10"
+                          cod_cargo: "150"
+                          vendas: 4733.0
+                          comissao_baseline: 1065.03
+                          comissao_simulada: 1597.55
+                          diferenca: 532.52
+                          contribuicoes: { nucleo.percentual: 532.52 }
+                      "2025-11":
+                        MATRIC-1:
+                          cod_loja: "75"
+                          cod_marca: "20"
+                          cod_cargo: "200"
+                          vendas: 24785.01
+                          comissao_baseline: 619.63
+                          comissao_simulada: 1119.63
+                          diferenca: 500.0
+                          contribuicoes: { elem.1: 500.0 }
+                semDetalhamento:
+                  summary: Simulação existente sem detalhamento disponível
+                  value:
+                    simulacao_id: "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/SemPermissao"
+        "404":
+          description: Job inexistente, ou simulação inexistente ou que não pertence ao job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                jobNaoEncontrado:
+                  value:
+                    codigo: job_nao_encontrado
+                    mensagem: Job não encontrado.
+                simulacaoNaoEncontrada:
+                  value:
+                    codigo: simulacao_nao_encontrada
+                    mensagem: Simulação não encontrada neste job.
 
   /jobs/{id}/events:
     parameters:
@@ -451,7 +822,7 @@ paths:
         O que o usuário confirma na tela de validação é a representação da regra, e
         nunca código. A `api` grava uma versão nova de regra -
         correção nunca altera a versão anterior - e publica `parametros-confirmados`,
-        que retoma o grafo do codegen no nó de confirmação.
+        que abre o ciclo do codegen para a versão confirmada.
 
         Aceita também `orcamento` e `competencias`, porque a mesma tela permite
         ajustá-los antes de simular, inclusive no reprocessamento de uma regra
@@ -520,8 +891,12 @@ paths:
           $ref: "#/components/responses/JobNaoEncontrado"
         "409":
           description: |
-            O job não está aguardando confirmação de parâmetros. Confirmar duas vezes
-            ou confirmar um job já finalizado cai aqui.
+            O job não está aguardando confirmação de parâmetros, ou a regra e os
+            parâmetros enviados correspondem a uma versão que a validação já analisou
+            e apontou com conflitos. Confirmar duas vezes ou confirmar um job já
+            finalizado cai no primeiro caso. No segundo, o `codigo` é o mesmo e a
+            `mensagem` pede que a regra ou os parâmetros sejam alterados antes de
+            confirmar: a versão já analisada não é retomada como está.
           content:
             application/json:
               schema:
@@ -531,6 +906,10 @@ paths:
                   value:
                     codigo: estado_invalido
                     mensagem: Este job não está aguardando confirmação de parâmetros.
+                versaoJaAnalisada:
+                  value:
+                    codigo: estado_invalido
+                    mensagem: Esta versão já foi analisada. Altere a regra ou os parâmetros antes de confirmar.
         "422":
           description: |
             A regra não pode ser simulada como está. `codigo` distingue campo ausente
@@ -558,17 +937,94 @@ paths:
                       - ref: nucleo.vigencia
                         motivo: A competência final é anterior à inicial.
 
+  /jobs/{id}/nome:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    put:
+      tags: [jobs]
+      operationId: renomearJob
+      summary: Define o nome de exibição do job.
+      description: |
+        Grava em `jobs.nome` somente o nome definido pelo usuário, removendo os
+        espaços do início e do fim. O nome pertence ao job e é compartilhado por
+        todas as versões da regra. Nomes iguais são permitidos, inclusive entre
+        jobs do mesmo usuário. Repetir a mesma requisição produz o mesmo resultado.
+
+        Permitida em qualquer estado, inclusive terminal: não altera a regra, a
+        simulação nem o estado do job. Não registra renomeação na trilha de
+        auditoria nem em `job_acoes` e não emite evento no stream do job.
+
+        Exige sessão válida, papel `profissional-rh` e posse do job, como as demais
+        rotas operacionais. As recusas são `401 nao_autenticado`, `403 sem_permissao`
+        e `404 job_nao_encontrado`.
+
+        Nome ausente, nulo, vazio, só com espaços ou com mais de 100 caracteres
+        após remover os espaços das extremidades recebe `400 requisicao_invalida`.
+        Esta rota não permite apagar o nome para voltar ao nome padrão.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenomearJobRequisicao"
+            examples:
+              nomeDefinido:
+                value:
+                  nome: Comissão de novembro
+              espacosNasExtremidades:
+                summary: Os espaços das extremidades são removidos antes da gravação
+                value:
+                  nome: "  Comissão de novembro  "
+      responses:
+        "200":
+          description: Job detalhado com o nome novo, sem transição de estado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobDetalhado"
+              examples:
+                jobRenomeado:
+                  summary: Job terminal renomeado
+                  value:
+                    id: "a2c4e6f8-0b1d-4e3f-8a5c-7e9b1d3f5a70"
+                    nome: Comissão de novembro
+                    status: cancelado
+                    origem: texto
+                    competencias: ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
+                    criado_em: "2025-11-24T15:10:00Z"
+                    finalizado_em: "2025-11-24T15:11:00Z"
+                    submissao_id: "e1f3a5c7-9b2d-4f6e-8a0c-2d4f6a8c0e19"
+                    regras: []
+        "400":
+          description: Nome ausente ou inválido após remover os espaços das extremidades.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                nomeInvalido:
+                  value:
+                    codigo: requisicao_invalida
+                    mensagem: Informe um nome de 1 a 100 caracteres.
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/SemPermissao"
+        "404":
+          $ref: "#/components/responses/JobNaoEncontrado"
+
   /jobs/{id}/actions:
     parameters:
       - $ref: "#/components/parameters/JobId"
     post:
       tags: [jobs]
       operationId: executarAcao
-      summary: Executa uma ação de finalização sobre o job.
+      summary: Executa uma ação sobre o job.
       description: |
         As quatro ações de fechamento: **confirmar e liberar, cancelar, salvar e
         arquivar**. A `api` aplica a transição de estado, de que é dona, e registra a
-        ação na trilha.
+        ação na trilha. `aceitar_meta`, a quinta ação, não fecha o job e está
+        descrita mais abaixo.
 
         **A liberação é recusada quando a simulação é inviável.** O bloqueio é da
         `api`, não da tela: o alerta visual do frontend é apresentação, e a garantia
@@ -578,6 +1034,18 @@ paths:
 
         A recusa é `409` e não `403` porque o bloqueio é do estado do job e não do
         papel de quem pede: vale para todos, sem override (DEC-087).
+
+        **Uma simulação sem orçamento pode ser liberada e salva.** O job sem
+        orçamento é simulado sem a verificação de orçamento, e o resultado de
+        sucesso sem veredito é válido: não há critério que o reprove.
+
+        **`aceitar_meta` aceita a meta de venda sugerida** e não fecha o job. Só vale
+        quando `meta_sugerida` traz uma meta pendente; fora disso, a recusa é `409`
+        com `estado_invalido`. Aceita, a simulação da meta sugerida passa a ser a
+        `simulacao` vigente do job, sem gerar versão nova da regra nem simulação
+        nova, `meta_sugerida` deixa de vir na resposta e o usuário segue com as
+        ações de fechamento. Recusar a meta sugerida não exige ação: o usuário segue
+        com a simulação na meta que informou.
       requestBody:
         required: true
         content:
@@ -653,7 +1121,8 @@ paths:
             A ação não é permitida no estado atual. `simulacao_inviavel` é a recusa de
             liberação e tem código próprio, distinto de
             `estado_invalido`, para que a tela possa oferecer o caminho de adaptação
-            em vez de repetir a tentativa.
+            em vez de repetir a tentativa. `aceitar_meta` sem meta sugerida pendente é
+            recusada com `estado_invalido`.
           content:
             application/json:
               schema:
@@ -683,6 +1152,11 @@ paths:
         **Nunca sobrescreve o original.** Cria um job novo, com `job_origem_id`
         apontando para o job informado no caminho e semeado com a representação da
         regra dele. O job anterior e sua trilha ficam intactos.
+
+        O nome definido pelo usuário em `jobs.nome` é copiado para o job novo.
+        Renomear qualquer um depois não altera o outro. O nome padrão não é
+        gravado: na leitura, a API segue `job_origem_id` até o primeiro job da
+        cadeia com submissão, conforme `nome` em `JobResumo` e `JobDetalhado`.
 
         O job novo nasce em `aguardando_confirmacao_parametros`: o usuário ajusta
         parâmetros e orçamento em `POST /jobs/{id}/parameters` antes de simular de
@@ -764,6 +1238,421 @@ paths:
                   value:
                     codigo: estado_invalido
                     mensagem: Este job ainda está em processamento e não pode ser reprocessado.
+
+  /jobs/{id}/rodadas:
+    parameters:
+      - $ref: "#/components/parameters/JobId"
+    get:
+      tags: [jobs]
+      operationId: listarRodadas
+      summary: Lista as rodadas de correção do job.
+      description: |
+        Histórico do loop de correção do job, em ordem de criação: os conflitos que
+        cada rodada mostrou, a correção enviada e a versão da regra que dela
+        resultou. É a fonte do histórico do chatbot.
+
+        **O histórico vem daqui, e não do stream.** O evento `etapa` anuncia os
+        conflitos quando acontecem, mas o stream não guarda o que já passou: depois de
+        uma reconexão, ou ao voltar ao job mais tarde, o cliente reconstrói a conversa
+        por esta rota.
+
+        Existe no máximo uma rodada aberta, e ela é a última da lista: `pendente`
+        aceita uma correção em `POST /submissoes`; `em_transcricao` e
+        `em_reextracao` são a correção em processamento, e a entrada fica bloqueada
+        até o desfecho. Um job cuja regra nunca teve conflito devolve a lista vazia.
+      responses:
+        "200":
+          description: As rodadas do job, da primeira à mais recente.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Rodada"
+              examples:
+                correcaoPendente:
+                  summary: Uma correção aplicada, uma reextração que falhou e a rodada pendente
+                  value:
+                    - id: "5a1c2e3f-4b6d-4e7a-9c8b-0d1e2f3a4b51"
+                      rodada_anterior_id: null
+                      regra_analisada_id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                      conflitos:
+                        - elementos: [nucleo.percentual]
+                          motivo: percentual ausente
+                      correcao:
+                        texto: O percentual é de 2,5% sobre as vendas.
+                        enviada_em: "2025-11-24T14:03:05Z"
+                      regra_resultante_id: "1f2e3d4c-5b6a-4978-8d7c-6e5f4a3b2c1d"
+                      estado: corrigida
+                      criada_em: "2025-11-24T14:02:40Z"
+                    - id: "6b2d3f4a-5c7e-4f8b-8d9c-1e2f3a4b5c62"
+                      rodada_anterior_id: "5a1c2e3f-4b6d-4e7a-9c8b-0d1e2f3a4b51"
+                      regra_analisada_id: "1f2e3d4c-5b6a-4978-8d7c-6e5f4a3b2c1d"
+                      conflitos:
+                        - elementos: [nucleo.loja, elem.2]
+                          motivo: loja 13 no núcleo e na exclusão
+                      correcao:
+                        texto: Deixa como estava antes.
+                        enviada_em: "2025-11-24T14:04:20Z"
+                      regra_resultante_id: null
+                      estado: reextracao_falhou
+                      criada_em: "2025-11-24T14:03:52Z"
+                    - id: "7c3e4a5b-6d8f-4a9c-9eab-2f3a4b5c6d73"
+                      rodada_anterior_id: "6b2d3f4a-5c7e-4f8b-8d9c-1e2f3a4b5c62"
+                      regra_analisada_id: "1f2e3d4c-5b6a-4978-8d7c-6e5f4a3b2c1d"
+                      conflitos:
+                        - elementos: [nucleo.loja, elem.2]
+                          motivo: loja 13 no núcleo e na exclusão
+                      correcao: null
+                      regra_resultante_id: null
+                      estado: pendente
+                      criada_em: "2025-11-24T14:04:41Z"
+                correcaoPorVozEmTranscricao:
+                  summary: Correção falada à espera da transcrição
+                  value:
+                    - id: "5a1c2e3f-4b6d-4e7a-9c8b-0d1e2f3a4b51"
+                      rodada_anterior_id: null
+                      regra_analisada_id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                      conflitos:
+                        - elementos: [nucleo.percentual]
+                          motivo: percentual ausente
+                      correcao:
+                        tipo: voz
+                        texto: null
+                        enviada_em: "2025-11-24T14:03:05Z"
+                      regra_resultante_id: null
+                      estado: em_transcricao
+                      criada_em: "2025-11-24T14:02:40Z"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/SemPermissao"
+        "404":
+          $ref: "#/components/responses/JobNaoEncontrado"
+
+  /submissoes:
+    post:
+      tags: [submissoes]
+      operationId: criarSubmissao
+      summary: Registra uma submissão do usuário - a descrição de uma regra nova ou a correção de uma regra pelo chatbot, por texto ou voz.
+      description: |
+        Porta de entrada do que o usuário descreve. Cada submissão é nova e
+        imutável, e não incorpora nem sobrescreve as anteriores - por isso entra pela
+        rota das submissões, e não por `/jobs`. `finalidade` diz para que ela serve,
+        e `tipo` diz como o conteúdo chegou, no vocabulário de `submissoes.tipo`.
+
+        **Duas formas de corpo.** O texto vem em `application/json`. A voz vem em
+        `multipart/form-data`, com a parte `audio`, o binário da gravação, e a parte
+        `parametros`, um JSON com os demais campos (`SubmeterPorVozRequisicao`). O
+        texto e a transcrição são conteúdo não confiável: dado a interpretar, nunca
+        instrução.
+
+        **Entrada inicial** (`finalidade = entrada_inicial`). Recebe a descrição de
+        uma regra nova e cria a submissão e o job que vai processá-la, na mesma
+        transação que grava o evento de outbox. O `tipo` determina a `origem` do job e o estado em que ele nasce:
+        `texto` nasce em `gerando_regra`, porque a descrição já está pronta para a
+        extração, e `voz` nasce em `aguardando_transcricao`, porque o áudio precisa
+        ser transcrito antes. Toda regra nova passa pela extração, e a versão raiz
+        aparece em `regras` de `GET /jobs/{id}` quando é extraída. O cliente
+        acompanha o job pelo `job.id` da resposta, em `GET /jobs/{id}/events` e
+        `GET /jobs/{id}`. A falha da transcrição termina o job em `erro`, com o
+        motivo em `GET /jobs/{id}`.
+
+        **Os parâmetros da simulação vêm da descrição.** O orçamento de comissão, a
+        meta de venda e o período da simulação são ditos no texto ou no áudio, e
+        não em campos. Os três são opcionais. O job nasce sem orçamento e sem meta,
+        com todas as competências publicadas, e depois da extração a `api` grava
+        nele os parâmetros ditos, que `GET /jobs/{id}` mostra. Sem orçamento, a
+        simulação é feita sem a verificação de orçamento; sem meta, usa as vendas
+        históricas; sem período, cobre todas as competências publicadas. Um
+        parâmetro inválido, como um orçamento negativo, não recusa a submissão: a
+        validação o aponta como conflito, e o chatbot pede a correção, que pode
+        mudar qualquer um dos três. `orcamento` e `competencias` no corpo são
+        obsoletos e sem efeito: a `api` aceita a requisição que ainda os mande, sem
+        ler nem validar os dois campos.
+
+        **Correção** (`finalidade = correcao`). Recebe a correção para os conflitos
+        da rodada pendente do job; o cliente não escolhe a rodada. A `api` grava a
+        submissão e a registra na rodada pendente, que passa a `em_reextracao` com o
+        texto, ou a `em_transcricao` com o áudio. Transcrita, a correção por voz
+        segue como a de texto. O codegen reextrai a regra a partir da correção, e a
+        versão nova volta à validação.
+
+        **A resposta chega antes do processamento.** O desfecho chega pelo stream de
+        `GET /jobs/{id}/events`. Na correção, uma versão ainda com conflitos abre
+        outra rodada, uma sem conflitos segue para a geração de código, e uma
+        transcrição ou reextração que falha fecha a rodada como `reextracao_falhou`
+        e reabre a correção numa rodada `pendente` nova, com os mesmos conflitos.
+
+        **A voz depende da transcrição habilitada no ambiente.** Sem ela,
+        `tipo = voz` é recusado com `estado_invalido` nas duas finalidades, e o
+        texto continua aceito.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/SubmeterEntradaPorTextoRequisicao"
+                - $ref: "#/components/schemas/SubmeterCorrecaoRequisicao"
+              discriminator:
+                propertyName: finalidade
+                mapping:
+                  entrada_inicial: "#/components/schemas/SubmeterEntradaPorTextoRequisicao"
+                  correcao: "#/components/schemas/SubmeterCorrecaoRequisicao"
+            examples:
+              entradaPorTexto:
+                summary: Descrição de uma regra nova, digitada, com os parâmetros da simulação no texto
+                value:
+                  finalidade: entrada_inicial
+                  tipo: texto
+                  texto: >-
+                    Comissão de 2,5% sobre as vendas para os cargos 100 e 300 das
+                    marcas 10 e 20 em novembro de 2025, exceto na loja 58. No dia do
+                    aniversário da loja, a comissão dobra. Simular novembro de 2025,
+                    com orçamento de R$ 485 mil e meta de vender R$ 9 milhões.
+              entradaPorTextoComCamposObsoletos:
+                summary: Cliente anterior, com orcamento e competencias, que são ignorados
+                value:
+                  finalidade: entrada_inicial
+                  tipo: texto
+                  texto: >-
+                    Comissão de 2,5% sobre as vendas para os cargos 100 e 300 das
+                    marcas 10 e 20 em novembro de 2025, exceto na loja 58. No dia do
+                    aniversário da loja, a comissão dobra.
+                  orcamento: 485000.0
+                  competencias: ["2025-11"]
+              correcaoPorTexto:
+                summary: Correção digitada no chatbot
+                value:
+                  finalidade: correcao
+                  tipo: texto
+                  job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                  texto: A loja 13 fica na regra; a exclusão vale só para a loja 58.
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/SubmeterPorVozRequisicao"
+            encoding:
+              audio:
+                contentType: audio/webm, audio/ogg, audio/wav, audio/mp4
+              parametros:
+                contentType: application/json
+            examples:
+              entradaPorVoz:
+                summary: Descrição de uma regra nova, falada
+                description: |
+                  `audio` representa os bytes da gravação, enviados na parte com o
+                  `Content-Type` do formato gravado, como `audio/webm;codecs=opus`.
+                  O orçamento, a meta de venda e o período, quando ditos, estão na
+                  gravação.
+                value:
+                  audio: "<bytes da gravação>"
+                  parametros:
+                    finalidade: entrada_inicial
+                    tipo: voz
+              entradaPorVozComCamposObsoletos:
+                summary: Cliente anterior, com orcamento e competencias, que são ignorados
+                description: |
+                  `audio` representa os bytes da gravação, enviados na parte com o
+                  `Content-Type` do formato gravado, como `audio/webm;codecs=opus`.
+                value:
+                  audio: "<bytes da gravação>"
+                  parametros:
+                    finalidade: entrada_inicial
+                    tipo: voz
+                    orcamento: 485000.0
+                    competencias: ["2025-11"]
+              correcaoPorVoz:
+                summary: Correção falada no chatbot
+                description: |
+                  `audio` representa os bytes da gravação, enviados na parte com o
+                  `Content-Type` do formato gravado, como `audio/mp4`.
+                value:
+                  audio: "<bytes da gravação>"
+                  parametros:
+                    finalidade: correcao
+                    tipo: voz
+                    job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+      responses:
+        "201":
+          description: |
+            Submissão registrada. O corpo é a submissão criada, com o job no estado
+            em que ficou depois dela.
+
+            Na entrada inicial, o job é o que acabou de ser criado, em
+            `gerando_regra` para texto ou em `aguardando_transcricao` para voz, e não
+            há `rodada`.
+
+            Na correção, o job permanece em `aguardando_confirmacao_parametros`
+            enquanto a correção é processada, e `rodada` é a rodada que a recebeu, já
+            em `em_reextracao` com o texto ou em `em_transcricao` com o áudio.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissaoCriada"
+              examples:
+                entradaPorTexto:
+                  summary: Descrição em texto registrada, extração em curso
+                  value:
+                    id: "e1f3a5c7-9b2d-4f6e-8a0c-2d4f6a8c0e19"
+                    tipo: texto
+                    finalidade: entrada_inicial
+                    criado_em: "2025-11-24T15:10:00Z"
+                    job:
+                      id: "a2c4e6f8-0b1d-4e3f-8a5c-7e9b1d3f5a70"
+                      status: gerando_regra
+                entradaPorVoz:
+                  summary: Descrição falada registrada, à espera da transcrição
+                  value:
+                    id: "f2a4b6c8-0d1e-4f3a-9b5c-3e5a7b9c1d2a"
+                    tipo: voz
+                    finalidade: entrada_inicial
+                    criado_em: "2025-11-24T15:12:00Z"
+                    job:
+                      id: "b3d5f7a9-1c2e-4a4b-8c6d-4f6b8d0e2f3b"
+                      status: aguardando_transcricao
+                correcaoRegistrada:
+                  summary: Correção registrada, reextração em curso
+                  value:
+                    id: "d8f4b5c6-7e9a-4b0d-8f1c-3a4b5c6d7e84"
+                    tipo: texto
+                    finalidade: correcao
+                    criado_em: "2025-11-24T14:05:10Z"
+                    job:
+                      id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                      status: aguardando_confirmacao_parametros
+                    rodada:
+                      id: "7c3e4a5b-6d8f-4a9c-9eab-2f3a4b5c6d73"
+                      rodada_anterior_id: "6b2d3f4a-5c7e-4f8b-8d9c-1e2f3a4b5c62"
+                      regra_analisada_id: "1f2e3d4c-5b6a-4978-8d7c-6e5f4a3b2c1d"
+                      conflitos:
+                        - elementos: [nucleo.loja, elem.2]
+                          motivo: loja 13 no núcleo e na exclusão
+                      correcao:
+                        texto: A loja 13 fica na regra; a exclusão vale só para a loja 58.
+                        enviada_em: "2025-11-24T14:05:10Z"
+                      regra_resultante_id: null
+                      estado: em_reextracao
+                      criada_em: "2025-11-24T14:04:41Z"
+                correcaoPorVoz:
+                  summary: Correção falada registrada, à espera da transcrição
+                  value:
+                    id: "c9e1a3b5-7d8f-4c0a-9e2b-4b6d8f0a2c95"
+                    tipo: voz
+                    finalidade: correcao
+                    criado_em: "2025-11-24T14:05:10Z"
+                    job:
+                      id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                      status: aguardando_confirmacao_parametros
+                    rodada:
+                      id: "7c3e4a5b-6d8f-4a9c-9eab-2f3a4b5c6d73"
+                      rodada_anterior_id: "6b2d3f4a-5c7e-4f8b-8d9c-1e2f3a4b5c62"
+                      regra_analisada_id: "1f2e3d4c-5b6a-4978-8d7c-6e5f4a3b2c1d"
+                      conflitos:
+                        - elementos: [nucleo.loja, elem.2]
+                          motivo: loja 13 no núcleo e na exclusão
+                      correcao:
+                        tipo: voz
+                        texto: null
+                        enviada_em: "2025-11-24T14:05:10Z"
+                      regra_resultante_id: null
+                      estado: em_transcricao
+                      criada_em: "2025-11-24T14:04:41Z"
+        "400":
+          description: |
+            O corpo não tem a forma esperada. Inclui:
+
+            - o texto vazio, só com espaços ou acima do limite: 8000 caracteres na
+              entrada inicial e 4000 na correção;
+            - a submissão de texto sem `texto`;
+            - o corpo multipart sem a parte `audio` ou sem a parte `parametros`, ou
+              com `parametros` fora da forma esperada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                textoVazio:
+                  summary: Correção sem texto
+                  value:
+                    codigo: requisicao_invalida
+                    mensagem: Escreva a correção antes de enviar.
+                textoLongo:
+                  summary: Correção acima do limite
+                  value:
+                    codigo: requisicao_invalida
+                    mensagem: A correção pode ter no máximo 4000 caracteres.
+                descricaoLonga:
+                  summary: Descrição da regra acima do limite
+                  value:
+                    codigo: requisicao_invalida
+                    mensagem: A descrição da regra pode ter no máximo 8000 caracteres.
+                semAudio:
+                  summary: Envio por voz sem a gravação
+                  value:
+                    codigo: requisicao_invalida
+                    mensagem: Grave o áudio antes de enviar.
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/SemPermissao"
+        "404":
+          $ref: "#/components/responses/JobNaoEncontrado"
+        "409":
+          description: |
+            A submissão não pode ser aceita agora. Na correção, o job não está em
+            `aguardando_confirmacao_parametros` ou não tem rodada `pendente`; o
+            segundo caso inclui a correção enviada enquanto a anterior ainda está em
+            transcrição ou em reextração. Nas duas finalidades, `tipo = voz` é
+            recusado enquanto a transcrição não está habilitada no ambiente.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                jobForaDaCorrecao:
+                  summary: Job fora do estado que aceita correção
+                  value:
+                    codigo: estado_invalido
+                    mensagem: Este job não está aguardando correção.
+                semRodadaPendente:
+                  summary: Nenhuma rodada pendente, como durante uma reextração
+                  value:
+                    codigo: estado_invalido
+                    mensagem: A correção anterior ainda está sendo processada.
+                vozIndisponivel:
+                  summary: Envio por voz com a transcrição desabilitada
+                  value:
+                    codigo: estado_invalido
+                    mensagem: O envio por voz não está disponível no momento. Envie o texto.
+        "413":
+          description: |
+            O áudio passa de 5 MB. A `api` responde com este corpo também quando
+            recusa a requisição multipart inteira pelo tamanho, para que a recusa
+            sempre chegue com o código.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                audioMuitoGrande:
+                  value:
+                    codigo: audio_muito_grande
+                    mensagem: A gravação passa do tamanho máximo de 5 MB.
+        "422":
+          description: |
+            O áudio não pode ser usado: está vazio, o `Content-Type` da parte `audio`
+            não é um dos formatos aceitos ou o conteúdo não confere com o formato
+            declarado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erro"
+              examples:
+                audioInvalido:
+                  value:
+                    codigo: audio_invalido
+                    mensagem: Não foi possível usar a gravação. Grave o áudio de novo.
 
 components:
   securitySchemes:
@@ -883,17 +1772,23 @@ components:
         Vocabulário de recusa. Cada código tem um status HTTP próprio, e dois motivos
         diferentes nunca compartilham código: `nucleo_incompleto` é dado da regra
         faltando na entrada, `simulacao_inviavel` é regra completa e coerente cujo
-        custo não cabe no orçamento. Vocabulário aberto a valores novos, sempre de
-        forma aditiva.
+        custo não cabe no orçamento. `audio_muito_grande` (413) é o áudio acima do
+        tamanho máximo, e `audio_invalido` (422) é o áudio vazio, em formato não
+        aceito ou com conteúdo que não confere com o formato. Vocabulário aberto a
+        valores novos, sempre de forma aditiva. `simulacao_nao_encontrada` (404)
+        indica simulação inexistente ou que não pertence ao job informado.
       enum:
         - requisicao_invalida
         - nao_autenticado
         - sem_permissao
         - job_nao_encontrado
+        - simulacao_nao_encontrada
         - estado_invalido
         - simulacao_inviavel
         - nucleo_incompleto
         - regra_incoerente
+        - audio_invalido
+        - audio_muito_grande
 
     StatusJob:
       type: string
@@ -920,16 +1815,40 @@ components:
       title: Origem do job
       description: |
         Como o job nasceu, no mesmo vocabulário de `contracts/events/regra-submetida`.
-        É o que determina o ponto de entrada do grafo. Na Sprint 1 apenas `formulario`
-        é aceito em `POST /jobs`; `reprocessamento` é produzido por
-        `POST /jobs/{id}/reprocessar` e `voz`.
-      enum: [formulario, voz, reprocessamento]
+        É o que determina o ponto de entrada do grafo. `formulario` é o único valor
+        aceito em `POST /jobs`. `texto` e `voz` nascem de `POST /submissoes` com
+        `finalidade = entrada_inicial`, conforme o `tipo` da submissão.
+        `reprocessamento` é produzido por `POST /jobs/{id}/reprocessar`.
+      enum: [formulario, voz, reprocessamento, texto]
 
     AcaoJob:
       type: string
-      title: Ação de finalização
-      description: Ações de fechamento, no mesmo vocabulário da coluna `job_acoes.acao`.
-      enum: [confirmar_liberar, cancelar, salvar, arquivar]
+      title: Ação sobre o job
+      description: |
+        Ações do usuário sobre o job, no mesmo vocabulário da coluna `job_acoes.acao`:
+        as quatro de fechamento e `aceitar_meta`, que aceita a meta de venda sugerida
+        e não fecha o job.
+      enum: [confirmar_liberar, cancelar, salvar, arquivar, aceitar_meta]
+
+    FinalidadeSubmissao:
+      type: string
+      title: Finalidade da submissão
+      description: |
+        Para que serve a submissão. `entrada_inicial` é a descrição de uma regra
+        nova, que cria o job que vai processá-la; `correcao` é a correção de uma
+        regra enviada pelo chatbot durante o loop de correção. Vocabulário aberto a
+        valores novos, sempre de forma aditiva.
+      enum: [correcao, entrada_inicial]
+
+    TipoSubmissao:
+      type: string
+      title: Forma da submissão
+      description: |
+        Como o conteúdo da submissão chegou, com os valores de `submissoes.tipo`
+        que `POST /submissoes` recebe: `texto`, digitado pelo usuário, ou `voz`, um
+        áudio gravado que a `api` transcreve. Vocabulário aberto a valores novos,
+        sempre de forma aditiva.
+      enum: [texto, voz]
 
     Veredito:
       type: string
@@ -937,7 +1856,8 @@ components:
       description: |
         Viabilidade orçamentária, apurada pelo worker fora do container a partir do
         total simulado e do orçamento aplicado. Ausente quando a execução não produziu
-        número que o sustente.
+        número que o sustente, e quando o job não tem orçamento: o número vale, mas
+        não há critério que o julgue.
       enum: [viavel, inviavel, indeterminado]
 
     StatusResultado:
@@ -1051,9 +1971,30 @@ components:
             especificacoes: []
           orcamento: 485000.0
 
+    RenomearJobRequisicao:
+      type: object
+      title: Nome definido pelo usuário
+      description: Corpo de `PUT /jobs/{id}/nome`.
+      required: [nome]
+      properties:
+        nome:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: '\S'
+          description: |
+            Nome definido pelo usuário. A API remove os espaços do início e do fim
+            antes de validar o limite de 1 a 100 caracteres e gravar; os limites
+            se aplicam ao valor normalizado, contado por pontos de código Unicode.
+            Espaços internos são preservados. Ausência, null, string vazia ou só
+            com espaços são recusados com `requisicao_invalida`. Nomes iguais são
+            permitidos. Não permite remover o nome para restaurar o nome padrão.
+      examples:
+        - nome: Comissão de novembro
+
     ExecutarAcaoRequisicao:
       type: object
-      title: Ação de finalização
+      title: Ação sobre o job
       description: Corpo de `POST /jobs/{id}/actions`.
       required: [acao]
       properties:
@@ -1061,6 +2002,7 @@ components:
           $ref: "#/components/schemas/AcaoJob"
       examples:
         - acao: confirmar_liberar
+        - acao: aceitar_meta
 
     ReprocessarRequisicao:
       type: object
@@ -1079,6 +2021,260 @@ components:
       examples:
         - competencias: ["2025-08", "2025-11"]
           orcamento: 960000.0
+
+    SubmeterCorrecaoRequisicao:
+      type: object
+      title: Correção enviada pelo chatbot
+      description: |
+        Corpo de `POST /submissoes` para a correção por texto. A correção vale para a
+        rodada pendente do job; o cliente não escolhe a rodada.
+      required: [finalidade, tipo, job_id, texto]
+      properties:
+        finalidade:
+          type: string
+          const: correcao
+          description: Sempre `correcao` neste corpo, um valor de `FinalidadeSubmissao`.
+        tipo:
+          type: string
+          const: texto
+          description: Sempre `texto` neste corpo, um valor de `TipoSubmissao`.
+        job_id:
+          type: string
+          format: uuid
+          description: |
+            Job cuja regra está sendo corrigida. Vai no corpo, e não no caminho,
+            porque a rota é a das submissões.
+        texto:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          pattern: '\S'
+          description: |
+            A correção como o usuário a escreveu. Não vazia, nem só com espaços, e com
+            no máximo 4000 caracteres. É conteúdo não confiável - dado a interpretar,
+            nunca instrução.
+      examples:
+        - finalidade: correcao
+          tipo: texto
+          job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          texto: A loja 13 fica na regra; a exclusão vale só para a loja 58.
+
+    SubmeterEntradaPorTextoRequisicao:
+      type: object
+      title: Descrição de uma regra nova, por texto
+      description: |
+        Corpo JSON de `POST /submissoes` para a entrada inicial por texto. Cria a
+        submissão e o job de origem `texto`. O orçamento, a meta de venda e o
+        período da simulação são ditos no texto, e não em campos.
+      required: [finalidade, tipo, texto]
+      properties:
+        finalidade:
+          type: string
+          const: entrada_inicial
+          description: Sempre `entrada_inicial` neste corpo, um valor de `FinalidadeSubmissao`.
+        tipo:
+          type: string
+          const: texto
+          description: Sempre `texto` neste corpo, um valor de `TipoSubmissao`.
+        texto:
+          type: string
+          minLength: 1
+          maxLength: 8000
+          pattern: '\S'
+          description: |
+            A descrição da regra como o usuário a escreveu, com o orçamento, a meta
+            de venda e o período da simulação, quando ele os diz. Não vazia, nem só
+            com espaços, e com no máximo 8000 caracteres. É conteúdo não confiável -
+            dado a extrair, nunca instrução.
+        orcamento:
+          deprecated: true
+          examples: [485000.0]
+          description: |
+            Obsoleto e sem efeito. Mantido para que a requisição de um cliente
+            anterior continue aceita: a `api` não lê nem valida o campo. O
+            orçamento vem do que o usuário diz no texto.
+        competencias:
+          deprecated: true
+          examples: [["2025-11"]]
+          description: |
+            Obsoleto e sem efeito. Mantido para que a requisição de um cliente
+            anterior continue aceita: a `api` não lê nem valida o campo. O
+            período da simulação vem do que o usuário diz no texto.
+      examples:
+        - finalidade: entrada_inicial
+          tipo: texto
+          texto: >-
+            Comissão de 2,5% sobre as vendas para o cargo 100 da marca 10 em novembro
+            de 2025, com orçamento de R$ 485 mil.
+
+    SubmeterPorVozRequisicao:
+      type: object
+      title: Submissão por voz
+      description: |
+        Corpo `multipart/form-data` de `POST /submissoes` para a entrada inicial e
+        para a correção por voz. Tem duas partes obrigatórias, em qualquer ordem:
+        `audio`, com a gravação, e `parametros`, com a finalidade e os campos que
+        ela exige. Partes com outros nomes são ignoradas.
+
+        ```
+        POST /api/submissoes
+        Content-Type: multipart/form-data; boundary=limite
+
+        --limite
+        Content-Disposition: form-data; name="audio"; filename="gravacao.webm"
+        Content-Type: audio/webm;codecs=opus
+
+        <bytes da gravação>
+        --limite
+        Content-Disposition: form-data; name="parametros"
+        Content-Type: application/json
+
+        {"finalidade":"entrada_inicial","tipo":"voz"}
+        --limite--
+        ```
+
+        No navegador, `parametros` entra no `FormData` como um `Blob` de tipo
+        `application/json`, para que a parte leve esse `Content-Type`.
+      required: [audio, parametros]
+      properties:
+        audio:
+          type: string
+          format: binary
+          description: |
+            A gravação como o navegador a produziu, com no máximo 5 MB. O
+            `Content-Type` da parte declara o contêiner, que a `api` registra em
+            `submissoes.formato`: `audio/webm`, `audio/ogg`, `audio/wav` ou
+            `audio/mp4`, com parâmetros como `codecs` aceitos. O nome do arquivo é
+            ignorado. A `api` recusa com `audio_invalido` o áudio vazio, o formato
+            fora dessa lista e o conteúdo que não confere com o formato declarado, e
+            com `audio_muito_grande` o que passa de 5 MB. A duração máxima de
+            gravação, 3 minutos, é imposta pelo cliente, porque a `api` não
+            decodifica o áudio.
+        parametros:
+          oneOf:
+            - $ref: "#/components/schemas/ParametrosEntradaPorVoz"
+            - $ref: "#/components/schemas/ParametrosCorrecaoPorVoz"
+          discriminator:
+            propertyName: finalidade
+            mapping:
+              entrada_inicial: "#/components/schemas/ParametrosEntradaPorVoz"
+              correcao: "#/components/schemas/ParametrosCorrecaoPorVoz"
+          description: |
+            Objeto JSON, na parte com `Content-Type: application/json`. A
+            `finalidade` decide os demais campos: a entrada inicial não leva
+            nenhum, porque o orçamento, a meta de venda e o período são ditos no
+            áudio; a correção leva `job_id`.
+
+    ParametrosEntradaPorVoz:
+      type: object
+      title: Parâmetros da descrição de uma regra nova, por voz
+      description: |
+        Parte `parametros` de `POST /submissoes` para a entrada inicial por voz. Cria
+        a submissão e o job de origem `voz`. O orçamento, a meta de venda e o
+        período da simulação são ditos no áudio, e não em campos.
+      required: [finalidade, tipo]
+      properties:
+        finalidade:
+          type: string
+          const: entrada_inicial
+          description: Sempre `entrada_inicial` nestes parâmetros, um valor de `FinalidadeSubmissao`.
+        tipo:
+          type: string
+          const: voz
+          description: Sempre `voz` nestes parâmetros, um valor de `TipoSubmissao`.
+        orcamento:
+          deprecated: true
+          examples: [485000.0]
+          description: |
+            Obsoleto e sem efeito. Mantido para que a requisição de um cliente
+            anterior continue aceita: a `api` não lê nem valida o campo. O
+            orçamento vem do que o usuário diz no áudio.
+        competencias:
+          deprecated: true
+          examples: [["2025-11"]]
+          description: |
+            Obsoleto e sem efeito. Mantido para que a requisição de um cliente
+            anterior continue aceita: a `api` não lê nem valida o campo. O
+            período da simulação vem do que o usuário diz no áudio.
+      examples:
+        - finalidade: entrada_inicial
+          tipo: voz
+
+    ParametrosCorrecaoPorVoz:
+      type: object
+      title: Parâmetros da correção por voz
+      description: |
+        Parte `parametros` de `POST /submissoes` para a correção por voz. A correção
+        vale para a rodada pendente do job; o cliente não escolhe a rodada.
+      required: [finalidade, tipo, job_id]
+      properties:
+        finalidade:
+          type: string
+          const: correcao
+          description: Sempre `correcao` nestes parâmetros, um valor de `FinalidadeSubmissao`.
+        tipo:
+          type: string
+          const: voz
+          description: Sempre `voz` nestes parâmetros, um valor de `TipoSubmissao`.
+        job_id:
+          type: string
+          format: uuid
+          description: |
+            Job cuja regra está sendo corrigida. Vai nos parâmetros, e não no
+            caminho, porque a rota é a das submissões.
+      examples:
+        - finalidade: correcao
+          tipo: voz
+          job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+
+    SubmissaoCriada:
+      type: object
+      title: Submissão criada
+      description: |
+        Resposta de `POST /submissoes`. Identifica a submissão gravada e devolve o que
+        o cliente precisa para seguir sem outra consulta: o job, no estado em que
+        ficou, e, na correção, a rodada que a recebeu.
+      required: [id, tipo, finalidade, criado_em, job]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: A submissão gravada. Cada submissão é nova e imutável.
+        tipo:
+          $ref: "#/components/schemas/TipoSubmissao"
+        finalidade:
+          $ref: "#/components/schemas/FinalidadeSubmissao"
+        criado_em:
+          type: string
+          format: date-time
+        job:
+          type: object
+          description: |
+            O job a que a submissão pertence, no estado em que ficou depois dela. Na
+            entrada inicial é o job criado com a submissão, e o cliente o acompanha
+            pelo `id` nas rotas de `/jobs`.
+          required: [id, status]
+          properties:
+            id:
+              type: string
+              format: uuid
+            status:
+              $ref: "#/components/schemas/StatusJob"
+        rodada:
+          $ref: "#/components/schemas/Rodada"
+          description: |
+            A rodada que recebeu a correção, com `correcao` preenchida: em
+            `em_reextracao` quando a correção é por texto e em `em_transcricao`
+            quando é por voz. Presente sempre que a finalidade é `correcao`, e
+            ausente na entrada inicial.
+      allOf:
+        - if:
+            properties:
+              finalidade:
+                const: correcao
+            required: [finalidade]
+          then:
+            required: [rodada]
 
     Job:
       type: object
@@ -1144,15 +2340,49 @@ components:
       title: Job detalhado
       description: |
         Estado corrente do job com todas as versões de regra já formadas. `regras` é
-        ordenado por `versao`; `simulacao`, quando existe, representa a execução mais
-        recente do job. `simulacoes` preserva as execuções anteriores e permite
+        ordenado por `versao`; `simulacao`, quando existe, representa a simulação
+        vigente do job. `simulacoes` preserva as execuções anteriores e permite
         associar cada resultado à sua versão pelo campo `regra_id`.
-      required: [id, status, origem, competencias, orcamento, criado_em, regras]
+
+        As execuções candidatas da busca da meta maior não são simulações do job e
+        não aparecem em `simulacao` nem em `simulacoes`. A exceção é a candidata da
+        meta sugerida depois de `aceitar_meta`, que passa a ser a `simulacao`
+        vigente.
+      required: [id, status, origem, competencias, criado_em, regras]
       properties:
         id:
           type: string
           format: uuid
           description: Identificador do job, e a chave de correlação em toda a observabilidade.
+        nome:
+          type: [string, "null"]
+          description: |
+            Nome de exibição resolvido pela API, compartilhado por todas as versões
+            da regra. O nome definido pelo usuário em `jobs.nome` tem prioridade.
+            Sem ele, o nome padrão vem de `submissoes.transcricao` da submissão
+            inicial apontada por `jobs.submissao_id`, que guarda o texto digitado
+            ou a transcrição do áudio. O frontend não calcula o nome padrão.
+
+            A API remove espaços do início e do fim do texto, substitui cada
+            sequência de espaços, tabulações e quebras de linha por um único
+            espaço e usa os primeiros 50 caracteres do resultado, contados por
+            pontos de código Unicode para não cortar um emoji ao meio. Textos
+            com até 50 caracteres são usados inteiros, sem reticências. O nome
+            padrão não é persistido em `jobs.nome`.
+
+            No job reprocessado, sem submissão própria, a API segue
+            `jobs.job_origem_id` até o primeiro job da cadeia com submissão e usa
+            esse texto inicial para o nome padrão. O nome definido pelo usuário
+            no job de origem é copiado ao reprocessar; renomear um deles depois
+            não altera o outro. Correções e novas versões não mudam
+            `jobs.submissao_id`, portanto não mudam a origem do nome padrão.
+
+            Ausente quando não há nome definido pelo usuário nem texto inicial
+            não vazio após normalização, inclusive formulário com
+            `submissoes.transcricao` nulo e voz ainda sem transcrição. Nesse caso,
+            o frontend mostra o rótulo com a data de criação. O tipo aceita null
+            por compatibilidade com a T-200 D; a API omite o campo sem nome resolvido.
+          examples: [Comissão de novembro, "Comissão de 2,5% para vendedores da loja 13"]
         status:
           $ref: "#/components/schemas/StatusJob"
         origem:
@@ -1160,8 +2390,22 @@ components:
         competencias:
           $ref: "#/components/schemas/Competencias"
         orcamento:
-          $ref: "../domain/comum.schema.json#/$defs/brl"
-          description: Orçamento do período aplicado a este job.
+          $ref: "../domain/parametros-simulacao.schema.json#/properties/orcamento"
+          description: |
+            Orçamento de comissão do período aplicado a este job. Nas origens
+            `texto` e `voz`, é o que o usuário disse na descrição ou numa correção,
+            como foi dito, mesmo quando a validação o aponta como conflito. Ausente
+            quando o job não tem orçamento: antes da extração e quando o usuário não
+            disse um. Sem orçamento, a simulação é feita sem a verificação de
+            orçamento.
+        meta_venda:
+          $ref: "../domain/parametros-simulacao.schema.json#/properties/meta_venda"
+          description: |
+            Meta de venda do período, dita pelo usuário na descrição ou numa
+            correção: o total de vendas sobre o qual a regra é simulada. É o valor
+            como foi dito, mesmo quando a validação o aponta como conflito. Ausente
+            quando o usuário não disse uma, e então a simulação usa as vendas
+            históricas.
         criado_em:
           type: string
           format: date-time
@@ -1194,18 +2438,43 @@ components:
             chegam aqui distinguidos. Ausente fora de paradas.
         regras:
           type: array
-          minItems: 1
-          description: Todas as versões da regra do job, ordenadas por versão crescente.
+          description: |
+            Todas as versões da regra do job, ordenadas por versão crescente. Vazia
+            enquanto nenhuma versão foi formada, como no job de texto ou de voz antes
+            da extração.
           items:
             $ref: "#/components/schemas/RegraVersionada"
         simulacao:
           $ref: "#/components/schemas/Simulacao"
-          description: Simulação mais recente do job. Ausente enquanto nenhuma execução existir.
+          description: |
+            Simulação vigente do job: a mais recente, ou a da meta sugerida depois
+            de `aceitar_meta`. Ausente enquanto nenhuma execução existir.
         simulacoes:
           type: array
-          description: Execuções do job em ordem de criação, vinculadas às versões por regra_id. Opcional para compatibilidade com respostas anteriores.
+          description: Execuções do job em ordem de criação, vinculadas às versões por regra_id, sem as execuções candidatas da busca da meta que não foram aceitas. Opcional para compatibilidade com respostas anteriores.
           items:
             $ref: "#/components/schemas/Simulacao"
+        meta_sugerida:
+          $ref: "#/components/schemas/MetaSugerida"
+          description: |
+            Desfecho da busca da meta maior para a versão da simulação vigente,
+            enquanto a meta não foi aceita. Ausente quando não houve busca: job sem
+            orçamento, regra com especificações ou simulação que não coube com
+            margem. Ausente também enquanto a busca está em curso, quando vem
+            `busca_meta_em_curso`, e depois de `aceitar_meta`.
+        busca_meta_em_curso:
+          type: boolean
+          const: true
+          description: |
+            Presente, sempre `true`, enquanto a busca da meta maior roda para a
+            versão da simulação vigente e o job aguarda a decisão do usuário: a
+            simulação coube com margem e a meta sugerida ainda não chegou. Ausente
+            nos demais casos, nunca `false`. Deixa de vir quando `meta_sugerida`
+            aparece, com uma meta ou com `sem_solucao`, ou quando a busca termina sem
+            meta registrada, o que o evento `etapa` com `busca_meta_encerrada`
+            anuncia. O evento `etapa` com `buscando_meta` anuncia o começo da busca, e
+            é enquanto este campo vem que a tela mostra o processamento em vez do
+            resultado final.
 
     RegraVersionada:
       type: object
@@ -1225,10 +2494,119 @@ components:
           description: Sequencial dentro do job.
         origem:
           type: string
-          enum: [confirmacao_usuario, sugestao_adaptacao, reprocessamento]
-          description: De onde esta versão veio.
+          enum: [confirmacao_usuario, sugestao_adaptacao, reprocessamento, extracao, correcao]
+          description: De onde esta versão veio. `extracao` é a versão raiz extraída pelo codegen de uma submissão em texto ou da transcrição de um áudio. `correcao` é a versão que o codegen reextraiu de uma correção enviada pelo chatbot, a `regra_resultante_id` da rodada que a recebeu.
         representacao:
           $ref: "../domain/representacao-regra.schema.json"
+        criada_em:
+          type: string
+          format: date-time
+
+    EstadoRodada:
+      type: string
+      title: Estado da rodada de correção
+      description: |
+        Onde a rodada está no loop de correção. Existe no máximo uma rodada aberta por
+        job, e ela é a mais recente.
+
+        - `pendente`: aberta, à espera da correção do usuário. É o único estado em que
+          `POST /submissoes` aceita uma correção.
+        - `em_transcricao`: aberta, com a correção enviada por voz e a `api`
+          transcrevendo o áudio. A entrada fica bloqueada até o desfecho; transcrita,
+          a rodada passa a `em_reextracao`.
+        - `em_reextracao`: aberta, com a correção enviada e o codegen reextraindo a
+          regra a partir dela. A entrada fica bloqueada até o desfecho.
+        - `reextracao_falhou`: fechada, porque a correção não chegou a uma versão: a
+          transcrição do áudio falhou ou o codegen não conseguiu reextrair a regra. A
+          `api` abre em seguida uma rodada `pendente` nova, encadeada e com os mesmos
+          conflitos, para que o usuário tente de novo.
+        - `corrigida`: fechada, com a correção transformada na versão
+          `regra_resultante_id`. Essa versão volta à validação; se ainda tiver
+          conflitos, abre outra rodada.
+        - `abandonada`: fechada sem que a correção chegasse a uma versão nova, porque o
+          job deixou o loop por outro caminho, como o cancelamento. Sair da tela não
+          abandona a rodada.
+      enum: [pendente, em_reextracao, reextracao_falhou, corrigida, abandonada, em_transcricao]
+
+    Rodada:
+      type: object
+      title: Rodada de correção
+      description: |
+        Uma volta do loop de correção: a versão da regra que a validação reprovou, os
+        conflitos que o chatbot mostrou, a correção que o usuário enviou e a versão que
+        resultou dela. As rodadas de um job se encadeiam por `rodada_anterior_id`.
+      required:
+        - id
+        - rodada_anterior_id
+        - regra_analisada_id
+        - conflitos
+        - correcao
+        - regra_resultante_id
+        - estado
+        - criada_em
+      properties:
+        id:
+          type: string
+          format: uuid
+        rodada_anterior_id:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            Rodada que esta sucede no mesmo job. Nula na primeira rodada. Uma rodada
+            nova sucede outra quando a versão corrigida ainda tem conflitos ou quando
+            a reextração da correção anterior falhou.
+        regra_analisada_id:
+          type: string
+          format: uuid
+          description: |
+            Versão da regra, entre as `regras` do job, cuja validação apontou os
+            conflitos desta rodada. Depois de uma reextração que falhou, a rodada nova
+            analisa a mesma versão da anterior.
+        conflitos:
+          $ref: "../domain/conflitos-rodada.schema.json"
+          description: Os conflitos que o chatbot mostra nesta rodada, com as partes da regra envolvidas e o motivo.
+        correcao:
+          type: [object, "null"]
+          description: |
+            A correção enviada nesta rodada. Nula enquanto o usuário não corrigiu, e
+            numa rodada abandonada antes da correção.
+          required: [texto, enviada_em]
+          properties:
+            tipo:
+              $ref: "#/components/schemas/TipoSubmissao"
+              description: |
+                Como a correção chegou. Opcional para compatibilidade; ausente, a
+                correção é por texto.
+            texto:
+              type: [string, "null"]
+              minLength: 1
+              description: |
+                O texto da correção: o que o usuário escreveu ou, na correção por voz,
+                a transcrição do áudio. Nulo enquanto a transcrição não existe,
+                inclusive depois de ela falhar; só a correção por voz tem texto nulo.
+            enviada_em:
+              type: string
+              format: date-time
+          allOf:
+            - if:
+                properties:
+                  texto:
+                    type: "null"
+                required: [texto]
+              then:
+                properties:
+                  tipo:
+                    const: voz
+                required: [tipo]
+        regra_resultante_id:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            Versão da regra nascida desta correção, com origem `correcao`. Nula até a
+            reextração produzir a versão, e por isso preenchida só em rodada
+            `corrigida`.
+        estado:
+          $ref: "#/components/schemas/EstadoRodada"
         criada_em:
           type: string
           format: date-time
@@ -1257,7 +2635,20 @@ components:
           $ref: "#/components/schemas/StatusResultado"
         veredito:
           $ref: "#/components/schemas/Veredito"
-          description: Ausente quando o status não é sucesso.
+          description: |
+            Ausente quando o status não é sucesso, e num sucesso de job sem
+            orçamento, em que a simulação foi feita sem a verificação de orçamento.
+        meta_venda:
+          allOf:
+            - $ref: "../domain/comum.schema.json#/$defs/brl"
+          exclusiveMinimum: 0
+          description: |
+            Meta de venda em que esta simulação foi feita, de
+            `resultados_simulacao.meta_venda`: as vendas de todas as lojas, marcas e
+            cargos do período foram escaladas até ela, e `resultado` descreve o
+            período nessa meta. Depois de `aceitar_meta`, é a meta sugerida. Ausente
+            quando a simulação usou as vendas históricas, que estão em
+            `resultado.totais.vendas_historicas`.
         flag_baixa_rastreabilidade:
           type: boolean
           description: |
@@ -1272,26 +2663,145 @@ components:
             o status não é sucesso, porque aí não há número. É a fonte dos valores
             exibidos: o frontend apresenta, não calcula.
 
+    MetaSugerida:
+      type: object
+      title: Meta de venda sugerida
+      description: |
+        Desfecho da busca da meta maior: a maior meta de venda em que a comissão
+        simulada ainda cabe no orçamento, com a regra mantida, ou a busca sem
+        solução. A busca só existe para regra só de núcleo, em job com orçamento,
+        cuja simulação coube com margem. Cada meta candidata é uma simulação real,
+        com as vendas do período escaladas até ela, e os valores daqui vêm da
+        candidata que fechou a busca. O frontend apresenta, não calcula.
+
+        Exatamente uma das duas formas: `meta_venda`, com `total_simulado` e
+        `orcamento`, ou `sem_solucao`.
+      properties:
+        meta_venda:
+          allOf:
+            - $ref: "../domain/comum.schema.json#/$defs/brl"
+          exclusiveMinimum: 0
+          description: A meta sugerida, total de vendas do período.
+        total_simulado:
+          $ref: "../domain/comum.schema.json#/$defs/brl"
+          description: Comissão simulada na meta sugerida, `totais.simulado` da simulação dela.
+        orcamento:
+          $ref: "../domain/comum.schema.json#/$defs/brl"
+          description: Orçamento com que a comissão na meta sugerida foi comparada.
+        sem_solucao:
+          type: object
+          required: [motivo]
+          description: A busca terminou sem meta para sugerir.
+          properties:
+            motivo:
+              type: string
+              enum: [nao_monotonica, intervalo_esgotado, falha_execucao]
+              description: |
+                Código do motivo, que a tela traduz para a mensagem exibida, no mesmo
+                vocabulário de `meta-venda-sugerida`. `nao_monotonica`: a comissão
+                não subiu junto com a meta, e a busca não encontrou um limite
+                confiável. `intervalo_esgotado`: o orçamento comportou todas as metas
+                testadas. `falha_execucao`: uma das simulações da busca falhou.
+      oneOf:
+        - required: [meta_venda, total_simulado, orcamento]
+        - required: [sem_solucao]
+      examples:
+        - meta_venda: 28500000.0
+          total_simulado: 594000.0
+          orcamento: 600000.0
+        - sem_solucao:
+            motivo: intervalo_esgotado
+
+    DetalhamentoSimulacao:
+      type: object
+      title: Detalhamento da simulação
+      description: |
+        Artefato completo de resultados_simulacao.linhas, consultado separadamente
+        dos totais e da decomposição. Só um resultado com status sucesso pode ter
+        detalhamento. A ausência de linhas indica que ele não está disponível;
+        o campo é omitido, nunca null. Inclui resultados anteriores à sua produção.
+      required: [simulacao_id]
+      properties:
+        simulacao_id:
+          type: string
+          format: uuid
+          description: Identificador da simulação consultada.
+        linhas:
+          $ref: "../domain/resultado-linhas.schema.json"
+
     JobResumo:
       type: object
       title: Resumo do job
       description: |
         O que a listagem de histórico mostra. Sem regra, resultado nem decomposição -
         para isso existe `GET /jobs/{id}`.
-      required: [id, status, competencias, orcamento, criado_em]
+      examples:
+        - id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          nome: Comissão de novembro
+          status: simulacao_inviavel
+          competencias: ["2025-11"]
+          orcamento: 485000.0
+          criado_em: "2025-11-24T14:02:00Z"
+        - id: "b7d9f1a3-5c6e-4b8d-9f0a-6c8e0a2b4d68"
+          nome: Comissão de 2,5% para o cargo 100 da marca 10 de s
+          status: gerando_regra
+          competencias: ["2025-09", "2025-10", "2025-11"]
+          orcamento: 500000.0
+          meta_venda: 12000000.0
+          criado_em: "2025-11-24T15:20:00Z"
+      required: [id, status, competencias, criado_em]
       properties:
         id:
           type: string
           format: uuid
+        nome:
+          type: [string, "null"]
+          description: |
+            Nome de exibição resolvido pela API, compartilhado por todas as versões
+            da regra. O nome definido pelo usuário em `jobs.nome` tem prioridade.
+            Sem ele, o nome padrão vem de `submissoes.transcricao` da submissão
+            inicial apontada por `jobs.submissao_id`, que guarda o texto digitado
+            ou a transcrição do áudio. O frontend não calcula o nome padrão.
+
+            A API remove espaços do início e do fim do texto, substitui cada
+            sequência de espaços, tabulações e quebras de linha por um único
+            espaço e usa os primeiros 50 caracteres do resultado, contados por
+            pontos de código Unicode para não cortar um emoji ao meio. Textos
+            com até 50 caracteres são usados inteiros, sem reticências. O nome
+            padrão não é persistido em `jobs.nome`.
+
+            No job reprocessado, sem submissão própria, a API segue
+            `jobs.job_origem_id` até o primeiro job da cadeia com submissão e usa
+            esse texto inicial para o nome padrão. O nome definido pelo usuário
+            no job de origem é copiado ao reprocessar; renomear um deles depois
+            não altera o outro. Correções e novas versões não mudam
+            `jobs.submissao_id`, portanto não mudam a origem do nome padrão.
+
+            Ausente quando não há nome definido pelo usuário nem texto inicial
+            não vazio após normalização, inclusive formulário com
+            `submissoes.transcricao` nulo e voz ainda sem transcrição. Nesse caso,
+            o frontend mostra o rótulo com a data de criação. O tipo aceita null
+            por compatibilidade com a T-200 D; a API omite o campo sem nome resolvido.
+          examples: [Comissão de novembro, "Comissão de 2,5% para vendedores da loja 13"]
         status:
           $ref: "#/components/schemas/StatusJob"
         competencias:
           $ref: "#/components/schemas/Competencias"
         orcamento:
-          $ref: "../domain/comum.schema.json#/$defs/brl"
+          $ref: "../domain/parametros-simulacao.schema.json#/properties/orcamento"
+          description: |
+            Orçamento de comissão do período, como em `JobDetalhado`. Ausente quando
+            o job não tem orçamento.
+        meta_venda:
+          $ref: "../domain/parametros-simulacao.schema.json#/properties/meta_venda"
+          description: |
+            Meta de venda do período, como em `JobDetalhado`. Ausente quando o job
+            não tem meta.
         veredito:
           $ref: "#/components/schemas/Veredito"
-          description: Ausente enquanto o job não tem simulação concluída com sucesso.
+          description: |
+            Ausente enquanto o job não tem simulação concluída com sucesso, e quando o
+            job não tem orçamento.
         criado_em:
           type: string
           format: date-time
@@ -1368,11 +2878,68 @@ components:
           description: |
             Situação reportada para a etapa iniciada. `erro` indica falha do
             processamento antes da simulação e é seguido de um evento `estado` para
-            `erro`, que encerra o stream. O vocabulário ainda não está fechado.
+            `erro`, que encerra o stream. A exceção é a correção que não chegou a uma
+            versão, `erro` na etapa `extracao_parametros` com o job em
+            `aguardando_confirmacao_parametros`: o codegen não conseguiu reextrair a
+            regra ou, na correção por voz, a transcrição do áudio falhou. O job não muda
+            de estado, e a correção é reaberta numa rodada `pendente` nova, consultável
+            em `GET /jobs/{id}/rodadas`. `aguardando_correcao` na etapa `confirmacao`
+            anuncia que a validação apontou os `conflitos` deste evento, e é seguido de
+            um evento `estado` para `aguardando_confirmacao_parametros`.
+            `aguardando_provedor` avisa que o serviço de IA está com alta demanda e que
+            o processamento continua tentando; não muda o estado do job e deixa de
+            valer no próximo evento `etapa` ou `estado`. Se as tentativas se esgotam, o
+            job vai a `erro` e o evento `estado` traz em `motivo` a razão localizada.
+
+            Na etapa `sugestao_adaptacao`, três valores anunciam o fim de uma
+            sugestão, e a tela busca `GET /jobs/{id}` de novo para ler o desfecho:
+            `sem_alternativa` encerra as tentativas de taxa nova sem uma taxa que
+            caiba no orçamento; `meta_sugerida` anuncia que a busca da meta maior
+            encontrou uma meta, exposta em `meta_sugerida`; e `sem_solucao` anuncia
+            que a busca terminou sem meta para sugerir. Os dois últimos são emitidos
+            pela `api` ao registrar o evento `meta-venda-sugerida`, e não repassados
+            do codegen. `buscando_meta` anuncia o começo da busca da meta maior: a
+            `api` o emite ao registrar a decisão que abriu a busca, e a tela busca
+            `GET /jobs/{id}`, que traz `busca_meta_em_curso` até a busca terminar.
+            `busca_meta_encerrada` anuncia que a busca terminou sem meta registrada,
+            quando a `api` grava a decisão que a fecha e ainda não registrou a meta do
+            evento `meta-venda-sugerida`; a tela busca `GET /jobs/{id}`, que não traz
+            mais `busca_meta_em_curso`. Os dois eventos do codegen chegam por filas
+            diferentes, então a meta ainda pode ser registrada depois desse anúncio, e
+            nesse caso vem `meta_sugerida` e o job passa a trazer `meta_sugerida`. O
+            vocabulário ainda não está fechado.
+        conflitos:
+          $ref: "../domain/conflitos-rodada.schema.json"
+          description: |
+            Conflitos que impedem a regra de seguir para a geração de código, com as
+            partes da regra envolvidas e o motivo. Presente quando `status` é
+            `aguardando_correcao`; é o que o chatbot mostra ao abrir a rodada. Ausente
+            quando o evento não reporta conflito, nunca vazio. O histórico das rodadas
+            anteriores não vem pelo stream, e sim por `GET /jobs/{id}/rodadas`.
       examples:
         - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
           etapa: geracao_codigo
           status: iniciada
+        - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          etapa: geracao_codigo
+          status: aguardando_provedor
+        - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          etapa: confirmacao
+          status: aguardando_correcao
+          conflitos:
+            - elementos: [nucleo.percentual]
+              motivo: percentual ausente
+            - elementos: [nucleo.loja, elem.2]
+              motivo: loja 13 no núcleo e na exclusão
+        - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          etapa: sugestao_adaptacao
+          status: buscando_meta
+        - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          etapa: sugestao_adaptacao
+          status: busca_meta_encerrada
+        - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          etapa: sugestao_adaptacao
+          status: meta_sugerida
 
     EventoEstado:
       type: object
@@ -1408,6 +2975,8 @@ components:
         Anuncia que a simulação terminou. Carrega a referência e o desfecho, não os
         números: a tela busca `GET /jobs/{id}` e lê os valores de um lugar só, para
         que resultado e stream não tenham duas formas do mesmo dado para divergir.
+        Não é emitido para as execuções candidatas da busca da meta maior, que não
+        são simulações do job.
       required: [job_id, simulacao_id, status]
       properties:
         job_id:
@@ -1420,7 +2989,9 @@ components:
           $ref: "#/components/schemas/StatusResultado"
         veredito:
           $ref: "#/components/schemas/Veredito"
-          description: Ausente quando o status não é sucesso.
+          description: |
+            Ausente quando o status não é sucesso, e num sucesso de job sem
+            orçamento.
       examples:
         - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
           simulacao_id: "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"

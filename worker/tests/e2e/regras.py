@@ -1,12 +1,31 @@
 """Os códigos gerados que os e2e mandam o worker executar. Cada um é uma regra de verdade, no
 formato do contrato da T-034, e roda no container real."""
 
+from tests.app.execucao.test_coleta_integration import REGRA_QUE_INFLA_O_BASELINE_DO_HARNESS
 from tests.app.sandbox.test_harness import EXEMPLO
 
 # O exemplo do contrato: apura 494.037,78 sobre o baseline de 508.382,32 de novembro.
 SUCESSO = EXEMPLO
 SIMULADO_DO_EXEMPLO = 494037.78
 BASELINE_2025_11 = 508382.32
+
+# Na meta de venda (T-270): as vendas de novembro somam 13.271.681,51, e a meta é 10% acima. Sobre
+# as vendas escaladas, o baseline reapurado é 558.870,26 (não 1,1 vez o congelado), e o exemplo
+# apura 543.091,28. Os dois números saem do motor congelado; test_escalonamento.py confere o
+# baseline.
+VENDAS_2025_11 = 13271681.51
+META_2025_11 = 14598849.661
+BASELINE_NA_META_2025_11 = 558870.26
+SIMULADO_DO_EXEMPLO_NA_META = 543091.28
+
+# O total vendido que o worker acrescenta à linha de MATRIC-1 em novembro (T-282): R$ 24.785,01
+# nas vendas históricas, e 1,1 vez isso, arredondado ao centavo, nas escaladas até a meta.
+VENDAS_MATRIC_1_2025_11 = 24785.01
+VENDAS_MATRIC_1_NA_META_2025_11 = 27263.51
+
+# Infla em 10% o baseline que o harness guarda, pelo gc: uma economia inventada que só a
+# conferência do worker denuncia.
+INFLA_O_BASELINE = REGRA_QUE_INFLA_O_BASELINE_DO_HARNESS
 
 # O mesmo exemplo, depois de dormir: dá tempo de matar o worker no meio da execução.
 LENTA = (

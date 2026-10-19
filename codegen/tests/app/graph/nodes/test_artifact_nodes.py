@@ -10,10 +10,12 @@ from langchain_core.runnables import RunnableConfig
 from app.codigo_gerado import CodigoInvalidoError
 from app.contratos.mensagens import EtapaAlterada, ExecutarCodigo
 from app.contratos.serializacao import serializar
+from app.falhas import FalhaDoJobError
 from app.graph.core.state import AgentState
-from app.graph.nodes.dispatch_execution import OrcamentoAusenteError, dispatch_execution
+from app.graph.nodes.dispatch_execution import MetaVendaInvalidaError, dispatch_execution
 from app.graph.nodes.extract_code import extract_code
 from app.graph.nodes.persist_response import persist_response
+from app.representacao_regra import RepresentacaoRegra
 from tests.app.banco_falso import BancoFalso
 from tests.app.test_mensageria import oficial
 
@@ -39,6 +41,7 @@ def _estado(**sobrescritas: Any) -> AgentState:
         "regra_id": REGRA_ID,
         "competencias": ["2025-08", "2025-11"],
         "orcamento": "485000.10",
+        "representacao_regra": {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []},
         "prompt_enviado": "prompt",
         "resposta_bruta": RESPOSTA,
         "modelo": {"provedor": "google", "modelo": "m", "versao": "stable"},
@@ -158,7 +161,93 @@ async def test_dispatch_execution_publica_so_referencias() -> None:
         codigo_gerado_id=UUID(codigo_gerado_id),
         competencias=["2025-08", "2025-11"],
         orcamento=Decimal("485000.10"),
+        proposito="simulacao",
+        elementos_exigidos=["nucleo.percentual"],
     )
+
+
+@pytest.mark.parametrize(
+    ("nucleo", "refs", "esperados"),
+    [
+        ({"percentual": Decimal("0.025")}, [], ["nucleo.percentual"]),
+        ({"percentual": Decimal("0")}, [], ["nucleo.percentual"]),
+        (
+            {"percentual": Decimal("0.025"), "loja": ["13"], "marca": ["10"], "cargo": ["100"]},
+            ["elem.2", "elem.1"],
+            ["nucleo.percentual", "elem.2", "elem.1"],
+        ),
+        ({"loja": ["13"]}, ["elem.2", "elem.1"], ["elem.2", "elem.1"]),
+    ],
+    ids=["so-nucleo", "percentual-zero", "especificacoes-na-ordem", "sem-percentual"],
+)
+async def test_dispatch_execution_envia_elementos_da_representacao(
+    nucleo: dict[str, Any], refs: list[str], esperados: list[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    regra = RepresentacaoRegra.model_validate(
+        {
+            "nucleo": nucleo,
+            "especificacoes": [
+                {"ref": ref, "construto": "generico", "descricao": "REGRA_PRIVADA", "campos": {}}
+                for ref in refs
+            ],
+        }
+    )
+    producers = _producers()
+    # A resposta tenta declarar outra cobertura; a lista deve vir somente da regra.
+    estado = _estado(
+        codigo_gerado_id=str(uuid4()),
+        representacao_regra=regra.para_contrato(),
+        resposta_bruta='{"elementos_exigidos": ["elem.999"]}',
+        codigo_fonte="CODIGO_PRIVADO",
+    )
+    with caplog.at_level("INFO", logger="app.graph.nodes.dispatch_execution"):
+        await dispatch_execution(estado, _config(producers=producers))
+
+    [comando] = producers.executar_codigo.await_args.args
+    payload = simplejson.loads(serializar(comando), use_decimal=True)
+    assert payload["elementos_exigidos"] == esperados
+    oficial("executar-codigo").validate(payload)
+    logs = repr([record.__dict__ for record in caplog.records])
+    assert "execution command published" in logs
+    for privado in ("REGRA_PRIVADA", "CODIGO_PRIVADO", "representacao_regra", "elem.999"):
+        assert privado not in logs
+
+
+async def test_dispatch_execution_recusa_regra_sem_elementos_antes_de_publicar() -> None:
+    producers = _producers()
+    estado = _estado(
+        codigo_gerado_id=str(uuid4()), representacao_regra={"nucleo": {}, "especificacoes": []}
+    )
+
+    with pytest.raises(FalhaDoJobError, match="requires at least one rule element") as falha:
+        await dispatch_execution(estado, _config(producers=producers))
+
+    assert falha.value.etapa == "delegacao_worker"
+    producers.executar_codigo.assert_not_awaited()
+    producers.etapa_alterada.assert_not_awaited()
+    producers.no_concluido.assert_not_awaited()
+
+
+async def test_dispatch_execution_recusa_referencias_repetidas_antes_de_publicar() -> None:
+    producers = _producers()
+    regra = RepresentacaoRegra.model_validate(
+        {
+            "nucleo": {"percentual": Decimal("0.025")},
+            "especificacoes": [
+                {"ref": "elem.1", "construto": "generico", "descricao": descricao}
+                for descricao in ("primeiro elemento", "segundo elemento")
+            ],
+        }
+    )
+    estado = _estado(codigo_gerado_id=str(uuid4()), representacao_regra=regra.para_contrato())
+
+    with pytest.raises(FalhaDoJobError, match="requires unique rule elements") as falha:
+        await dispatch_execution(estado, _config(producers=producers))
+
+    assert falha.value.etapa == "delegacao_worker"
+    producers.executar_codigo.assert_not_awaited()
+    producers.etapa_alterada.assert_not_awaited()
+    producers.no_concluido.assert_not_awaited()
 
 
 async def test_dispatch_execution_publica_os_tres_eventos_na_ordem_do_contrato() -> None:
@@ -182,16 +271,109 @@ async def test_dispatch_execution_publica_os_tres_eventos_na_ordem_do_contrato()
     assert evento == EtapaAlterada(job_id=UUID(JOB_ID), etapa="delegacao_worker", status="iniciada")
 
 
-async def test_dispatch_execution_falha_sem_publicar_quando_falta_orcamento() -> None:
+def _payload_do_comando(producers: Any) -> dict[str, Any]:
+    [comando] = producers.executar_codigo.await_args.args
+    payload: dict[str, Any] = simplejson.loads(serializar(comando), use_decimal=True)
+    oficial("executar-codigo").validate(payload)
+    return payload
+
+
+async def test_dispatch_execution_publica_sem_orcamento_quando_o_job_nao_tem() -> None:
+    """Sem orçamento o worker simula sem a verificação de orçamento (T-281); a ausência nunca
+    vira zero."""
     producers = _producers()
     estado = _estado(codigo_gerado_id=str(uuid4()))
     del estado["orcamento"]
 
-    with pytest.raises(OrcamentoAusenteError):
+    await dispatch_execution(estado, _config(producers=producers))
+
+    payload = _payload_do_comando(producers)
+    assert "orcamento" not in payload
+    assert payload["proposito"] == "simulacao"
+
+
+async def test_dispatch_execution_leva_a_meta_de_venda_e_o_proposito_ao_comando() -> None:
+    producers = _producers()
+    estado = _estado(codigo_gerado_id=str(uuid4()), meta_venda="12000000.123456789012345")
+
+    await dispatch_execution(estado, _config(producers=producers))
+
+    payload = _payload_do_comando(producers)
+    assert payload["meta_venda"] == Decimal("12000000.123456789012345")
+    assert payload["orcamento"] == Decimal("485000.10")
+    assert payload["proposito"] == "simulacao"
+
+
+async def test_dispatch_execution_leva_a_meta_sem_orcamento_quando_o_job_so_tem_meta() -> None:
+    """Os dois parâmetros são independentes: a meta muda a entrada da apuração, o orçamento só o
+    veredito."""
+    producers = _producers()
+    estado = _estado(codigo_gerado_id=str(uuid4()), meta_venda="12000000")
+    del estado["orcamento"]
+
+    await dispatch_execution(estado, _config(producers=producers))
+
+    payload = _payload_do_comando(producers)
+    assert payload["meta_venda"] == Decimal("12000000")
+    assert "orcamento" not in payload
+
+
+async def test_dispatch_execution_omite_a_meta_de_venda_quando_o_job_nao_tem() -> None:
+    producers = _producers()
+
+    await dispatch_execution(_estado(codigo_gerado_id=str(uuid4())), _config(producers=producers))
+
+    payload = _payload_do_comando(producers)
+    assert "meta_venda" not in payload
+    assert payload["proposito"] == "simulacao"
+
+
+@pytest.mark.parametrize("meta", ["0", "-1"])
+async def test_dispatch_execution_recusa_meta_sem_vendas_a_escalar_antes_de_publicar(
+    meta: str,
+) -> None:
+    """O contrato de entrada aceita a meta como foi dita, para a validação de domínio apontá-la
+    (T-280). Se ainda assim chegar aqui, o comando seria recusado com um erro que não é
+    `FalhaDoJobError`, e a mensagem voltaria à fila a cada reentrega: a falha é permanente."""
+    producers = _producers()
+    estado = _estado(codigo_gerado_id=str(uuid4()), meta_venda=meta)
+
+    with pytest.raises(MetaVendaInvalidaError) as falha:
         await dispatch_execution(estado, _config(producers=producers))
 
+    assert falha.value.etapa == "delegacao_worker"
     producers.executar_codigo.assert_not_awaited()
     producers.etapa_alterada.assert_not_awaited()
+    producers.no_concluido.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("parametros", "com_orcamento", "com_meta_venda"),
+    [
+        ({"orcamento": "485000.10", "meta_venda": "26000000.77"}, True, True),
+        ({}, False, False),
+    ],
+    ids=["com-orcamento-e-meta", "sem-orcamento-e-meta"],
+)
+async def test_dispatch_execution_registra_a_presenca_do_orcamento_e_da_meta_sem_os_valores(
+    parametros: dict[str, str],
+    com_orcamento: bool,
+    com_meta_venda: bool,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    estado = _estado(codigo_gerado_id=str(uuid4()))
+    del estado["orcamento"]
+    estado.update(parametros)  # type: ignore[typeddict-item]
+
+    with caplog.at_level("INFO", logger="app.graph.nodes.dispatch_execution"):
+        await dispatch_execution(estado, _config(producers=_producers()))
+
+    [publicado] = [r for r in caplog.records if r.getMessage() == "execution command published"]
+    assert publicado.com_orcamento is com_orcamento
+    assert publicado.com_meta_venda is com_meta_venda
+    logs = repr([record.__dict__ for record in caplog.records])
+    for valor in ("485000.10", "485000.1", "26000000.77"):
+        assert valor not in logs
 
 
 async def test_dispatch_execution_registra_a_conclusao_da_delegacao_na_trilha() -> None:

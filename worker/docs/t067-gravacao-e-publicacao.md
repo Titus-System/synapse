@@ -43,10 +43,19 @@ schema prevê (claim-check, ARCHITECTURE.md §6.1). O contrato **não foi altera
 | --- | --- | --- |
 | `status` | `sucesso` | a classe |
 | `veredito` | `viavel` ou `inviavel` | nulo (nunca `indeterminado`) |
-| `totais` | os do container **mais `orcamento`** | nulo |
+| `totais` | os do container **mais `vendas_historicas`** e, quando o comando o traz, **`orcamento`** | nulo |
 | `assercoes` | as do resultado | as do desfecho (`[]` em `erro_infra`) |
 | `decomposicao` | a do container, como veio | nulo |
+| `linhas` | o detalhamento do container, como veio (T-259) | nulo |
+| `diagnostico` | nulo | em `erro_codigo`, a causa e o que houver de falha e problemas (T-204); nulo nos demais |
+| `meta_venda`, `proposito` | os do comando (T-270) | os do comando (T-270) |
 | evento: `veredito`, `total_*`, `diferenca_*` | presentes | **ausentes** |
+| evento: `meta_venda`, `proposito` | a meta, quando houve; o propósito, só `busca_meta` | o mesmo |
+
+O detalhamento entra no **mesmo `INSERT`**, e o evento continua sem ele: a consulta do job não
+pode carregar o período inteiro de todas as simulações, e quem o quer o busca pela rota própria
+(T-260). O log `resultado gravado` registra quantas competências e quantas combinações de
+competência e matrícula foram gravadas, nunca o conteúdo.
 
 O `indeterminado` é o veredito interno da T-066 e **nunca** é gravado nem publicado: o schema e a
 tabela o declaram nulo/ausente fora de `sucesso`, e a `api` lê `sucesso` + `indeterminado` como
@@ -97,6 +106,8 @@ resultado já gravado; por isso a consulta vem **antes** de subir o container. S
 worker não executa de novo (60 s de container) nem grava outra: republica o evento e dá `ack`. A
 consulta ignora `erro_infra`, para um comando reenviado da DLQ executar de novo.
 
+"O mesmo comando" é o mesmo código no mesmo job, **na mesma meta e com o mesmo propósito** (T-270): a busca da meta maior (T-273) roda o mesmo código em várias metas candidatas, e cada candidata é uma execução com a própria linha. A consulta compara `meta_venda` com `IS NOT DISTINCT FROM`, então um comando sem meta só encontra a linha sem meta.
+
 Se o evento se perde (nenhuma fila ligada), as três tentativas encontram a mesma linha, o comando
 vai à DLQ e **a linha é uma só e continua consultável**. Religada a fila, o operador reenvia o
 comando e o evento sai, sem executar o container nem gravar outra linha. Há um teste de ponta a
@@ -112,11 +123,7 @@ com o banco fora não há onde gravar.
 
 ## O que a T-067 não resolve
 
-- **O erro da regra não tem onde viajar.** `resultados_simulacao` não tem coluna para o
-  `tipo/mensagem/traceback` de um `erro_codigo`, e o evento também não. O codegen precisaria deles
-  para regenerar o código com o erro em mãos. É uma lacuna do modelo (migration da `api`), não
-  desta tarefa: o `stdout`, o `stderr` e a mensagem da regra seguem só na memória do worker, e nunca
-  chegam a log.
+- **O erro da regra não tinha onde viajar.** Resolvido pela T-204: o `tipo/mensagem/traceback` de um `erro_codigo` vai para `resultados_simulacao.diagnostico`, e o evento continua só com a referência. Ver [`t204-diagnostico.md`](t204-diagnostico.md).
 - **A reconciliação de resultado órfão** (linha sem evento entregue) é operação, não código desta
   sprint. A DLQ guarda o comando, e reenviá-lo republica o evento.
 - **A integração com a `api` e o codegen reais não é exercitada aqui.** Os dois consumidores

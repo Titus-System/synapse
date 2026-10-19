@@ -66,15 +66,15 @@ def aplicar_regra(bases, apuracao_base, competencias): ...
 | `apuracao_base` | `pandas.DataFrame` | O baseline congelado (T-032) das competências do período, concatenado. |
 | `competencias` | `list[str]` | As competências a processar, cada uma `AAAA-MM` (ex.: `["2025-09", "2025-10", "2025-11"]`), na ordem crescente em que chegaram no comando `executar-codigo`. |
 
-Retorno: `dict[str, pandas.DataFrame]` com duas chaves:
+Retorno: `dict` com três chaves, duas tabelas e uma lista:
 
 | Chave | Conteúdo |
 | --- | --- |
 | `apuracao_simulada` | Apuração por matrícula e por competência sob a regra proposta: `matricula`, `cod_loja`, `cod_marca`, `cod_cargo`, `competencia`, `comissao`. Mesmo formato de `apuracao_base`, com o mesmo conjunto de linhas (uma por matrícula elegível e por competência do período) - a regra ajusta `comissao` onde se aplica e mantém as demais linhas iguais ao baseline. |
 | `contribuicoes` | Contribuição por matrícula, por competência e por elemento da regra: as mesmas dimensões de `apuracao_simulada`, mais `elemento_ref` e `delta` (o quanto aquele elemento mudou a comissão daquela matrícula naquela competência). |
+| `elementos_implementados` | `list[str]` com o identificador de cada elemento da regra que o código implementa, tenha ele gerado contribuição ou não. |
 
-O harness agrega esse retorno por linha nas dimensões do domínio, inclusive por
-competência. A função gerada não devolve totais nem quebras já somadas.
+O harness agrega as duas tabelas por linha nas dimensões do domínio, inclusive por competência. A função gerada não devolve totais nem quebras já somadas. A lista de elementos implementados não entra na agregação: ela serve à conferência de cobertura.
 
 ## `RegraFn`: o contrato de entrada e saída
 
@@ -85,7 +85,7 @@ geração (T-054/T-055) recebe sobre o formato esperado.
 ```python
 type RegraFn = Callable[
     [dict[str, pandas.DataFrame], pandas.DataFrame, list[str]],
-    dict[str, pandas.DataFrame],
+    dict[str, pandas.DataFrame | list[str]],
 ]
 ```
 
@@ -130,9 +130,7 @@ a `competencia` de cada linha com o que a regra propõe (ex.: `if competencia ==
 
 ### O que a função devolve
 
-Um `dict` com exatamente as duas chaves descritas na tabela da seção "A assinatura":
-`apuracao_simulada` e `contribuicoes`. Nenhuma chave extra é lida pelo harness; nenhuma
-das duas pode faltar.
+Um `dict` com exatamente as três chaves descritas na tabela da seção "A assinatura": `apuracao_simulada`, `contribuicoes` e `elementos_implementados`. Nenhuma chave extra é lida pelo harness; nenhuma das três pode faltar.
 
 **`apuracao_simulada`** - mesmo formato de `apuracao_base` (mesmas colunas e tipos).
 Precisa ter **o mesmo conjunto de linhas** de `apuracao_base` (mesma `matricula` +
@@ -153,6 +151,8 @@ mesma matrícula na mesma competência (ex.: um acréscimo percentual e uma excl
 concorrendo), cada elemento entra com sua própria linha e seu próprio `delta` - a soma
 das linhas daquela matrícula/competência em `contribuicoes` bate com a diferença total
 dela entre `apuracao_simulada` e `apuracao_base`.
+
+**`elementos_implementados`** - `list[str]` com o identificador de cada elemento da regra que o código implementa (seção "Como o código declara o elemento que implementa"). Entra todo elemento implementado, tenha ou não gerado contribuição no período. Todo `elemento_ref` que aparece em `contribuicoes` também está nesta lista.
 
 ### O que "pura" significa aqui
 
@@ -177,7 +177,7 @@ A função pode levantar qualquer exceção Python (ex.: `KeyError` por coluna a
 `ZeroDivisionError`). O harness não a captura silenciosamente: uma exceção não tratada
 propaga e o worker classifica a execução como `erro_codigo` (T-065) - o job para, não
 devolve número parcial. O mesmo vale para um retorno que não seja um `dict` com as
-duas chaves esperadas, ou cujos DataFrames não tenham as colunas exigidas: o validador
+duas tabelas esperadas, ou cujos DataFrames não tenham as colunas exigidas: o validador
 de saída (`validar-saida.py`) rejeita antes de o resultado ser aceito, e essa rejeição
 também vira `erro_codigo`. Não existe "resultado parcial aceito" - ver ARCHITECTURE.md
 §1.5, "a regra é simulada por inteiro".
@@ -212,16 +212,14 @@ def aplicar_regra(bases, apuracao_base, competencias):
     contribuicoes["delta"] = delta.to_numpy()
     contribuicoes = contribuicoes[contribuicoes["delta"] != 0.0].reset_index(drop=True)
 
-    return {"apuracao_simulada": simulada.reset_index(drop=True), "contribuicoes": contribuicoes}
+    return {
+        "apuracao_simulada": simulada.reset_index(drop=True),
+        "contribuicoes": contribuicoes,
+        "elementos_implementados": ["elem.1"],
+    }
 ```
 
-Chamado com `competencias=["2025-09", "2025-10", "2025-11"]`, esse exemplo (acréscimo
-de 1% em novembro na marca 10) devolve `apuracao_simulada` com linhas para os três
-meses, mas só altera `comissao` nas linhas de novembro/marca 10; `contribuicoes` só
-tem linhas de novembro. Setembro e outubro aparecem em `decomposicao.competencia` com
-valor zero - simulados e sem efeito, não ausentes (ver `resultado-decomposicao.schema.json`).
-O exemplo completo, testado e validado, está em
-[`exemplo/regra.py`](exemplo/regra.py).
+Chamado com `competencias=["2025-09", "2025-10", "2025-11"]`, esse exemplo (acréscimo de 1% em novembro na marca 10) devolve `apuracao_simulada` com linhas para os três meses, mas só altera `comissao` nas linhas de novembro/marca 10; `contribuicoes` só tem linhas de novembro. Setembro e outubro aparecem em `decomposicao.competencia` com valor zero - simulados e sem efeito, não ausentes (ver `resultado-decomposicao.schema.json`). `elementos_implementados` traz `elem.1`, e traria do mesmo jeito se nenhuma venda da marca 10 tivesse ocorrido em novembro e `contribuicoes` saísse vazia. O exemplo completo, testado e validado, está em [`exemplo/regra.py`](exemplo/regra.py).
 
 ## O harness: `preparar()`, `chamar()`, `montar_resultado()`
 
@@ -241,7 +239,7 @@ sustenta a garantia de "Regras da entrada" abaixo. Não filtra, não transforma:
 recorte por `competencias` já aconteceu antes, na preparação real (T-033), fora do
 escopo deste contrato mínimo.
 
-### `chamar(regra, bases, apuracao_base, competencias) -> dict[str, pandas.DataFrame]`
+### `chamar(regra, bases, apuracao_base, competencias) -> dict[str, pandas.DataFrame | list[str]]`
 
 ```python
 def chamar(
@@ -249,7 +247,7 @@ def chamar(
     bases: dict[str, pandas.DataFrame],
     apuracao_base: pandas.DataFrame,
     competencias: list[str],
-) -> dict[str, pandas.DataFrame]:
+) -> dict[str, pandas.DataFrame | list[str]]:
 ```
 
 Chama `regra` (a função gerada) passando cópias de `bases` (via `preparar`) e de
@@ -263,7 +261,7 @@ exceção aqui dentro é `erro_codigo` (a função gerada quebrou); uma falha em
 
 ```python
 def montar_resultado(
-    saida: dict[str, pandas.DataFrame],
+    saida: dict[str, pandas.DataFrame | list[str]],
     apuracao_base: pandas.DataFrame,
     competencias: list[str],
     orcamento: float,
@@ -315,22 +313,56 @@ converte para string.
 de referência de leitura, embora essa lógica não seja reaproveitada pelo código
 gerado).
 
+## O payload do container
+
+O worker entrega a execução ao container num JSON de uma linha pelo stdin. O executor recusa campo desconhecido ou faltante, em vez de ignorá-lo: um payload divergente falha alto e não roda com uma entrada que o harness não entende. Por isso o worker e a imagem do sandbox mudam juntos sempre que o payload muda.
+
+| Campo | Obrigatório | Conteúdo |
+| --- | --- | --- |
+| `job_id` | sim | Identificador do job, vindo de [`executar-codigo`](../events/executar-codigo.schema.json). |
+| `codigo_gerado_id` | sim | Linha de `codigos_gerados` executada. |
+| `linguagem` | sim | `python`, a única aceita. |
+| `fonte` | sim | O código gerado, lido pelo worker de `codigos_gerados.fonte`. O código viaja por referência no comando e só aqui vai por conteúdo. |
+| `competencias` | sim | Lista não vazia com as competências do comando, cada uma `AAAA-MM`. |
+| `meta_venda` | não | Meta de venda do comando, em reais e estritamente positiva. Ausente, a execução usa as vendas históricas. |
+
+O orçamento, `elementos_exigidos` e `proposito` não entram no payload. O orçamento julga o resultado, e quem produz o número não alcança o critério que vai julgá-lo (seção "Regras da entrada"). A conferência de cobertura é do worker, fora do container, e o propósito não muda a execução.
+
+### A execução na meta de venda
+
+Com `meta_venda`, o harness escala as vendas antes de chamar a função gerada, e o resultado inteiro passa a descrever o período como se as vendas tivessem atingido a meta:
+
+1. Soma o `vlr_venda` de todas as vendas das competências do job, em todas as lojas, marcas e cargos. Esse é o total histórico de vendas do período.
+2. Multiplica o `vlr_venda` de cada uma dessas vendas pelo mesmo fator, `meta_venda / total histórico`. A proporção entre lojas, marcas, cargos, pessoas e competências se mantém: com total histórico de R$ 10 milhões e meta de R$ 11 milhões, uma venda de R$ 100 passa a R$ 110. `rh`, `comissoes` e `eventos_rh` não mudam.
+3. Reapura o baseline sobre as vendas escaladas, com a mesma função e as mesmas entradas que produziram o baseline congelado. Com fator 1, a reapuração reproduz o baseline congelado.
+4. Chama a função gerada com `bases["vendas"]` e `apuracao_base` já escalados, no mesmo formato e com os mesmos tipos de sempre.
+
+A função gerada não muda e não sabe da meta: recebe as vendas e o baseline da meta no lugar dos históricos, e `totais.baseline` e `totais.simulado` saem apurados na meta. O escalonamento é aplicado à entrada, e não aos totais depois da execução, porque a apuração não é linear nas vendas: o piso de afastamento das regras base e o arredondamento por linha fazem o resultado variar fora da proporção das vendas. Sem `meta_venda`, nada disso acontece, e a execução é a mesma de antes de o campo existir.
+
+Na meta não há total congelado contra o qual conferir o baseline devolvido. O worker confere o baseline escalado por um caminho que o código gerado não alcança, como faz com o congelado (T-270).
+
 ## O que o harness faz antes e depois
 
 Antes de chamar: carrega as bases e o baseline com tipos explícitos, recorta pelas
 competências do job (exceto `eventos_rh` - histórico completo) e passa cópias à
-função gerada.
+função gerada. Com `meta_venda` no payload, escala as vendas e reapura o baseline antes de passar as cópias (seção "O payload do container").
 
 Depois de chamar:
 1. Agrega `apuracao_simulada` e `apuracao_base` em `totais`, somando o período inteiro.
-2. Monta a `decomposicao` por elemento (de `contribuicoes`) e pelas dimensões `loja`,
-   `marca`, `cargo` e `competencia` - uma entrada por mês do período, mesmo com zero.
+2. Monta a `decomposicao`: as cinco quebras da diferença, por elemento (de
+   `contribuicoes`) e pelas dimensões `loja`, `marca`, `cargo` e `competencia` - uma
+   entrada por mês do período, mesmo com zero -, e as três quebras absolutas
+   (`matricula`, `loja_absoluto`, `competencia_absoluto`), que somam `totais.simulado`.
+   Das mesmas parcelas em centavos monta também o detalhamento por competência e
+   matrícula (`resultado-linhas.schema.json`), num artefato separado do resultado
+   (T-259).
 3. Roda as asserções invariantes (T-031).
 4. Valida a saída contra o schema (`validar-saida.py`).
 5. Serializa o resultado.
 
-A decomposição completa (T-035) e as asserções (T-031) são de outras tarefas. O
-`harness.py` deste diretório traz uma versão mínima só para os testes do contrato.
+A decomposição completa (T-035), as quebras absolutas e o detalhamento (T-259) e as
+asserções (T-031) são de outras tarefas. O `harness.py` deste diretório traz uma versão
+mínima só para os testes do contrato.
 
 ## A saída e sua fronteira
 
@@ -338,13 +370,14 @@ O artefato final é o `resultado-simulacao`, descrito por
 [`../domain/resultado-simulacao.schema.json`](../domain/resultado-simulacao.schema.json):
 `totais`, `assercoes` e `decomposicao`. É contra esse schema que o `validar-saida.py`
 confere. Um total sozinho não basta: sem a decomposição não dá para dizer de onde veio
-a diferença nem conferir que todo elemento teve efeito.
+a diferença nem quanto dela cabe a cada elemento.
 
-Fronteira container e worker: o que sai do container não inclui o orçamento nem o
-veredito. O harness produz `baseline`, `simulado`, `diferenca_abs`, `diferenca_pct`, a
-`decomposicao` e as `assercoes`. É o worker, fora do container, que adiciona o
-orçamento a `totais` e calcula o veredito (T-066). O artefato validado neste diretório
-já traz o orçamento só para servir de exemplo completo.
+O detalhamento por competência e matrícula viaja **ao lado** do resultado, não dentro
+dele: tem seu próprio schema (`resultado-linhas.schema.json`), sua própria coluna
+(`resultados_simulacao.linhas`) e sua própria rota de consulta, porque é duas ordens de
+grandeza maior que os agregados e a consulta do job não pode carregá-lo (T-259).
+
+Fronteira container e worker: o que sai do container não inclui o orçamento, o total histórico de vendas, o total vendido de cada linha do detalhamento nem o veredito. O harness produz `baseline`, `simulado`, `diferenca_abs`, `diferenca_pct`, a `decomposicao`, as `assercoes` e o detalhamento. É o worker, fora do container, que adiciona a `totais` o orçamento, quando o comando o traz, e `vendas_historicas`, o total de vendas das competências antes de qualquer escalonamento, lido de uma fonte que o código gerado não alcança (T-270). Da mesma fonte, o worker acrescenta a cada linha do detalhamento `vendas`, o total vendido da matrícula na competência, e recusa uma linha que já sai do container com esse campo (T-282). É também o worker que calcula o veredito (T-066) e confere a cobertura (seção "Conferência de cobertura"). Sem orçamento no comando, `totais.orcamento` fica ausente e o resultado de sucesso sai sem veredito (T-281). O artefato validado neste diretório já traz o orçamento só para servir de exemplo completo.
 
 ## Como o código declara o elemento que implementa
 
@@ -352,11 +385,50 @@ Cada parte da regra tem um identificador estável no espaço único de
 `comum.schema.json#/$defs/elemento_ref`: campo do núcleo é `nucleo.<campo>` (ex.:
 `nucleo.percentual`), item de `especificacoes` é `elem.<n>` (ex.: `elem.1`).
 
-O código gerado declara o que cada trecho implementa preenchendo `elemento_ref` em
-`contribuicoes`, e esses mesmos identificadores viram as chaves de
-`decomposicao.elemento`. É essa correspondência que permite conferir a cobertura
-(T-056): elemento da representação sem chave na decomposição é erro de geração, e o
-job falha em vez de devolver um número que parece completo.
+O código gerado declara os elementos que implementa na lista `elementos_implementados` do retorno, e atribui cada contribuição ao elemento que a produziu preenchendo `elemento_ref` em `contribuicoes`. Os identificadores de `contribuicoes` viram as chaves de `decomposicao.elemento`.
+
+A decomposição sozinha não diz o que foi implementado, porque só tem chave para os elementos que geraram contribuição. Uma exclusão retira pessoas do alcance da regra e não gera valor próprio. Uma condição de limiar decide se o efeito vale e também não gera valor próprio. Um elemento cuja condição não ocorre nas competências processadas não gera nenhuma linha. Nos três casos o elemento está implementado, não aparece em `contribuicoes` e é declarado em `elementos_implementados`:
+
+```python
+    return {
+        "apuracao_simulada": simulada.reset_index(drop=True),
+        "contribuicoes": contribuicoes,
+        # elem.1 é uma exclusão: não tem linha em contribuicoes, mas está implementado.
+        "elementos_implementados": ["nucleo.percentual", "elem.1"],
+    }
+```
+
+Os elementos que a regra exige são `nucleo.percentual`, quando o núcleo tem percentual, e o `ref` de cada item de `especificacoes`. Toda contribuição é atribuída a um deles. Os demais campos do núcleo (`vigencia`, `loja`, `marca`, `cargo`) recortam o alcance da regra, não geram contribuição própria e não são declarados à parte.
+
+A execução falha como `erro_codigo` quando um elemento exigido não está em `elementos_implementados`, ou quando `contribuicoes` atribui valor a um elemento que a regra não exige. Elemento esquecido ou inventado é erro de geração, e o job para em vez de devolver um número que parece completo. Declare só o que o código implementa: a lista não substitui a implementação.
+
+Um elemento que não pode ser implementado com as bases recebidas não é declarado. A função levanta uma exceção que nomeia o elemento e o motivo, por exemplo `raise NotImplementedError("elem.2: as bases não têm a data de aniversário da loja")`, e o job para. Declarar um elemento que o código não implementa, por exemplo com um efeito fixo em zero no lugar da lógica dele, é o pior erro possível, porque produz um número que parece completo sem a parte da regra que faltou.
+
+## Conferência de cobertura
+
+A conferência é do worker (T-241) e roda fora do container, como a comparação com o baseline (T-066): o código gerado divide o processo com o harness e não é confiável para julgar a si mesmo.
+
+Entradas:
+
+- `elementos_exigidos`, do comando [`executar-codigo`](../events/executar-codigo.schema.json): `nucleo.percentual`, quando o núcleo da regra tem percentual, e o `ref` de cada item de `especificacoes`. O codegen monta a lista a partir da representação da regra que gerou o código (T-242).
+- `elementos_implementados` e os `elemento_ref` de `contribuicoes`, que saem do container no retorno de `aplicar_regra`.
+
+A cobertura está completa quando valem as duas condições:
+
+1. todo elemento de `elementos_exigidos` está em `elementos_implementados`;
+2. todo `elemento_ref` presente em `contribuicoes` está em `elementos_exigidos`.
+
+Juntas, as duas garantem também que todo elemento com contribuição está declarado em `elementos_implementados`. A segunda impede que o código atribua valor a um elemento que a regra não tem, como um `elem.9` inventado ou um recorte do núcleo como `nucleo.marca`: esse valor apareceria na decomposição como se fosse parte da regra.
+
+Um elemento declarado e sem contribuição é aceito: é o caso da exclusão, da condição de limiar e do elemento cuja condição não ocorre no período. Declarar a mais também não reprova: um elemento declarado que a regra não exige, sem contribuição, não muda nenhum número. Um retorno sem a chave `elementos_implementados` não declarou nada. Uma chave presente que não seja uma lista de identificadores no espaço de `elemento_ref` é saída fora do contrato, recusada como uma tabela sem as colunas exigidas.
+
+Cobertura incompleta é falha do código gerado. O resultado sai com `status = erro_codigo` e `causa = cobertura_incompleta` no diagnóstico ([`resultado-diagnostico`](../domain/resultado-diagnostico.schema.json)), e o job termina em erro pelo mesmo caminho das demais falhas do código gerado. Não há resultado parcial. O diagnóstico diz o que falhou: `elementos_ausentes` traz os elementos exigidos que o código não declarou, e `elementos_fora_da_regra` os elementos a que ele atribuiu valor sem que a regra os exija.
+
+Sem `elementos_exigidos` no comando, o worker não faz a conferência, e a execução segue como antes de o campo existir. Assim um comando publicado antes desta mudança, e o código gerado antes de o retorno ter `elementos_implementados`, continuam executados como antes. O codegen só envia a lista para código gerado com o contrato que pede a declaração.
+
+Um elemento que o código não consegue implementar não chega à conferência: a função levanta exceção, e a execução termina como `erro_codigo` com `causa = excecao`, com o elemento e o motivo na mensagem da falha.
+
+A declaração impede que um elemento seja esquecido em silêncio, mas não prova que ele foi implementado, nem que está certo: um código que declara um elemento e põe um efeito fixo em zero no lugar da lógica dele passa na conferência. A implementação e a correção do resultado são provadas pelos casos com resultado esperado (T-243, T-245).
 
 ## Bibliotecas permitidas no sandbox
 
@@ -411,5 +483,6 @@ Na CI, esses passos rodam no workflow `Validar contratos`
 - `docs/ARCHITECTURE.md` §1.4, §1.5, §3.4.
 - `docs/adrs/ADR-002.md`: contratos na raiz, evolução aditiva.
 - `../domain/resultado-simulacao.schema.json`, `../domain/representacao-regra.schema.json`.
-- `../events/executar-codigo.schema.json`: origem de `competencias` como array.
+- `../events/executar-codigo.schema.json`: origem de `competencias` como array, de `elementos_exigidos` e de `meta_venda`.
+- `../domain/resultado-diagnostico.schema.json`: a causa `cobertura_incompleta`.
 - `docs/decisoes/dec-092.md`.
