@@ -69,6 +69,14 @@ NUCLEO: dict[str, Any] = {
 
 # Com um construto habilitado, o elemento passa a ser um `anyOf`, e sem esta descrição o modelo
 # deixa de criar o genérico para o que o núcleo não comporta.
+_CAMPOS: dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "Pares livres do enunciado para um elemento genérico, como o escopo e os limites de "
+        "uma regra que nenhum construto representa. Só valores que o trecho traz."
+    ),
+    "additionalProperties": {"anyOf": [{"type": "string"}, {"type": "number"}]},
+}
 _DESCRICAO_GENERICO = (
     "Qualquer condição ou efeito da regra que nenhum outro construto representa. O núcleo só "
     "tem vigência, loja, marca, cargo, percentual e taxas por cargo: qualquer outra condição, "
@@ -79,9 +87,15 @@ _DESCRICAO_GENERICO = (
 
 
 def schema_elemento(construto: Construto | None = None) -> dict[str, Any]:
-    propriedades = {"construto_pretendido": _TEXTO, "descricao": _TEXTO, "trecho": _TEXTO}
+    propriedades: dict[str, Any] = {
+        "construto_pretendido": _TEXTO,
+        "descricao": _TEXTO,
+        "trecho": _TEXTO,
+    }
     obrigatorios = list(propriedades)
-    if construto is not None:
+    if construto is None:
+        propriedades["campos"] = _CAMPOS
+    else:
         propriedades.update(
             {
                 nome: (

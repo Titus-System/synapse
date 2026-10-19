@@ -70,6 +70,9 @@ def test_corpus_versionado_cobre_categorias_obrigatorias() -> None:
         "exclusao_matricula",
         "exclusao_so_de_uma_regra",
         "exclusao_do_codigo_incluido",
+        "faixa_escada_de_bonus",
+        "faixa_limiar_unico",
+        "faixa_loja_generico",
     } <= set(ids)
     for caso in CORPUS:
         assert caso["texto"] and caso["competencias_publicadas"]
@@ -90,7 +93,9 @@ def test_corpus_mantem_percentuais_com_precisao_decimal() -> None:
 
 
 def _sem_descricao(elemento: dict[str, Any]) -> dict[str, Any]:
-    return {campo: valor for campo, valor in elemento.items() if campo != "descricao"}
+    return {
+        campo: valor for campo, valor in elemento.items() if campo not in ("descricao", "campos")
+    }
 
 
 def _indisponibilidade_503(erro: BaseException) -> bool:
@@ -238,7 +243,7 @@ async def test_corpus_contra_modelo_real(
     esperados = caso["representacao_esperada"]["especificacoes"]
     if esperados:
         assert len(regra["especificacoes"]) == len(esperados)
-        # A descrição é paráfrase do modelo; os demais campos são determinísticos.
+        # Descrição e `campos` de um genérico são texto livre do modelo; o resto é determinístico.
         assert [_sem_descricao(e) for e in regra["especificacoes"]] == [
             _sem_descricao(e) for e in esperados
         ]

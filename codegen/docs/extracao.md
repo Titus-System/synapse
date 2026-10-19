@@ -1,4 +1,4 @@
-# Extração de regra — T-203, T-278, T-206, T-207, T-205
+# Extração de regra — T-203, T-278, T-206, T-207, T-205, T-208
 
 O motor em `app/extracao/motor.py` recebe texto, competências e o modelo configurado, e retorna a representação da T-004, os diagnósticos de rebaixamento, os parâmetros da simulação (T-278) e a chamada original para auditoria. O repositório em `app/repositorio/extracoes.py` persiste esse resultado no PostgreSQL. Não há publicação nem ligação ao grafo nesta entrega; essas entradas pertencem à T-204 e o consumo pela API pertence à T-202.
 
@@ -33,7 +33,7 @@ O período da simulação só existe quando o texto manda simular um período ou
 
 `validar_parametros` roda no motor, ao gravar e ao ler a extração. Um valor fora do contrato vira `ValueError` sem o valor, nem na mensagem nem na cadeia da exceção: fora do motor não há supressão, e a exceção do `jsonschema` traz o valor reprovado, que é o que o texto do usuário disse.
 
-O registro explícito de construtos tipados (`app/extracao/registro.py`) habilita hoje `bonus_fixo`, `condicao_limiar`, `janela_datas` e `exclusao`. Não há importação de módulos a partir da resposta da LLM. Para habilitar um construto, seu módulo em `app/extracao/construtos/` fornece schema, instruções e conversor por `Construto` (`app/extracao/construto.py`), e uma linha no registro o habilita; o resultado ainda precisa passar pelo contrato compartilhado. O conversor recebe o rascunho e um `ContextoExtracao` (texto e competências do job) e pode recusar o elemento com `ElementoRebaixadoError(motivo)`, cujo motivo vira o do rebaixamento; qualquer outro `ValueError` é `campo_obrigatorio_ausente`.
+O registro explícito de construtos tipados (`app/extracao/registro.py`) habilita hoje `bonus_fixo`, `condicao_limiar`, `janela_datas`, `exclusao` e `faixa_valor`. Não há importação de módulos a partir da resposta da LLM. Para habilitar um construto, seu módulo em `app/extracao/construtos/` fornece schema, instruções e conversor por `Construto` (`app/extracao/construto.py`), e uma linha no registro o habilita; o resultado ainda precisa passar pelo contrato compartilhado. O conversor recebe o rascunho e um `ContextoExtracao` (texto e competências do job) e pode recusar o elemento com `ElementoRebaixadoError(motivo)`, cujo motivo vira o do rebaixamento; qualquer outro `ValueError` é `campo_obrigatorio_ausente`.
 
 Habilitar o primeiro construto transforma `elementos.items` em um `anyOf`, e com isso o modelo `gemini-3.1-flash-lite` passou a copiar as competências publicadas para `nucleo.vigencia`, a pôr o período a simular na vigência e a descartar o que o núcleo não comporta, em vez de criar o genérico. As descrições do schema de `vigencia`, `competencias` e da variante genérica corrigem isso, e os casos do corpus que cobrem esses comportamentos ficam como a prova. Ao habilitar o próximo construto, rode o corpus inteiro contra o modelo real.
 
@@ -123,3 +123,11 @@ O rascunho traz `data_inicial`, `data_final` e `efeito`. As datas saem de `resol
 Sem algarismos, o efeito percentual exige um número por extenso ligado a `%` ou "por cento", como "dois e meio por cento". Uma frase vaga como "uma fração da comissão" não informa proporção e rebaixa com `valor_sem_lastro`. A unidade monetária é conferida na fonte ao redor do número, inclusive quando o recorte do valor omite `R$`, "real", "reais" ou "centavos". A conferência é por ocorrência: um valor monetário separado no mesmo trecho não invalida uma fração com lastro próprio.
 
 `bonus_fixo` sai em reais e rejeita um trecho com percentual. `acrescimo_base` não está no vocabulário do rascunho, então um efeito que só caberia nele rebaixa o elemento (`campo_obrigatorio_ausente`). `bonus_fixo` usa o mesmo `valor_monetario`.
+
+### `faixa_valor` (T-208)
+
+Cada faixa é um elemento, na ordem do texto, com `limite_inferior`, `limite_superior` e `efeito` (o normalizador de `efeito.py`). Os limites saem como ditos: a lacuna entre 50.000 e 50.001 não é preenchida. `limite_inferior` e `limite_superior` têm lastro numérico como qualquer número de construto.
+
+A faixa aberta ("acima de R$ 60.001") é declarada com `faixa_aberta`, sem `limite_superior`, e o conversor usa `LIMITE_SUPERIOR_ABERTO` (R$ 1 bilhão, acima de qualquer total do dataset; o maior mês vende R$ 18,68 milhões). Uma faixa aberta exige no trecho uma palavra de abertura ("acima", "a partir de", "mais de"); sem ela, rebaixa com `campo_obrigatorio_ausente`. Um limiar único com efeito próprio ("acima de R$ 40 mil, bônus de R$ 3.500") é uma faixa aberta; a condição sem efeito próprio fica para `condicao_limiar`.
+
+"Venda individual" é o total mensal do colaborador. O contrato não tem escopo de agregação em `faixa_valor`, então uma faixa sobre a venda total de loja ou de marca, ou sobre outra métrica, é `generico`. Para não perder o escopo e os limites, o elemento genérico aceita `campos` (pares livres, já previstos no contrato): `campos_com_lastro` mantém só o par cuja chave é um identificador simples e cujo valor aparece no trecho do elemento. Sem lastro no trecho, o genérico fica só com a descrição. Os `campos` que um conversor devolve ao rebaixar (como a `dimensao` e os `valores` da `exclusao`) já foram resolvidos e têm prioridade: os pares livres do modelo só entram quando o conversor não trouxe nenhum.
