@@ -713,6 +713,73 @@ sys.stdout.buffer.write(montar_prompt_geracao(regra).encode("utf-8"))
     assert not list(tmp_path.rglob("*.jsonl"))
 
 
+def _convencoes_do_caso_geracao(caso_id: str) -> dict[str, str]:
+    caminho = COMPONENTE.parent / "worker" / "tests" / "fixtures" / "casos_geracao"
+    caso = simplejson.loads((caminho / caso_id / "caso.json").read_text(), use_decimal=True)
+    regra = RepresentacaoRegra.model_validate(caso["representacao"])
+    documento = simplejson.loads(montar_prompt_geracao(regra), use_decimal=True)
+    return documento["instrucoes_fixas_do_sistema"]["convencoes"]
+
+
+def test_bonus_fixo_explicita_semantica_do_caso_t245() -> None:
+    convencoes = _convencoes_do_caso_geracao("bonus-fixo-lista-e-filtro")
+    bonus = convencoes["bonus_fixo"]
+
+    assert "uma única vez por matrícula e competencia" in bonus
+    assert "várias linhas de vendas" in bonus
+    assert "matrícula ausente do quadro" in bonus
+    assert "recorte e a vigência do núcleo" in bonus
+    assert "alvo.tipo='lista'" in bonus
+    assert "alvo.tipo='filtro'" in bonus
+    assert "cod_cargo numérico" in bonus
+    assert "'admitido_ate'" in bonus
+    assert "data_admiss de bases['rh'] juntada por matricula e competencia" in bonus
+    assert "inclusiva" in bonus
+    assert "alvos sobrepostos acumulam ambos os bônus" in bonus
+    assert "delta de nucleo.percentual sem absorver o bônus" in bonus
+    assert "elementos_implementados" in bonus
+
+
+def test_janela_datas_explicita_semantica_do_caso_t245() -> None:
+    convencoes = _convencoes_do_caso_geracao("janela-datas-black-friday")
+    janela = convencoes["janela_datas"]
+
+    assert "data_inicial <= data_venda <= data_final" in janela
+    assert "data_ref é referência da fonte e não substitui data_venda" in janela
+    assert "data_venda nula não entram na janela" in janela
+    assert "somente pela coluna competencia das vendas" in janela
+    assert "agrupe as vendas dentro da janela por matricula e competencia" in janela
+    assert "vlr_venda das vendas da janela" in janela
+    assert "NÃO a comissão do baseline" in janela
+    assert "delta exclusivo do elemento da janela" in janela
+    assert "elementos_implementados" in janela
+
+
+def test_prompt_do_combinado_inclui_janela_sem_confundir_bonus_de_faixa() -> None:
+    convencoes = _convencoes_do_caso_geracao("combinado-elementos")
+
+    assert "janela_datas" in convencoes
+    assert "bonus_fixo" not in convencoes  # O efeito da faixa não é construto bonus_fixo.
+    assert "quaisquer bônus/faixas concorrentes" in convencoes["janela_datas"]
+
+
+@pytest.mark.parametrize(
+    "caso_id",
+    ["nucleo-controle", "generico-admissao", "generico-aniversario-loja"],
+)
+def test_casos_sem_novos_construtos_preservam_as_convencoes_anteriores(caso_id: str) -> None:
+    convencoes = _convencoes_do_caso_geracao(caso_id)
+
+    assert "bonus_fixo" not in convencoes
+    assert "janela_datas" not in convencoes
+
+
+def test_bonus_fixo_duplo_nao_duplica_instrucao_no_prompt() -> None:
+    convencoes = _convencoes_do_caso_geracao("bonus-fixo-lista-e-filtro")
+
+    assert list(convencoes).count("bonus_fixo") == 1
+
+
 CASOS_GERACAO = COMPONENTE.parent / "worker" / "tests" / "fixtures" / "casos_geracao"
 
 

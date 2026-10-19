@@ -93,6 +93,63 @@ _CONVENCOES = {
     ),
 }
 
+
+# Orientações específicas só entram quando o construto está presente. Isso evita aumentar e
+# alterar o prompt dos casos já aprovados que não usam esses elementos.
+_CONVENCOES_CONSTRUTOS = {
+    "bonus_fixo": (
+        "Para cada elemento de construto bonus_fixo, aplique elemento.valor em reais uma única "
+        "vez por matrícula e competencia presente em apuracao_base, mesmo que a matrícula tenha "
+        "várias linhas de vendas. Nunca multiplique pela quantidade de vendas nem pague para "
+        "matrícula ausente do quadro naquela competência. Respeite o recorte e a vigência do "
+        "núcleo: bônus não alcança linhas fora deles. alvo.tipo='lista' seleciona as "
+        "matrículas textuais em alvo.valor, cruzadas com as linhas de apuracao_base de cada "
+        "competencia; "
+        "não crie linhas extras a partir da lista. alvo.tipo='filtro' seleciona pelas condições "
+        "cadastrais na competência: 'cargo' compara com cod_cargo numérico da linha do "
+        "baseline (converta o código textual da regra), e 'admitido_ate' compara de forma "
+        "inclusiva a data_admiss de bases['rh'] juntada por matricula e competencia. Não use a "
+        "data da venda como admissão nem filtre o cargo em bases['vendas'], que não o possui. "
+        "Cada elemento bonus_fixo contribui separadamente com seu próprio elemento_ref; "
+        "alvos sobrepostos acumulam ambos os bônus, sem eliminar nem duplicar nenhum. "
+        "A comissão nova, dentro do núcleo, é a parcela do percentual proposto sobre vendas "
+        "mais os bônus aplicáveis. Calcule o delta de nucleo.percentual sem absorver o bônus: "
+        "parcela percentual nova menos comissão anterior do baseline; delta do bônus é só seu "
+        "valor fixo. Declare todos os refs em elementos_implementados, mesmo sem atingidos."
+    ),
+    "janela_datas": (
+        "Para cada elemento de construto janela_datas, use exclusivamente data_venda de "
+        "bases['vendas'] como data real para o teste de data_inicial <= data_venda <= "
+        "data_final (limites inclusivos); data_ref é referência da fonte e não substitui "
+        "data_venda. Vendas com data_venda nula não entram na janela: não presuma dia a partir "
+        "de data_ref nem de competencia. Selecione as competências do job somente pela coluna "
+        "competencia das vendas, jamais derivando mês de uma data, e agrupe as vendas dentro "
+        "da janela por matricula e competencia antes de juntá-las ao baseline. Preserve o "
+        "recorte, exclusões e vigência do núcleo; não aplique o efeito fora dessas linhas. "
+        "Para efeito.tipo='acrescimo_pct', efeito.valor é fração decimal que multiplica o "
+        "vlr_venda das vendas da janela (soma no grupo), NÃO a comissão do baseline nem a "
+        "comissão calculada pelo percentual do núcleo; some essa parcela à comissão nova, "
+        "sem substituir o percentual base. Use um delta exclusivo do elemento da janela, "
+        "separado do delta de nucleo.percentual e de quaisquer bônus/faixas concorrentes. "
+        "Não duplique linhas na junção: agregue previamente por matricula e competencia. "
+        "Declare o ref da janela em elementos_implementados mesmo com efeito zero."
+    ),
+}
+
+
+def _construtos_presentes(regra: dict[str, ValorRegra]) -> set[str]:
+    especificacoes = regra.get("especificacoes")
+    construtos: set[str] = set()
+    if not isinstance(especificacoes, list):
+        return construtos
+    for elemento in especificacoes:
+        if isinstance(elemento, dict):
+            construto = elemento.get("construto")
+            if isinstance(construto, str):
+                construtos.add(construto)
+    return construtos
+
+
 # Só entra quando a regra alcança o gerente: presente nas demais, ela leva o modelo a montar a
 # venda da loja sem uso, e esse merge a mais quebrou o código de uma regra só de vendedores.
 _CONVENCOES_DO_GERENTE = {
@@ -123,6 +180,15 @@ _CONVENCOES_DO_GERENTE = {
         "individual, continua usando a venda própria do gerente."
     ),
 }
+
+# Só entra quando a regra alcança o gerente, como _CONVENCOES_DO_GERENTE: sem ela, a convenção
+# da janela manda usar a venda da matrícula também na linha do cargo 150, contra venda do gerente.
+_JANELA_NO_GERENTE = (
+    " Numa linha do cargo 150, a venda da janela é a da loja, e não a da própria matrícula: "
+    "chame venda_da_loja com as vendas já recortadas pela janela, como manda venda do gerente, "
+    "e aplique o efeito sobre esse total. O agrupamento por matricula e competencia vale para "
+    "as linhas dos outros cargos."
+)
 
 # Instruções por construto: entram só quando a regra as usa, para não aumentar nem mudar
 # o prompt dos casos que não contêm esses elementos.
@@ -279,6 +345,11 @@ def montar_prompt_geracao(regra: RepresentacaoRegra) -> str:
     alcanca_o_gerente = _alcanca_o_gerente(contrato)
     if alcanca_o_gerente:
         convencoes.update(_CONVENCOES_DO_GERENTE)
+    for construto in sorted(_construtos_presentes(contrato)):
+        if construto in _CONVENCOES_CONSTRUTOS:
+            convencoes[construto] = _CONVENCOES_CONSTRUTOS[construto]
+    if alcanca_o_gerente and "janela_datas" in convencoes:
+        convencoes["janela_datas"] += _JANELA_NO_GERENTE
     if _possui_construto(contrato, "faixa_valor"):
         convencoes.update(_CONVENCOES_FAIXA_VALOR)
     if _possui_construto(contrato, "condicao_limiar"):
