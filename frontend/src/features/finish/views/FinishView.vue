@@ -273,6 +273,7 @@ onBeforeUnmount(() => {
                   v-if="!carregando && !erroCarregamento && simulacao?.status === 'sucesso'"
                   :aberto="relatorioAberto" :carregando="carregandoRelatorio" :erro="erroRelatorio"
                   :linhas="detalhamento?.linhas" :regra="regraDaSimulacao?.representacao"
+                  :decomposicao="simulacao?.resultado?.decomposicao"
                   @alternar="relatorio.alternar" @tentar-novamente="relatorio.carregar"
                 />
               </div>
