@@ -96,13 +96,19 @@ Todo valor novo passa pela conferência da extração inicial (T-210), contra o 
 - `percentual`, `orcamento` e `meta_venda` por `conferir_numero`.
 - `vigencia` e `competencias` por `conferir_periodo`, com as competências publicadas para o ano implícito.
 - Cada código de loja, marca e cargo por `resolver_codigo`, no vocabulário canônico.
-- Os elementos substituídos ou acrescentados pela montagem da extração inicial.
+- Os elementos pela montagem compartilhada com a extração inicial. Na substituição, o aplicador também fornece o elemento que ocupa a referência naquele ponto do lote, para preservar valores já aplicados.
 
 O valor que não confere não é aplicado: o campo fica como estava, e a operação sai como `DiagnosticoOperacao` com o motivo da conferência (`valor_sem_lastro`, `codigo_fora_do_vocabulario`, `termo_ambiguo` ou `periodo_nao_resolvido`). Uma lista de códigos só é aplicada se todos resolverem, para o escopo não encolher sem o usuário pedir.
 
 Cada operação passa antes pela validação de `trecho_literal(texto_correcao, operacao["trecho"])`. Trecho inexistente, vazio ou não presente no texto corrente produz `DiagnosticoOperacao(indice, "operacao_sem_trecho")`, sem aplicar qualquer mutação. Isso abrange todas as seis operações, inclusive remoções e filtros vazios. O trecho é necessário, mas não substitui a conferência individual dos valores.
 
-Na T-224, uma operação com trecho válido, mas **valor de elemento** não conferido, produz elemento `generico` e `Rebaixamento(..., "valor_sem_lastro", ...)`, usando o trecho literal da operação como descrição segura, sem introduzir números inventados. A mesma regra vale para a substituição e a inclusão. Sem trecho da operação, o elemento atual não é removido nem substituído. Um núcleo ou parâmetro com valor sem lastro permanece inalterado; valores do histórico não justificam alterações.
+Na substituição, os números da descrição podem vir do trecho literal da correção **ou da descrição do próprio elemento atual**. Assim, corrigir apenas o bônus de R$ 500 para R$ 600 não exige repetir a condição de venda acima de R$ 10.000. A descrição candidata deve representar o elemento inteiro após a mudança. A comparação de números da paráfrase mantém o mecanismo lexical da T-210 (`numeros_citados`), sem conversão nova de números por extenso.
+
+Campos numéricos de um construto habilitado podem conservar o valor do mesmo campo no mesmo construto do elemento atual. Qualquer alteração desse valor exige `conferir_numero` contra o trecho na correção corrente. Não se concatenam histórico, outros elementos ou a regra inteira ao texto usado para conferir citações. O trecho da operação e o trecho do elemento continuam exigindo presença literal no texto corrente.
+
+Se uma **substituição** tiver `valor_sem_lastro`, ela não é aplicada: o elemento inteiro permanece exatamente como estava naquele ponto do lote, e o resultado contém `DiagnosticoOperacao(indice, "valor_sem_lastro")`. Não se troca sua descrição pelo trecho da correção, pois esse fragmento pode omitir condições ou ser apenas uma confirmação. Uma substituição com valores conferidos e construto não habilitado continua produzindo `generico` com a **paráfrase completa conferida**.
+
+Uma **inclusão** não herda valores da regra atual. Se houver valor sem lastro, mantém o rebaixamento para `generico` usando o trecho literal da operação, sem incorporar o número inventado; não há elemento anterior a substituir. Um núcleo ou parâmetro com valor sem lastro permanece inalterado. Valores citados apenas no histórico nunca justificam alterações.
 
 ## Invariantes e falhas
 

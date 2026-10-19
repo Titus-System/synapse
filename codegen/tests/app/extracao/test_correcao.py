@@ -266,7 +266,7 @@ def test_substitui_na_mesma_posicao_com_montagem_e_rebaixamento(regra: Represent
             "o limite inferior da faixa é 40 mil",
             {
                 "construto_pretendido": "generico",
-                "descricao": "critério 2 com limite inferior de 40 mil",
+                "descricao": "critério 2 com limite inferior de 90 mil",
                 "trecho": "o limite inferior da faixa é 40 mil",
             },
         ),
@@ -286,12 +286,8 @@ def test_substituicao_sem_lastro_mantem_o_elemento_atual(
         texto=texto,
     )
 
-    assert corrigida["especificacoes"][1] == {
-        "ref": "elem.2",
-        "construto": "generico",
-        "descricao": texto,
-    }
-    assert diagnosticos == [Rebaixamento("elem.2", "valor_sem_lastro", "generico")]
+    assert corrigida == regra.para_contrato()
+    assert diagnosticos == [DiagnosticoOperacao(1, "valor_sem_lastro")]
 
 
 def test_adiciona_no_final_sem_copiar_campos_do_modelo(regra: RepresentacaoRegra) -> None:
@@ -611,7 +607,7 @@ def test_valor_do_historico_nao_justifica_parametro_novo(
     assert diagnosticos == [DiagnosticoOperacao(1, "valor_sem_lastro")]
 
 
-def test_elemento_com_valor_nao_sustentado_vira_generico_sem_o_numero_inventado(
+def test_substituto_com_valor_nao_sustentado_preserva_o_elemento_inteiro(
     regra: RepresentacaoRegra,
 ) -> None:
     texto = "Troque a faixa anterior pela faixa de R$ 40 mil."
@@ -633,12 +629,8 @@ def test_elemento_com_valor_nao_sustentado_vira_generico_sem_o_numero_inventado(
         texto=texto,
     )
 
-    assert corrigida["especificacoes"][1] == {
-        "ref": "elem.2",
-        "construto": "generico",
-        "descricao": "faixa de R$ 40 mil",
-    }
-    assert diagnosticos == [Rebaixamento("elem.2", "valor_sem_lastro", "faixa_valor")]
+    assert corrigida == regra.para_contrato()
+    assert diagnosticos == [DiagnosticoOperacao(1, "valor_sem_lastro")]
 
 
 def test_elemento_adicionado_com_numero_inventado_nunca_insere_esse_numero(
@@ -660,3 +652,180 @@ def test_elemento_adicionado_com_numero_inventado_nunca_insere_esse_numero(
         "descricao": BONUS,
     }
     assert diagnosticos == [Rebaixamento("elem.4", "valor_sem_lastro", "generico")]
+
+
+DESCRICAO_BONUS = "bônus de R$ 500 para quem vender acima de R$ 10.000 no mês"
+CORRECAO_BONUS = "o bônus passa para 600 reais"
+
+
+def regra_com_bonus() -> RepresentacaoRegra:
+    return RepresentacaoRegra.model_validate(
+        {
+            "nucleo": {"percentual": Decimal("0.025")},
+            "especificacoes": [
+                {"ref": "elem.1", "construto": "generico", "descricao": DESCRICAO_BONUS},
+                {"ref": "elem.2", "construto": "generico", "descricao": "teto de R$ 900"},
+            ],
+        }
+    )
+
+
+def substituir_bonus(descricao: str, texto: str = CORRECAO_BONUS) -> dict[str, Any]:
+    return {
+        "tipo": "substituir_elemento",
+        "ref": "elem.1",
+        "trecho": texto,
+        "elemento": {
+            "construto_pretendido": "generico",
+            "descricao": descricao,
+            "trecho": texto,
+        },
+    }
+
+
+def test_correcao_parcial_do_bonus_preserva_o_limite_da_regra_atual() -> None:
+    regra = regra_com_bonus()
+    descricao = DESCRICAO_BONUS.replace("500", "600")
+    esperado: Any = deepcopy(regra.para_contrato())
+    esperado["especificacoes"][0]["descricao"] = descricao
+
+    corrigida, _, diagnosticos = aplicar(
+        regra, {}, substituir_bonus(descricao), texto=CORRECAO_BONUS
+    )
+
+    assert corrigida == esperado
+    assert diagnosticos == [Rebaixamento("elem.1", "construto_nao_habilitado", "generico")]
+
+
+@pytest.mark.parametrize("texto", [CORRECAO_BONUS, "Está certo assim, pode seguir."])
+def test_bonus_com_valor_inventado_nao_perde_condicao_nem_vira_confirmacao(texto: str) -> None:
+    regra = regra_com_bonus()
+    descricao = DESCRICAO_BONUS.replace("500", "700")
+
+    corrigida, _, diagnosticos = aplicar(regra, {}, substituir_bonus(descricao, texto), texto=texto)
+
+    assert corrigida == regra.para_contrato()
+    assert diagnosticos == [DiagnosticoOperacao(1, "valor_sem_lastro")]
+
+
+def test_valor_de_outro_elemento_nao_e_lastro_para_o_bonus() -> None:
+    regra = regra_com_bonus()
+    descricao = DESCRICAO_BONUS.replace("500", "900")
+
+    corrigida, _, diagnosticos = aplicar(
+        regra, {}, substituir_bonus(descricao), texto=CORRECAO_BONUS
+    )
+
+    assert corrigida == regra.para_contrato()
+    assert diagnosticos == [DiagnosticoOperacao(1, "valor_sem_lastro")]
+
+
+def test_adicao_nao_herda_numeros_dos_elementos_atuais() -> None:
+    regra = regra_com_bonus()
+    operacao = substituir_bonus(DESCRICAO_BONUS)
+    operacao["tipo"] = "adicionar_elemento"
+    operacao.pop("ref")
+
+    corrigida, _, diagnosticos = aplicar(regra, {}, operacao, texto=CORRECAO_BONUS)
+
+    assert corrigida["especificacoes"][:-1] == regra.para_contrato()["especificacoes"]
+    assert corrigida["especificacoes"][-1]["descricao"] == CORRECAO_BONUS
+    assert diagnosticos == [Rebaixamento("elem.3", "valor_sem_lastro", "generico")]
+
+
+def test_substituicao_rejeitada_preserva_a_alteracao_valida_anterior_do_lote() -> None:
+    regra = regra_com_bonus()
+    descricao = DESCRICAO_BONUS.replace("500", "600")
+    esperado: Any = deepcopy(regra.para_contrato())
+    esperado["especificacoes"][0]["descricao"] = descricao
+
+    corrigida, _, diagnosticos = aplicar(
+        regra,
+        {},
+        substituir_bonus(descricao),
+        substituir_bonus(descricao.replace("600", "700")),
+        texto=CORRECAO_BONUS,
+    )
+
+    assert corrigida == esperado
+    assert diagnosticos == [
+        DiagnosticoOperacao(2, "valor_sem_lastro"),
+        Rebaixamento("elem.1", "construto_nao_habilitado", "generico"),
+    ]
+
+
+def test_trecho_do_elemento_ainda_precisa_existir_na_correcao_atual() -> None:
+    regra = regra_com_bonus()
+    operacao = substituir_bonus(DESCRICAO_BONUS)
+    operacao["elemento"]["trecho"] = DESCRICAO_BONUS
+
+    corrigida, _, diagnosticos = aplicar(regra, {}, operacao, texto=CORRECAO_BONUS)
+
+    assert corrigida == regra.para_contrato()
+    assert diagnosticos == [DiagnosticoOperacao(1, "valor_sem_lastro")]
+
+
+@pytest.mark.parametrize("limiar", [10000, 11000])
+def test_campo_numerico_preservado_exige_mesmo_campo_do_mesmo_construto(
+    monkeypatch: pytest.MonkeyPatch,
+    limiar: int,
+) -> None:
+    def converter(elemento: dict[str, Any]) -> dict[str, ValorRegra]:
+        return {
+            chave: elemento[chave]
+            for chave in (
+                "metrica",
+                "escopo_agregacao",
+                "operador",
+                "limiar",
+            )
+        }
+
+    monkeypatch.setitem(
+        CONSTRUTOS_HABILITADOS,
+        "condicao_limiar",
+        Construto(
+            propriedades={
+                "metrica": {"type": "string"},
+                "escopo_agregacao": {"type": "string"},
+                "operador": {"type": "string"},
+                "limiar": {"type": "number"},
+            },
+            obrigatorios=("metrica", "escopo_agregacao", "operador", "limiar"),
+            instrucoes="Teste",
+            converter=converter,
+        ),
+    )
+    original = {
+        "ref": "elem.1",
+        "construto": "condicao_limiar",
+        "metrica": "venda_total",
+        "escopo_agregacao": "loja",
+        "operador": ">=",
+        "limiar": 10000,
+    }
+    regra = RepresentacaoRegra.model_validate({"nucleo": {}, "especificacoes": [original]})
+    texto = "a condição passa a valer por marca"
+    operacao = {
+        "tipo": "substituir_elemento",
+        "ref": "elem.1",
+        "trecho": texto,
+        "elemento": {
+            "construto_pretendido": "condicao_limiar",
+            "descricao": "condição por marca",
+            "trecho": texto,
+            "metrica": "venda_total",
+            "escopo_agregacao": "marca",
+            "operador": ">=",
+            "limiar": {"valor": limiar, "trecho": texto},
+        },
+    }
+
+    corrigida, _, diagnosticos = aplicar(regra, {}, operacao, texto=texto)
+
+    if limiar == 10000:
+        assert corrigida["especificacoes"] == [{**original, "escopo_agregacao": "marca"}]
+        assert diagnosticos == []
+    else:
+        assert corrigida == regra.para_contrato()
+        assert diagnosticos == [DiagnosticoOperacao(1, "valor_sem_lastro")]

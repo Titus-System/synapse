@@ -62,7 +62,11 @@ def montar_prompt_reextracao(
                     "substituir_elemento": (
                         "Use ref existente na regra atual; inclua elemento como o rascunho "
                         "da extração inicial, com construto_pretendido, descricao e trecho "
-                        "literal da correção. O elemento fica na mesma posição."
+                        "literal da correção atual. A descricao deve conter o elemento "
+                        "completo após a mudança, preservando as condições e valores "
+                        "não alterados do elemento referido na regra atual. Não use a "
+                        "frase da correção como substituto da descrição completa. "
+                        "O elemento fica na mesma posição."
                     ),
                     "remover_elemento": (
                         "Use somente o ref de um elemento atual que o usuário pediu remover. "
@@ -92,12 +96,15 @@ def montar_prompt_reextracao(
                     "não um filtro nem um pedido para copiar todos os meses. "
                     "Se a correção pede um período fora das publicadas, mantenha o pedido "
                     "para a validação E2; não o ajuste silenciosamente. "
-                    "Não execute validação de coerência nem aplique operações "
-                    "somente com base no histórico. "
+                    "Não execute validação de coerência nem aplique operações somente "
+                    "com base no histórico. "
                     "Toda operação deve ter trecho: citação literal não vazia do texto "
                     "da correção atual, inclusive remoções e alterações de parâmetros. "
-                    "Cada nova descrição, trecho e valor deve vir do texto da correção "
-                    "atual, nunca só do histórico; não crie número não mencionado."
+                    "Valores novos precisam de lastro na correção atual, nunca só no "
+                    "histórico. Na substituição, valores já aplicados podem ser preservados "
+                    "a partir do próprio elemento da regra atual, sem repeti-los no texto "
+                    "da correção. Não use números de outros elementos como lastro. "
+                    "Todo trecho citado continua sendo literal da correção atual."
                 ),
                 "construtos_habilitados": [
                     construto.instrucoes for construto in CONSTRUTOS_HABILITADOS.values()

@@ -17,7 +17,7 @@ CASOS: list[dict[str, Any]] = json.loads(ARQUIVO.read_text(), parse_float=Decima
 @pytest.mark.parametrize("caso", CASOS, ids=lambda item: item["id"])
 def test_corpus_reextracao_aplica_ou_rebaixa_operacoes(caso: dict[str, Any]) -> None:
     regra = RepresentacaoRegra.model_validate(
-        {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []}
+        caso.get("regra_atual", {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []})
     )
     parametros = {"orcamento": Decimal("500000"), "meta_venda": Decimal("12000000")}
 
@@ -33,3 +33,4 @@ def test_corpus_reextracao_aplica_ou_rebaixa_operacoes(caso: dict[str, Any]) -> 
     assert completos["orcamento"] == caso["orcamento_esperado"]
     assert completos["meta_venda"] == caso["meta_esperada"]
     assert [item.motivo for item in rebaixamentos] == caso["motivos_esperados"]
+    assert corrigida.para_contrato()["especificacoes"] == caso.get("especificacoes_esperadas", [])

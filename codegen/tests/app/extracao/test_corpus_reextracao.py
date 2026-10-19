@@ -9,6 +9,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from app.config import get_settings
+from app.extracao.lastro import numeros_citados
 from app.extracao.reextracao import reextrair_regra
 from app.graph.core.llm.registry import get_model, get_model_metadata
 from app.repositorio.rodadas_correcao import CorrecaoAnterior
@@ -64,7 +65,7 @@ async def test_corpus_reextracao_com_modelo_falso(caso: dict[str, Any]) -> None:
     )
 
     resultado = await reextrair_regra(
-        REGRA,
+        RepresentacaoRegra.model_validate(caso.get("regra_atual", REGRA.para_contrato())),
         PARAMETROS,
         CONFLITOS,
         caso["texto"],
@@ -81,6 +82,9 @@ async def test_corpus_reextracao_com_modelo_falso(caso: dict[str, Any]) -> None:
     assert resultado.parametros["orcamento"] == caso["orcamento_esperado"]
     assert resultado.parametros["meta_venda"] == caso["meta_esperada"]
     assert [item.motivo for item in resultado.rebaixamentos] == caso["motivos_esperados"]
+    assert resultado.representacao.para_contrato()["especificacoes"] == caso.get(
+        "especificacoes_esperadas", []
+    )
     assert len(modelo.seen_messages) == 1
 
 
@@ -99,7 +103,7 @@ async def test_corpus_reextracao_modelo_real(caso: dict[str, Any]) -> None:
     get_model.cache_clear()
     resultado = await executar_com_retentativa_503(
         lambda: reextrair_regra(
-            REGRA,
+            RepresentacaoRegra.model_validate(caso.get("regra_atual", REGRA.para_contrato())),
             PARAMETROS,
             CONFLITOS,
             caso["texto"],
@@ -116,3 +120,12 @@ async def test_corpus_reextracao_modelo_real(caso: dict[str, Any]) -> None:
     )
     assert resultado.parametros["orcamento"] == caso["orcamento_esperado"]
     assert resultado.parametros["meta_venda"] == caso["meta_esperada"]
+    especificacoes = resultado.representacao.para_contrato()["especificacoes"]
+    if caso["id"] == "bonus_parcial_preserva_condicao":
+        assert len(especificacoes) == 1
+        descricao = especificacoes[0]["descricao"]
+        assert numeros_citados(descricao) == {"600", "10.000"}
+        assert "acima" in descricao.casefold()
+        assert "mês" in descricao.casefold() or "mensal" in descricao.casefold()
+    else:
+        assert especificacoes == caso.get("especificacoes_esperadas", [])

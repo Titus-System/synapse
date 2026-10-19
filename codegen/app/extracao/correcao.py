@@ -82,17 +82,25 @@ def _conferir(
 
 
 def _montar_elemento_correcao(
-    elemento: dict[str, Any], trecho: str, texto: str
+    elemento: dict[str, Any],
+    trecho: str,
+    texto: str,
+    *,
+    elemento_atual: dict[str, ValorRegra] | None = None,
 ) -> tuple[dict[str, ValorRegra], Rebaixamento | None]:
     """Nunca transfere números inventados em uma paráfrase para o elemento genérico."""
     descricao = elemento.get("descricao")
+    descricao_atual = elemento_atual.get("descricao") if elemento_atual else None
+    numeros_atuais = numeros_citados(descricao_atual) if isinstance(descricao_atual, str) else set()
     if isinstance(descricao, str) and not numeros_citados(descricao).issubset(
-        numeros_citados(texto)
+        numeros_citados(texto) | numeros_atuais
     ):
         return montar_generico("elem.1", trecho), Rebaixamento(
             "elem.1", "valor_sem_lastro", elemento.get("construto_pretendido")
         )
-    convertido, rebaixamento = montar_elemento(elemento, "elem.1", texto)
+    convertido, rebaixamento = montar_elemento(
+        elemento, "elem.1", texto, elemento_atual=elemento_atual
+    )
     if rebaixamento is not None and rebaixamento.motivo == "valor_sem_lastro":
         return montar_generico("elem.1", trecho), rebaixamento
     return convertido, rebaixamento
@@ -137,8 +145,14 @@ def _aplicar(
             elementos.pop(posicao)
         else:
             convertido, rebaixamento = _montar_elemento_correcao(
-                operacao["elemento"], operacao["trecho"], texto
+                operacao["elemento"],
+                operacao["trecho"],
+                texto,
+                elemento_atual=elementos[posicao].conteudo,
             )
+            # O trecho isolado da correção não preserva as condições do elemento original.
+            if rebaixamento is not None and rebaixamento.motivo == "valor_sem_lastro":
+                return "valor_sem_lastro"
             elementos[posicao] = _Elemento(operacao["ref"], convertido, rebaixamento)
     return None
 

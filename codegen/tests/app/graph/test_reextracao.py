@@ -832,3 +832,88 @@ async def test_metricas_de_operacao_sem_trecho_e_valor_sem_lastro_apos_grafo(
         "valor_sem_lastro": 1,
     }
     assert TEXTO not in simplejson.dumps(logs)
+
+
+@pytest.mark.parametrize(
+    ("texto", "valor", "valor_esperado", "motivo"),
+    [
+        ("o bônus passa para 600 reais", "600", "600", "construto_nao_habilitado"),
+        ("o bônus passa para 600 reais", "700", "500", "valor_sem_lastro"),
+        ("Está certo assim, pode seguir.", "600", "500", "valor_sem_lastro"),
+    ],
+)
+async def test_bonus_parcial_ou_rejeitado_preserva_condicao_na_proposta_e_observabilidade(
+    monkeypatch: pytest.MonkeyPatch,
+    cliente: AsyncClient,
+    logs: list[dict[str, Any]],
+    texto: str,
+    valor: str,
+    valor_esperado: str,
+    motivo: str,
+) -> None:
+    descricao = "bônus de R$ 500 para quem vender acima de R$ 10.000 no mês"
+    regra = {
+        "nucleo": {"percentual": Decimal("0.025")},
+        "especificacoes": [{"ref": "elem.1", "construto": "generico", "descricao": descricao}],
+    }
+    saida = {
+        "operacoes": [
+            {
+                "tipo": "substituir_elemento",
+                "ref": "elem.1",
+                "trecho": texto,
+                "elemento": {
+                    "construto_pretendido": "generico",
+                    "descricao": descricao.replace("500", valor),
+                    "trecho": texto,
+                },
+            }
+        ]
+    }
+    ambiente = AmbienteReextracao(monkeypatch, [saida])
+    ambiente.regra.return_value = RepresentacaoRegra.model_validate(regra)
+    payload = ambiente.entrada(texto)
+    job = UUID(payload["job_id"])
+    anterior = _adicionar_rodada(ambiente, job, None, "HISTORICO_PRIVADO: R$ 700.", 1)
+    _adicionar_rodada(ambiente, job, anterior, texto, 2, submissao=UUID(payload["submissao_id"]))
+    antes = (await cliente.get("/metrics")).text
+    recebida = mensagem(payload)
+
+    await ambiente.consumer.receber(recebida)
+
+    recebida.ack.assert_awaited_once_with()
+    [proposta] = ambiente.publicadas("correcao-proposta")
+    assert proposta["representacao"] == {
+        **regra,
+        "especificacoes": [
+            {
+                "ref": "elem.1",
+                "construto": "generico",
+                "descricao": descricao.replace("500", valor_esperado),
+            }
+        ],
+    }
+    assert proposta["parametros"] == {
+        chave: payload[chave] for chave in ("competencias", "orcamento", "meta_venda")
+    }
+    depois = (await cliente.get("/metrics")).text
+    for rotulo in ("valor_sem_lastro", "construto_nao_habilitado"):
+        assert amostra(
+            depois, "codegen_extracao_rebaixamentos_total", {"motivo": rotulo}
+        ) - amostra(antes, "codegen_extracao_rebaixamentos_total", {"motivo": rotulo}) == int(
+            rotulo == motivo
+        )
+    validador = Draft202012Validator(
+        simplejson.loads((CONTRATOS / "observability/log.schema.json").read_bytes()),
+        format_checker=FormatChecker(),
+    )
+    for log in logs:
+        validador.validate(log)
+        assert log["job_id"] == payload["job_id"]
+    [conclusao] = [log for log in logs if log["message"] == "reextraction finished"]
+    assert conclusao["extra"]["rebaixamentos_por_motivo"] == {motivo: 1}
+    serializados = simplejson.dumps(logs, ensure_ascii=False)
+    for privado in (texto, descricao, "HISTORICO_PRIVADO", "construto_pretendido"):
+        assert privado not in serializados
+    assert job_id_ctx.get() is None
+    assert no_ctx.get() is None
