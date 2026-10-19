@@ -711,3 +711,126 @@ sys.stdout.buffer.write(montar_prompt_geracao(regra).encode("utf-8"))
     assert resultado.returncode == 0, resultado.stderr.decode("utf-8", errors="replace")
     assert resultado.stdout == esperado.encode("utf-8")
     assert not list(tmp_path.rglob("*.jsonl"))
+
+
+CASOS_GERACAO = COMPONENTE.parent / "worker" / "tests" / "fixtures" / "casos_geracao"
+
+
+def sistema_do_caso_t245(caso_id: str) -> dict[str, Any]:
+    caso = simplejson.loads(
+        (CASOS_GERACAO / caso_id / "caso.json").read_text(encoding="utf-8"),
+        use_decimal=True,
+    )
+    return dict(
+        simplejson.loads(
+            montar_prompt_geracao(RepresentacaoRegra.model_validate(caso["representacao"])),
+            use_decimal=True,
+        )["instrucoes_fixas_do_sistema"]
+    )
+
+
+def test_faixa_valor_do_caso_t245_recebe_orientacao_de_agregacao_e_delta() -> None:
+    caso = simplejson.loads(
+        (CASOS_GERACAO / "faixa-valor-dezembro" / "caso.json").read_text(encoding="utf-8"),
+        use_decimal=True,
+    )
+    especificacoes = caso["representacao"]["especificacoes"]
+    schema = json.loads((CONTRATOS / "regra-especificacoes.schema.json").read_text())
+    convencoes = sistema_do_caso_t245("faixa-valor-dezembro")["convencoes"]
+    instrucao = convencoes["faixa_valor"]
+
+    assert {espec["ref"] for espec in especificacoes} == {"elem.1", "elem.2", "elem.3"}
+    assert all(espec["efeito"]["tipo"] == "bonus_fixo" for espec in especificacoes)
+    assert especificacoes[-1]["limite_superior"] == Decimal("1000000000")
+    assert "limite_inferior" in schema["$defs"]["faixa_valor"]["required"]
+    assert "limite_superior" in schema["$defs"]["faixa_valor"]["required"]
+    assert "['matricula', 'competencia']" in instrucao
+    assert "TOTAL MENSAL" in instrucao
+    assert "não uma transação" in instrucao
+    assert "total >= limite_inferior" in instrucao
+    assert "total <= limite_superior" in instrucao
+    assert "não preencha lacunas" in instrucao
+    assert "não some bônus de faixas distintas" in instrucao
+    assert "sentinela" in instrucao and "não um teto" in instrucao
+    assert "UMA vez por matrícula/competência" in instrucao
+    assert "(base_do_nucleo * percentual - comissao_base)" in instrucao
+    assert "limite_superior=1000000000" in instrucao
+    assert "o enquadramento na faixa continua individual" in instrucao
+    assert "elemento_ref de faixa somente o bônus" in instrucao
+    assert "TODOS os refs de faixa em elementos_implementados" in instrucao
+
+
+def test_condicao_limiar_do_caso_t245_recebe_orientacao_de_escopo_e_cobertura() -> None:
+    caso = simplejson.loads(
+        (CASOS_GERACAO / "condicao-limiar-loja" / "caso.json").read_text(encoding="utf-8"),
+        use_decimal=True,
+    )
+    condicao = caso["representacao"]["especificacoes"][0]
+    schema = json.loads((CONTRATOS / "regra-especificacoes.schema.json").read_text())
+    instrucao = sistema_do_caso_t245("condicao-limiar-loja")["convencoes"]["condicao_limiar"]
+
+    assert (condicao["construto"], condicao["metrica"], condicao["escopo_agregacao"]) == (
+        "condicao_limiar",
+        "venda_total",
+        "loja",
+    )
+    assert (condicao["operador"], condicao["limiar"]) == (">=", Decimal("50000"))
+    escopo = schema["$defs"]["condicao_limiar"]["properties"]["escopo_agregacao"]["enum"]
+    operadores = schema["$defs"]["condicao_limiar"]["properties"]["operador"]["enum"]
+    assert set(escopo) == {"matricula", "loja", "marca", "rede"}
+    assert set(operadores) == {">=", ">", "<=", "<", "=="}
+    for trecho in (
+        "['cod_loja', 'competencia']",
+        "['cod_marca', 'competencia']",
+        "['matricula', 'competencia']",
+        "['competencia']",
+        "Não agrupe todo o período",
+        "todas as vendas da loja",
+        "sem filtrar previamente pelo cargo",
+        "cod_loja e cod_marca do baseline",
+        "Trate ausência de vendas como total 0",
+        "EXATAMENTE operador",
+        "não transforme >= em >",
+        "Onde a condição é falsa, preserve a comissao",
+        "nunca ao elem.N da condição",
+        "ela não tem linhas em contribuicoes",
+        "TODOS os refs condicao_limiar em elementos_implementados",
+    ):
+        assert trecho in instrucao
+
+
+@pytest.mark.parametrize(
+    ("caso_id", "faixa", "limiar"),
+    [
+        ("nucleo-controle", False, False),
+        ("generico-admissao", False, False),
+        ("generico-aniversario-loja", False, False),
+        ("bonus-fixo-lista-e-filtro", False, False),
+        ("janela-datas-black-friday", False, False),
+        ("exclusao-gerente", False, False),
+        ("combinado-elementos", True, False),
+        ("faixa-valor-dezembro", True, False),
+        ("condicao-limiar-loja", False, True),
+    ],
+)
+def test_instrucao_especifica_nao_altera_outros_casos(
+    caso_id: str, faixa: bool, limiar: bool
+) -> None:
+    convencoes = sistema_do_caso_t245(caso_id)["convencoes"]
+    assert ("faixa_valor" in convencoes) is faixa
+    assert ("condicao_limiar" in convencoes) is limiar
+
+
+def test_texto_generico_nao_ativa_instrucoes_de_outro_construto() -> None:
+    sistema = sistema_da_regra(
+        {"cargo": ["100"]},
+        [
+            {
+                "ref": "elem.1",
+                "construto": "generico",
+                "descricao": "faixa_valor condicao_limiar nao sao os construtos deste item",
+            }
+        ],
+    )
+    assert "faixa_valor" not in sistema["convencoes"]
+    assert "condicao_limiar" not in sistema["convencoes"]

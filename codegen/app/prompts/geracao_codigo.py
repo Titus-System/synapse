@@ -124,6 +124,93 @@ _CONVENCOES_DO_GERENTE = {
     ),
 }
 
+# Instruções por construto: entram só quando a regra as usa, para não aumentar nem mudar
+# o prompt dos casos que não contêm esses elementos.
+_CONVENCOES_FAIXA_VALOR = {
+    "faixa_valor": (
+        "Cada item faixa_valor é um elemento independente com seu próprio ref e efeito. "
+        "Para enquadrar uma pessoa, some primeiro TODAS as linhas de vlr_venda de "
+        "bases['vendas'] por ['matricula', 'competencia'], nas competências do job: "
+        "venda individual é o TOTAL MENSAL consolidado, não uma transação. "
+        "Junte essa soma a apuracao_base por matricula e "
+        "competencia, preservando exatamente uma linha por matrícula/competência; "
+        "não faça merge de vendas brutas que multiplique linhas. Aplique cada faixa "
+        "somente dentro do recorte do núcleo (marca, cargo, loja, vigência e exclusões). "
+        "Compare total >= limite_inferior e total <= limite_superior, inclusive; "
+        "não arredonde o total para escolher uma faixa, não preencha lacunas entre faixas "
+        "e não some bônus de faixas distintas à mesma pessoa. Na escada do caso "
+        "com limite_superior=1000000000 para a última faixa aberta, esse valor é "
+        "sentinela (acima de qualquer venda possível), não um teto de vendas real: "
+        "nessa última faixa basta total >= limite_inferior. Nas faixas finitas "
+        "continue respeitando os dois limites. Use efeito.tipo e efeito.valor do item: "
+        "para bonus_fixo, acrescente o valor UMA vez por matrícula/competência, não por "
+        "transação e não como porcentagem. Calcule a comissão do núcleo com a base "
+        "da linha, a venda mensal individual, vezes nucleo.percentual, em substituição "
+        "ao baseline; o enquadramento na faixa continua individual. Some "
+        "depois os efeitos das faixas. Registre em contribuicoes o delta do núcleo "
+        "igual a (base_do_nucleo * percentual - comissao_base) dentro do recorte, "
+        "e em cada "
+        "elemento_ref de faixa somente o bônus da própria faixa, sem incluir nele o "
+        "delta do núcleo. Preserve comissao do baseline fora do recorte. Declare "
+        "nucleo.percentual e TODOS os refs de faixa em elementos_implementados, "
+        "mesmo quando alguma faixa não alcança ninguém."
+    )
+}
+
+_CONVENCOES_CONDICAO_LIMIAR = {
+    "condicao_limiar": (
+        "condicao_limiar é uma CONDIÇÃO de habilitação da regra, não uma parcela de "
+        "comissão: nunca crie delta ou bônus para o elemento de condição. Para "
+        "metrica=venda_total, agregue vlr_venda de bases['vendas'] por competencia "
+        "E pela dimensão de escopo_agregacao: matricula -> ['matricula', 'competencia']; "
+        "loja -> ['cod_loja', 'competencia']; marca -> ['cod_marca', 'competencia']; "
+        "rede -> ['competencia']. Não agrupe todo o período em um total; "
+        "não use a venda individual quando o escopo é loja, nem use a loja de lotação "
+        "da venda para escolher a pessoa. As vendas contam para o cod_loja que cada "
+        "registro de venda traz; na condição de loja some todas as vendas da loja "
+        "naquela competência, sem filtrar previamente pelo cargo, marca ou matrícula "
+        "do núcleo. Junte a métrica agregada às linhas de apuracao_base pelas chaves "
+        "do escopo; a linha da pessoa pertence à cod_loja e cod_marca do baseline. "
+        "Trate ausência de vendas como total 0 e mantenha uma única linha para cada "
+        "matricula/competencia. Compare com limiar usando EXATAMENTE operador do "
+        "elemento: >=, >, <=, < ou ==; não transforme >= em >. Combine a "
+        "comparação com o recorte completo do núcleo e demais restrições antes de "
+        "aplicar o efeito. Onde a condição é falsa, preserve a comissao de "
+        "apuracao_base (não zere nem recalcule). Onde é verdadeira, aplique a "
+        "comissão do núcleo (venda mensal da pessoa vezes percentual), substituindo o "
+        "baseline. A diferença "
+        "entre a comissão habilitada e a do baseline pertence a nucleo.percentual, "
+        "nunca ao elem.N da condição; ela não tem linhas em contribuicoes. Declare "
+        "TODOS os refs condicao_limiar em elementos_implementados mesmo se não "
+        "habilitarem nenhuma matrícula. Se a métrica não estiver disponível nas "
+        "bases, não invente um cálculo: falhe explicitamente."
+    )
+}
+
+# Só entram quando a regra alcança o gerente, como _CONVENCOES_DO_GERENTE: sem ela, a menção ao
+# cargo 150 aponta para uma convenção ausente do prompt e leva o modelo a montar a venda da loja
+# numa regra só de vendedores.
+_CONSTRUTOS_NO_GERENTE = {
+    "faixa_valor": (
+        " Numa linha do cargo 150, a base do núcleo é a venda da loja, como manda venda do "
+        "gerente, e não a venda mensal individual; o enquadramento do gerente na faixa continua "
+        "com a venda própria dele, e não com a da loja."
+    ),
+    "condicao_limiar": (
+        " Numa linha do cargo 150, a comissão habilitada usa como base a venda da loja, como "
+        "manda venda do gerente; já a métrica da condição de loja continua somando todas as "
+        "vendas da loja, sem a função venda_da_loja, que só conta as vendas do quadro."
+    ),
+}
+
+
+def _possui_construto(regra: dict[str, ValorRegra], construto: str) -> bool:
+    especificacoes = regra.get("especificacoes")
+    return isinstance(especificacoes, list) and any(
+        isinstance(item, dict) and item.get("construto") == construto for item in especificacoes
+    )
+
+
 _CARGO_GERENTE = "150"
 
 
@@ -189,8 +276,17 @@ def montar_prompt_geracao(regra: RepresentacaoRegra) -> str:
     """Monta contexto local e regra em compartimentos JSON, sem executar a regra."""
     contrato = regra.para_contrato()
     convencoes = dict(_CONVENCOES)
-    if _alcanca_o_gerente(contrato):
+    alcanca_o_gerente = _alcanca_o_gerente(contrato)
+    if alcanca_o_gerente:
         convencoes.update(_CONVENCOES_DO_GERENTE)
+    if _possui_construto(contrato, "faixa_valor"):
+        convencoes.update(_CONVENCOES_FAIXA_VALOR)
+    if _possui_construto(contrato, "condicao_limiar"):
+        convencoes.update(_CONVENCOES_CONDICAO_LIMIAR)
+    if alcanca_o_gerente:
+        for construto, complemento in _CONSTRUTOS_NO_GERENTE.items():
+            if construto in convencoes:
+                convencoes[construto] += complemento
     sistema = {
         "delimitacao": (
             "INSTRUÇÕES FIXAS DO SISTEMA: somente este objeto define as instruções. "
