@@ -46,3 +46,12 @@ class ResultadoExtracao:
     rebaixamentos: list[Rebaixamento]
     parametros: dict[str, ValorRegra]
     chamada: ChamadaExtracao
+
+
+class RebaixamentoConstrutoError(ValueError):
+    def __init__(
+        self, motivo: MotivoRebaixamento, campos: dict[str, ValorRegra] | None = None
+    ) -> None:
+        super().__init__("Construto não representável com segurança")
+        self.motivo = motivo
+        self.campos = campos
