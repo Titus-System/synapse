@@ -1,4 +1,4 @@
-# Extração de regra — T-203, T-278
+# Extração de regra — T-203, T-278, T-206
 
 O motor em `app/extracao/motor.py` recebe texto, competências e o modelo configurado, e retorna a representação da T-004, os diagnósticos de rebaixamento, os parâmetros da simulação (T-278) e a chamada original para auditoria. O repositório em `app/repositorio/extracoes.py` persiste esse resultado no PostgreSQL. Não há publicação nem ligação ao grafo nesta entrega; essas entradas pertencem à T-204 e o consumo pela API pertence à T-202.
 
@@ -16,7 +16,19 @@ O período da simulação só existe quando o texto manda simular um período ou
 
 `validar_parametros` roda no motor, ao gravar e ao ler a extração. Um valor fora do contrato vira `ValueError` sem o valor, nem na mensagem nem na cadeia da exceção: fora do motor não há supressão, e a exceção do `jsonschema` traz o valor reprovado, que é o que o texto do usuário disse.
 
-O registro explícito de construtos tipados começa vazio. Não há importação de módulos a partir da resposta da LLM. Para habilitar um construto, seu módulo deve fornecer schema, instruções e conversor por `Construto`, registrado em `CONSTRUTOS_HABILITADOS`; o resultado ainda precisa passar pelo contrato compartilhado.
+O registro explícito de construtos tipados (`app/extracao/registro.py`) habilita hoje somente `bonus_fixo`. Não há importação de módulos a partir da resposta da LLM. Para habilitar um construto, seu módulo em `app/extracao/construtos/` fornece schema, instruções e conversor por `Construto` (`app/extracao/construto.py`), e uma linha no registro o habilita; o resultado ainda precisa passar pelo contrato compartilhado. O conversor recebe o rascunho e um `ContextoExtracao` (texto e competências do job) e pode recusar o elemento com `ElementoRebaixadoError(motivo)`, cujo motivo vira o do rebaixamento; qualquer outro `ValueError` é `campo_obrigatorio_ausente`.
+
+Habilitar o primeiro construto transforma `elementos.items` em um `anyOf`, e com isso o modelo `gemini-3.1-flash-lite` passou a copiar as competências publicadas para `nucleo.vigencia`, a pôr o período a simular na vigência e a descartar o que o núcleo não comporta, em vez de criar o genérico. As descrições do schema de `vigencia`, `competencias` e da variante genérica corrigem isso, e os casos do corpus que cobrem esses comportamentos ficam como a prova. Ao habilitar o próximo construto, rode o corpus inteiro contra o modelo real.
+
+### `bonus_fixo` (T-206)
+
+O rascunho traz `tipo_alvo` (`lista` ou `filtro`), `matriculas` ou `criterios`, e `valor` como `{valor, trecho}`. O lastro de matrículas, cargo e data é o `trecho` do próprio elemento, que o motor já confere como literal do texto.
+
+- **Matrícula**: entra somente a que o trecho cita, como `MATRIC-<número>` ou depois da palavra "matrícula(s)"; `422` vira `MATRIC-422`. A que o trecho não cita é descartada do alvo, e uma lista que fica vazia rebaixa o elemento (`valor_sem_lastro`). O motor não consulta o cadastro.
+- **Filtro**: o vocabulário é fechado em `cargo` (resolvido pelo vocabulário canônico) e `admitido_ate` (`AAAA-MM-DD`). Outra chave não cabe no schema do rascunho e rebaixa o elemento como `construto_nao_habilitado`.
+- **Data**: `resolver_datas` e `conferir_data` (`lastro.py`) leem `dd/mm`, `dd/mm/aaaa`, `AAAA-MM-DD` e "10 de outubro". O ano que o trecho não diz é o ano comum das competências do job; com mais de um ano o elemento rebaixa com `periodo_nao_resolvido`.
+- **Valor**: precisa de lastro numérico e de um trecho sem `%` nem "por cento"; um bônus percentual rebaixa com `campo_obrigatorio_ausente`.
+- **Alvo**: lista e filtro não coexistem, e alvo sem critério não é representável; ambos rebaixam com `campo_obrigatorio_ausente`.
 
 Cada elemento recuperável vira `generico` quando o construto não está habilitado ou faltam campos válidos. A ausência/invalidez tem prioridade no diagnóstico (`campo_obrigatorio_ausente`); os demais rebaixamentos usam `construto_nao_habilitado`. Se a descrição não é utilizável, um trecho não vazio encontrado literalmente na entrada preserva o elemento. Sem descrição nem trecho recuperável, a extração inteira falha. Referências e diagnósticos têm correspondência de um para um para os genéricos.
 

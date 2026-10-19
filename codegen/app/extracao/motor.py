@@ -45,7 +45,7 @@ def _montar(
     rebaixamentos: list[Rebaixamento] = []
     for indice, elemento in enumerate(rascunho["elementos"], 1):
         ref = f"elem.{indice}"
-        convertido, rebaixamento = montar_elemento(elemento, ref, texto)
+        convertido, rebaixamento = montar_elemento(elemento, ref, texto, competencias)
         elementos.append(convertido)
         if rebaixamento is not None:
             rebaixamentos.append(rebaixamento)

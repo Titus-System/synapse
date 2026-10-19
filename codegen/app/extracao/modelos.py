@@ -19,6 +19,14 @@ class FalhaExtracaoError(FalhaDoJobError):
     etapa = "extracao_parametros"
 
 
+class ElementoRebaixadoError(ValueError):
+    """O conversor de um construto recusa o rascunho e diz por quê, sem reter o conteúdo."""
+
+    def __init__(self, motivo: MotivoRebaixamento) -> None:
+        super().__init__(motivo)
+        self.motivo = motivo
+
+
 @dataclass(frozen=True, slots=True)
 class Rebaixamento:
     ref: str

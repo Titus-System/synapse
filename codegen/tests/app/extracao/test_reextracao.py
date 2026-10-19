@@ -158,7 +158,7 @@ async def test_remove_substitui_adiciona_e_renumera(
                     "tipo": "substituir_elemento",
                     "ref": "elem.2",
                     "elemento": {
-                        "construto_pretendido": "bonus_fixo",
+                        "construto_pretendido": "construto_futuro",
                         "descricao": "bônus de R$ 500",
                         "trecho": "bônus de R$ 500",
                     },
@@ -180,7 +180,7 @@ async def test_remove_substitui_adiciona_e_renumera(
         {"ref": "elem.2", "construto": "generico", "descricao": "bônus extra"},
     ]
     assert resultado.rebaixamentos == [
-        Rebaixamento("elem.1", "construto_nao_habilitado", "bonus_fixo"),
+        Rebaixamento("elem.1", "construto_nao_habilitado", "construto_futuro"),
         Rebaixamento("elem.2", "construto_nao_habilitado", "generico"),
     ]
 

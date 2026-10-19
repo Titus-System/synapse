@@ -104,7 +104,9 @@ def _aplicar(
     elif tipo == "remover_parametro":
         parametros.pop(operacao["campo"], None)
     elif tipo == "adicionar_elemento":
-        convertido, rebaixamento = montar_elemento(operacao["elemento"], "elem.1", texto)
+        convertido, rebaixamento = montar_elemento(
+            operacao["elemento"], "elem.1", texto, publicadas
+        )
         elementos.append(_Elemento(None, convertido, rebaixamento))
     else:
         posicao = next(
@@ -115,7 +117,9 @@ def _aplicar(
         if tipo == "remover_elemento":
             elementos.pop(posicao)
         else:
-            convertido, rebaixamento = montar_elemento(operacao["elemento"], "elem.1", texto)
+            convertido, rebaixamento = montar_elemento(
+                operacao["elemento"], "elem.1", texto, publicadas
+            )
             # Sem lastro, a montagem põe o trecho no lugar da descrição. Na correção o trecho é
             # uma frase sobre o elemento, e não o elemento: trocá-lo apagaria o que o texto não
             # mencionou.

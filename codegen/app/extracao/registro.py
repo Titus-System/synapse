@@ -1,16 +1,4 @@
-from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any
+from app.extracao.construto import Construto
+from app.extracao.construtos.bonus_fixo import BONUS_FIXO
 
-from app.tipos_estado import ValorRegra
-
-
-@dataclass(frozen=True, slots=True)
-class Construto:
-    propriedades: dict[str, Any]
-    obrigatorios: tuple[str, ...]
-    instrucoes: str
-    converter: Callable[[dict[str, Any]], dict[str, ValorRegra]]
-
-
-CONSTRUTOS_HABILITADOS: dict[str, Construto] = {}
+CONSTRUTOS_HABILITADOS: dict[str, Construto] = {"bonus_fixo": BONUS_FIXO}

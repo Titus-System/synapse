@@ -41,6 +41,9 @@ def test_corpus_versionado_cobre_categorias_obrigatorias() -> None:
         "instrucoes_maliciosas",
         "simulacao_completa",
         "sem_parametros",
+        "bonus_fixo_lista",
+        "bonus_fixo_filtro",
+        "bonus_fixo_matricula_numero",
     } <= set(ids)
     for caso in CORPUS:
         assert caso["texto"] and caso["competencias_publicadas"]
@@ -57,6 +60,10 @@ def test_corpus_mantem_percentuais_com_precisao_decimal() -> None:
 
     assert percentuais
     assert all(isinstance(percentual, Decimal) for percentual in percentuais)
+
+
+def _sem_descricao(elemento: dict[str, Any]) -> dict[str, Any]:
+    return {campo: valor for campo, valor in elemento.items() if campo != "descricao"}
 
 
 def _indisponibilidade_503(erro: BaseException) -> bool:
@@ -202,9 +209,10 @@ async def test_corpus_contra_modelo_real(
     esperados = caso["representacao_esperada"]["especificacoes"]
     if esperados:
         assert len(regra["especificacoes"]) == len(esperados)
-        assert [(e["ref"], e["construto"]) for e in regra["especificacoes"]] == [
-            (e["ref"], e["construto"]) for e in esperados
+        # A descrição é paráfrase do modelo; os demais campos são determinísticos.
+        assert [_sem_descricao(e) for e in regra["especificacoes"]] == [
+            _sem_descricao(e) for e in esperados
         ]
-        assert all(e["descricao"] for e in regra["especificacoes"])
+        assert all(e["descricao"] for e in regra["especificacoes"] if e["construto"] == "generico")
     else:
         assert regra["especificacoes"] == []

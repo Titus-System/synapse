@@ -359,5 +359,94 @@
       ]
     },
     "parametros_esperados": {}
+  },
+  {
+    "id": "bonus_fixo_lista",
+    "texto": "Conceder bônus fixo de R$ 500 para as matrículas MATRIC-422 e MATRIC-517.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "bonus_fixo",
+          "descricao": "bônus fixo de R$ 500 para as matrículas MATRIC-422 e MATRIC-517",
+          "alvo": {
+            "tipo": "lista",
+            "valor": [
+              "MATRIC-422",
+              "MATRIC-517"
+            ]
+          },
+          "valor": 500
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "bonus_fixo_filtro",
+    "texto": "Os admitidos até o dia 10/10 no cargo 100 terão um bônus de R$ 1.000.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "bonus_fixo",
+          "descricao": "admitidos até 10/10 no cargo 100 terão bônus de R$ 1.000",
+          "alvo": {
+            "tipo": "filtro",
+            "valor": {
+              "cargo": "100",
+              "admitido_ate": "2025-10-10"
+            }
+          },
+          "valor": 1000
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "bonus_fixo_matricula_numero",
+    "texto": "Dar um bônus de R$ 750 para a matrícula 422.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "bonus_fixo",
+          "descricao": "bônus de R$ 750 para a matrícula 422",
+          "alvo": {
+            "tipo": "lista",
+            "valor": [
+              "MATRIC-422"
+            ]
+          },
+          "valor": 750
+        }
+      ]
+    },
+    "parametros_esperados": {}
   }
 ]
