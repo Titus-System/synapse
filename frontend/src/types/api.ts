@@ -127,6 +127,7 @@ export interface LinhaResultadoSimulacao {
   cod_loja: string
   cod_marca: string
   cod_cargo: string
+  vendas?: number
   comissao_baseline: number
   comissao_simulada: number
   diferenca: number

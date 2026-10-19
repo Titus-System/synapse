@@ -102,7 +102,10 @@ async def suggest_adaptation(state: AgentState, config: RunnableConfig) -> Agent
                 tentativa=tentativa,
             )
         )
-        logger.info("adaptation proposal published", extra={"no": ETAPA, "tentativa": tentativa})
+        logger.info(
+            "adaptation proposal published",
+            extra={"no": ETAPA, "tentativa": tentativa, "metodo": alternativa.metodo},
+        )
     else:
         # Estrutural como a proposta: é o que encerra a iteração na `api`, que não espera outra
         # tentativa depois dele. Vai antes do `no-concluido`, pelo mesmo motivo.

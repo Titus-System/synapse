@@ -7,6 +7,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -21,6 +22,7 @@ import org.junit.jupiter.api.condition.EnabledIf;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.rabbitmq.RabbitMQContainer;
+import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.core.Message;
@@ -253,7 +255,167 @@ class NoConcluidoConsumidorTests {
 
 	// --- Apoio ----------------------------------------------------------------------
 
+	// --- Busca da meta maior em curso (T-283) ---------------------------------------
+
+	@Test
+	void decisaoQueAbriuABuscaDeixaOJobComABuscaEmCursoAteAMetaChegar() throws Exception {
+		UUID jobId = criarJob();
+		UUID regraId = criarRegra(jobId);
+		mudarStatus(jobId, "aguardando_decisao_usuario");
+		assertThat(buscaEmCurso(jobId)).isNull();
+
+		publicarDecisao(UUID.randomUUID(), jobId, regraId, "busca_meta");
+
+		await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(buscaEmCurso(jobId)).isTrue());
+		registrarBuscaSemSolucao(jobId, regraId);
+		assertThat(buscaEmCurso(jobId)).isNull();
+	}
+
+	@Test
+	void oFechoDaBuscaSemMetaRegistradaTambemAEncerra() throws Exception {
+		UUID jobId = criarJob();
+		UUID regraId = criarRegra(jobId);
+		mudarStatus(jobId, "aguardando_decisao_usuario");
+
+		publicarDecisao(UUID.randomUUID(), jobId, regraId, "busca_meta");
+		await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(buscaEmCurso(jobId)).isTrue());
+		publicarFechoDaBusca(UUID.randomUUID(), jobId, regraId);
+
+		await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(buscaEmCurso(jobId)).isNull());
+	}
+
+	@Test
+	void oServicoAnunciaOComecoEOFimUmaVezSoMesmoComReentrega() throws Exception {
+		UUID jobId = criarJob();
+		UUID regraId = criarRegra(jobId);
+		mudarStatus(jobId, "aguardando_decisao_usuario");
+		JobEventosService servico = contexto.getBean(JobEventosService.class);
+		UUID abertura = UUID.randomUUID();
+		UUID fecho = UUID.randomUUID();
+
+		assertThat(registrarDecisao(servico, abertura, jobId, regraId, "busca_meta"))
+			.isEqualTo(JobEventosService.BuscaMetaAnunciada.INICIADA);
+		assertThat(registrarDecisao(servico, abertura, jobId, regraId, "busca_meta"))
+			.isEqualTo(JobEventosService.BuscaMetaAnunciada.NENHUMA);
+		assertThat(registrarDecisao(servico, fecho, jobId, regraId, null))
+			.isEqualTo(JobEventosService.BuscaMetaAnunciada.ENCERRADA);
+		assertThat(registrarDecisao(servico, fecho, jobId, regraId, null))
+			.isEqualTo(JobEventosService.BuscaMetaAnunciada.NENHUMA);
+	}
+
+	@Test
+	void oFechoDepoisDaMetaRegistradaNaoAnunciaDeNovo() throws Exception {
+		UUID jobId = criarJob();
+		UUID regraId = criarRegra(jobId);
+		mudarStatus(jobId, "aguardando_decisao_usuario");
+		JobEventosService servico = contexto.getBean(JobEventosService.class);
+
+		assertThat(registrarDecisao(servico, UUID.randomUUID(), jobId, regraId, "busca_meta"))
+			.isEqualTo(JobEventosService.BuscaMetaAnunciada.INICIADA);
+		registrarBuscaSemSolucao(jobId, regraId);
+
+		assertThat(registrarDecisao(servico, UUID.randomUUID(), jobId, regraId, null))
+			.isEqualTo(JobEventosService.BuscaMetaAnunciada.NENHUMA);
+	}
+
+	@Test
+	void decisaoQueEncerrouOFluxoNaoAbreBusca() throws Exception {
+		UUID jobId = criarJob();
+		UUID regraId = criarRegra(jobId);
+		mudarStatus(jobId, "aguardando_decisao_usuario");
+
+		publicarDecisao(UUID.randomUUID(), jobId, regraId, "fim");
+
+		await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(contarTrilhas(jobId)).isEqualTo(1));
+		assertThat(buscaEmCurso(jobId)).isNull();
+	}
+
+	@Test
+	void buscaDeUmaVersaoSuperadaNaoEstaEmCurso() throws Exception {
+		UUID jobId = criarJob();
+		UUID regraId = criarRegra(jobId);
+		mudarStatus(jobId, "aguardando_decisao_usuario");
+
+		publicarDecisao(UUID.randomUUID(), jobId, regraId, "busca_meta");
+		await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(buscaEmCurso(jobId)).isTrue());
+		criarVersaoSeguinte(jobId);
+
+		assertThat(buscaEmCurso(jobId)).isNull();
+	}
+
+	@Test
+	void comOJobForaDaDecisaoDoUsuarioABuscaNaoEstaEmCurso() throws Exception {
+		UUID jobId = criarJob();
+		UUID regraId = criarRegra(jobId);
+
+		publicarDecisao(UUID.randomUUID(), jobId, regraId, "busca_meta");
+
+		await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(contarTrilhas(jobId)).isEqualTo(1));
+		assertThat(buscaEmCurso(jobId)).isNull();
+		mudarStatus(jobId, "aguardando_decisao_usuario");
+		assertThat(buscaEmCurso(jobId)).isTrue();
+		mudarStatus(jobId, "arquivado");
+		assertThat(buscaEmCurso(jobId)).isNull();
+	}
+
 	private record Trilha(String no, @Nullable UUID simulacaoId) {
+	}
+
+	private static @Nullable Boolean buscaEmCurso(UUID jobId) {
+		return contexto.getBean(JobService.class).buscar(jobId).busca_meta_em_curso();
+	}
+
+	private static void publicarDecisao(UUID eventoId, UUID jobId, UUID regraId, String encaminhamento) {
+		enviarCorpo("""
+				{"evento_id":"%s","job_id":"%s","no":"decisao","concluido_em":"2025-11-28T14:32:10Z",
+				 "conclusao":{"resumo":"x","encaminhamento":"%s"},"regra_id":"%s"}
+				""".formatted(eventoId, jobId, encaminhamento, regraId));
+	}
+
+	// Como o codegen fecha a busca: outra decisão da mesma versão, sem encaminhamento.
+	private static void publicarFechoDaBusca(UUID eventoId, UUID jobId, UUID regraId) {
+		enviarCorpo("""
+				{"evento_id":"%s","job_id":"%s","no":"decisao","concluido_em":"2025-11-28T14:40:00Z",
+				 "conclusao":{"resumo":"Busca encerrada sem meta maior no intervalo pesquisado."},"regra_id":"%s"}
+				""".formatted(eventoId, jobId, regraId));
+	}
+
+	private static JobEventosService.BuscaMetaAnunciada registrarDecisao(JobEventosService servico, UUID eventoId,
+			UUID jobId, UUID regraId, @Nullable String encaminhamento) {
+		String conclusao = encaminhamento == null ? "{\"resumo\":\"x\"}"
+				: "{\"resumo\":\"x\",\"encaminhamento\":\"%s\"}".formatted(encaminhamento);
+		Instant concluidoEm = encaminhamento == null ? Instant.parse("2025-11-28T14:40:00Z")
+				: Instant.parse("2025-11-28T14:32:10Z");
+		NoConcluidoDto evento = new NoConcluidoDto(eventoId, jobId, "decisao", concluidoEm,
+				new JsonMapper().readTree(conclusao), regraId, null, null, null, null);
+		return servico.registrarNoConcluido(jobId, eventoId, EtapaDoGrafo.DECISAO, evento);
+	}
+
+	private static void mudarStatus(UUID jobId, String status) throws SQLException {
+		try (Connection connection = comoDono(); Statement statement = connection.createStatement()) {
+			statement.execute("UPDATE jobs SET status = '%s' WHERE id = '%s'".formatted(status, jobId));
+		}
+	}
+
+	private static void criarVersaoSeguinte(UUID jobId) throws SQLException {
+		try (Connection connection = comoDono(); Statement statement = connection.createStatement()) {
+			statement.execute("""
+					INSERT INTO regras (id, job_id, versao, origem, nucleo, especificacoes, hash, criada_em)
+					VALUES ('%s', '%s', 2, 'confirmacao_usuario', '{}'::jsonb, '[]'::jsonb, '%s', now())
+					""".formatted(UUID.randomUUID(), jobId, "1".repeat(64)));
+		}
+	}
+
+	// A meta sugerida é a api que grava, ao consumir meta-venda-sugerida; a fixture usa o
+	// dono
+	// para não depender do codegen.
+	private static void registrarBuscaSemSolucao(UUID jobId, UUID regraId) throws SQLException {
+		try (Connection connection = comoDono(); Statement statement = connection.createStatement()) {
+			statement.execute("""
+					INSERT INTO sugestoes_meta_venda (job_id, regra_id, motivo_sem_solucao)
+					VALUES ('%s', '%s', 'intervalo_esgotado')
+					""".formatted(jobId, regraId));
+		}
 	}
 
 	private static void publicar(UUID eventoId, UUID jobId, String no, @Nullable UUID regraId,

@@ -103,6 +103,23 @@ it('abre o relatório da simulação visível e usa a versão correta da regra',
   expect(fetch.mock.calls[0]![0]).toMatch(/\/jobs\/job-1\/simulacoes\/simulacao-1\/linhas$/)
 })
 
+it('mostra a venda de cada linha como vem da api e um traço nas linhas gravadas sem ela', async () => {
+  const linhas = linhasDeTeste(3)
+  const novembro = linhas['2025-11']!
+  novembro['COL-0000']!.vendas = 24785.01
+  novembro['COL-0001']!.vendas = 0
+  responder(linhas)
+  const { wrapper } = await montar()
+  await wrapper.get('[aria-controls="relatorio-simulacao"]').trigger('click')
+  await flushPromises()
+  const cabecalho = wrapper.findAll('thead th').map((celula) => celula.text())
+  expect(cabecalho.slice(0, 2)).toEqual(['Competência', 'Matrícula'])
+  const coluna = cabecalho.indexOf('Venda')
+  expect(cabecalho.slice(coluna - 1, coluna + 2)).toEqual(['Loja', 'Venda', 'Cargo'])
+  const vendas = wrapper.findAll('tbody tr').map((linha) => linha.findAll('td')[coluna]!.text())
+  expect(vendas).toEqual(['R$ 24.785,01', 'R$ 0,00', '—'])
+})
+
 it('mantém apenas 25 linhas na tabela de 2700 registros e pagina sem novas consultas', async () => {
   const fetch = responder(linhasDeTeste(2700))
   const { wrapper } = await montar()

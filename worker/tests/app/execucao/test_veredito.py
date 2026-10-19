@@ -10,7 +10,7 @@ import copy
 import dataclasses
 import json
 from collections.abc import Sequence
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 import pytest
@@ -592,6 +592,7 @@ def julgar_na_meta(desfecho: DesfechoClassificado, orcamento: float | None = 600
         elementos_exigidos=None,
         bases=carregar_bases(),
         baseline_na_meta=carregar_bases().baseline_na_meta(["2025-11"], META_2025_11),
+        meta_venda=META_2025_11,
     )
 
 
@@ -675,3 +676,60 @@ def test_todo_sucesso_leva_o_total_de_vendas_das_competencias(
     assert julgamento.totais is not None
     assert julgamento.totais["vendas_historicas"] == VENDAS_2025_11
     assert erros_do_dominio("resultado-totais", dict(julgamento.totais)) == []
+
+
+# ---- o total vendido de cada linha do detalhamento (T-282) ----
+
+
+def test_cada_linha_do_sucesso_leva_o_total_vendido_das_bases_do_worker() -> None:
+    """MATRIC-1 vendeu R$ 24.785,01 em novembro. Quem não vendeu no mês fica com zero, e não sem o
+    campo, que é o que distingue as linhas gravadas antes dele. O resto da linha segue como veio
+    do container."""
+    desfecho = sucesso(BASELINE_2025_11, "520000.00")
+    assert desfecho.linhas is not None
+    novembro = desfecho.linhas["2025-11"]
+    novembro["MATRIC-SEM-VENDA"] = copy.deepcopy(novembro["MATRIC-1"])
+
+    julgamento = julgar_2025_11(desfecho)
+
+    assert julgamento.classe == "sucesso" and julgamento.linhas is not None
+    julgadas = julgamento.linhas["2025-11"]
+    assert julgadas["MATRIC-1"]["vendas"] == 24785.01
+    assert julgadas["MATRIC-SEM-VENDA"]["vendas"] == 0.0
+    assert julgadas.keys() == novembro.keys()
+    for matricula, linha in novembro.items():
+        assert {k: v for k, v in julgadas[matricula].items() if k != "vendas"} == linha
+    assert erros_do_dominio("resultado-linhas", julgamento.linhas) == []
+
+
+def test_na_meta_cada_linha_leva_as_vendas_escaladas_ate_a_meta() -> None:
+    """As comissões da linha foram apuradas sobre as vendas escaladas, e é essa venda que ela
+    mostra. ``totais.vendas_historicas`` continua com o total antes da escala."""
+    julgamento = julgar_na_meta(sucesso(BASELINE_NA_META_2025_11, "570000.00"))
+
+    assert julgamento.linhas is not None and julgamento.totais is not None
+    fator = Decimal(str(META_2025_11)) / Decimal(str(VENDAS_2025_11))
+    esperado = (Decimal("24785.01") * fator).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    assert julgamento.linhas["2025-11"]["MATRIC-1"]["vendas"] == float(esperado) == 27263.51
+    assert julgamento.totais["vendas_historicas"] == VENDAS_2025_11
+
+
+def test_desfecho_recusado_no_julgamento_nao_leva_detalhamento() -> None:
+    julgamento = julgar_2025_11(sucesso("1.00", "2.00"))
+
+    assert (julgamento.classe, julgamento.motivo) == ("erro_codigo", "baseline_divergente")
+    assert julgamento.linhas is None
+
+
+def test_baseline_na_meta_sem_a_meta_do_comando_e_recusado() -> None:
+    """Sem a meta, as linhas levariam a venda histórica ao lado de comissões apuradas na meta."""
+    with pytest.raises(ValueError, match="vêm juntos"):
+        julgar(
+            sucesso(BASELINE_NA_META_2025_11, "570000.00"),
+            ["2025-11"],
+            None,
+            carregar_baselines(),
+            elementos_exigidos=None,
+            bases=carregar_bases(),
+            baseline_na_meta=Decimal(BASELINE_NA_META_2025_11),
+        )

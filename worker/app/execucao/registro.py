@@ -15,11 +15,10 @@ from typing import Any, NotRequired, TypedDict
 
 from app.execucao.coleta import Motivo
 from app.execucao.schema import Problema, validar_diagnostico
-from app.execucao.veredito import Julgamento
+from app.execucao.veredito import Julgamento, LinhasJulgadas
 from app.mensageria.contracts import SimulacaoConcluida
 from app.repositorio.resultados import ResultadoGravado
 from app.sandbox.envelope import Falha
-from app.sandbox.resultado import LinhasResultado
 
 
 class Diagnostico(TypedDict):
@@ -60,7 +59,8 @@ class LinhaDoResultado:
     decomposicao: dict[str, Any] | None
     # Só em `erro_codigo`; o conteúdo vindo do container fica fora do `repr`, como no desfecho.
     diagnostico: Diagnostico | None = field(repr=False)
-    linhas: LinhasResultado | None = field(repr=False)
+    # Só em `sucesso`: o detalhamento com o total vendido que o julgamento acrescentou.
+    linhas: LinhasJulgadas | None = field(repr=False)
 
 
 def diagnostico_do_julgamento(julgamento: Julgamento) -> Diagnostico | None:
@@ -115,9 +115,8 @@ def linha_do_julgamento(julgamento: Julgamento) -> LinhaDoResultado:
         raise ValueError(
             "um sucesso precisa de resultado e de veredito viavel, inviavel ou ausente"
         )
-    desfecho = julgamento.desfecho
-    if desfecho is None or desfecho.linhas is None:
-        raise ValueError("um sucesso precisa de detalhamento validado na coleta")
+    if julgamento.linhas is None:
+        raise ValueError("um sucesso precisa de detalhamento validado na coleta e julgado")
     return LinhaDoResultado(
         status="sucesso",
         veredito=julgamento.veredito,
@@ -125,7 +124,7 @@ def linha_do_julgamento(julgamento: Julgamento) -> LinhaDoResultado:
         assercoes=list(resultado["assercoes"]),
         decomposicao=dict(resultado["decomposicao"]),
         diagnostico=None,
-        linhas=desfecho.linhas,
+        linhas=julgamento.linhas,
     )
 
 
