@@ -23,3 +23,15 @@ describe('entrada da conversa', () => {
     expect(wrapper.get('button').attributes('disabled')).toBeDefined()
   })
 })
+
+it('mantém texto utilizável quando o navegador não suporta áudio', async () => {
+  const wrapper = mount(EntradaCorrecao, {
+    props: { texto: '', habilitada: true, podeEnviar: true },
+  })
+  await wrapper.get('[aria-label="Iniciar gravação"]').trigger('click')
+  expect(wrapper.text()).toContain('Use a entrada por texto')
+  expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined()
+  await wrapper.get('textarea').setValue('alternativa')
+  expect(wrapper.emitted('update:texto')).toEqual([['alternativa']])
+  wrapper.unmount()
+})

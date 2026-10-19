@@ -279,3 +279,13 @@ describe('SimulateView', () => {
     expect(consultarJob).toHaveBeenCalledWith('job-1')
   })
 })
+
+it('oferece acesso à correção por voz e texto quando aguarda confirmação', async () => {
+  consultarJob.mockResolvedValue({ ...criarJob(), status: 'aguardando_confirmacao_parametros', simulacao: null })
+  const router = criarRouterDeTeste()
+  await router.push('/jobs/job-1')
+  const wrapper = mount(SimulateView, { global: { plugins: [router, createPinia()], stubs: { FontAwesomeIcon: true } } })
+  await flushPromises()
+  expect(wrapper.get('a[href="/jobs/job-1/correcao"]').text()).toBe('Corrigir por texto ou voz')
+  wrapper.unmount()
+})

@@ -1,11 +1,34 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
 import { apiClient } from '@/services/api'
 import type { JobResumo } from '@/types/api'
-import MensagemConversa from '../components/MensagemConversa.vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useCorrecao } from '../composables/useCorrecao'
+import ConversaRodadas from '../components/ConversaRodadas.vue'
 import EntradaCorrecao from '../components/EntradaCorrecao.vue'
 import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
+
+const rota = useRoute()
+const router = useRouter()
+const jobId = computed(() => (typeof rota.params.id === 'string' ? rota.params.id : ''))
+const {
+  rodadas,
+  texto,
+  carregando,
+  enviando,
+  erroLeitura,
+  erroEnvio,
+  habilitada,
+  podeEnviar,
+  encerrado,
+  seguirProcessamento,
+  atualizar,
+  enviar,
+} = useCorrecao(jobId)
+watch(seguirProcessamento, (seguir) => {
+  if (seguir) void router.replace(`/jobs/${encodeURIComponent(jobId.value)}`)
+})
 
 const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
 const quantidadeArquivadas = ref(0)
@@ -105,30 +128,32 @@ onBeforeUnmount(() => controlador.abort())
           aria-label="Conversa sobre a regra"
           aria-live="polite"
         >
-          <p role="status" class="text-center text-sm text-[#7b6559]">
-            Exemplo de conversa. O envio de respostas ainda não está disponível.
-          </p>
-          <MensagemConversa>
-            <p>Olá! Entendi que você quer criar uma regra com os seguintes parâmetros:</p>
-            <p class="mt-3">
-              Validade: 02/12/2027<br />Produto:<br />Canal:<br />Equipes:<br />Marcas:<br />Comissionamento:<br />Meta
-              de vendas:
-            </p>
-            <p class="mt-4">Podemos prosseguir para a simulação?</p>
-          </MensagemConversa>
-          <MensagemConversa usuario
-            >A comissão está errada. Desejo que a comissão seja X.</MensagemConversa
-          >
-          <MensagemConversa>
-            <p>Perfeito. Anotei as condições, agora a comissão é X.</p>
-            <p class="mt-4">Mais alterações? Ou podemos seguir?</p>
-          </MensagemConversa>
-          <MensagemConversa usuario>Vamos seguir!</MensagemConversa>
-          <MensagemConversa>Redirecionando para a simulação...</MensagemConversa>
+          <p v-if="!jobId" role="status">Abra uma regra para corrigir.</p>
+          <p v-else-if="carregando" role="status">Carregando conversa...</p>
+          <div v-if="erroLeitura" role="alert">
+            {{ erroLeitura }}
+            <button type="button" class="underline" @click="atualizar">
+              Tentar atualizar conversa
+            </button>
+          </div>
+          <ConversaRodadas :rodadas="rodadas" />
+          <p v-if="encerrado" role="status">Esta conversa está disponível apenas para consulta.</p>
         </section>
       </div>
       <footer class="mx-auto w-full max-w-3xl shrink-0 bg-[#fffaf7] px-4 py-4 sm:px-8">
-        <EntradaCorrecao texto="" :habilitada="false" :pode-enviar="false" />
+        <EntradaCorrecao
+          v-if="!encerrado"
+          :key="jobId"
+          v-model:texto="texto"
+          :job-id="jobId"
+          :habilitada="habilitada"
+          :pode-enviar="podeEnviar"
+          :enviando="enviando"
+          @enviar="enviar()"
+          @enviar-voz="enviar"
+        />
+        <p v-if="enviando" role="status">Enviando correção...</p>
+        <p v-if="erroEnvio" role="alert">{{ erroEnvio }}</p>
         <p class="mt-4 text-center text-xs text-[#a38a7e]">
           A IA pode cometer erros. Verifique a regra estruturada.
         </p>

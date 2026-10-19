@@ -216,6 +216,11 @@ onBeforeUnmount(parar);
                     <p class="text-[#584237]">Verifique a viabilidade da sua regra de negócio.</p>
                 </div>
             </div>
+            <RouterLink
+              v-if="status === 'aguardando_confirmacao_parametros'"
+              :to="`/jobs/${encodeURIComponent(jobId)}/correcao`"
+              class="mb-6 inline-block rounded-lg bg-[#c2560b] px-5 py-3 text-white focus-visible:outline-2"
+            >Corrigir por texto ou voz</RouterLink>
             <div>
                 <div v-if="processando && !erro && !simulacao" class="flex flex-col items-center justify-center py-16">
                     <div class="mb-6 flex h-16 w-16 items-center justify-center rounded-full border-4 border-[#FFDBCD] border-t-[#f26b0f] animate-spin" aria-label="Processando simulação">
