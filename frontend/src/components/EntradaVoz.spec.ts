@@ -58,8 +58,11 @@ it('grava, para, ouve, envia só uma vez e libera recursos', async () => {
   expect(w.get('audio').attributes('controls')).toBeDefined()
   const enviar = w.findAll('button').find((b) => b.text() === 'Enviar gravação')!
   await enviar.trigger('click')
+  await w.setProps({ enviando: true })
   await enviar.trigger('click')
   expect(w.emitted('enviar')).toHaveLength(1)
+  expect(w.find('audio').exists()).toBe(true)
+  await w.setProps({ enviando: false, bloqueada: true })
   expect(w.find('audio').exists()).toBe(false)
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:gravacao')
   expect(JSON.stringify(vi.mocked(console.info).mock.calls)).not.toContain('audio privado')

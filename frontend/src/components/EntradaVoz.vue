@@ -14,12 +14,14 @@ const emit = defineEmits<{ enviar: [audio: Blob] }>()
 const { gravando, solicitando, finalizando, audio, url, erro, iniciar, parar, descartar } =
   useGravacao(() => props.jobId)
 watch(
-  () => props.bloqueada || props.enviando,
+  () => props.bloqueada,
   (bloqueada) => {
     if (bloqueada) descartar()
   },
 )
 watch(() => props.jobId, descartar)
+// A gravação só sai daqui quando a tela a bloqueia ou desmonta: um envio que falha
+// precisa dela para a nova tentativa.
 function enviar() {
   if (
     !audio.value?.size ||
@@ -29,9 +31,7 @@ function enviar() {
     finalizando.value
   )
     return
-  const gravacao = audio.value
-  descartar()
-  emit('enviar', gravacao)
+  emit('enviar', audio.value)
 }
 </script>
 
