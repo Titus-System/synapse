@@ -217,3 +217,20 @@ it('desmontagem fecha SSE, cancela HTTP e polling', async () => {
   expect(fechar).toHaveBeenCalled()
   expect(api.listarRodadas).not.toHaveBeenCalled()
 })
+it('não devolve ao progresso o job que aguarda correção sem rodada aberta', async () => {
+  vi.mocked(api.listarRodadas).mockResolvedValue([])
+  const { fluxo } = await montar()
+  expect(fluxo.semCorrecao.value).toBe(true)
+  expect(fluxo.seguirProcessamento.value).toBe(false)
+  expect(fluxo.habilitada.value).toBe(false)
+})
+it('volta ao progresso quando a correção leva o job adiante', async () => {
+  vi.mocked(api.listarRodadas).mockResolvedValue([{ ...pendente, estado: 'corrigida' }])
+  vi.mocked(apiClient.consultarJob).mockResolvedValue({
+    ...structuredClone(jobCorrecao),
+    status: 'gerando_regra',
+  })
+  const { fluxo } = await montar()
+  expect(fluxo.seguirProcessamento.value).toBe(true)
+  expect(fluxo.semCorrecao.value).toBe(false)
+})

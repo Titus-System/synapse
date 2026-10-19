@@ -195,9 +195,7 @@ onBeforeUnmount(() => controlador.abort())
           <RouterLink v-if="jobCriado" :to="`/jobs/${encodeURIComponent(jobCriado)}`"
             >Acompanhar processamento</RouterLink
           >
-          <p class="mt-6 text-xs text-[#9d8274]">
-            Descreva a regra e, se desejar, o orçamento, a meta de venda e o período.
-          </p>
+
         </section>
       </div>
     </main>

@@ -9,7 +9,7 @@ describe('entrada da conversa', () => {
     })
     await wrapper.get('textarea').setValue('Minha correção')
     expect(wrapper.emitted('update:texto')).toEqual([['Minha correção']])
-    expect(wrapper.get('button').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[aria-label="Enviar correção"]').attributes('disabled')).toBeDefined()
     await wrapper.setProps({ texto: 'Minha correção', podeEnviar: true })
     await wrapper.get('form').trigger('submit')
     expect(wrapper.emitted('enviar')).toHaveLength(1)
@@ -20,7 +20,8 @@ describe('entrada da conversa', () => {
       props: { texto: '', habilitada: false, podeEnviar: false },
     })
     expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('button').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[aria-label="Enviar correção"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[aria-label="Iniciar gravação"]').attributes('disabled')).toBeDefined()
   })
 })
 

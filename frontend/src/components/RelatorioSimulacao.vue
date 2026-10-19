@@ -7,7 +7,7 @@ import {
   formatarReais,
   organizarLinhas,
   rotulosContribuicoes,
-} from '../composables/apresentacaoDetalhamento'
+} from '@/composables/apresentacaoDetalhamento'
 
 const props = defineProps<{
   aberto: boolean

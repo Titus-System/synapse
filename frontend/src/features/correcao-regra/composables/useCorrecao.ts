@@ -50,15 +50,30 @@ export function useCorrecao(jobId: MaybeRefOrGetter<string>) {
   const encerrado = computed(() =>
     ['cancelado', 'arquivado', 'erro'].includes(job.value?.status ?? ''),
   )
+  const semRodadaAberta = computed(
+    () =>
+      !rodadas.value.some((rodada) =>
+        ['pendente', 'em_transcricao', 'em_reextracao'].includes(rodada.estado),
+      ),
+  )
+  // A tela de progresso manda para cá todo job em aguardando_confirmacao_parametros: devolver
+  // daqui o que não tem rodada aberta faria as duas telas se alternarem sem fim.
+  const semCorrecao = computed(
+    () =>
+      !!job.value &&
+      !carregando.value &&
+      !erroLeitura.value &&
+      job.value.status === 'aguardando_confirmacao_parametros' &&
+      semRodadaAberta.value,
+  )
   const seguirProcessamento = computed(
     () =>
       !!job.value &&
       !carregando.value &&
       !erroLeitura.value &&
       !encerrado.value &&
-      !rodadas.value.some((rodada) =>
-        ['pendente', 'em_transcricao', 'em_reextracao'].includes(rodada.estado),
-      ),
+      job.value.status !== 'aguardando_confirmacao_parametros' &&
+      semRodadaAberta.value,
   )
   let sessao:
     | {
@@ -227,6 +242,7 @@ export function useCorrecao(jobId: MaybeRefOrGetter<string>) {
     habilitada,
     podeEnviar,
     encerrado,
+    semCorrecao,
     seguirProcessamento,
     atualizar,
     enviar,

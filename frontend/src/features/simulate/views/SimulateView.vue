@@ -8,6 +8,10 @@ import { calcularProgresso } from "../composables/progressoSimulacao";
 import TheProcessHeader from "@/components/TheProcessHeader.vue";
 import SugestaoRegra from "../components/SugestaoRegra.vue";
 import TheSidebar from "@/components/TheSidebar.vue";
+import CartaoRegra from "@/components/CartaoRegra.vue";
+import RelatorioSimulacao from "@/components/RelatorioSimulacao.vue";
+import { consultarDetalhamento } from "@/services/detalhamento";
+import { useDetalhamento } from "@/composables/useDetalhamento";
 
 const rota = useRoute();
 const roteador = useRouter();
@@ -49,6 +53,31 @@ const processando = computed(() =>
 );
 
 const nucleo = computed(() => regra.value?.representacao.nucleo);
+
+const regraDaSimulacao = computed(() =>
+  job.value?.regras.find((item) => item.id === simulacao.value?.regra_id),
+);
+const identidadeRelatorio = computed(() => `${jobId.value}/${simulacao.value?.id ?? ""}`);
+const relatorio = useDetalhamento(identidadeRelatorio, (signal) =>
+  consultarDetalhamento(jobId.value, simulacao.value!.id, signal),
+);
+const {
+  aberto: relatorioAberto,
+  carregando: carregandoRelatorio,
+  erro: erroRelatorio,
+  resposta: detalhamento,
+} = relatorio;
+
+// Um job parado por conflito só avança pela correção, então a conversa abre sem
+// esperar um clique, tanto na pausa ao vivo quanto ao reabrir o job.
+watch(
+  status,
+  (atual) => {
+    if (atual === "aguardando_confirmacao_parametros")
+      void roteador.replace(`/jobs/${encodeURIComponent(jobId.value)}/correcao`);
+  },
+  { immediate: true },
+);
 
 function criarRotuloDaRegra(resumoDoJob: JobResumo): string {
   const data = new Date(resumoDoJob.criado_em).toLocaleDateString("pt-BR");
@@ -201,6 +230,26 @@ onBeforeUnmount(parar);
     <TheProcessHeader etapa-da-rota="simulacao" :status-do-job="job?.status ?? null" class="mb-12 sticky top-0" />
     <!-- Simulação -->
         <div class="mx-auto mb-12 w-full max-w-6xl p-4 sm:p-6 lg:p-10">
+            <CartaoRegra
+              v-if="regra && !erro && !(processamentoInterrompido && !sugestao)"
+              class="mb-12"
+              :regra="regra"
+              :simulacao="simulacao"
+              :carregando="carregando"
+              :erro="false"
+            >
+              <RelatorioSimulacao
+                v-if="simulacao?.status === 'sucesso'"
+                :aberto="relatorioAberto"
+                :carregando="carregandoRelatorio"
+                :erro="erroRelatorio"
+                :linhas="detalhamento?.linhas"
+                :regra="regraDaSimulacao?.representacao"
+                :decomposicao="simulacao.resultado?.decomposicao"
+                @alternar="relatorio.alternar"
+                @tentar-novamente="relatorio.carregar"
+              />
+            </CartaoRegra>
             <div class="mb-11">
                 <h1 class="text-3xl text-[#2B160D] mb-2 font-semibold">Simulação</h1>
                 <div v-if="carregando">
@@ -216,11 +265,6 @@ onBeforeUnmount(parar);
                     <p class="text-[#584237]">Verifique a viabilidade da sua regra de negócio.</p>
                 </div>
             </div>
-            <RouterLink
-              v-if="status === 'aguardando_confirmacao_parametros'"
-              :to="`/jobs/${encodeURIComponent(jobId)}/correcao`"
-              class="mb-6 inline-block rounded-lg bg-[#c2560b] px-5 py-3 text-white focus-visible:outline-2"
-            >Corrigir por texto ou voz</RouterLink>
             <div>
                 <div v-if="processando && !erro && !simulacao" class="flex flex-col items-center justify-center py-16">
                     <div class="mb-6 flex h-16 w-16 items-center justify-center rounded-full border-4 border-[#FFDBCD] border-t-[#f26b0f] animate-spin" aria-label="Processando simulação">

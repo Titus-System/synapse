@@ -38,19 +38,16 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.clearAllMocks()
 })
-function montar() {
-  const w = mount(EntradaVoz, { props: { enviando: false, jobId: 'job-a' } })
+function montar(compacto = false) {
+  const w = mount(EntradaVoz, { props: { enviando: false, jobId: 'job-a', compacto } })
   wrappers.push(w)
   return w
 }
 it('grava, para, ouve, envia só uma vez e libera recursos', async () => {
   const w = montar()
-  expect(
-    w
-      .findAll('button')
-      .find((b) => b.text() === 'Enviar gravação')!
-      .attributes('disabled'),
-  ).toBeDefined()
+  expect(w.get('[role="status"]').text()).toBe('Clique para iniciar a gravação')
+  expect(w.text()).toContain('Grave até 3 minutos (máximo de 5 MB).')
+  expect(w.findAll('button').find((b) => b.text() === 'Enviar gravação')).toBeUndefined()
   await w.get('[aria-label="Iniciar gravação"]').trigger('click')
   await flushPromises()
   await w.get('[aria-label="Parar gravação"]').trigger('click')
@@ -76,4 +73,10 @@ it('descarta gravação ao trocar job e bloqueia a captura durante envio', async
   expect(w.find('audio').exists()).toBe(false)
   await w.setProps({ enviando: true })
   expect(w.get('[aria-label="Iniciar gravação"]').attributes('disabled')).toBeDefined()
+})
+it('no chatbot, mostra só o microfone enquanto não há gravação', () => {
+  const w = montar(true)
+  expect(w.get('[aria-label="Iniciar gravação"]').attributes('disabled')).toBeUndefined()
+  expect(w.findAll('button')).toHaveLength(1)
+  expect(w.find('audio').exists()).toBe(false)
 })

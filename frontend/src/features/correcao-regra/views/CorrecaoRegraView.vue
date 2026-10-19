@@ -22,6 +22,7 @@ const {
   habilitada,
   podeEnviar,
   encerrado,
+  semCorrecao,
   seguirProcessamento,
   atualizar,
   enviar,
@@ -114,7 +115,7 @@ onBeforeUnmount(() => controlador.abort())
       </div>
     </aside>
     <main class="flex h-full min-h-0 min-w-0 flex-col">
-      <TheProcessHeader etapa-da-rota="simulacao" class="sticky top-0 z-10 shrink-0" />
+      <TheProcessHeader etapa-da-rota="conversa" class="sticky top-0 z-10 shrink-0" />
       <div class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-7 sm:px-8 lg:px-10">
         <section class="mx-auto mt-10 max-w-2xl text-center sm:mt-16">
           <h1 class="font-serif text-3xl text-[#321f16]">Refine sua Regra</h1>
@@ -138,11 +139,12 @@ onBeforeUnmount(() => controlador.abort())
           </div>
           <ConversaRodadas :rodadas="rodadas" />
           <p v-if="encerrado" role="status">Esta conversa está disponível apenas para consulta.</p>
+          <p v-if="semCorrecao" role="status">Esta regra não tem pontos para corrigir.</p>
         </section>
       </div>
       <footer class="mx-auto w-full max-w-3xl shrink-0 bg-[#fffaf7] px-4 py-4 sm:px-8">
         <EntradaCorrecao
-          v-if="!encerrado"
+          v-if="!encerrado && !semCorrecao"
           :key="jobId"
           v-model:texto="texto"
           :job-id="jobId"

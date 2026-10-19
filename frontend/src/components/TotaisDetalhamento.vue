@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { ResultadoSimulacao } from '@/types/api'
-import { formatarReais } from '../composables/apresentacaoDetalhamento'
+import { formatarReais } from '@/composables/apresentacaoDetalhamento'
 
 const props = defineProps<{
   decomposicao?: ResultadoSimulacao['decomposicao']
