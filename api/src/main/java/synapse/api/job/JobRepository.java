@@ -32,6 +32,13 @@ class JobRepository {
 	 * Texto inicial do job: o da própria submissão ou, no job reprocessado, o do primeiro
 	 * job da cadeia de origem que tem submissão. Exige o alias {@code j} para jobs.
 	 */
+	/**
+	 * O {@code conclusao.encaminhamento} da decisão que abriu a busca da meta maior, como
+	 * o codegen o grava na trilha
+	 * ({@code contracts/domain/trilha-conclusao.schema.json}).
+	 */
+	static final String ENCAMINHAMENTO_BUSCA_META = "busca_meta";
+
 	private static final String JUNCAO_TEXTO_INICIAL = """
 			LEFT JOIN LATERAL (
 				WITH RECURSIVE cadeia AS (
@@ -504,9 +511,13 @@ class JobRepository {
 				UUID.class, codigoGeradoId));
 	}
 
-	void inserirTrilhaNo(UUID eventoId, UUID jobId, @Nullable UUID simulacaoId, EtapaDoGrafo no,
+	/**
+	 * Falso quando a linha já existia: a reentrega do mesmo {@code evento_id} não grava
+	 * de novo, e quem chama não anuncia de novo o que ela registrou.
+	 */
+	boolean inserirTrilhaNo(UUID eventoId, UUID jobId, @Nullable UUID simulacaoId, EtapaDoGrafo no,
 			NoConcluidoDto evento) {
-		this.jdbc.update(
+		return this.jdbc.update(
 				"""
 						INSERT INTO trilhas_auditoria
 							(evento_id, job_id, simulacao_id, no, concluido_em, regra_id, conclusao, prompt_id, codigo_gerado_id, explicacao_id)
@@ -516,7 +527,7 @@ class JobRepository {
 				eventoId, jobId, simulacaoId, no.paraEvento(),
 				Timestamp.from(Objects.requireNonNull(evento.concluido_em())), evento.regra_id(),
 				Objects.requireNonNull(evento.conclusao()).toString(), evento.prompt_id(), evento.codigo_gerado_id(),
-				evento.explicacao_id());
+				evento.explicacao_id()) == 1;
 	}
 
 	void bloquearJob(UUID jobId) {
@@ -636,6 +647,36 @@ class JobRepository {
 				evento.resultado_id(), evento.sem_solucao() == null ? null : evento.sem_solucao().motivo(),
 				evento.job_id(), evento.regra_id(), evento.resultado_id(), evento.resultado_id(),
 				evento.meta_venda()) == 1;
+	}
+
+	/**
+	 * A busca da meta maior está em curso quando a decisão sobre a versão atual a abriu,
+	 * pelo {@code encaminhamento} que ela grava na trilha, e ainda não terminou. Termina
+	 * com a meta sugerida registrada ou com a decisão que o codegen grava ao fechá-la,
+	 * uma linha posterior da mesma versão; a segunda cobre a meta que a api descarta e
+	 * não registra. Só vale com o job aguardando a decisão do usuário: fora disso, ou ele
+	 * ainda não chegou ao resultado, ou já saiu dele.
+	 */
+	boolean buscaMetaEmCurso(UUID jobId) {
+		return Boolean.TRUE.equals(this.jdbc.queryForObject("""
+				SELECT EXISTS (
+				    SELECT 1
+				    FROM trilhas_auditoria t
+				    JOIN jobs j ON j.id = t.job_id
+				    JOIN regras r ON r.id = t.regra_id
+				    WHERE t.job_id = ? AND t.no = ? AND t.conclusao ->> 'encaminhamento' = ?
+				      AND j.status = 'aguardando_decisao_usuario'
+				      AND NOT EXISTS (SELECT 1 FROM regras nova WHERE nova.job_id = r.job_id AND nova.versao > r.versao)
+				      AND NOT EXISTS (
+				          SELECT 1 FROM sugestoes_meta_venda m WHERE m.job_id = t.job_id AND m.regra_id = t.regra_id
+				      )
+				      AND NOT EXISTS (
+				          SELECT 1 FROM trilhas_auditoria fim
+				          WHERE fim.job_id = t.job_id AND fim.regra_id = t.regra_id AND fim.no = t.no
+				            AND fim.id <> t.id AND fim.concluido_em >= t.concluido_em
+				      )
+				)
+				""", Boolean.class, jobId, EtapaDoGrafo.DECISAO.paraEvento(), ENCAMINHAMENTO_BUSCA_META));
 	}
 
 	@Nullable MetaSugeridaDto buscarMetaSugerida(UUID jobId) {

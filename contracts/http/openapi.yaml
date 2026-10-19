@@ -290,8 +290,9 @@ paths:
         Estado corrente do job e tudo que já existe dele. `regras` contém todas as
         versões formadas para o job, em ordem crescente de versão. Os demais campos
         opcionais aparecem conforme o job avança: `simulacao` depois que a execução
-        termina, `meta_sugerida` quando a busca da meta maior termina e a meta ainda
-        não foi aceita, `motivo` quando o job parou.
+        termina, `busca_meta_em_curso` enquanto a busca da meta maior roda,
+        `meta_sugerida` quando ela termina e a meta ainda não foi aceita, `motivo`
+        quando o job parou.
 
         É a fonte dos números exibidos. Nenhum valor aqui deve ser recalculado ou
         derivado pelo cliente: a aritmética é determinística, roda sobre os dados
@@ -493,6 +494,62 @@ paths:
                       meta_venda: 28500000.0
                       total_simulado: 594000.0
                       orcamento: 600000.0
+                simulacaoNaMetaComBuscaEmCurso:
+                  summary: Simulação na meta de venda, abaixo do orçamento, com a busca da meta maior em curso
+                  description: |
+                    O mesmo job, antes de a busca terminar. A simulação na meta coube
+                    com margem, e a busca da maior meta que o orçamento comporta ainda
+                    roda: `busca_meta_em_curso` aparece, e `meta_sugerida` ainda não.
+                  value:
+                    id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                    nome: Comissão de 2% para o cargo 100 da loja 13
+                    status: aguardando_decisao_usuario
+                    origem: texto
+                    competencias: ["2025-08", "2025-11"]
+                    orcamento: 600000.0
+                    meta_venda: 26000000.0
+                    criado_em: "2025-11-24T16:00:00Z"
+                    iniciado_em: "2025-11-24T16:00:40Z"
+                    submissao_id: "d1e2f3a4-b5c6-4d7e-8f90-a1b2c3d4e5f6"
+                    regras:
+                      - id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                        versao: 1
+                        origem: extracao
+                        representacao:
+                          nucleo:
+                            vigencia: { inicio: "2025-08", fim: "2025-11" }
+                            loja: ["13"]
+                            cargo: ["100"]
+                            percentual: 0.02
+                          especificacoes: []
+                        criada_em: "2025-11-24T16:00:30Z"
+                    simulacao:
+                      id: "e5f6a7b8-c9d0-4e1f-8a2b-3c4d5e6f7a8b"
+                      regra_id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                      criado_em: "2025-11-24T16:03:12Z"
+                      status: sucesso
+                      veredito: viavel
+                      meta_venda: 26000000.0
+                      flag_baixa_rastreabilidade: false
+                      resultado:
+                        totais:
+                          baseline: 529520.0
+                          simulado: 541900.0
+                          diferenca_abs: 12380.0
+                          diferenca_pct: 0.0234
+                          orcamento: 600000.0
+                          vendas_historicas: 23583194.87
+                        assercoes:
+                          - nome: sem_comissao_negativa
+                            resultado: ok
+                            detalhe: null
+                        decomposicao:
+                          elemento: { "nucleo.percentual": 12380.0 }
+                          loja: { "13": 12380.0 }
+                          marca: { "10": 7480.0, "20": 4900.0 }
+                          cargo: { "100": 12380.0 }
+                          competencia: { "2025-08": 4980.0, "2025-11": 7400.0 }
+                    busca_meta_em_curso: true
                 simulacaoSemOrcamento:
                   summary: Simulação de um job sem orçamento, só com o valor da comissão
                   description: |
@@ -2403,8 +2460,21 @@ components:
             Desfecho da busca da meta maior para a versão da simulação vigente,
             enquanto a meta não foi aceita. Ausente quando não houve busca: job sem
             orçamento, regra com especificações ou simulação que não coube com
-            margem. Ausente também enquanto a busca está em curso e depois de
-            `aceitar_meta`.
+            margem. Ausente também enquanto a busca está em curso, quando vem
+            `busca_meta_em_curso`, e depois de `aceitar_meta`.
+        busca_meta_em_curso:
+          type: boolean
+          const: true
+          description: |
+            Presente, sempre `true`, enquanto a busca da meta maior roda para a
+            versão da simulação vigente e o job aguarda a decisão do usuário: a
+            simulação coube com margem e a meta sugerida ainda não chegou. Ausente
+            nos demais casos, nunca `false`. Deixa de vir quando `meta_sugerida`
+            aparece, com uma meta ou com `sem_solucao`, ou quando a busca termina sem
+            meta registrada, o que o evento `etapa` com `busca_meta_encerrada`
+            anuncia. O evento `etapa` com `buscando_meta` anuncia o começo da busca, e
+            é enquanto este campo vem que a tela mostra o processamento em vez do
+            resultado final.
 
     RegraVersionada:
       type: object
@@ -2828,7 +2898,16 @@ components:
             encontrou uma meta, exposta em `meta_sugerida`; e `sem_solucao` anuncia
             que a busca terminou sem meta para sugerir. Os dois últimos são emitidos
             pela `api` ao registrar o evento `meta-venda-sugerida`, e não repassados
-            do codegen. O vocabulário ainda não está fechado.
+            do codegen. `buscando_meta` anuncia o começo da busca da meta maior: a
+            `api` o emite ao registrar a decisão que abriu a busca, e a tela busca
+            `GET /jobs/{id}`, que traz `busca_meta_em_curso` até a busca terminar.
+            `busca_meta_encerrada` anuncia que a busca terminou sem meta registrada,
+            quando a `api` grava a decisão que a fecha e ainda não registrou a meta do
+            evento `meta-venda-sugerida`; a tela busca `GET /jobs/{id}`, que não traz
+            mais `busca_meta_em_curso`. Os dois eventos do codegen chegam por filas
+            diferentes, então a meta ainda pode ser registrada depois desse anúncio, e
+            nesse caso vem `meta_sugerida` e o job passa a trazer `meta_sugerida`. O
+            vocabulário ainda não está fechado.
         conflitos:
           $ref: "../domain/conflitos-rodada.schema.json"
           description: |
@@ -2852,6 +2931,12 @@ components:
               motivo: percentual ausente
             - elementos: [nucleo.loja, elem.2]
               motivo: loja 13 no núcleo e na exclusão
+        - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          etapa: sugestao_adaptacao
+          status: buscando_meta
+        - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          etapa: sugestao_adaptacao
+          status: busca_meta_encerrada
         - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
           etapa: sugestao_adaptacao
           status: meta_sugerida

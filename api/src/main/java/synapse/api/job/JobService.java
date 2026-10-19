@@ -163,7 +163,8 @@ class JobService {
 			return new JobDetalhadoDto(job.id(), job.status(), job.origem(), job.competencias(), job.orcamento(),
 					job.meta_venda(), job.criado_em(), job.iniciado_em(), job.finalizado_em(), job.submissao_id(),
 					job.job_origem_id(), job.motivo(), job.regras(), simulacao, simulacoes,
-					this.repository.buscarMetaSugerida(jobId), dados.nome());
+					this.repository.buscarMetaSugerida(jobId), dados.nome(),
+					this.repository.buscaMetaEmCurso(jobId) ? Boolean.TRUE : null);
 		}
 		catch (EmptyResultDataAccessException ex) {
 			throw new JobNaoEncontradoException(jobId);

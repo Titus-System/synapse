@@ -260,9 +260,18 @@ class JobEventosService {
 		return avancou ? EventoEstadoDto.transicao(jobId, JobStatus.GERANDO_REGRA, destino, razao) : null;
 	}
 
+	/**
+	 * O que a linha gravada agora muda na busca da meta maior, para o consumidor anunciar
+	 * no SSE depois do commit: a decisão que abriu a busca a deixa em curso, e a decisão
+	 * que a fecha a encerra quando a meta sugerida não foi registrada. A reentrega não
+	 * grava de novo, e por isso não anuncia de novo.
+	 */
 	@Transactional
-	void registrarNoConcluido(UUID jobId, UUID eventoId, EtapaDoGrafo no, NoConcluidoDto evento) {
+	BuscaMetaAnunciada registrarNoConcluido(UUID jobId, UUID eventoId, EtapaDoGrafo no, NoConcluidoDto evento) {
 		this.repository.exigirJobExistente(jobId);
+		boolean decisao = no == EtapaDoGrafo.DECISAO;
+		boolean abreBusca = decisao && abriuBuscaMeta(evento);
+		boolean emCursoAntes = decisao && !abreBusca && this.repository.buscaMetaEmCurso(jobId);
 
 		UUID simulacaoId = evento.simulacao_id();
 		UUID regraId = evento.regra_id();
@@ -272,7 +281,42 @@ class JobEventosService {
 					Objects.requireNonNull(evento.concluido_em()));
 		}
 
-		this.repository.inserirTrilhaNo(eventoId, jobId, simulacaoId, no, evento);
+		if (!this.repository.inserirTrilhaNo(eventoId, jobId, simulacaoId, no, evento)) {
+			return BuscaMetaAnunciada.NENHUMA;
+		}
+		if (abreBusca && this.repository.buscaMetaEmCurso(jobId)) {
+			return BuscaMetaAnunciada.INICIADA;
+		}
+		if (emCursoAntes && !this.repository.buscaMetaEmCurso(jobId)) {
+			return BuscaMetaAnunciada.ENCERRADA;
+		}
+		return BuscaMetaAnunciada.NENHUMA;
+	}
+
+	/**
+	 * O status do evento {@code etapa} na etapa {@code sugestao_adaptacao} que a gravação
+	 * de uma decisão anuncia. O fim com a meta registrada é anunciado por quem a
+	 * registra.
+	 */
+	enum BuscaMetaAnunciada {
+
+		NENHUMA(null), INICIADA("buscando_meta"), ENCERRADA("busca_meta_encerrada");
+
+		private final @Nullable String status;
+
+		BuscaMetaAnunciada(@Nullable String status) {
+			this.status = status;
+		}
+
+		@Nullable String status() {
+			return this.status;
+		}
+
+	}
+
+	private static boolean abriuBuscaMeta(NoConcluidoDto evento) {
+		JsonNode encaminhamento = Objects.requireNonNull(evento.conclusao()).path("encaminhamento");
+		return encaminhamento.isString() && JobRepository.ENCAMINHAMENTO_BUSCA_META.equals(encaminhamento.asString());
 	}
 
 	@Transactional

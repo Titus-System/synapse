@@ -251,10 +251,13 @@ class NoConcluidoConsumidor {
 
 	private final JobEventosService servico;
 
+	private final EmissoresSse emissores;
+
 	private final CorrelationContext correlacao;
 
-	NoConcluidoConsumidor(JobEventosService servico, CorrelationContext correlacao) {
+	NoConcluidoConsumidor(JobEventosService servico, EmissoresSse emissores, CorrelationContext correlacao) {
 		this.servico = servico;
+		this.emissores = emissores;
 		this.correlacao = correlacao;
 	}
 
@@ -282,14 +285,23 @@ class NoConcluidoConsumidor {
 				return;
 			}
 
+			JobEventosService.BuscaMetaAnunciada busca;
 			try {
-				this.servico.registrarNoConcluido(jobId, eventoId, no, evento);
+				busca = this.servico.registrarNoConcluido(jobId, eventoId, no, evento);
 			}
 			catch (EmptyResultDataAccessException ex) {
 				log.atWarn().setCause(ex).log("no-concluido de job desconhecido; evento descartado");
 				return;
 			}
 			log.atDebug().addKeyValue("no", no.paraEvento()).log("no-concluido gravado na trilha");
+			String status = busca.status();
+			if (status != null) {
+				// Depois do commit: quem buscar o job agora encontra o campo, ou não o
+				// encontra mais.
+				this.emissores.emitir(jobId, EventoSse.de("etapa",
+						new EventoEtapaDto(jobId, EtapaDoGrafo.SUGESTAO_ADAPTACAO.paraEvento(), status)));
+				log.atInfo().addKeyValue("status", status).log("busca da meta maior anunciada");
+			}
 		}
 	}
 

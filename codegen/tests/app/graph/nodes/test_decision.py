@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 import pytest
 import simplejson
 
+from app.config import get_settings
 from app.contratos.mensagens import EtapaAlterada
 from app.contratos.serializacao import serializar
 from app.graph.core.state import AgentState
@@ -139,7 +140,10 @@ async def test_registra_o_encaminhamento_e_a_presenca_do_orcamento_e_da_meta_sem
     com_orcamento: bool,
     com_meta_venda: bool,
     caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # O encaminhamento para a busca da meta maior tem testes próprios (`test_busca_meta.py`).
+    monkeypatch.setattr(get_settings(), "BUSCA_META_ENABLED", False)
     estado = _estado(veredito="viavel", **parametros)
 
     with caplog.at_level("INFO", logger="app.graph.nodes.decision"):

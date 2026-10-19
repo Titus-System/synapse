@@ -13,6 +13,7 @@ from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import StateSnapshot
 
+from app.config import get_settings
 from app.contratos.mensagens import ModeloContrato, ParametrosConfirmados
 from app.contratos.serializacao import serializar
 from app.graph.core.engine import build_graph
@@ -57,6 +58,9 @@ class ConfirmacaoFalsa:
             return_value=TentativasDeTaxa(feitas=0, regra_e_tentativa=False)
         )
         monkeypatch.setattr("app.graph.nodes.decision.contar_tentativas", self.contar_tentativas)
+        # O banco falso não responde às consultas da busca da meta maior, que tem testes
+        # próprios (`tests/app/graph/test_busca_meta.py`).
+        monkeypatch.setattr(get_settings(), "BUSCA_META_ENABLED", False)
         monkeypatch.setattr("app.graph.nodes.code_generation.get_model", lambda _: self.modelo)
         self.producers = MagicMock()
         for metodo, evento in (
