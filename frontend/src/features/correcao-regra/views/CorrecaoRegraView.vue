@@ -14,6 +14,7 @@ const router = useRouter()
 const jobId = computed(() => (typeof rota.params.id === 'string' ? rota.params.id : ''))
 const {
   rodadas,
+  job,
   texto,
   carregando,
   enviando,
@@ -137,7 +138,7 @@ onBeforeUnmount(() => controlador.abort())
               Tentar atualizar conversa
             </button>
           </div>
-          <ConversaRodadas :rodadas="rodadas" />
+          <ConversaRodadas :rodadas="rodadas" :regras="job?.regras" :meta-venda="job?.meta_venda" />
           <p v-if="encerrado" role="status">Esta conversa está disponível apenas para consulta.</p>
           <p v-if="semCorrecao" role="status">Esta regra não tem pontos para corrigir.</p>
         </section>

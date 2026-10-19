@@ -1,10 +1,24 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import type { RegraVersionada } from '@/types/api'
 import MensagemConversa from './MensagemConversa.vue'
+import { parametrosDaRegra } from '../composables/parametrosDaRegra'
 import type { Rodada } from '../types'
-defineProps<{ rodadas: Rodada[] }>()
+const props = defineProps<{ rodadas: Rodada[]; regras?: RegraVersionada[]; metaVenda?: number }>()
+const parametros = computed(() => {
+  const regra = props.regras?.find((item) => item.id === props.rodadas[0]?.regra_analisada_id)
+  return regra ? parametrosDaRegra(regra.representacao.nucleo, props.metaVenda) : []
+})
 </script>
 
 <template>
+  <MensagemConversa v-if="parametros.length" data-parametros>
+    <p>Olá! Entendi que você quer criar uma regra com os seguintes parâmetros:</p>
+    <p v-for="parametro in parametros" :key="parametro.rotulo">
+      {{ parametro.rotulo }}: {{ parametro.valor }}
+    </p>
+    <p class="mt-4">Podemos prosseguir para a simulação?</p>
+  </MensagemConversa>
   <div v-for="rodada in rodadas" :key="rodada.id" class="space-y-5" :data-rodada="rodada.id">
     <MensagemConversa v-if="rodada.conflitos.length">
       <p>Precisamos ajustar estes pontos:</p>
