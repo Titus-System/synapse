@@ -5,7 +5,7 @@ from jsonschema import Draft202012Validator
 
 from app.extracao.construtos.generico import montar_generico
 from app.extracao.lastro import conferir_numero, numeros_citados, trecho_literal
-from app.extracao.modelos import MotivoRebaixamento, Rebaixamento
+from app.extracao.modelos import MotivoRebaixamento, Rebaixamento, RebaixamentoConstrutoError
 from app.extracao.registro import CONSTRUTOS_HABILITADOS
 from app.extracao.schema import schema_elemento
 from app.representacao_regra import RepresentacaoRegra
@@ -80,7 +80,7 @@ def montar_elemento(
                 and campo["valor"] == elemento_atual[chave]
             )
             if not preservado and not conferir_numero(
-                texto,
+                trecho if construto.lastro_no_trecho and trecho is not None else texto,
                 campo["trecho"],
                 campo["valor"],
                 percentual=chave in ("percentual", "fracao", "taxa"),
@@ -88,6 +88,8 @@ def montar_elemento(
                 motivo_lastro = "valor_sem_lastro"
                 break
             para_conversao[chave] = campo["valor"]
+    motivo_conversao: MotivoRebaixamento | None = None
+    campos: dict[str, ValorRegra] | None = None
     if construto is not None and not erros and not incompleto and motivo_lastro is None:
         try:
             convertido = {
@@ -96,6 +98,10 @@ def montar_elemento(
                 "construto": pretendido,
             }
             RepresentacaoRegra.model_validate({"nucleo": {}, "especificacoes": [convertido]})
+        except RebaixamentoConstrutoError as erro:
+            motivo_conversao = erro.motivo
+            campos = erro.campos
+            descricao = trecho or descricao
         except (ValueError, TypeError, KeyError):
             incompleto = True
         else:
@@ -107,9 +113,13 @@ def montar_elemento(
             if trecho is not None and trecho_literal(texto, trecho)
             else "Elemento sem lastro verificável"
         )
-    return montar_generico(ref, descricao), Rebaixamento(
+    generico = montar_generico(ref, descricao)
+    if campos is not None:
+        generico["campos"] = campos
+    return generico, Rebaixamento(
         ref=ref,
         construto_pretendido=pretendido,
         motivo=motivo_lastro
+        or motivo_conversao
         or ("campo_obrigatorio_ausente" if incompleto else "construto_nao_habilitado"),
     )
