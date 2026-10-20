@@ -288,3 +288,49 @@ async def test_data_que_o_texto_nao_diz_vira_generico() -> None:
 
     assert [e["construto"] for e in elementos(resultado)] == ["generico"]
     assert [r.motivo for r in resultado.rebaixamentos] == ["valor_sem_lastro"]
+
+
+async def test_percentual_no_trecho_do_elemento_vira_generico_mesmo_com_valor_sem_o_simbolo() -> (
+    None
+):
+    texto = "Bônus de 5% para as matrículas 422 e 517"
+    elemento = rascunho_lista(descricao=texto, trecho=texto, valor=lastro(Decimal("5"), "5"))
+
+    resultado = await extrair(elemento, texto)
+
+    assert [e["construto"] for e in elementos(resultado)] == ["generico"]
+    assert [r.motivo for r in resultado.rebaixamentos] == ["campo_obrigatorio_ausente"]
+
+
+@pytest.mark.parametrize("direcao", ["a partir de", "depois de", "antes de", "desde"])
+async def test_admissao_em_outra_direcao_que_nao_ate_vira_generico(direcao: str) -> None:
+    texto = f"Os admitidos {direcao} 10/10 no cargo 100 terão um bônus de R$ 1.000"
+
+    resultado = await extrair(rascunho_filtro(descricao=texto, trecho=texto), texto)
+
+    assert [e["construto"] for e in elementos(resultado)] == ["generico"]
+    assert [r.motivo for r in resultado.rebaixamentos] == ["termo_ambiguo"]
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Não conceder bônus fixo de R$ 500 para as matrículas MATRIC-422 e MATRIC-517",
+        "Ninguém além das matrículas MATRIC-422 e MATRIC-517 recebe bônus fixo de R$ 500",
+        "Bônus fixo de R$ 500 para as matrículas MATRIC-422 e MATRIC-517, exceto a MATRIC-517",
+    ],
+)
+async def test_bonus_negado_ou_com_excecao_vira_generico(texto: str) -> None:
+    resultado = await extrair(rascunho_lista(descricao=texto, trecho=texto), texto)
+
+    assert [e["construto"] for e in elementos(resultado)] == ["generico"]
+    assert [r.motivo for r in resultado.rebaixamentos] == ["termo_ambiguo"]
+
+
+async def test_admissao_negada_vira_generico() -> None:
+    texto = "Os admitidos até 10/10 no cargo 100 não ganham bônus de R$ 1.000"
+
+    resultado = await extrair(rascunho_filtro(descricao=texto, trecho=texto), texto)
+
+    assert [e["construto"] for e in elementos(resultado)] == ["generico"]
+    assert [r.motivo for r in resultado.rebaixamentos] == ["termo_ambiguo"]
