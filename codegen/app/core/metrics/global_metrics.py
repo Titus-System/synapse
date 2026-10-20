@@ -93,7 +93,17 @@ CONSTRUTOS_DA_EXTRACAO = (
     "bonus_fixo",
     "outro",
 )
-MOTIVOS_DE_REBAIXAMENTO = ("construto_nao_habilitado", "campo_obrigatorio_ausente")
+MOTIVOS_DE_REBAIXAMENTO = (
+    "construto_nao_habilitado",
+    "campo_obrigatorio_ausente",
+    "valor_sem_lastro",
+    "codigo_fora_do_vocabulario",
+    "termo_ambiguo",
+    "periodo_nao_resolvido",
+    "operacao_invalida",
+    "referencia_inexistente",
+    "operacao_sem_trecho",
+)
 CLASSES_DE_FALHA_EXTRACAO = (
     "entrada_invalida",
     "regra_indisponivel",

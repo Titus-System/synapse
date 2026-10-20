@@ -1,8 +1,4 @@
 <script setup lang="ts">
-import {
-  transformarRegra,
-  transformarResultado,
-} from "../composables/transformarRegra";
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
@@ -13,9 +9,10 @@ import { regraMaisRecente, simulacaoVisivel } from "@/services/job";
 import { usarStoreJobAtual } from "@/stores/currentJob";
 import TheProcessHeader from "@/components/TheProcessHeader.vue";
 import TheSidebar from "@/components/TheSidebar.vue";
-import RelatorioSimulacao from "../components/RelatorioSimulacao.vue";
-import { consultarDetalhamento } from "../services/finish.api";
-import { useDetalhamento } from "../composables/useDetalhamento";
+import CartaoRegra from "@/components/CartaoRegra.vue";
+import RelatorioSimulacao from "@/components/RelatorioSimulacao.vue";
+import { consultarDetalhamento } from "@/services/detalhamento";
+import { useDetalhamento } from "@/composables/useDetalhamento";
 
 const rota = useRoute();
 const roteador = useRouter();
@@ -152,34 +149,6 @@ async function executarAcao(acao: "salvar" | "arquivar"): Promise<void> {
   }
 }
 
-const dataRegra = computed(() =>
-  regra.value
-    ? new Date(regra.value.criada_em).toLocaleString("pt-BR", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "",
-);
-const baixaRastreabilidade = computed(
-  () => simulacao.value?.flag_baixa_rastreabilidade === true,
-);
-const tituloRegra = computed(() =>
-  regra.value ? `Regra · versão ${regra.value.versao}` : "Nova Regra",
-);
-const regraFormatada = computed(() =>
-  regra.value
-    ? transformarRegra(regra.value.representacao)
-    : { se: [], entao: [] },
-);
-const resultadoFormatado = computed(() =>
-  simulacao.value?.status === "sucesso" && simulacao.value.resultado
-    ? transformarResultado(simulacao.value.resultado)
-    : [],
-);
-
 watch(
   jobId,
   () => {
@@ -216,66 +185,18 @@ onBeforeUnmount(() => {
             <h1 class="mb-3 text-center text-3xl font-bold sm:text-3xl">Finalizar Regra</h1>
             <p class="text-center text-[#6b564a] text-base">Revise os detalhes da regra extraída e confirme o salvamento.</p>
         </div>
-        <div class="mb-5 flex w-full max-w-4xl min-w-0 flex-col rounded-xl border-2 border-[#DFC0B2] bg-white" :class="relatorioAberto ? 'shrink-0' : 'min-h-0 flex-1'">
-            <div class="shrink-0 px-4 pt-7 pb-3 sm:px-8 sm:pt-8">
-                <div>
-                    <h2 class="font-bold text-2xl mb-2">{{ carregando ? 'Carregando regra...' : tituloRegra }}</h2>
-                    <div class="flex flex-row gap-2">
-                        <span v-if="!erroCarregamento" class="text-[#9D4400] text-sm">Extraída</span>
-                        <template v-if="dataRegra">
-                            <p class="text-[#9D4400] text-sm">•</p>
-                            <span class="text-[#9D4400] text-sm">{{ dataRegra }}</span>
-                        </template>
-                    </div>
-                    <div v-if="baixaRastreabilidade" class="mt-3 px-4 py-3 rounded-lg bg-[#fdf7f3] border border-[#FFDBCD] text-[#765B1A]">
-                      <p class="font-bold mb-1">Baixa rastreabilidade</p>
-                      <p class="text-sm">Não foi possível rastrear detalhadamente as decisões tomadas durante a simulação.</p>
-                    </div>
-                </div>
-            </div>
-            <hr class="shrink-0 self-center mb-3 border border-[#FFDBCD] w-[94%]">
-            <div class="mx-4 mb-4 min-h-0 overflow-y-auto rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] p-4 text-[#584237] sm:mx-8">
-                <div v-if="carregando" class="flex flex-col items-center justify-center py-8 gap-3">
-                    <div class="w-7 h-7 border-4 border-[#FFDBCD] border-t-[#F47521] rounded-full animate-spin"></div>
-                        <p class="text-[#584237]">Carregando dados da regra...</p>
-                </div>
-                <div v-else-if="erroCarregamento" class="flex flex-col items-center justify-center text-center py-10 px-6 gap-3">
-                  <div class="w-12 h-12 flex items-center justify-center rounded-full bg-[#ffc1b0] text-[#950606] text-2xl font-bold">!</div>
-                    <h3 class="font-bold text-2xl text-[rgb(149,6,6)]">Um erro impossibilitou o carregamento da regra.</h3>
-                    <p class="text-lg text-[#950606]"> Por favor, tente novamente.</p>
-                  </div>
-                  <div v-else class="flex flex-col gap-3">
-                    <p class="text-[#584237]/70 font-bold text-xl">LÓGICA ESTRUTURADA (PRÉ-VISUALIZAÇÃO)</p>
-                    <!-- SE -->
-                    <div>
-                      <h3 class="font-bold text-base mb-1">SE</h3>
-
-                      <div class="flex flex-col gap-1 pl-6">
-                        <p v-for="(linha, indice) in regraFormatada.se" :key="`se-${indice}`" class='text-sm'>
-                          {{ linha }}
-                        </p>
-                      </div>
-                    </div>
-
-                    <!-- ENTÃO -->
-                    <div>
-                      <h3 class="font-bold text-base mb-1">ENTÃO</h3>
-                      <div class="flex flex-col gap-2 pl-6">
-                        <p v-for="(linha, indice) in [
-                            ...regraFormatada.entao,
-                            ...resultadoFormatado,
-                          ]" :key="`entao-${indice}`" class='text-sm'>{{ linha }}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+        <CartaoRegra
+          class="mb-5 max-w-4xl" :class="relatorioAberto ? 'shrink-0' : 'min-h-0 flex-1'"
+          :regra="regra" :simulacao="simulacao" :carregando="carregando" :erro="erroCarregamento"
+        >
                 <RelatorioSimulacao
                   v-if="!carregando && !erroCarregamento && simulacao?.status === 'sucesso'"
                   :aberto="relatorioAberto" :carregando="carregandoRelatorio" :erro="erroRelatorio"
                   :linhas="detalhamento?.linhas" :regra="regraDaSimulacao?.representacao"
+                  :decomposicao="simulacao?.resultado?.decomposicao"
                   @alternar="relatorio.alternar" @tentar-novamente="relatorio.carregar"
                 />
-              </div>
+        </CartaoRegra>
         <div class="mb-0 flex shrink-0 flex-col items-stretch gap-3 sm:flex-row sm:items-center">
             <button type="button" class="text-[#9D4400] px-9 py-3 rounded-lg border-2 border-[#9D4400] font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" :disabled="acaoProcessando !== null || carregando || erroCarregamento || !podeArquivar" @click="executarAcao('arquivar')">{{ acaoProcessando === 'arquivar' ? 'Processando...' : 'Arquivar' }}</button>
             <button type="button" class="bg-[#F47521] text-white font-bold px-9 py-3 rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" :disabled="acaoProcessando !== null || carregando || erroCarregamento || !podeSalvar" @click="executarAcao('salvar')">{{ acaoProcessando === 'salvar' ? 'Processando...' : 'Salvar' }}</button>

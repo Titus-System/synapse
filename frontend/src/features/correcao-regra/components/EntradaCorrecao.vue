@@ -1,12 +1,23 @@
 <script setup lang="ts">
-defineProps<{ texto: string; habilitada: boolean; podeEnviar: boolean }>()
-const emit = defineEmits<{ 'update:texto': [valor: string]; enviar: [] }>()
+import EntradaVoz from '@/components/EntradaVoz.vue'
+const props = defineProps<{
+  texto: string
+  habilitada: boolean
+  podeEnviar: boolean
+  enviando?: boolean
+  jobId?: string
+}>()
+const emit = defineEmits<{
+  'update:texto': [valor: string]
+  enviar: []
+  enviarVoz: [audio: Blob]
+}>()
 </script>
 
 <template>
   <form
     class="relative flex items-center gap-3 rounded-[1.25rem] border border-[#e6c5b8] bg-[#fff8f6] p-2 shadow-sm"
-    @submit.prevent="emit('enviar')"
+    @submit.prevent="props.habilitada && props.podeEnviar && emit('enviar')"
   >
     <label for="texto-correcao" class="sr-only">Sua correção</label>
     <textarea
@@ -18,6 +29,13 @@ const emit = defineEmits<{ 'update:texto': [valor: string]; enviar: [] }>()
       aria-describedby="limite-correcao"
       class="min-h-12 min-w-0 flex-1 resize-none rounded-xl bg-transparent px-2 py-3 text-base text-[#584237] outline-none placeholder:text-[#a38a7e] focus-visible:ring-2 focus-visible:ring-[#f97518] disabled:opacity-60"
       @input="emit('update:texto', ($event.target as HTMLTextAreaElement).value)"
+    />
+    <EntradaVoz
+      :enviando="!!enviando"
+      :bloqueada="!habilitada"
+      :job-id="jobId"
+      compacto
+      @enviar="habilitada && emit('enviarVoz', $event)"
     />
     <button
       type="submit"

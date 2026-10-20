@@ -12,7 +12,7 @@ from tests.app.graph.conftest import FakeChatModel
 METADADOS = {"provedor": "google", "modelo": "fake", "versao": "test"}
 TEXTO = "Pague 2,5% na loja 13 e um bônus de R$ 500 em 2025-11."
 ELEMENTO = {
-    "construto_pretendido": "bonus_fixo",
+    "construto_pretendido": "construto_futuro",
     "descricao": "um bônus de R$ 500 em 2025-11",
     "trecho": "um bônus de R$ 500 em 2025-11",
 }

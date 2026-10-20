@@ -1,27 +1,18 @@
 from copy import deepcopy
 from typing import Any
 
-from app.extracao.registro import Construto
+from app.extracao.construto import Construto, com_lastro
 
 _TEXTO = {"type": "string", "minLength": 1}
 _COMPETENCIA = {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$"}
 
 
-def _com_lastro(valor: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["valor", "trecho"],
-        "properties": {"valor": valor, "trecho": _TEXTO},
-    }
-
-
-_CODIGOS = {"type": "array", "minItems": 1, "items": _com_lastro(_TEXTO)}
+_CODIGOS = {"type": "array", "minItems": 1, "items": com_lastro(_TEXTO)}
 _MONETARIO = {"type": "number"}
 
 
 def _schema_parametro(valor: dict[str, Any]) -> dict[str, Any]:
-    return _com_lastro(valor)
+    return com_lastro(valor)
 
 
 PARAMETROS: dict[str, Any] = {
@@ -30,7 +21,13 @@ PARAMETROS: dict[str, Any] = {
     "properties": {
         "orcamento": _schema_parametro(_MONETARIO),
         "meta_venda": _schema_parametro(_MONETARIO),
-        "competencias": _schema_parametro({"type": "array", "minItems": 1, "items": _COMPETENCIA}),
+        "competencias": {
+            **_schema_parametro({"type": "array", "minItems": 1, "items": _COMPETENCIA}),
+            "description": (
+                "Período que o texto manda simular ou liga ao orçamento ou à meta, como "
+                "'simular de setembro a novembro'. Não é a vigência da comissão."
+            ),
+        },
     },
 }
 
@@ -38,20 +35,36 @@ NUCLEO: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "vigencia": _com_lastro(
-            {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["inicio", "fim"],
-                "properties": {"inicio": _COMPETENCIA, "fim": _COMPETENCIA},
-            }
-        ),
+        "vigencia": {
+            **com_lastro(
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["inicio", "fim"],
+                    "properties": {"inicio": _COMPETENCIA, "fim": _COMPETENCIA},
+                }
+            ),
+            "description": (
+                "Quando a comissão vale. Nunca é o período a simular nem as competências "
+                "publicadas."
+            ),
+        },
         "loja": _CODIGOS,
         "marca": _CODIGOS,
         "cargo": _CODIGOS,
-        "percentual": _com_lastro({"type": "number"}),
+        "percentual": com_lastro({"type": "number"}),
     },
 }
+
+
+# Com um construto habilitado, o elemento passa a ser um `anyOf`, e sem esta descrição o modelo
+# deixa de criar o genérico para o que o núcleo não comporta.
+_DESCRICAO_GENERICO = (
+    "Qualquer condição ou efeito da regra que nenhum outro construto representa. O núcleo só "
+    "tem vigência, loja, marca, cargo e percentual: qualquer outra condição, como uma base "
+    "de cálculo diferente ('sobre a venda total da loja'), é elemento com "
+    "construto_pretendido 'generico'. Nunca descarte."
+)
 
 
 def schema_elemento(construto: Construto | None = None) -> dict[str, Any]:
@@ -61,7 +74,7 @@ def schema_elemento(construto: Construto | None = None) -> dict[str, Any]:
         propriedades.update(
             {
                 nome: (
-                    _com_lastro(definicao)
+                    com_lastro(definicao)
                     if definicao.get("type") in ("number", "integer")
                     else definicao
                 )
@@ -99,7 +112,7 @@ def schema_envelope() -> dict[str, Any]:
 
 def schema_saida(registro: dict[str, Construto]) -> dict[str, Any]:
     schema = schema_envelope()
-    variantes = [schema_elemento()]
+    variantes = [{**schema_elemento(), "description": _DESCRICAO_GENERICO}]
     for nome, construto in registro.items():
         variante = schema_elemento(construto)
         variante["properties"]["construto_pretendido"] = {"type": "string", "enum": [nome]}

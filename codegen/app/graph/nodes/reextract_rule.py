@@ -56,6 +56,7 @@ from app.repositorio.artefatos import (
     id_do_evento_de_trilha,
 )
 from app.repositorio.regras import RegraInvalidaError, buscar_regra
+from app.repositorio.rodadas_correcao import buscar_historico_correcao
 from app.repositorio.submissoes import TranscricaoIndisponivelError, buscar_transcricao
 from app.representacao_regra import RepresentacaoRegra
 
@@ -145,6 +146,8 @@ async def reextract_rule(state: AgentState, config: RunnableConfig) -> AgentStat
         regra = await _ler_regra(sessoes, job_id, regra_id)
         operacao = "buscar_transcricao"
         texto = await buscar_transcricao(sessoes, submissao_id)
+        operacao = "buscar_historico_correcao"
+        historico = await buscar_historico_correcao(sessoes, job_id, submissao_id)
         # Recalculados, e não lidos da rodada: a validação é determinística, e a rodada guarda o
         # mesmo resultado. São dados do sistema, que mostram ao modelo o que o usuário responde,
         # inclusive os conflitos dos parâmetros.
@@ -168,7 +171,9 @@ async def reextract_rule(state: AgentState, config: RunnableConfig) -> AgentStat
             sessoes,
             job_id=job_id,
             no=ETAPA,
-            prompt=montar_prompt_reextracao(regra, parametros, conflitos, texto, publicadas),
+            prompt=montar_prompt_reextracao(
+                regra, parametros, conflitos, texto, publicadas, historico=historico
+            ),
             submissao_id=submissao_id,
         )
         if gravada is not None:
@@ -194,6 +199,7 @@ async def reextract_rule(state: AgentState, config: RunnableConfig) -> AgentStat
                     publicadas,
                     modelo=modelo,
                     metadados_modelo=metadados_modelo,
+                    historico=historico,
                 ),
                 no=ETAPA,
                 esgotada=ProvedorIndisponivelReextracaoError,

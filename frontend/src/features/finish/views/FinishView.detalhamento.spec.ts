@@ -210,3 +210,34 @@ it('descarta a resposta antiga quando a rota muda para outro job', async () => {
   expect(wrapper.find('#relatorio-simulacao').exists()).toBe(false)
   expect(wrapper.text()).not.toContain('COL-0000')
 })
+
+it('filtra o período completo sem repetir a consulta e apresenta os totais da simulação visível', async () => {
+  const job = jobFixture()
+  job.simulacao!.resultado!.decomposicao = {
+    matricula: { 'COL-0001': 999.99 },
+    loja_absoluto: { '013': 555.55 },
+    competencia_absoluto: { '2025-11': 777.77 },
+  }
+  vi.mocked(apiClient.consultarJob).mockResolvedValue(job)
+  const fetch = responder(linhasDeTeste(2700))
+  const { wrapper } = await montar()
+  const consultasIniciais = vi.mocked(apiClient.consultarJob).mock.calls.length
+  await wrapper.get('[aria-controls="relatorio-simulacao"]').trigger('click')
+  await flushPromises()
+  const relatorio = wrapper.get('#relatorio-simulacao')
+  await relatorio.get('input[type="search"]').setValue('col-0001')
+  await relatorio.findAll('select')[0]!.setValue('013')
+  await relatorio.findAll('select')[1]!.setValue('2025-11')
+  expect(wrapper.findAll('tbody tr')).toHaveLength(1)
+  const totais = relatorio.get('[aria-label="Totais da simulação"]')
+  expect(totais.text()).toContain('R$ 999,99')
+  expect(totais.text()).toContain('R$ 555,55')
+  expect(totais.text()).toContain('R$ 777,77')
+  await relatorio
+    .findAll('button')
+    .find((b) => b.text() === 'Limpar filtros')!
+    .trigger('click')
+  expect(wrapper.findAll('tbody tr')).toHaveLength(25)
+  expect(fetch).toHaveBeenCalledTimes(1)
+  expect(apiClient.consultarJob).toHaveBeenCalledTimes(consultasIniciais)
+})

@@ -3,6 +3,7 @@
 import re
 import unicodedata
 from collections.abc import Sequence
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 _MESES = (
@@ -31,6 +32,9 @@ _COMPETENCIA = re.compile(r"(?<!\d)(\d{4})-(0[1-9]|1[0-2])(?!\d)")
 _COMPETENCIA_BR = re.compile(r"(?<!\d)(0?[1-9]|1[0-2])/(19\d{2}|20\d{2})(?!\d)")
 _MES = re.compile(r"\b(" + "|".join(_MESES) + r")\b")
 _ANO = re.compile(r"\b(?:19|20)\d{2}\b")
+_DATA_ISO = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
+_DATA_BR = re.compile(r"(?<!\d)(\d{1,2})/(\d{1,2})(?:/(\d{4}))?(?![\d/])")
+_DATA_EXTENSO = re.compile(r"(?<!\d)(\d{1,2}) de (" + "|".join(_MESES) + r")(?: de (\d{4}))?(?!\d)")
 
 
 def normalizar(texto: str) -> str:
@@ -134,3 +138,55 @@ def conferir_periodo(
     if vigencia:
         return isinstance(valor, dict) and valor == {"inicio": periodo[0], "fim": periodo[-1]}, True
     return isinstance(valor, list) and valor == periodo, True
+
+
+def _data_valida(ano: int, mes: int, dia: int) -> str | None:
+    try:
+        return date(ano, mes, dia).isoformat()
+    except ValueError:
+        return None
+
+
+def resolver_datas(trecho: str, publicadas: Sequence[str]) -> list[str] | None:
+    """Datas AAAA-MM-DD do trecho, na ordem em que aparecem; None se o ano não se resolve.
+
+    O ano que o trecho não diz é o ano comum das competências do job. Datas escritas em mais de
+    um formato no mesmo trecho não têm ordem confiável e também resultam em None.
+    """
+    por_formato: list[list[tuple[int | None, int, int]]] = [
+        [(int(a), int(m), int(d)) for a, m, d in _DATA_ISO.findall(trecho)],
+        [(int(a) if a else None, int(m), int(d)) for d, m, a in _DATA_BR.findall(trecho)],
+        [
+            (int(a) if a else None, _MESES.index(m) + 1, int(d))
+            for d, m, a in _DATA_EXTENSO.findall(normalizar(trecho))
+        ],
+    ]
+    encontradas = [formato for formato in por_formato if formato]
+    if not encontradas:
+        return []
+    if len(encontradas) > 1:
+        return None
+    anos = {c[:4] for c in publicadas if _COMPETENCIA.fullmatch(c)}
+    datas: list[str] = []
+    for ano, mes, dia in encontradas[0]:
+        if ano is None:
+            if len(anos) != 1:
+                return None
+            ano = int(next(iter(anos)))
+        # Um dia que o calendário não tem não é lastro de data.
+        if (resolvida := _data_valida(ano, mes, dia)) is not None:
+            datas.append(resolvida)
+    return datas
+
+
+def conferir_data(
+    texto: str, trecho: object, valor: object, publicadas: Sequence[str]
+) -> tuple[bool, bool]:
+    """Retorna (confere, resolvido) para uma única data, como `conferir_periodo`."""
+    if not trecho_literal(texto, trecho):
+        return False, True
+    assert isinstance(trecho, str)
+    datas = resolver_datas(trecho, publicadas)
+    if datas is None:
+        return False, False
+    return len(datas) == 1 and valor == datas[0], True

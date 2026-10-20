@@ -48,7 +48,8 @@ def montar_prompt_extracao(
                     "Toda evidência tem de estar literalmente no texto. Não invente trechos. "
                     "Matrícula nunca é núcleo. Tudo além do núcleo e de parametros vira "
                     "elemento, sem descartar nada. O pedido de simular um período, o orçamento, a "
-                    "meta de venda e a frase 'para todos os funcionários' (ausência de filtro, "
+                    "meta de venda do período (objetivo da simulação) e a frase "
+                    "'para todos os funcionários' (ausência de filtro, "
                     "que o núcleo já expressa) nunca viram elemento. "
                     "Ordene elementos pela ordem em que aparecem no texto. Em cada um informe "
                     "construto_pretendido (ou generico), descricao e trecho original literal. "
@@ -85,3 +86,62 @@ def montar_prompt_extracao(
         sort_keys=True,
         allow_nan=False,
     )
+
+
+INSTRUCOES_CONDICAO_LIMIAR = """
+condicao_limiar é uma condição SEM efeito próprio que restringe a REGRA INTEIRA.
+Extraia metrica, escopo_agregacao, operador e limiar, além de descricao e trecho literal.
+A única metrica suportada é venda_total (soma monetária das vendas).
+O limiar é um número em reais, sem formatação, com {valor, trecho} literal:
+R$ 50 mil = 50000; R$ 1,5 milhão = 1500000; R$ 50.000,25 = 50000.25.
+Não use o orçamento, a comissão ou outro número como lastro do limiar.
+Escopos: venda individual, por vendedor, por funcionário e quem vender = matricula
+(total mensal consolidado da pessoa, não uma venda isolada); da loja/por loja = loja;
+da marca = marca; da empresa/da rede = rede. O escopo não é um filtro do núcleo.
+Devolva escopo_agregacao sempre com um dos quatro valores exatos (matricula, loja, marca, rede),
+nunca com "vendedor", "funcionario" ou "empresa".
+"No mês", "por mês" e "mensal" dentro da condição são a janela de apuração do limiar, não a
+vigência da regra: não preencha nucleo.vigencia com esse trecho.
+Sem escopo expresso, NÃO invente: mantenha o rascunho condicao_limiar com metrica,
+operador e limiar, omitindo escopo_agregacao; o motor rebaixa para generico e preserva
+os três valores confirmados em campos. Não use null.
+Operadores exatos: acima de/superior a/maior que/mais de = >;
+a partir de/no mínimo/pelo menos = >=; abaixo de/menor que/menos de = <;
+até/no máximo = <=; igual a = ==. Não suponha >= para chegar a ou vender um valor
+sem comparação explícita; expressão ambígua vira generico com a frase literal inteira.
+Condição negada (não, nunca, sem, exceto) ou que exclui os demais ("os demais recebem") também
+vira generico com a frase literal inteira: nunca troque o operador por conta própria.
+Meta, cota, quantidade, ticket médio e atingimento de meta como CONDIÇÕES não são
+venda_total: use generico, preservando a frase inteira, mesmo que haja valor em reais.
+Objetivo de venda do período é meta_venda em parametros, nunca condição nem generico.
+Não separe uma condição que restringe apenas um elemento: condição e elemento ficam
+juntos em UM generico, com a frase literal inteira em descricao e trecho. Não emita
+um bônus separado nem uma condicao_limiar solta para esse caso.
+Precedência: uma faixa/limiar com efeito próprio é faixa_valor aberta, não
+condicao_limiar. Use faixa_valor se habilitada; se não estiver, mantenha um único
+elemento com construto_pretendido faixa_valor, descricao e trecho literal, sem campos
+específicos desse construto. Não extraia o efeito de uma faixa como percentual do núcleo.
+Exemplos:
+- "Se a loja vender no mínimo R$ 50 mil no mês, a comissão é de 3%":
+  nucleo.percentual={valor:0.03, trecho:"3%"}; elemento condicao_limiar com
+  metrica=venda_total, escopo_agregacao=loja, operador=>=,
+  limiar={valor:50000, trecho:"R$ 50 mil"}. A condição restringe a regra inteira.
+- "Só vale para quem vender mais de R$ 20 mil por mês": condicao_limiar,
+  venda_total, matricula, >, limiar={valor:20000, trecho:"R$ 20 mil"}.
+- "A regra só vale se a venda total da marca for igual a R$ 50 mil":
+  condicao_limiar, venda_total, marca, ==, limiar={valor:50000, trecho:"R$ 50 mil"}.
+- "Só vale se a venda total da rede for até R$ 50 mil":
+  condicao_limiar, venda_total, rede, <=, limiar={valor:50000, trecho:"R$ 50 mil"}.
+- "Só vale se a venda total for no mínimo R$ 50 mil": rascunho condicao_limiar,
+  venda_total, >=, limiar={valor:50000, trecho:"R$ 50 mil"}, sem escopo_agregacao.
+- "Comissão de 3% com meta de vender R$ 12 milhões no período":
+  nucleo.percentual={valor:0.03, trecho:"3%"}, parametros.meta_venda=
+  {valor:12000000, trecho:"R$ 12 milhões"}, elementos=[].
+- "bônus de R$ 500 para quem bater a meta": um generico com a frase inteira;
+  parametros não contém meta_venda.
+- "o bônus de R$ 500 só vale se a loja vender R$ 100 mil": um generico com
+  a frase inteira, nunca bônus e condição separados.
+- "Na faixa de venda individual acima de R$ 50 mil, aplicar comissão de 4%":
+  faixa_valor aberta, com limite_inferior=50000 e efeito de percentual=0.04;
+  não é condicao_limiar e não preenche percentual no núcleo.
+""".strip()
