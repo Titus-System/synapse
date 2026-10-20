@@ -191,19 +191,25 @@ async def test_prompt_traz_instrucoes_e_exemplos_de_exclusao() -> None:
 
     instrucoes = json.loads(resultado.chamada.prompt)["instrucoes_fixas_do_sistema"]
     variantes = instrucoes["schema_saida"]["properties"]["elementos"]["items"]["anyOf"]
-    assert ["exclusao"] in [v["properties"]["construto_pretendido"].get("enum") for v in variantes]
+    tipados = [v["properties"]["construto_pretendido"].get("enum", [""])[0] for v in variantes]
+    assert tipados.index("exclusao") < tipados.index("condicao_limiar")
     [exclusao] = [i for i in instrucoes["construtos_habilitados"] if i.startswith("exclusao:")]
     for termo in (
         "loja, marca ou cargo",
         "Um elemento por dimensão",
         "{valor, trecho}",
-        "O código excluído nunca entra no núcleo",
-        "'Somente a loja 13' é núcleo",
-        "sem corrigir",
+        "'Todas as lojas, menos a 13' só exclui",
+        "'Somente a loja 13' só inclui: é núcleo",
+        "fica no núcleo mesmo quando também é excluído",
+        "nunca corrigida aqui",
         "com exceção dos gerentes (150)",
         "Este bônus não se aplica aos cargos de gerente",
         "exceto a 13 e a 58",
+        "'Pague 2% nas lojas 13 e 58, exceto a loja 13' -> nucleo.loja com 13 e 58",
+        "trecho 'Não vale para a loja 5', com o N maiúsculo como no texto",
         "exceto a matrícula MATRIC-422",
         "só para uma de várias regras do texto",
+        "Quando o texto tem várias regras, o núcleo é só a primeira",
+        "loja 7 e 4% não entram no núcleo",
     ):
         assert termo in exclusao

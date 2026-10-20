@@ -448,5 +448,54 @@
       ]
     },
     "parametros_esperados": {}
+  },
+  {
+    "id": "exclusao_matricula",
+    "texto": "Exceto a matrícula MATRIC-422",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "exceção da matrícula MATRIC-422"
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "exclusao_so_de_uma_regra",
+    "texto": "Comissão de 2% para a marca 10. Para a marca 20, comissão de 3%, exceto para os gerentes (150).",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {
+        "percentual": 0.02,
+        "marca": [
+          "10"
+        ]
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "Para a marca 20, comissão de 3%, exceto para os gerentes (150)"
+        }
+      ]
+    },
+    "parametros_esperados": {}
   }
 ]
