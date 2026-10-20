@@ -10,7 +10,7 @@ _DATA = {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
 
 
 def converter(rascunho: dict[str, Any], contexto: ContextoExtracao) -> dict[str, ValorRegra]:
-    efeito = normalizar_efeito(rascunho["efeito"], contexto.texto)
+    efeito = normalizar_efeito(rascunho["efeito"], rascunho["trecho"])
     datas = resolver_datas(rascunho["trecho"], contexto.competencias)
     if datas is None:
         raise ElementoRebaixadoError("periodo_nao_resolvido")

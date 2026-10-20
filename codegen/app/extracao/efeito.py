@@ -24,6 +24,7 @@ SCHEMA_EFEITO: dict[str, Any] = {
 }
 
 _PERCENTUAL = re.compile(r"%|\bpor\s+cento\b|\bpercentual\b", re.IGNORECASE)
+_FRACAO_EXPLICITA = re.compile(r"\bfra[cç][aã]o\b", re.IGNORECASE)
 
 
 def _seguido_de_percentual(valor: str, trecho: str) -> bool:
@@ -48,9 +49,15 @@ def valor_monetario(
 
 
 def _fracao(campo: dict[str, Any], texto: str) -> ValorRegra:
-    # Sem o marcador de percentual no trecho, o número poderia ser reais ou outra grandeza.
-    if not _PERCENTUAL.search(campo["trecho"]) or not conferir_numero(
-        texto, campo["trecho"], campo["valor"], percentual=True
+    # Sem a unidade no trecho, o número poderia ser reais ou outra grandeza.
+    if not (
+        _PERCENTUAL.search(campo["trecho"]) or _FRACAO_EXPLICITA.search(campo["trecho"])
+    ) or not conferir_numero(
+        texto,
+        campo["trecho"],
+        campo["valor"],
+        percentual=True,
+        exigir_marcador_percentual=True,
     ):
         raise ElementoRebaixadoError("valor_sem_lastro")
     valor: ValorRegra = campo["valor"]

@@ -160,6 +160,75 @@ async def test_trecho_com_tres_datas_vira_generico() -> None:
     assert [e["construto"] for e in elementos(resultado)] == ["generico"]
 
 
+async def test_numero_do_dia_nao_valida_percentual_sem_conversao() -> None:
+    texto = "De 1/11 a 30/11 haverá +1%"
+    elemento = rascunho(
+        descricao=texto,
+        trecho=texto,
+        data_inicial="2025-11-01",
+        efeito=efeito("acrescimo_pct", "1", texto),
+    )
+
+    resultado = await extrair(elemento, texto)
+
+    assert [e["construto"] for e in elementos(resultado)] == ["generico"]
+    assert motivos(resultado) == ["valor_sem_lastro"]
+
+
+async def test_efeitos_trocados_entre_janelas_sao_rebaixados() -> None:
+    novembro = "De 24/11 a 30/11 haverá +1%"
+    dezembro = "De 01/12 a 05/12 haverá +3%"
+    modelo = modelo_falso(
+        {
+            "nucleo": {},
+            "parametros": {},
+            "elementos": [
+                rascunho(
+                    descricao=novembro,
+                    trecho=novembro,
+                    efeito=efeito("acrescimo_pct", "0.03", "+3%"),
+                ),
+                rascunho(
+                    descricao=dezembro,
+                    trecho=dezembro,
+                    data_inicial="2025-12-01",
+                    data_final="2025-12-05",
+                    efeito=efeito("acrescimo_pct", "0.01", "+1%"),
+                ),
+            ],
+        }
+    )
+
+    resultado = await extrair_regra(
+        f"{novembro}. {dezembro}.", ANO_UNICO, modelo=modelo, metadados_modelo=METADADOS
+    )
+
+    assert elementos(resultado) == [
+        {"ref": "elem.1", "construto": "generico", "descricao": novembro},
+        {"ref": "elem.2", "construto": "generico", "descricao": dezembro},
+    ]
+    assert motivos(resultado) == ["valor_sem_lastro", "valor_sem_lastro"]
+
+
+@pytest.mark.parametrize(
+    ("trecho", "data_final"),
+    [
+        ("De 24/11 a 31/11 haverá +1%", "2025-11-24"),
+        ("De 31/11 a 24/11 haverá +1%", "2025-11-24"),
+        ("De 24/11 a 30/11 e 31/11 haverá +1%", "2025-11-30"),
+    ],
+)
+async def test_data_invalida_nao_e_descartada_para_aceitar_o_restante_da_janela(
+    trecho: str, data_final: str
+) -> None:
+    elemento = rascunho(descricao=trecho, trecho=trecho, data_final=data_final)
+
+    resultado = await extrair(elemento, trecho)
+
+    assert [e["construto"] for e in elementos(resultado)] == ["generico"]
+    assert motivos(resultado) == ["valor_sem_lastro"]
+
+
 async def test_janela_sem_efeito_vira_generico() -> None:
     elemento = rascunho()
     del elemento["efeito"]
