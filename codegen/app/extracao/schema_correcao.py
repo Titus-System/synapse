@@ -17,7 +17,7 @@ def schema_envelope_correcao() -> dict[str, Any]:
 
 
 def _operacao(tipo: str, **campos: Any) -> dict[str, Any]:
-    propriedades = {"tipo": {"const": tipo}, **campos}
+    propriedades = {"tipo": {"const": tipo}, "trecho": {"type": "string", "minLength": 1}, **campos}
     return {
         "type": "object",
         "additionalProperties": False,

@@ -127,11 +127,11 @@ pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib -m 'not llm'"
 markers = [
     "rabbitmq: integração com RabbitMQ real do compose oficial",
     "postgres: integração com o Postgres real do compose oficial, com as migrations da api",
-    "llm: chamada real ao provedor de LLM configurado, pulada sem GOOGLE_API_KEY",
+    "llm: chamada real ao provedor de LLM; fora do `make test`, rode com `make test-llm`",
 ]
 
 

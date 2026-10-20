@@ -2,7 +2,13 @@ from decimal import Decimal
 
 import pytest
 
-from app.extracao.lastro import conferir_numero, conferir_periodo, resolver_periodo
+from app.extracao.lastro import (
+    conferir_data,
+    conferir_numero,
+    conferir_periodo,
+    resolver_datas,
+    resolver_periodo,
+)
 from app.extracao.vocabulario import resolver_codigo
 
 
@@ -77,3 +83,49 @@ def test_vigencia_invertida_permanece_para_validacao_de_dominio() -> None:
         "2025-12",
         "2025-08",
     ]
+
+
+ANO_UNICO = ["2025-10", "2025-11"]
+
+
+@pytest.mark.parametrize(
+    ("trecho", "publicadas", "esperado"),
+    [
+        ("até o dia 10/10", ANO_UNICO, ["2025-10-10"]),
+        ("de 24/11 a 30/11", ANO_UNICO, ["2025-11-24", "2025-11-30"]),
+        ("até 10/10/2024", ANO_UNICO, ["2024-10-10"]),
+        ("até 10/10/2024", ["2025-12", "2026-01"], ["2024-10-10"]),
+        ("até 2024-10-10", ["2025-12", "2026-01"], ["2024-10-10"]),
+        ("até 10 de outubro", ANO_UNICO, ["2025-10-10"]),
+        ("até 1 de março de 2024", ["2025-12", "2026-01"], ["2024-03-01"]),
+        ("até 10/10", ["2025-12", "2026-01"], None),
+        ("até 10/10", [], None),
+        ("até 10/10 ou 11 de outubro", ANO_UNICO, None),
+        ("até 31/02", ANO_UNICO, []),
+        ("competência 10/2025", ANO_UNICO, []),
+        ("sem data alguma", ANO_UNICO, []),
+    ],
+)
+def test_resolve_datas_com_o_ano_do_texto_ou_o_ano_comum_das_competencias(
+    trecho: str, publicadas: list[str], esperado: list[str] | None
+) -> None:
+    assert resolver_datas(trecho, publicadas) == esperado
+
+
+@pytest.mark.parametrize(
+    ("trecho", "valor", "publicadas", "esperado"),
+    [
+        ("até 10/10", "2025-10-10", ANO_UNICO, (True, True)),
+        ("até 10/10", "2025-10-11", ANO_UNICO, (False, True)),
+        ("de 24/11 a 30/11", "2025-11-24", ANO_UNICO, (False, True)),
+        ("até 10/10", "2025-10-10", ["2025-12", "2026-01"], (False, False)),
+    ],
+)
+def test_data_confere_quando_e_a_unica_que_o_trecho_resolve(
+    trecho: str, valor: str, publicadas: list[str], esperado: tuple[bool, bool]
+) -> None:
+    assert conferir_data(trecho, trecho, valor, publicadas) == esperado
+
+
+def test_data_fora_do_texto_nao_confere() -> None:
+    assert conferir_data("pague até 10/10", "até 11/10", "2025-10-11", ANO_UNICO) == (False, True)

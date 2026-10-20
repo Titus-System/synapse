@@ -283,6 +283,48 @@ async def test_reentrega_apos_publicacao_reusa_artefato_e_nao_duplica_trilha(
     assert len(ambiente.modelo_extracao.seen_messages) == 1
 
 
+async def test_bonus_fixo_extraido_conta_o_construto_e_nao_vaza_a_matricula(
+    monkeypatch: pytest.MonkeyPatch,
+    cliente: AsyncClient,
+    logs: list[dict[str, Any]],
+) -> None:
+    texto = "Conceder bônus fixo de R$ 500 para a matrícula MATRIC-422"
+    bonus = {
+        "construto_pretendido": "bonus_fixo",
+        "descricao": texto,
+        "trecho": texto,
+        "tipo_alvo": "lista",
+        "matriculas": ["MATRIC-422"],
+        "valor": {"valor": Decimal("500"), "trecho": "R$ 500"},
+    }
+    ambiente = AmbienteExtracao(
+        monkeypatch, [{"nucleo": {}, "elementos": [bonus], "parametros": {}}]
+    )
+    payload = ambiente.entrada()
+    ambiente.banco.transcricoes[UUID(payload["submissao_id"])] = texto
+    rotulos = {"construto": "bonus_fixo"}
+    antes = (await cliente.get("/metrics")).text
+
+    recebida = mensagem(payload)
+    await ambiente.consumer.receber(recebida)
+
+    recebida.ack.assert_awaited_once_with()
+    [extracao] = ambiente.banco.tabela("extracoes_regras")
+    assert simplejson.loads(extracao["representacao"], use_decimal=True)["especificacoes"] == [
+        {
+            "ref": "elem.1",
+            "construto": "bonus_fixo",
+            "alvo": {"tipo": "lista", "valor": ["MATRIC-422"]},
+            "valor": Decimal("500"),
+        }
+    ]
+    depois = (await cliente.get("/metrics")).text
+    nome = "codegen_extracao_elementos_total"
+    assert amostra(depois, nome, rotulos) - amostra(antes, nome, rotulos) == 1
+    assert ambiente.publicacoes[-1][1]["conclusao"]["elementos_extraidos"] == ["elem.1"]
+    assert "MATRIC-422" not in simplejson.dumps(logs)
+
+
 async def test_nao_descarta_elemento_generico(monkeypatch: pytest.MonkeyPatch) -> None:
     elemento = {
         "construto_pretendido": "forma_privada",
@@ -701,3 +743,67 @@ async def test_regra_gravada_abre_outro_ciclo_sem_repetir_extracao(
     assert (await ambiente.estado(versao)).values["regra_id"] == versao["regra_id"]
     ambiente.producers.regra_extraida.assert_awaited_once()
     ambiente.producers.executar_codigo.assert_awaited_once()
+
+
+@pytest.mark.parametrize("sem_lastro", [False, True])
+async def test_condicao_limiar_contada_no_no_sem_expor_texto(
+    monkeypatch: pytest.MonkeyPatch,
+    cliente: AsyncClient,
+    logs: list[dict[str, Any]],
+    sem_lastro: bool,
+) -> None:
+    texto = "Se a loja vender no mínimo R$ 50 mil no mês, a comissão é de 3%"
+    saida = {
+        "nucleo": {"percentual": {"valor": Decimal("0.03"), "trecho": "3%"}},
+        "parametros": {},
+        "elementos": [
+            {
+                "construto_pretendido": "condicao_limiar",
+                "descricao": texto,
+                "trecho": texto,
+                "metrica": "venda_total",
+                "escopo_agregacao": "loja",
+                "operador": ">=",
+                "limiar": {"valor": 70000 if sem_lastro else 50000, "trecho": "R$ 50 mil"},
+            }
+        ],
+    }
+    ambiente = AmbienteExtracao(monkeypatch, [saida])
+    entrada = ambiente.entrada()
+    ambiente.banco.transcricoes[UUID(entrada["submissao_id"])] = texto
+    recebida = mensagem(entrada)
+    antes = (await cliente.get("/metrics")).text
+
+    await ambiente.consumer.receber(recebida)
+
+    recebida.ack.assert_awaited_once_with()
+    depois = (await cliente.get("/metrics")).text
+    for nome, delta in [
+        ("condicao_limiar", 0 if sem_lastro else 1),
+        ("generico", 1 if sem_lastro else 0),
+    ]:
+        labels = {"construto": nome}
+        assert (
+            amostra(depois, "codegen_extracao_elementos_total", labels)
+            - amostra(antes, "codegen_extracao_elementos_total", labels)
+            == delta
+        )
+    motivo = {"motivo": "valor_sem_lastro"}
+    assert amostra(depois, "codegen_extracao_rebaixamentos_total", motivo) - amostra(
+        antes, "codegen_extracao_rebaixamentos_total", motivo
+    ) == (1 if sem_lastro else 0)
+    validador = Draft202012Validator(
+        simplejson.loads((CONTRATOS / "observability/log.schema.json").read_text()),
+        format_checker=FormatChecker(),
+    )
+    for log in logs:
+        validador.validate(log)
+        assert log["job_id"] == entrada["job_id"]
+    assert [log["message"] for log in logs if log.get("no") == "extracao_parametros"] == [
+        "extraction started",
+        "extraction finished",
+    ]
+    assert texto not in simplejson.dumps(logs)
+    assert "R$ 50 mil" not in simplejson.dumps(logs)
+    assert job_id_ctx.get() is None
+    assert no_ctx.get() is None

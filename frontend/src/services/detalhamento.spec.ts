@@ -4,7 +4,7 @@ vi.mock('@/services/keycloak', () => ({
   iniciarLogin: vi.fn<() => void>(),
   limparTokenDoKeycloak: vi.fn<() => void>(),
 }))
-import { consultarDetalhamento } from './finish.api'
+import { consultarDetalhamento } from './detalhamento'
 
 afterEach(() => vi.restoreAllMocks())
 

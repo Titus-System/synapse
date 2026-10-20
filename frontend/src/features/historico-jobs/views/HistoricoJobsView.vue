@@ -6,7 +6,7 @@ import TheSidebar from '@/components/TheSidebar.vue'
 import type { JobResumo, StatusJob } from '@/types/api'
 import { apiClient } from '@/services/api'
 import { regraMaisRecente } from '@/services/job'
-import { transformarRegra } from '../../finish/composables/transformarRegra'
+import { transformarRegra } from '@/composables/transformarRegra'
 import { listarTodosOsJobs } from '../services/historicoJobs.api'
 import type { TipoDeHistorico } from '../types'
 

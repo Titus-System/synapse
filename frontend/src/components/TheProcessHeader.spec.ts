@@ -16,14 +16,13 @@ describe('TheProcessHeader', () => {
     expect(conteiner.get('li[aria-current="step"]').text()).toContain('Voz/Texto')
   })
 
-  it('associa os estados intermediários à simulação enquanto a conversa não possui tela própria', () => {
+  it('associa a regra que aguarda correção à conversa', () => {
     const conteiner = mount(TheProcessHeader, {
       ...opcoesDeMontagem,
       props: { etapaDaRota: 'simulacao', statusDoJob: 'aguardando_confirmacao_parametros' },
     })
 
-    expect(conteiner.get('li[aria-current="step"]').text()).toContain('Simulação')
-    expect(conteiner.text()).not.toContain('Conversa')
+    expect(conteiner.get('li[aria-current="step"]').text()).toContain('Conversa')
   })
 
   it('mantém a simulação acesa quando o processamento foi interrompido', () => {

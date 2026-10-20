@@ -6,12 +6,18 @@ import SimulateView from './SimulateView.vue'
 import { apiClient } from '@/services/api'
 import { HttpError } from '@/services/http'
 import { usarStoreJobAtual } from '@/stores/currentJob'
+import { abrirAcompanhamentoJob } from '@/services/jobEvents'
+import { consultarDetalhamento } from '@/services/detalhamento'
 import type { Job } from '@/types/api'
 
 vi.mock('@/services/jobEvents', () => ({
   abrirAcompanhamentoJob: vi.fn<() => { fechar: () => void }>(() => ({
     fechar: vi.fn<() => void>(),
   })),
+}))
+
+vi.mock('@/services/detalhamento', () => ({
+  consultarDetalhamento: vi.fn<typeof import('@/services/detalhamento').consultarDetalhamento>(),
 }))
 
 vi.mock('@/services/api', () => ({
@@ -33,6 +39,11 @@ function criarRouterDeTeste() {
         path: '/jobs/:id',
         name: 'simulate',
         component: SimulateView,
+      },
+      {
+        path: '/jobs/:id/correcao',
+        name: 'correcao-regra',
+        component: { template: '<div />' },
       },
       {
         path: '/jobs/:id/finalizar',
@@ -278,4 +289,61 @@ describe('SimulateView', () => {
 
     expect(consultarJob).toHaveBeenCalledWith('job-1')
   })
+})
+
+it('abre a conversa sem clique ao reabrir um job que aguarda correção', async () => {
+  consultarJob.mockResolvedValue({ ...criarJob(), status: 'aguardando_confirmacao_parametros', simulacao: null })
+  const router = criarRouterDeTeste()
+  await router.push('/jobs/job-1')
+  const wrapper = mount(SimulateView, { global: { plugins: [router, createPinia()], stubs: { FontAwesomeIcon: true } } })
+  await flushPromises()
+  expect(router.currentRoute.value.path).toBe('/jobs/job-1/correcao')
+  expect(wrapper.text()).not.toContain('Corrigir por texto ou voz')
+  wrapper.unmount()
+})
+
+it('abre a conversa quando o job pausa por conflito durante o acompanhamento', async () => {
+  consultarJob.mockResolvedValue({ ...criarJob(), status: 'gerando_regra', simulacao: null })
+  const router = criarRouterDeTeste()
+  await router.push('/jobs/job-1')
+  const wrapper = mount(SimulateView, { global: { plugins: [router, createPinia()], stubs: { FontAwesomeIcon: true } } })
+  await flushPromises()
+  expect(router.currentRoute.value.path).toBe('/jobs/job-1')
+  const chamadas = vi.mocked(abrirAcompanhamentoJob).mock.calls
+  const handlers = chamadas[chamadas.length - 1]![1]
+  handlers.onEstado({ job_id: 'job-1', status: 'aguardando_confirmacao_parametros', status_anterior: 'gerando_regra' })
+  await flushPromises()
+  expect(router.currentRoute.value.path).toBe('/jobs/job-1/correcao')
+  wrapper.unmount()
+})
+
+it('mostra a lógica da regra e abre o relatório da simulação na própria tela', async () => {
+  consultarJob.mockResolvedValue(criarJob())
+  vi.mocked(consultarDetalhamento).mockResolvedValue({
+    simulacao_id: 'simulacao-1',
+    linhas: {
+      '2025-11': {
+        'COL-0001': {
+          cod_loja: '013',
+          cod_marca: '010',
+          cod_cargo: '100',
+          comissao_baseline: 100,
+          comissao_simulada: 150,
+          diferenca: 50,
+          contribuicoes: { 'nucleo.percentual': 50 },
+        },
+      },
+    },
+  })
+  const router = criarRouterDeTeste()
+  await router.push('/jobs/job-1')
+  const wrapper = mount(SimulateView, { global: { plugins: [router, createPinia()], stubs: { FontAwesomeIcon: true } } })
+  await flushPromises()
+  expect(wrapper.text()).toContain('LÓGICA ESTRUTURADA')
+  expect(consultarDetalhamento).not.toHaveBeenCalled()
+  await wrapper.findAll('button').find((botao) => botao.text().includes('Abrir relatório'))!.trigger('click')
+  await flushPromises()
+  expect(consultarDetalhamento).toHaveBeenCalledWith('job-1', 'simulacao-1', expect.any(AbortSignal))
+  expect(wrapper.text()).toContain('COL-0001')
+  wrapper.unmount()
 })
