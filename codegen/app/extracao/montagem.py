@@ -1,11 +1,12 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from app.extracao.construto import ContextoExtracao
 from app.extracao.construtos.generico import montar_generico
 from app.extracao.lastro import conferir_numero, numeros_citados, trecho_literal
-from app.extracao.modelos import MotivoRebaixamento, Rebaixamento, RebaixamentoConstrutoError
+from app.extracao.modelos import ElementoRebaixadoError, MotivoRebaixamento, Rebaixamento
 from app.extracao.registro import CONSTRUTOS_HABILITADOS
 from app.extracao.schema import schema_elemento
 from app.representacao_regra import RepresentacaoRegra
@@ -40,6 +41,7 @@ def montar_elemento(
     elemento: dict[str, Any],
     ref: str,
     texto: str,
+    competencias: Sequence[str],
     *,
     elemento_atual: Mapping[str, ValorRegra] | None = None,
 ) -> tuple[dict[str, ValorRegra], Rebaixamento | None]:
@@ -93,12 +95,12 @@ def montar_elemento(
     if construto is not None and not erros and not incompleto and motivo_lastro is None:
         try:
             convertido = {
-                **construto.converter(para_conversao),
+                **construto.converter(para_conversao, ContextoExtracao(texto, competencias)),
                 "ref": ref,
                 "construto": pretendido,
             }
             RepresentacaoRegra.model_validate({"nucleo": {}, "especificacoes": [convertido]})
-        except RebaixamentoConstrutoError as erro:
+        except ElementoRebaixadoError as erro:
             motivo_conversao = erro.motivo
             campos = erro.campos
             descricao = trecho or descricao

@@ -5,10 +5,11 @@ from typing import Any
 import pytest
 from jsonschema import Draft202012Validator
 
+from app.extracao.construto import Construto, ContextoExtracao
 from app.extracao.correcao import DiagnosticoOperacao, aplicar_operacoes_correcao
 from app.extracao.modelos import FalhaExtracaoError, Rebaixamento
 from app.extracao.parametros import validar_parametros
-from app.extracao.registro import CONSTRUTOS_HABILITADOS, Construto
+from app.extracao.registro import CONSTRUTOS_HABILITADOS
 from app.extracao.schema_correcao import schema_operacoes_correcao
 from app.representacao_regra import RepresentacaoRegra
 from app.tipos_estado import ValorRegra
@@ -16,7 +17,7 @@ from app.tipos_estado import ValorRegra
 PUBLICADAS = ["2025-08", "2025-09", "2025-11"]
 BONUS = "bônus especial"
 TEXTO = f"A comissão passa para 3% e entra um {BONUS}."
-RASCUNHO = {"construto_pretendido": "bonus_fixo", "descricao": BONUS, "trecho": BONUS}
+RASCUNHO = {"construto_pretendido": "construto_futuro", "descricao": BONUS, "trecho": BONUS}
 
 
 def definir(tipo: str, campo: str, valor: Any, trecho: str) -> dict[str, Any]:
@@ -256,7 +257,7 @@ def test_substitui_na_mesma_posicao_com_montagem_e_rebaixamento(regra: Represent
         {"ref": "elem.2", "construto": "generico", "descricao": BONUS},
         {"ref": "elem.3", "construto": "generico", "descricao": "critério 3"},
     ]
-    assert diagnosticos == [Rebaixamento("elem.2", "construto_nao_habilitado", "bonus_fixo")]
+    assert diagnosticos == [Rebaixamento("elem.2", "construto_nao_habilitado", "construto_futuro")]
 
 
 @pytest.mark.parametrize(
@@ -301,7 +302,7 @@ def test_adiciona_no_final_sem_copiar_campos_do_modelo(regra: RepresentacaoRegra
         *regra.para_contrato()["especificacoes"],  # type: ignore[misc]
         {"ref": "elem.4", "construto": "generico", "descricao": BONUS},
     ]
-    assert diagnosticos == [Rebaixamento("elem.4", "construto_nao_habilitado", "bonus_fixo")]
+    assert diagnosticos == [Rebaixamento("elem.4", "construto_nao_habilitado", "construto_futuro")]
 
 
 def test_lista_vazia_devolve_a_regra_e_os_parametros_atuais(
@@ -379,7 +380,7 @@ def test_refs_do_lote_se_referem_a_versao_original(regra: RepresentacaoRegra) ->
     ]
     assert diagnosticos == [
         DiagnosticoOperacao(3, "referencia_inexistente"),
-        Rebaixamento("elem.1", "construto_nao_habilitado", "bonus_fixo"),
+        Rebaixamento("elem.1", "construto_nao_habilitado", "construto_futuro"),
     ]
 
 
@@ -480,7 +481,7 @@ def test_rejeita_envelope_globalmente_invalido_sem_reter_conteudo(
 def test_reutiliza_conversor_habilitado(
     regra: RepresentacaoRegra, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def converter(elemento: dict[str, Any]) -> dict[str, ValorRegra]:
+    def converter(elemento: dict[str, Any], _: ContextoExtracao) -> dict[str, ValorRegra]:
         return {"descricao": "convertido: " + elemento["descricao"]}
 
     monkeypatch.setitem(
@@ -512,7 +513,7 @@ def test_rebaixa_elemento_sem_lastro_usando_trecho_da_operacao(
     )
 
     assert corrigida["especificacoes"][-1]["descricao"] == BONUS
-    assert diagnosticos == [Rebaixamento("elem.4", "valor_sem_lastro", "bonus_fixo")]
+    assert diagnosticos == [Rebaixamento("elem.4", "valor_sem_lastro", "construto_futuro")]
 
 
 def test_schema_fecha_envelope_e_exatamente_seis_operacoes() -> None:
@@ -770,7 +771,7 @@ def test_campo_numerico_preservado_exige_mesmo_campo_do_mesmo_construto(
     monkeypatch: pytest.MonkeyPatch,
     limiar: int,
 ) -> None:
-    def converter(elemento: dict[str, Any]) -> dict[str, ValorRegra]:
+    def converter(elemento: dict[str, Any], _: ContextoExtracao) -> dict[str, ValorRegra]:
         return {
             chave: elemento[chave]
             for chave in (

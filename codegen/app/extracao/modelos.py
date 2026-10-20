@@ -19,6 +19,17 @@ class FalhaExtracaoError(FalhaDoJobError):
     etapa = "extracao_parametros"
 
 
+class ElementoRebaixadoError(ValueError):
+    """O conversor de um construto recusa o rascunho e diz por quê, sem reter o conteúdo."""
+
+    def __init__(
+        self, motivo: MotivoRebaixamento, campos: dict[str, ValorRegra] | None = None
+    ) -> None:
+        super().__init__(motivo)
+        self.motivo = motivo
+        self.campos = campos
+
+
 @dataclass(frozen=True, slots=True)
 class Rebaixamento:
     ref: str
@@ -46,12 +57,3 @@ class ResultadoExtracao:
     rebaixamentos: list[Rebaixamento]
     parametros: dict[str, ValorRegra]
     chamada: ChamadaExtracao
-
-
-class RebaixamentoConstrutoError(ValueError):
-    def __init__(
-        self, motivo: MotivoRebaixamento, campos: dict[str, ValorRegra] | None = None
-    ) -> None:
-        super().__init__("Construto não representável com segurança")
-        self.motivo = motivo
-        self.campos = campos

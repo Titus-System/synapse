@@ -85,6 +85,7 @@ def _montar_elemento_correcao(
     elemento: dict[str, Any],
     trecho: str,
     texto: str,
+    publicadas: Sequence[str],
     *,
     elemento_atual: dict[str, ValorRegra] | None = None,
 ) -> tuple[dict[str, ValorRegra], Rebaixamento | None]:
@@ -99,7 +100,7 @@ def _montar_elemento_correcao(
             "elem.1", "valor_sem_lastro", elemento.get("construto_pretendido")
         )
     convertido, rebaixamento = montar_elemento(
-        elemento, "elem.1", texto, elemento_atual=elemento_atual
+        elemento, "elem.1", texto, publicadas, elemento_atual=elemento_atual
     )
     if rebaixamento is not None and rebaixamento.motivo == "valor_sem_lastro":
         return montar_generico("elem.1", trecho), rebaixamento
@@ -132,7 +133,7 @@ def _aplicar(
         parametros.pop(operacao["campo"], None)
     elif tipo == "adicionar_elemento":
         convertido, rebaixamento = _montar_elemento_correcao(
-            operacao["elemento"], operacao["trecho"], texto
+            operacao["elemento"], operacao["trecho"], texto, publicadas
         )
         elementos.append(_Elemento(None, convertido, rebaixamento))
     else:
@@ -148,6 +149,7 @@ def _aplicar(
                 operacao["elemento"],
                 operacao["trecho"],
                 texto,
+                publicadas,
                 elemento_atual=elementos[posicao].conteudo,
             )
             # O trecho isolado da correção não preserva as condições do elemento original.

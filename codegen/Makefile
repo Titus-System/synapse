@@ -50,6 +50,10 @@ graph:
 test-e2e:
 	poetry run pytest tests/app/e2e/
 
+# Cada execução gasta a cota do provedor (camada gratuita do Gemini: 500 requisições por dia).
+test-llm: contracts
+	poetry run pytest -p no:cacheprovider -m llm
+
 test-rabbitmq: contracts
 	RUN_RABBITMQ_INTEGRATION=1 poetry run pytest -p no:cacheprovider -m rabbitmq
 

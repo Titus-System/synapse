@@ -1,8 +1,9 @@
 import re
 from typing import Any
 
+from app.extracao.construto import ContextoExtracao
 from app.extracao.lastro import normalizar
-from app.extracao.modelos import RebaixamentoConstrutoError
+from app.extracao.modelos import ElementoRebaixadoError
 from app.tipos_estado import ValorRegra
 
 PROPRIEDADES: dict[str, Any] = {
@@ -52,7 +53,7 @@ _AMBIGUIDADE = re.compile(r"\b(?:cerca de|perto de|aproximadamente|em torno de|s
 _NEGACAO = re.compile(r"\b(?:nao|nunca|nem|sem|exceto|salvo|ninguem|demais)\b")
 
 
-def converter(elemento: dict[str, Any]) -> dict[str, ValorRegra]:
+def converter(elemento: dict[str, Any], _contexto: ContextoExtracao) -> dict[str, ValorRegra]:
     trecho = elemento["trecho"]
     texto = normalizar(trecho)
     if (
@@ -63,16 +64,16 @@ def converter(elemento: dict[str, Any]) -> dict[str, ValorRegra]:
         or _AMBIGUIDADE.search(texto)
         or _NEGACAO.search(texto)
     ):
-        raise RebaixamentoConstrutoError("termo_ambiguo")
+        raise ElementoRebaixadoError("termo_ambiguo")
 
     operadores = {op for op, padrao in _OPERADORES.items() if re.search(padrao, texto)}
     operadores.update(re.findall(r">=|<=|==|>|<", trecho))
     if len(operadores) != 1:
-        raise RebaixamentoConstrutoError("termo_ambiguo")
+        raise ElementoRebaixadoError("termo_ambiguo")
     operador = operadores.pop()
     informado = elemento["operador"]
     if informado != operador and not re.fullmatch(_OPERADORES[operador], normalizar(informado)):
-        raise RebaixamentoConstrutoError("termo_ambiguo")
+        raise ElementoRebaixadoError("termo_ambiguo")
 
     campos: dict[str, ValorRegra] = {
         "metrica": "venda_total",
@@ -81,9 +82,9 @@ def converter(elemento: dict[str, Any]) -> dict[str, ValorRegra]:
     }
     escopos = {escopo for escopo, padrao in _ESCOPOS.items() if re.search(padrao, texto)}
     if not escopos:
-        raise RebaixamentoConstrutoError("campo_obrigatorio_ausente", campos)
+        raise ElementoRebaixadoError("campo_obrigatorio_ausente", campos)
     if len(escopos) != 1:
-        raise RebaixamentoConstrutoError("termo_ambiguo", campos)
+        raise ElementoRebaixadoError("termo_ambiguo", campos)
     escopo = escopos.pop()
     informado = elemento.get("escopo_agregacao")
     if informado is not None and informado != escopo:
@@ -91,5 +92,5 @@ def converter(elemento: dict[str, Any]) -> dict[str, ValorRegra]:
         aliases = {s for s, padrao in _ESCOPOS.items() if re.search(padrao, nome)}
         aliases.update(s for s, nomes in _APELIDOS.items() if nome in nomes)
         if aliases != {escopo}:
-            raise RebaixamentoConstrutoError("termo_ambiguo", campos)
+            raise ElementoRebaixadoError("termo_ambiguo", campos)
     return {**campos, "escopo_agregacao": escopo}

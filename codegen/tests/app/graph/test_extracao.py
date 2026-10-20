@@ -283,6 +283,48 @@ async def test_reentrega_apos_publicacao_reusa_artefato_e_nao_duplica_trilha(
     assert len(ambiente.modelo_extracao.seen_messages) == 1
 
 
+async def test_bonus_fixo_extraido_conta_o_construto_e_nao_vaza_a_matricula(
+    monkeypatch: pytest.MonkeyPatch,
+    cliente: AsyncClient,
+    logs: list[dict[str, Any]],
+) -> None:
+    texto = "Conceder bônus fixo de R$ 500 para a matrícula MATRIC-422"
+    bonus = {
+        "construto_pretendido": "bonus_fixo",
+        "descricao": texto,
+        "trecho": texto,
+        "tipo_alvo": "lista",
+        "matriculas": ["MATRIC-422"],
+        "valor": {"valor": Decimal("500"), "trecho": "R$ 500"},
+    }
+    ambiente = AmbienteExtracao(
+        monkeypatch, [{"nucleo": {}, "elementos": [bonus], "parametros": {}}]
+    )
+    payload = ambiente.entrada()
+    ambiente.banco.transcricoes[UUID(payload["submissao_id"])] = texto
+    rotulos = {"construto": "bonus_fixo"}
+    antes = (await cliente.get("/metrics")).text
+
+    recebida = mensagem(payload)
+    await ambiente.consumer.receber(recebida)
+
+    recebida.ack.assert_awaited_once_with()
+    [extracao] = ambiente.banco.tabela("extracoes_regras")
+    assert simplejson.loads(extracao["representacao"], use_decimal=True)["especificacoes"] == [
+        {
+            "ref": "elem.1",
+            "construto": "bonus_fixo",
+            "alvo": {"tipo": "lista", "valor": ["MATRIC-422"]},
+            "valor": Decimal("500"),
+        }
+    ]
+    depois = (await cliente.get("/metrics")).text
+    nome = "codegen_extracao_elementos_total"
+    assert amostra(depois, nome, rotulos) - amostra(antes, nome, rotulos) == 1
+    assert ambiente.publicacoes[-1][1]["conclusao"]["elementos_extraidos"] == ["elem.1"]
+    assert "MATRIC-422" not in simplejson.dumps(logs)
+
+
 async def test_nao_descarta_elemento_generico(monkeypatch: pytest.MonkeyPatch) -> None:
     elemento = {
         "construto_pretendido": "forma_privada",
