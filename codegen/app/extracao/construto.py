@@ -17,6 +17,7 @@ class Construto:
     obrigatorios: tuple[str, ...]
     instrucoes: str
     converter: Callable[[dict[str, Any], ContextoExtracao], dict[str, ValorRegra]]
+    lastro_no_trecho: bool = False
 
 
 def com_lastro(valor: dict[str, Any]) -> dict[str, Any]:

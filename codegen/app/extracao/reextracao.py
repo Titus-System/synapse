@@ -23,6 +23,7 @@ from app.extracao.modelos import ChamadaExtracao, FalhaExtracaoError
 from app.extracao.montagem import consumo_de_tokens, objeto_sem_duplicatas
 from app.extracao.schema_correcao import schema_operacoes_correcao
 from app.graph.prompts.reextraction import montar_prompt_reextracao
+from app.repositorio.rodadas_correcao import CorrecaoAnterior
 from app.representacao_regra import RepresentacaoRegra
 from app.resposta_modelo import extrair_resposta
 from app.tipos_estado import ValorRegra
@@ -51,6 +52,7 @@ async def reextrair_regra(
     *,
     modelo: BaseChatModel,
     metadados_modelo: dict[str, Any],
+    historico: Sequence[CorrecaoAnterior] = (),
 ) -> ResultadoReextracao:
     """Produz operações com uma chamada sem ferramentas e aplica-as deterministicamente.
 
@@ -69,6 +71,7 @@ async def reextrair_regra(
         texto_correcao,
         competencias_publicadas,
         schema=schema,
+        historico=historico,
     )
     resposta = await modelo.ainvoke(
         [HumanMessage(content=prompt)],

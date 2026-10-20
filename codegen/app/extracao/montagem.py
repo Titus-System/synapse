@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -38,12 +38,19 @@ def _texto_util(valor: object) -> str | None:
 
 
 def montar_elemento(
-    elemento: dict[str, Any], ref: str, texto: str, competencias: Sequence[str]
+    elemento: dict[str, Any],
+    ref: str,
+    texto: str,
+    competencias: Sequence[str],
+    *,
+    elemento_atual: Mapping[str, ValorRegra] | None = None,
 ) -> tuple[dict[str, ValorRegra], Rebaixamento | None]:
     pretendido = _texto_util(elemento.get("construto_pretendido"))
     construto = CONSTRUTOS_HABILITADOS.get(pretendido) if pretendido else None
     descricao = _texto_util(elemento.get("descricao"))
     trecho = _texto_util(elemento.get("trecho"))
+    descricao_atual = _texto_util(elemento_atual.get("descricao")) if elemento_atual else None
+    numeros_atuais = numeros_citados(descricao_atual) if descricao_atual else set()
     incompleto = pretendido is None or descricao is None or trecho is None
     if descricao is None:
         if trecho is None or trecho not in texto:
@@ -58,7 +65,7 @@ def montar_elemento(
     if (
         trecho is not None
         and trecho_literal(texto, trecho)
-        and not numeros_citados(descricao).issubset(numeros_citados(trecho))
+        and not numeros_citados(descricao).issubset(numeros_citados(trecho) | numeros_atuais)
     ):
         motivo_lastro = "valor_sem_lastro"
     para_conversao = dict(elemento)
@@ -67,8 +74,15 @@ def montar_elemento(
             if definicao.get("type") not in ("number", "integer") or chave not in elemento:
                 continue
             campo = elemento[chave]
-            if not conferir_numero(
-                texto,
+            # Só o mesmo campo do mesmo construto pode conservar um valor já aplicado.
+            preservado = (
+                elemento_atual is not None
+                and elemento_atual.get("construto") == pretendido
+                and chave in elemento_atual
+                and campo["valor"] == elemento_atual[chave]
+            )
+            if not preservado and not conferir_numero(
+                trecho if construto.lastro_no_trecho and trecho is not None else texto,
                 campo["trecho"],
                 campo["valor"],
                 percentual=chave in ("percentual", "fracao", "taxa"),
@@ -77,6 +91,7 @@ def montar_elemento(
                 break
             para_conversao[chave] = campo["valor"]
     motivo_conversao: MotivoRebaixamento | None = None
+    campos: dict[str, ValorRegra] | None = None
     if construto is not None and not erros and not incompleto and motivo_lastro is None:
         try:
             convertido = {
@@ -87,6 +102,8 @@ def montar_elemento(
             RepresentacaoRegra.model_validate({"nucleo": {}, "especificacoes": [convertido]})
         except ElementoRebaixadoError as erro:
             motivo_conversao = erro.motivo
+            campos = erro.campos
+            descricao = trecho or descricao
         except (ValueError, TypeError, KeyError):
             incompleto = True
         else:
@@ -98,7 +115,10 @@ def montar_elemento(
             if trecho is not None and trecho_literal(texto, trecho)
             else "Elemento sem lastro verificável"
         )
-    return montar_generico(ref, descricao), Rebaixamento(
+    generico = montar_generico(ref, descricao)
+    if campos is not None:
+        generico["campos"] = campos
+    return generico, Rebaixamento(
         ref=ref,
         construto_pretendido=pretendido,
         motivo=motivo_lastro

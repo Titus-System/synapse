@@ -44,11 +44,13 @@ REGRA = {"nucleo": {"loja": ["13"]}, "especificacoes": []}
 MOTIVO_DO_CONFLITO = "percentual ausente"
 PERCENTUAL = {
     "tipo": "definir_nucleo",
+    "trecho": "3%",
     "campo": "percentual",
     "valor": {"valor": Decimal("0.03"), "trecho": "3%"},
 }
 ORCAMENTO = {
     "tipo": "definir_parametro",
+    "trecho": "R$ 600 mil",
     "campo": "orcamento",
     "valor": {"valor": 600000, "trecho": "R$ 600 mil"},
 }
@@ -551,12 +553,14 @@ async def test_logs_e_metricas_pelo_caminho_real_em_sucesso_e_falha(
             # Sem lastro no texto: a operação vira diagnóstico.
             {
                 "tipo": "definir_nucleo",
+                "trecho": "3%",
                 "campo": "marca",
                 "valor": [{"valor": "10", "trecho": "marca 10"}],
             },
             # Nenhum construto habilitado: o elemento entra como genérico, rebaixado.
             {
                 "tipo": "adicionar_elemento",
+                "trecho": "orçamento passa a ser R$ 600 mil",
                 "elemento": {
                     "construto_pretendido": "FORMA_PRIVADA",
                     "descricao": "PARAFRASE_PRIVADA",
@@ -702,3 +706,214 @@ async def test_correlacao_e_restaurada_entre_duas_correcoes(
         (segunda["job_id"], "reextraction started"),
         (segunda["job_id"], "reextraction finished"),
     ]
+
+
+def _adicionar_rodada(
+    ambiente: AmbienteReextracao,
+    job_id: UUID,
+    anterior: UUID | None,
+    texto: str,
+    indice: int,
+    *,
+    submissao: UUID | None = None,
+) -> UUID:
+    rodada = uuid4()
+    submissao = submissao or uuid4()
+    ambiente.banco.rodadas_correcao.append(
+        {
+            "id": rodada,
+            "job_id": job_id,
+            "rodada_anterior_id": anterior,
+            "submissao_correcao_id": submissao,
+            "conflitos": [{"elementos": [f"elem.{indice}"], "motivo": f"motivo {indice}"}],
+        }
+    )
+    ambiente.banco.transcricoes[submissao] = texto
+    return rodada
+
+
+async def test_terceira_correcao_repassa_historico_apenas_no_compartimento_nao_confiavel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ambiente = AmbienteReextracao(monkeypatch)
+    payload = ambiente.entrada()
+    job = UUID(payload["job_id"])
+    anterior = _adicionar_rodada(ambiente, job, None, "PRIVADO_ANTERIOR_1", 1)
+    anterior = _adicionar_rodada(ambiente, job, anterior, "PRIVADO_ANTERIOR_2", 2)
+    _adicionar_rodada(ambiente, job, anterior, TEXTO, 3, submissao=UUID(payload["submissao_id"]))
+
+    await ambiente.consumer.receber(mensagem(payload))
+
+    [[chamada]] = ambiente.modelo_reextracao.seen_messages
+    prompt = simplejson.loads(str(chamada.content))
+    assert prompt["dados_nao_confiaveis_da_correcao"] == {
+        "texto": TEXTO,
+        "historico": [
+            {
+                "texto": "PRIVADO_ANTERIOR_1",
+                "conflitos": [{"elementos": ["elem.1"], "motivo": "motivo 1"}],
+            },
+            {
+                "texto": "PRIVADO_ANTERIOR_2",
+                "conflitos": [{"elementos": ["elem.2"], "motivo": "motivo 2"}],
+            },
+        ],
+    }
+    for compartimento in ("instrucoes_fixas_do_sistema", "dados_do_sistema"):
+        assert "PRIVADO_ANTERIOR" not in simplejson.dumps(prompt[compartimento])
+    assert "PRIVADO_ANTERIOR" not in simplejson.dumps((await ambiente.estado(payload)).values)
+    assert ambiente.publicadas("correcao-proposta")
+
+
+async def test_historico_nao_fornece_lastro_para_orcamento_novo_no_grafo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operacao = {
+        "tipo": "definir_parametro",
+        "trecho": "Mantenha a regra",
+        "campo": "orcamento",
+        "valor": {"valor": 700000, "trecho": "R$ 700 mil"},
+    }
+    ambiente = AmbienteReextracao(monkeypatch, [{"operacoes": [operacao]}])
+    payload = ambiente.entrada("Mantenha a regra atual.")
+    job = UUID(payload["job_id"])
+    anterior = _adicionar_rodada(ambiente, job, None, "Histórico: R$ 700 mil.", 1)
+    _adicionar_rodada(
+        ambiente,
+        job,
+        anterior,
+        "Mantenha a regra atual.",
+        2,
+        submissao=UUID(payload["submissao_id"]),
+    )
+
+    await ambiente.consumer.receber(mensagem(payload))
+
+    [proposta] = ambiente.publicadas("correcao-proposta")
+    assert proposta["parametros"]["orcamento"] == Decimal("500000")
+
+
+async def test_metricas_de_operacao_sem_trecho_e_valor_sem_lastro_apos_grafo(
+    monkeypatch: pytest.MonkeyPatch,
+    cliente: AsyncClient,
+    logs: list[dict[str, Any]],
+) -> None:
+    saida = {
+        "operacoes": [
+            {"tipo": "remover_parametro", "campo": "orcamento"},
+            {
+                "tipo": "definir_parametro",
+                "trecho": "R$ 600 mil",
+                "campo": "orcamento",
+                "valor": {"valor": 700000, "trecho": "R$ 600 mil"},
+            },
+        ]
+    }
+    ambiente = AmbienteReextracao(monkeypatch, [saida])
+    payload = ambiente.entrada()
+    antes = (await cliente.get("/metrics")).text
+
+    await ambiente.consumer.receber(mensagem(payload))
+
+    depois = (await cliente.get("/metrics")).text
+    [proposta] = ambiente.publicadas("correcao-proposta")
+    assert proposta["parametros"]["orcamento"] == Decimal("500000")
+    for motivo in ("operacao_sem_trecho", "valor_sem_lastro"):
+        rotulo = {"motivo": motivo}
+        assert (
+            amostra(depois, "codegen_extracao_rebaixamentos_total", rotulo)
+            - amostra(antes, "codegen_extracao_rebaixamentos_total", rotulo)
+            == 1
+        )
+    desfecho = [log for log in logs if log["message"] == "reextraction finished"]
+    assert len(desfecho) == 1
+    assert desfecho[0]["extra"]["rebaixamentos_por_motivo"] == {
+        "operacao_sem_trecho": 1,
+        "valor_sem_lastro": 1,
+    }
+    assert TEXTO not in simplejson.dumps(logs)
+
+
+@pytest.mark.parametrize(
+    ("texto", "valor", "valor_esperado", "motivo"),
+    [
+        ("o bônus passa para 600 reais", "600", "600", "construto_nao_habilitado"),
+        ("o bônus passa para 600 reais", "700", "500", "valor_sem_lastro"),
+        ("Está certo assim, pode seguir.", "600", "500", "valor_sem_lastro"),
+    ],
+)
+async def test_bonus_parcial_ou_rejeitado_preserva_condicao_na_proposta_e_observabilidade(
+    monkeypatch: pytest.MonkeyPatch,
+    cliente: AsyncClient,
+    logs: list[dict[str, Any]],
+    texto: str,
+    valor: str,
+    valor_esperado: str,
+    motivo: str,
+) -> None:
+    descricao = "bônus de R$ 500 para quem vender acima de R$ 10.000 no mês"
+    regra = {
+        "nucleo": {"percentual": Decimal("0.025")},
+        "especificacoes": [{"ref": "elem.1", "construto": "generico", "descricao": descricao}],
+    }
+    saida = {
+        "operacoes": [
+            {
+                "tipo": "substituir_elemento",
+                "ref": "elem.1",
+                "trecho": texto,
+                "elemento": {
+                    "construto_pretendido": "generico",
+                    "descricao": descricao.replace("500", valor),
+                    "trecho": texto,
+                },
+            }
+        ]
+    }
+    ambiente = AmbienteReextracao(monkeypatch, [saida])
+    ambiente.regra.return_value = RepresentacaoRegra.model_validate(regra)
+    payload = ambiente.entrada(texto)
+    job = UUID(payload["job_id"])
+    anterior = _adicionar_rodada(ambiente, job, None, "HISTORICO_PRIVADO: R$ 700.", 1)
+    _adicionar_rodada(ambiente, job, anterior, texto, 2, submissao=UUID(payload["submissao_id"]))
+    antes = (await cliente.get("/metrics")).text
+    recebida = mensagem(payload)
+
+    await ambiente.consumer.receber(recebida)
+
+    recebida.ack.assert_awaited_once_with()
+    [proposta] = ambiente.publicadas("correcao-proposta")
+    assert proposta["representacao"] == {
+        **regra,
+        "especificacoes": [
+            {
+                "ref": "elem.1",
+                "construto": "generico",
+                "descricao": descricao.replace("500", valor_esperado),
+            }
+        ],
+    }
+    assert proposta["parametros"] == {
+        chave: payload[chave] for chave in ("competencias", "orcamento", "meta_venda")
+    }
+    depois = (await cliente.get("/metrics")).text
+    for rotulo in ("valor_sem_lastro", "construto_nao_habilitado"):
+        assert amostra(
+            depois, "codegen_extracao_rebaixamentos_total", {"motivo": rotulo}
+        ) - amostra(antes, "codegen_extracao_rebaixamentos_total", {"motivo": rotulo}) == int(
+            rotulo == motivo
+        )
+    validador = Draft202012Validator(
+        simplejson.loads((CONTRATOS / "observability/log.schema.json").read_bytes()),
+        format_checker=FormatChecker(),
+    )
+    for log in logs:
+        validador.validate(log)
+        assert log["job_id"] == payload["job_id"]
+    [conclusao] = [log for log in logs if log["message"] == "reextraction finished"]
+    assert conclusao["extra"]["rebaixamentos_por_motivo"] == {motivo: 1}
+    serializados = simplejson.dumps(logs, ensure_ascii=False)
+    for privado in (texto, descricao, "HISTORICO_PRIVADO", "construto_pretendido"):
+        assert privado not in serializados
+    assert job_id_ctx.get() is None
+    assert no_ctx.get() is None

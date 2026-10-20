@@ -16,10 +16,20 @@ from langchain_core.language_models import BaseChatModel
 from app.config import get_settings
 from app.extracao.modelos import ResultadoExtracao
 from app.extracao.motor import extrair_regra
+from app.extracao.registro import CONSTRUTOS_HABILITADOS
 from app.graph.core.llm.registry import get_model, get_model_metadata
+from app.representacao_regra import RepresentacaoRegra
 
 ARQUIVO = Path(__file__).resolve().parents[2] / "fixtures" / "corpus_extracao.json"
 CORPUS: list[dict[str, Any]] = json.loads(ARQUIVO.read_text(encoding="utf-8"), parse_float=Decimal)
+CORPUS += [
+    caso
+    for caso in json.loads(
+        ARQUIVO.with_name("corpus_condicao_limiar.json").read_text(encoding="utf-8"),
+        parse_float=Decimal,
+    )
+    if not caso.get("somente_modelo_falso")
+]
 
 
 def test_corpus_versionado_cobre_categorias_obrigatorias() -> None:
@@ -49,6 +59,7 @@ def test_corpus_versionado_cobre_categorias_obrigatorias() -> None:
         assert caso["texto"] and caso["competencias_publicadas"]
         assert set(caso["representacao_esperada"]) == {"nucleo", "especificacoes"}
         assert isinstance(caso["parametros_esperados"], dict)
+        RepresentacaoRegra.model_validate(caso["representacao_esperada"])
 
 
 def test_corpus_mantem_percentuais_com_precisao_decimal() -> None:
@@ -201,6 +212,8 @@ async def modelo_corpus() -> AsyncGenerator[BaseChatModel, None]:
 async def test_corpus_contra_modelo_real(
     caso: dict[str, Any], modelo_corpus: BaseChatModel
 ) -> None:
+    if any(c in CONSTRUTOS_HABILITADOS for c in caso.get("construtos_desabilitados", [])):
+        pytest.skip("caso de fallback exige construto desabilitado")
     resultado = await _extrair_com_retentativa(caso, modelo_corpus)
 
     regra = resultado.representacao.para_contrato()
@@ -213,6 +226,11 @@ async def test_corpus_contra_modelo_real(
         assert [_sem_descricao(e) for e in regra["especificacoes"]] == [
             _sem_descricao(e) for e in esperados
         ]
-        assert all(e["descricao"] for e in regra["especificacoes"] if e["construto"] == "generico")
+        if "rascunho" in caso:
+            assert regra["especificacoes"] == esperados
+        else:
+            assert all(
+                e["descricao"] for e in regra["especificacoes"] if e["construto"] == "generico"
+            )
     else:
         assert regra["especificacoes"] == []
