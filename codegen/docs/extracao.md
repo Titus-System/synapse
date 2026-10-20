@@ -1,4 +1,4 @@
-# Extração de regra — T-203, T-278, T-206
+# Extração de regra — T-203, T-278, T-206, T-205
 
 O motor em `app/extracao/motor.py` recebe texto, competências e o modelo configurado, e retorna a representação da T-004, os diagnósticos de rebaixamento, os parâmetros da simulação (T-278) e a chamada original para auditoria. O repositório em `app/repositorio/extracoes.py` persiste esse resultado no PostgreSQL. Não há publicação nem ligação ao grafo nesta entrega; essas entradas pertencem à T-204 e o consumo pela API pertence à T-202.
 
@@ -16,7 +16,7 @@ O período da simulação só existe quando o texto manda simular um período ou
 
 `validar_parametros` roda no motor, ao gravar e ao ler a extração. Um valor fora do contrato vira `ValueError` sem o valor, nem na mensagem nem na cadeia da exceção: fora do motor não há supressão, e a exceção do `jsonschema` traz o valor reprovado, que é o que o texto do usuário disse.
 
-O registro explícito de construtos tipados (`app/extracao/registro.py`) habilita hoje somente `bonus_fixo`. Não há importação de módulos a partir da resposta da LLM. Para habilitar um construto, seu módulo em `app/extracao/construtos/` fornece schema, instruções e conversor por `Construto` (`app/extracao/construto.py`), e uma linha no registro o habilita; o resultado ainda precisa passar pelo contrato compartilhado. O conversor recebe o rascunho e um `ContextoExtracao` (texto e competências do job) e pode recusar o elemento com `ElementoRebaixadoError(motivo)`, cujo motivo vira o do rebaixamento; qualquer outro `ValueError` é `campo_obrigatorio_ausente`.
+O registro explícito de construtos tipados (`app/extracao/registro.py`) habilita `bonus_fixo`, `condicao_limiar` e `exclusao`. Não há importação de módulos a partir da resposta da LLM. Para habilitar um construto, seu módulo em `app/extracao/construtos/` fornece schema, instruções e conversor por `Construto` (`app/extracao/construto.py`), e uma linha no registro o habilita; o resultado ainda precisa passar pelo contrato compartilhado. O conversor recebe o rascunho e um `ContextoExtracao` (texto e competências do job) e pode recusar o elemento com `ElementoRebaixadoError(motivo)`, cujo motivo vira o do rebaixamento; qualquer outro `ValueError` é `campo_obrigatorio_ausente`.
 
 Habilitar o primeiro construto transforma `elementos.items` em um `anyOf`, e com isso o modelo `gemini-3.1-flash-lite` passou a copiar as competências publicadas para `nucleo.vigencia`, a pôr o período a simular na vigência e a descartar o que o núcleo não comporta, em vez de criar o genérico. As descrições do schema de `vigencia`, `competencias` e da variante genérica corrigem isso, e os casos do corpus que cobrem esses comportamentos ficam como a prova. Ao habilitar o próximo construto, rode o corpus inteiro contra o modelo real.
 
@@ -29,6 +29,16 @@ O rascunho traz `tipo_alvo` (`lista` ou `filtro`), `matriculas` ou `criterios`, 
 - **Data**: `resolver_datas` e `conferir_data` (`lastro.py`) leem `dd/mm`, `dd/mm/aaaa`, `AAAA-MM-DD` e "10 de outubro". O ano que o trecho não diz é o ano comum das competências do job; com mais de um ano o elemento rebaixa com `periodo_nao_resolvido`.
 - **Valor**: precisa de lastro numérico e de um trecho sem `%` nem "por cento"; um bônus percentual rebaixa com `campo_obrigatorio_ausente`.
 - **Alvo**: lista e filtro não coexistem, e alvo sem critério não é representável; ambos rebaixam com `campo_obrigatorio_ausente`.
+
+### `exclusao` (T-205)
+
+O rascunho traz `dimensao` (`loja`, `marca` ou `cargo`) e `valores`, uma lista de `{valor, trecho}` com um trecho por código, como loja, marca e cargo do núcleo. Cada valor passa por `resolver_codigo` com o seu próprio trecho: sem um código conhecido, o resolvedor usa os códigos que o trecho cita, e um trecho com vários códigos trocaria o desconhecido por outro. Nomes que resolvem para o mesmo código entram uma vez ("gerente", `GERENTE DE LOJA` e `GERENTE QUIOSQUE` viram `150`).
+
+- **Um elemento por dimensão**: excluir um cargo e uma marca são duas exclusões, com `ref` na ordem do texto.
+- **Código não resolvido**: um valor fora do vocabulário, ambíguo ou sem lastro rebaixa o elemento inteiro, com o motivo do resolvedor (`codigo_fora_do_vocabulario`, `termo_ambiguo` ou `valor_sem_lastro`), porque excluir só os resolvidos mudaria o resultado sem aviso. O genérico preserva o trecho e leva `campos` com a `dimensao` e os `valores` resolvidos, quando houver.
+- **Matrícula**: a dimensão não a admite. `dimensao = matricula` não cabe no schema do rascunho, e um trecho que fala de matrícula não chega à resolução, porque o número de uma matrícula pode coincidir com o código de uma loja; os dois rebaixam com `campo_obrigatorio_ausente`.
+- **Alcance**: a exclusão retira os códigos da regra inteira. Um trecho com valor próprio (`%`, `R$`, "por cento", "reais") é a exceção de um efeito, como um bônus ou um acréscimo, e rebaixa com `termo_ambiguo`. A exceção que vale para uma de várias regras independentes, sem valor no trecho, só é separada pelo prompt, que a manda para um genérico junto da regra.
+- **Núcleo e exclusão**: a extração não confere um contra o outro. Incluir e excluir o mesmo código produz os dois como foram ditos, e a validação de domínio aponta `exclusao_repetida`.
 
 Cada elemento recuperável vira `generico` quando o construto não está habilitado ou faltam campos válidos. A ausência/invalidez tem prioridade no diagnóstico (`campo_obrigatorio_ausente`); os demais rebaixamentos usam `construto_nao_habilitado`. Se a descrição não é utilizável, um trecho não vazio encontrado literalmente na entrada preserva o elemento. Sem descrição nem trecho recuperável, a extração inteira falha. Referências e diagnósticos têm correspondência de um para um para os genéricos.
 

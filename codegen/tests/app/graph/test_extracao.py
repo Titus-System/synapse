@@ -807,3 +807,77 @@ async def test_condicao_limiar_contada_no_no_sem_expor_texto(
     assert "R$ 50 mil" not in simplejson.dumps(logs)
     assert job_id_ctx.get() is None
     assert no_ctx.get() is None
+
+
+@pytest.mark.parametrize("fora_do_vocabulario", [False, True])
+async def test_exclusao_contada_no_no_sem_expor_texto(
+    monkeypatch: pytest.MonkeyPatch,
+    cliente: AsyncClient,
+    logs: list[dict[str, Any]],
+    fora_do_vocabulario: bool,
+) -> None:
+    loja = "99" if fora_do_vocabulario else "58"
+    trecho = f"exceto a 13 e a {loja}"
+    texto = f"Para todas as lojas, {trecho}"
+    saida = {
+        "nucleo": {},
+        "parametros": {},
+        "elementos": [
+            {
+                "construto_pretendido": "exclusao",
+                "descricao": trecho,
+                "trecho": trecho,
+                "dimensao": "loja",
+                "valores": [{"valor": "13", "trecho": "13"}, {"valor": loja, "trecho": loja}],
+            }
+        ],
+    }
+    ambiente = AmbienteExtracao(monkeypatch, [saida])
+    entrada = ambiente.entrada()
+    ambiente.banco.transcricoes[UUID(entrada["submissao_id"])] = texto
+    recebida = mensagem(entrada)
+    antes = (await cliente.get("/metrics")).text
+
+    await ambiente.consumer.receber(recebida)
+
+    recebida.ack.assert_awaited_once_with()
+    [extracao] = ambiente.banco.tabela("extracoes_regras")
+    assert simplejson.loads(extracao["representacao"])["especificacoes"] == [
+        {
+            "ref": "elem.1",
+            "construto": "generico",
+            "descricao": trecho,
+            "campos": {"dimensao": "loja", "valores": ["13"]},
+        }
+        if fora_do_vocabulario
+        else {"ref": "elem.1", "construto": "exclusao", "dimensao": "loja", "valores": ["13", "58"]}
+    ]
+    depois = (await cliente.get("/metrics")).text
+    for nome, delta in [
+        ("exclusao", 0 if fora_do_vocabulario else 1),
+        ("generico", 1 if fora_do_vocabulario else 0),
+    ]:
+        labels = {"construto": nome}
+        assert (
+            amostra(depois, "codegen_extracao_elementos_total", labels)
+            - amostra(antes, "codegen_extracao_elementos_total", labels)
+            == delta
+        )
+    motivo = {"motivo": "codigo_fora_do_vocabulario"}
+    assert amostra(depois, "codegen_extracao_rebaixamentos_total", motivo) - amostra(
+        antes, "codegen_extracao_rebaixamentos_total", motivo
+    ) == (1 if fora_do_vocabulario else 0)
+    validador = Draft202012Validator(
+        simplejson.loads((CONTRATOS / "observability/log.schema.json").read_text()),
+        format_checker=FormatChecker(),
+    )
+    for log in logs:
+        validador.validate(log)
+        assert log["job_id"] == entrada["job_id"]
+    assert [log["message"] for log in logs if log.get("no") == "extracao_parametros"] == [
+        "extraction started",
+        "extraction finished",
+    ]
+    assert trecho not in simplejson.dumps(logs)
+    assert job_id_ctx.get() is None
+    assert no_ctx.get() is None

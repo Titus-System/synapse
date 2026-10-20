@@ -1,0 +1,242 @@
+[
+  {
+    "id": "exclusao_cargo_gerentes",
+    "texto": "Válido para todas as marcas e para todos os cargos, com exceção dos gerentes (150)",
+    "competencias_publicadas": ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"],
+    "rascunho": {
+      "nucleo": {},
+      "parametros": {},
+      "elementos": [
+        {
+          "construto_pretendido": "exclusao",
+          "descricao": "com exceção dos gerentes (150)",
+          "trecho": "com exceção dos gerentes (150)",
+          "dimensao": "cargo",
+          "valores": [{ "valor": "150", "trecho": "gerentes (150)" }]
+        }
+      ]
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        { "ref": "elem.1", "construto": "exclusao", "dimensao": "cargo", "valores": ["150"] }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "exclusao_cargo_negado",
+    "texto": "Este bônus não se aplica aos cargos de gerente",
+    "competencias_publicadas": ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"],
+    "rascunho": {
+      "nucleo": {},
+      "parametros": {},
+      "elementos": [
+        {
+          "construto_pretendido": "exclusao",
+          "descricao": "não se aplica aos cargos de gerente",
+          "trecho": "não se aplica aos cargos de gerente",
+          "dimensao": "cargo",
+          "valores": [{ "valor": "gerente", "trecho": "gerente" }]
+        }
+      ]
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        { "ref": "elem.1", "construto": "exclusao", "dimensao": "cargo", "valores": ["150"] }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "exclusao_lojas",
+    "texto": "Para todas as lojas, exceto a 13 e a 58",
+    "competencias_publicadas": ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"],
+    "rascunho": {
+      "nucleo": {},
+      "parametros": {},
+      "elementos": [
+        {
+          "construto_pretendido": "exclusao",
+          "descricao": "exceto a 13 e a 58",
+          "trecho": "exceto a 13 e a 58",
+          "dimensao": "loja",
+          "valores": [
+            { "valor": "13", "trecho": "13" },
+            { "valor": "58", "trecho": "58" }
+          ]
+        }
+      ]
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        { "ref": "elem.1", "construto": "exclusao", "dimensao": "loja", "valores": ["13", "58"] }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "exclusao_cargo_e_marca",
+    "texto": "Comissão de 2%. Não vale para os gerentes (150) nem para a marca AZUL.",
+    "competencias_publicadas": ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"],
+    "rascunho": {
+      "nucleo": { "percentual": { "valor": 0.02, "trecho": "2%" } },
+      "parametros": {},
+      "elementos": [
+        {
+          "construto_pretendido": "exclusao",
+          "descricao": "Não vale para os gerentes (150)",
+          "trecho": "Não vale para os gerentes (150)",
+          "dimensao": "cargo",
+          "valores": [{ "valor": "150", "trecho": "gerentes (150)" }]
+        },
+        {
+          "construto_pretendido": "exclusao",
+          "descricao": "nem para a marca AZUL",
+          "trecho": "nem para a marca AZUL",
+          "dimensao": "marca",
+          "valores": [{ "valor": "AZUL", "trecho": "marca AZUL" }]
+        }
+      ]
+    },
+    "representacao_esperada": {
+      "nucleo": { "percentual": 0.02 },
+      "especificacoes": [
+        { "ref": "elem.1", "construto": "exclusao", "dimensao": "cargo", "valores": ["150"] },
+        { "ref": "elem.2", "construto": "exclusao", "dimensao": "marca", "valores": ["30"] }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "exclusao_codigo_fora_do_vocabulario",
+    "texto": "Para todas as lojas, exceto a 13 e a 99",
+    "competencias_publicadas": ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"],
+    "rascunho": {
+      "nucleo": {},
+      "parametros": {},
+      "elementos": [
+        {
+          "construto_pretendido": "exclusao",
+          "descricao": "exceto a 13 e a 99",
+          "trecho": "exceto a 13 e a 99",
+          "dimensao": "loja",
+          "valores": [
+            { "valor": "13", "trecho": "13" },
+            { "valor": "99", "trecho": "99" }
+          ]
+        }
+      ]
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "exceto a 13 e a 99",
+          "campos": { "dimensao": "loja", "valores": ["13"] }
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "codigo_fora_do_vocabulario"
+  },
+  {
+    "id": "exclusao_matricula",
+    "texto": "Comissão de 2% para todos, exceto a matrícula MATRIC-422.",
+    "competencias_publicadas": ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"],
+    "rascunho": {
+      "nucleo": { "percentual": { "valor": 0.02, "trecho": "2%" } },
+      "parametros": {},
+      "elementos": [
+        {
+          "construto_pretendido": "exclusao",
+          "descricao": "exceto a matrícula MATRIC-422",
+          "trecho": "exceto a matrícula MATRIC-422",
+          "dimensao": "cargo",
+          "valores": [{ "valor": "MATRIC-422", "trecho": "MATRIC-422" }]
+        }
+      ]
+    },
+    "representacao_esperada": {
+      "nucleo": { "percentual": 0.02 },
+      "especificacoes": [
+        { "ref": "elem.1", "construto": "generico", "descricao": "exceto a matrícula MATRIC-422" }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "campo_obrigatorio_ausente"
+  },
+  {
+    "id": "exclusao_so_de_uma_regra",
+    "texto": "Comissão de 2% para a marca 10. Para a marca 20, comissão de 3%, exceto para os gerentes (150).",
+    "competencias_publicadas": ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"],
+    "rascunho": {
+      "nucleo": {
+        "percentual": { "valor": 0.02, "trecho": "2%" },
+        "marca": [{ "valor": "10", "trecho": "marca 10" }]
+      },
+      "parametros": {},
+      "elementos": [
+        {
+          "construto_pretendido": "exclusao",
+          "descricao": "Para a marca 20, comissão de 3%, exceto para os gerentes (150)",
+          "trecho": "Para a marca 20, comissão de 3%, exceto para os gerentes (150)",
+          "dimensao": "cargo",
+          "valores": [{ "valor": "150", "trecho": "gerentes (150)" }]
+        }
+      ]
+    },
+    "representacao_esperada": {
+      "nucleo": { "percentual": 0.02, "marca": ["10"] },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "Para a marca 20, comissão de 3%, exceto para os gerentes (150)"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "termo_ambiguo"
+  },
+  {
+    "id": "exclusao_do_codigo_incluido",
+    "texto": "Pague 2% nas lojas 13 e 58, exceto a loja 13.",
+    "competencias_publicadas": ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"],
+    "rascunho": {
+      "nucleo": {
+        "percentual": { "valor": 0.02, "trecho": "2%" },
+        "loja": [
+          { "valor": "13", "trecho": "lojas 13" },
+          { "valor": "58", "trecho": "58" }
+        ]
+      },
+      "parametros": {},
+      "elementos": [
+        {
+          "construto_pretendido": "exclusao",
+          "descricao": "exceto a loja 13",
+          "trecho": "exceto a loja 13",
+          "dimensao": "loja",
+          "valores": [{ "valor": "13", "trecho": "loja 13" }]
+        }
+      ]
+    },
+    "representacao_esperada": {
+      "nucleo": { "percentual": 0.02, "loja": ["13", "58"] },
+      "especificacoes": [
+        { "ref": "elem.1", "construto": "exclusao", "dimensao": "loja", "valores": ["13"] }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  }
+]
