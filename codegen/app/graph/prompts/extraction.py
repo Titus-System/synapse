@@ -98,6 +98,10 @@ Não use o orçamento, a comissão ou outro número como lastro do limiar.
 Escopos: venda individual, por vendedor, por funcionário e quem vender = matricula
 (total mensal consolidado da pessoa, não uma venda isolada); da loja/por loja = loja;
 da marca = marca; da empresa/da rede = rede. O escopo não é um filtro do núcleo.
+Devolva escopo_agregacao sempre com um dos quatro valores exatos (matricula, loja, marca, rede),
+nunca com "vendedor", "funcionario" ou "empresa".
+"No mês", "por mês" e "mensal" dentro da condição são a janela de apuração do limiar, não a
+vigência da regra: não preencha nucleo.vigencia com esse trecho.
 Sem escopo expresso, NÃO invente: mantenha o rascunho condicao_limiar com metrica,
 operador e limiar, omitindo escopo_agregacao; o motor rebaixa para generico e preserva
 os três valores confirmados em campos. Não use null.
@@ -105,6 +109,8 @@ Operadores exatos: acima de/superior a/maior que/mais de = >;
 a partir de/no mínimo/pelo menos = >=; abaixo de/menor que/menos de = <;
 até/no máximo = <=; igual a = ==. Não suponha >= para chegar a ou vender um valor
 sem comparação explícita; expressão ambígua vira generico com a frase literal inteira.
+Condição negada (não, nunca, sem, exceto) ou que exclui os demais ("os demais recebem") também
+vira generico com a frase literal inteira: nunca troque o operador por conta própria.
 Meta, cota, quantidade, ticket médio e atingimento de meta como CONDIÇÕES não são
 venda_total: use generico, preservando a frase inteira, mesmo que haja valor em reais.
 Objetivo de venda do período é meta_venda em parametros, nunca condição nem generico.

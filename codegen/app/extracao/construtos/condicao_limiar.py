@@ -22,6 +22,20 @@ _ESCOPOS = {
     "rede": r"\b(?:da empresa|da rede|por empresa|por rede|a empresa vender|a rede vender|"
     r"a empresa vende|a rede vende)\b",
 }
+# Nome do escopo como o modelo o devolve, sem a preposição das frases do texto.
+_APELIDOS = {
+    "matricula": {
+        "matricula",
+        "vendedor",
+        "vendedores",
+        "funcionario",
+        "funcionarios",
+        "individual",
+    },
+    "loja": {"loja", "lojas"},
+    "marca": {"marca", "marcas"},
+    "rede": {"rede", "empresa"},
+}
 _OPERADORES = {
     ">": r"\b(?:acima de|superior a|maior que|mais de)\b",
     ">=": r"\b(?:a partir de|no minimo|pelo menos)\b",
@@ -34,6 +48,8 @@ _METRICA_NAO_SUPORTADA = re.compile(
 )
 _ELEMENTO_RESTRITO = re.compile(r"\b(?:bonus|premio|adicional|acrescimo|faixa)\b")
 _AMBIGUIDADE = re.compile(r"\b(?:cerca de|perto de|aproximadamente|em torno de|se e somente se)\b")
+# Negação e exclusão invertem o sentido do operador, que o conversor só lê pelo termo positivo.
+_NEGACAO = re.compile(r"\b(?:nao|nunca|nem|sem|exceto|salvo|ninguem|demais)\b")
 
 
 def converter(elemento: dict[str, Any]) -> dict[str, ValorRegra]:
@@ -45,6 +61,7 @@ def converter(elemento: dict[str, Any]) -> dict[str, ValorRegra]:
         or _METRICA_NAO_SUPORTADA.search(texto)
         or _ELEMENTO_RESTRITO.search(texto)
         or _AMBIGUIDADE.search(texto)
+        or _NEGACAO.search(texto)
     ):
         raise RebaixamentoConstrutoError("termo_ambiguo")
 
@@ -70,7 +87,9 @@ def converter(elemento: dict[str, Any]) -> dict[str, ValorRegra]:
     escopo = escopos.pop()
     informado = elemento.get("escopo_agregacao")
     if informado is not None and informado != escopo:
-        aliases = {s for s, padrao in _ESCOPOS.items() if re.search(padrao, normalizar(informado))}
+        nome = normalizar(informado)
+        aliases = {s for s, padrao in _ESCOPOS.items() if re.search(padrao, nome)}
+        aliases.update(s for s, nomes in _APELIDOS.items() if nome in nomes)
         if aliases != {escopo}:
             raise RebaixamentoConstrutoError("termo_ambiguo", campos)
     return {**campos, "escopo_agregacao": escopo}

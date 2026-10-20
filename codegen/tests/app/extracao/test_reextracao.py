@@ -95,6 +95,7 @@ async def test_altera_somente_percentual_sem_perder_regra_ou_parametros(
             "operacoes": [
                 {
                     "tipo": "definir_nucleo",
+                    "trecho": "3%",
                     "campo": "percentual",
                     "valor": {"valor": Decimal("0.03"), "trecho": "3%"},
                 }
@@ -122,12 +123,14 @@ async def test_modifica_parametros_sem_alterar_regra(
             "operacoes": [
                 {
                     "tipo": "definir_parametro",
+                    "trecho": "R$ 600 mil",
                     "campo": "orcamento",
                     "valor": {"valor": 600000, "trecho": "R$ 600 mil"},
                 },
-                {"tipo": "remover_parametro", "campo": "meta_venda"},
+                {"tipo": "remover_parametro", "campo": "meta_venda", "trecho": "tira a meta"},
                 {
                     "tipo": "definir_parametro",
+                    "trecho": "novembro de 2025",
                     "campo": "competencias",
                     "valor": {"valor": ["2025-11"], "trecho": "novembro de 2025"},
                 },
@@ -153,9 +156,14 @@ async def test_remove_substitui_adiciona_e_renumera(
         texto,
         {
             "operacoes": [
-                {"tipo": "remover_elemento", "ref": "elem.1"},
+                {
+                    "tipo": "remover_elemento",
+                    "ref": "elem.1",
+                    "trecho": "Tire a exclusão dos gerentes",
+                },
                 {
                     "tipo": "substituir_elemento",
+                    "trecho": "bônus de R$ 500",
                     "ref": "elem.2",
                     "elemento": {
                         "construto_pretendido": "bonus_fixo",
@@ -165,6 +173,7 @@ async def test_remove_substitui_adiciona_e_renumera(
                 },
                 {
                     "tipo": "adicionar_elemento",
+                    "trecho": "bônus extra",
                     "elemento": {
                         "construto_pretendido": "generico",
                         "descricao": "bônus extra",
@@ -194,10 +203,11 @@ async def test_operacao_invalida_e_ref_inexistente_preservam_as_outras(
         "Altere para 3%.",
         {
             "operacoes": [
-                {"tipo": "remover_elemento", "ref": "elem.99"},
-                {"tipo": "operacao_desconhecida", "campo": "privado"},
+                {"tipo": "remover_elemento", "ref": "elem.99", "trecho": "3%"},
+                {"tipo": "operacao_desconhecida", "campo": "privado", "trecho": "3%"},
                 {
                     "tipo": "definir_nucleo",
+                    "trecho": "3%",
                     "campo": "percentual",
                     "valor": {"valor": Decimal("0.03"), "trecho": "3%"},
                 },
@@ -235,10 +245,11 @@ async def test_valor_que_o_texto_da_correcao_nao_disse_nao_entra(
             "operacoes": [
                 {
                     "tipo": "definir_nucleo",
+                    "trecho": "Tira a meta.",
                     "campo": "percentual",
                     "valor": {"valor": Decimal("0.05"), "trecho": "Tira a meta."},
                 },
-                {"tipo": "remover_parametro", "campo": "meta_venda"},
+                {"tipo": "remover_parametro", "campo": "meta_venda", "trecho": "Tira a meta"},
             ]
         },
     )
@@ -288,6 +299,7 @@ async def test_nao_vincula_ferramentas_e_pede_schema_json(
             "operacoes": [
                 {
                     "tipo": "definir_nucleo",
+                    "trecho": "3%",
                     "campo": "percentual",
                     "valor": {"valor": Decimal("0.03"), "trecho": "3%"},
                 }
@@ -386,7 +398,7 @@ async def test_resposta_esta_disponivel_para_a_t221_sem_expor_repr(
         regra,
         parametros,
         SEGREDO,
-        {"operacoes": [{"tipo": "remover_parametro", "campo": "orcamento"}]},
+        {"operacoes": [{"tipo": "remover_parametro", "campo": "orcamento", "trecho": SEGREDO}]},
     )
 
     assert "operacoes" in resultado.chamada.resposta
@@ -401,6 +413,7 @@ async def test_preserva_centavos_e_metadados_sem_compartilhar_entradas(
 ) -> None:
     resposta = AIMessage(
         content='{"operacoes":[{"tipo":"definir_parametro","campo":"orcamento",'
+        '"trecho":"R$ 600.000,1234567890123456789",'
         '"valor":{"valor":600000.1234567890123456789,'
         '"trecho":"R$ 600.000,1234567890123456789"}}]}',
         response_metadata={"finish_reason": "STOP"},
