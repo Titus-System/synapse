@@ -62,7 +62,12 @@ def _codigos_presentes(campo: CampoCodigo, trecho: str) -> set[str]:
 
 
 def resolver_codigo(
-    campo: CampoCodigo, termo: str, trecho: object, texto: str
+    campo: CampoCodigo,
+    termo: str,
+    trecho: object,
+    texto: str,
+    *,
+    exigir_termo_conhecido: bool = False,
 ) -> tuple[str | None, FalhaCodigo | None]:
     if not trecho_literal(texto, trecho):
         return None, "valor_sem_lastro"
@@ -71,7 +76,7 @@ def resolver_codigo(
     informado = normalizar(termo)
     candidatos = {informado} if informado in codigos else _candidatos(campo, termo)
     evidenciados = _codigos_presentes(campo, trecho)
-    if not candidatos:
+    if not candidatos and not exigir_termo_conhecido:
         candidatos = evidenciados
     if not candidatos:
         return None, "codigo_fora_do_vocabulario"

@@ -22,14 +22,15 @@ from app.representacao_regra import RepresentacaoRegra
 
 ARQUIVO = Path(__file__).resolve().parents[2] / "fixtures" / "corpus_extracao.json"
 CORPUS: list[dict[str, Any]] = json.loads(ARQUIVO.read_text(encoding="utf-8"), parse_float=Decimal)
-CORPUS += [
-    caso
-    for caso in json.loads(
-        ARQUIVO.with_name("corpus_condicao_limiar.json").read_text(encoding="utf-8"),
-        parse_float=Decimal,
-    )
-    if not caso.get("somente_modelo_falso")
-]
+for _nome in ("corpus_condicao_limiar.json", "corpus_exclusao.json"):
+    CORPUS += [
+        caso
+        for caso in json.loads(
+            ARQUIVO.with_name(_nome).read_text(encoding="utf-8"),
+            parse_float=Decimal,
+        )
+        if not caso.get("somente_modelo_falso")
+    ]
 
 
 def test_corpus_versionado_cobre_categorias_obrigatorias() -> None:
@@ -57,6 +58,18 @@ def test_corpus_versionado_cobre_categorias_obrigatorias() -> None:
         "janela_black_friday",
         "janela_gerentes",
         "janela_dia_unico",
+        "exclusao_cargo_gerentes",
+        "exclusao_cargo_negado",
+        "exclusao_bonus_sem_valor",
+        "exclusao_global_inclusive_bonus",
+        "exclusao_global_clausulas",
+        "exclusao_bonus_retomado",
+        "exclusao_lojas",
+        "exclusao_cargo_e_marca",
+        "exclusao_codigo_fora_do_vocabulario",
+        "exclusao_matricula",
+        "exclusao_so_de_uma_regra",
+        "exclusao_do_codigo_incluido",
     } <= set(ids)
     for caso in CORPUS:
         assert caso["texto"] and caso["competencias_publicadas"]
