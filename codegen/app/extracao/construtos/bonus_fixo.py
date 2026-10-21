@@ -2,7 +2,8 @@ import re
 from typing import Any
 
 from app.extracao.construto import Construto, ContextoExtracao, com_lastro
-from app.extracao.lastro import conferir_data, conferir_numero, normalizar
+from app.extracao.efeito import valor_monetario
+from app.extracao.lastro import conferir_data, normalizar
 from app.extracao.modelos import ElementoRebaixadoError
 from app.extracao.vocabulario import resolver_codigo
 from app.tipos_estado import ValorRegra
@@ -18,7 +19,6 @@ _CRITERIOS = {
     "properties": {"cargo": _TEXTO, "admitido_ate": _DATA},
 }
 
-_PERCENTUAL = re.compile(r"%|\bpor\s+cento\b|\bpercentual\b", re.IGNORECASE)
 # Negação e exceção invertem ou restringem o alvo, que o conversor só lê pelas matrículas citadas.
 _NEGACAO = re.compile(r"\b(?:nao|nunca|nem|sem|exceto|salvo|ninguem|demais)\b")
 # O filtro só tem admitido_ate, que inclui o dia; outra direção seria o alvo oposto.
@@ -38,24 +38,6 @@ def _numeros_de_matricula(trecho: str) -> set[str]:
     for lista in _MATRICULAS_APOS_PALAVRA.findall(trecho):
         numeros.update(re.findall(r"\d+", lista))
     return numeros
-
-
-def _seguido_de_percentual(valor: str, trecho: str) -> bool:
-    return any(
-        re.match(r"\s*(?:%|por\s+cento\b)", trecho[achado.end() :], re.IGNORECASE)
-        for achado in re.finditer(re.escape(valor), trecho)
-    )
-
-
-def _valor_monetario(campo: dict[str, Any], texto: str, trecho: str) -> ValorRegra:
-    if not conferir_numero(texto, campo["trecho"], campo["valor"], percentual=False):
-        raise ElementoRebaixadoError("valor_sem_lastro")
-    # O valor do bônus é em reais; um percentual não tem como virar o valor do contrato, nem
-    # quando o trecho do valor omite o símbolo que o trecho do elemento traz.
-    if _PERCENTUAL.search(campo["trecho"]) or _seguido_de_percentual(campo["trecho"], trecho):
-        raise ElementoRebaixadoError("campo_obrigatorio_ausente")
-    valor: ValorRegra = campo["valor"]
-    return valor
 
 
 def _matriculas(informadas: list[str], trecho: str) -> list[ValorRegra]:
@@ -100,7 +82,7 @@ def _filtro(
 
 
 def converter(rascunho: dict[str, Any], contexto: ContextoExtracao) -> dict[str, ValorRegra]:
-    valor = _valor_monetario(rascunho["valor"], contexto.texto, rascunho["trecho"])
+    valor = valor_monetario(rascunho["valor"], contexto.texto, rascunho["trecho"])
     if _NEGACAO.search(normalizar(rascunho["trecho"])):
         raise ElementoRebaixadoError("termo_ambiguo")
     # O alvo declarado tem de ser o único presente; um rascunho com os dois não é representável.

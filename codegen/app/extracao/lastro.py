@@ -21,6 +21,13 @@ _MESES = (
     "dezembro",
 )
 _NUMERO = re.compile(r"(?<![\w])[-+]?(?:\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[,.]\d+)?)(?![\w])")
+_FRACAO_ANTES = re.compile(r"\bfra[cç][aã]o(?:\s+decimal)?(?:\s+de)?\s*[:=]?\s*$", re.IGNORECASE)
+_FRACAO_DEPOIS = re.compile(
+    r"\s*(?:(?:em|como)\s+fra[cç][aã]o(?:\s+decimal)?\b|\(\s*fra[cç][aã]o(?:\s+decimal)?\s*\))",
+    re.IGNORECASE,
+)
+_MOEDA_ANTES = re.compile(r"r\$\s*\)?\s*$", re.IGNORECASE)
+_MOEDA_DEPOIS = re.compile(r"\s*\(?\s*(?:r\$|(?:real|reais|centavos?)\b)", re.IGNORECASE)
 _POR_EXTENSO = re.compile(
     r"\b(zero|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|"
     r"onze|doze|treze|catorze|quatorze|quinze|dezesseis|dezessete|dezoito|"
@@ -62,7 +69,26 @@ def _decimal(numero: str) -> Decimal:
     return Decimal(numero)
 
 
-def conferir_numero(texto: str, trecho: object, valor: object, *, percentual: bool) -> bool:
+def _numero_monetario(texto: str, trecho: str, numero: re.Match[str]) -> bool:
+    for evidencia in re.finditer(re.escape(trecho), texto):
+        antes = texto[: evidencia.start() + numero.start()]
+        depois = texto[evidencia.start() + numero.end() :]
+        indicacao_fracao = _FRACAO_DEPOIS.match(depois)
+        if indicacao_fracao is not None:
+            depois = depois[indicacao_fracao.end() :]
+        if _MOEDA_ANTES.search(antes) or _MOEDA_DEPOIS.match(depois):
+            return True
+    return False
+
+
+def conferir_numero(
+    texto: str,
+    trecho: object,
+    valor: object,
+    *,
+    percentual: bool,
+    exigir_marcador_percentual: bool = False,
+) -> bool:
     if not trecho_literal(texto, trecho) or isinstance(valor, bool):
         return False
     try:
@@ -74,13 +100,33 @@ def conferir_numero(texto: str, trecho: object, valor: object, *, percentual: bo
     assert isinstance(trecho, str)
     ocorrencias = list(_NUMERO.finditer(trecho))
     if not ocorrencias:
+        if exigir_marcador_percentual:
+            for marcador in re.finditer(r"%|\bpor\s+cento\b", trecho, flags=re.IGNORECASE):
+                palavras = normalizar(trecho[: marcador.start()]).split()
+                if palavras and _POR_EXTENSO.fullmatch(palavras[-1]):
+                    return True
+            return False
         # Número por extenso: somente a existência literal é verificável (T-210).
         return bool(_POR_EXTENSO.search(normalizar(trecho)))
     for ocorrencia in ocorrencias:
         encontrado = _decimal(ocorrencia.group())
         if percentual:
+            if exigir_marcador_percentual and _numero_monetario(texto, trecho, ocorrencia):
+                continue
             if re.match(r"\s*(?:%|por\s+cento\b)", trecho[ocorrencia.end() :], flags=re.IGNORECASE):
                 encontrado /= 100
+            elif exigir_marcador_percentual:
+                antes = trecho[: ocorrencia.start()].rstrip()
+                depois = trecho[ocorrencia.end() :].lstrip()
+                if (
+                    antes.endswith("/")
+                    or depois.startswith("/")
+                    or not (_FRACAO_ANTES.search(antes) or _FRACAO_DEPOIS.match(depois))
+                ):
+                    continue
+                # A fração explícita pode usar ponto decimal, como 0.025, sem agrupar milhares.
+                if re.fullmatch(r"[-+]?\d+\.\d+", ocorrencia.group()):
+                    encontrado = Decimal(ocorrencia.group())
         else:
             resto = normalizar(trecho[ocorrencia.end() :])
             if resto.startswith(("milhao", "milhoes")):
@@ -173,9 +219,11 @@ def resolver_datas(trecho: str, publicadas: Sequence[str]) -> list[str] | None:
             if len(anos) != 1:
                 return None
             ano = int(next(iter(anos)))
-        # Um dia que o calendário não tem não é lastro de data.
-        if (resolvida := _data_valida(ano, mes, dia)) is not None:
-            datas.append(resolvida)
+        # Descartar só a data inválida faria um intervalo incompleto parecer um dia único.
+        resolvida = _data_valida(ano, mes, dia)
+        if resolvida is None:
+            return []
+        datas.append(resolvida)
     return datas
 
 
