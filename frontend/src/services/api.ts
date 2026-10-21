@@ -7,6 +7,7 @@ import type {
   JobCriado,
   ListarJobsParametros,
   PaginaJobs,
+  RenomearJobRequisicao,
   ReprocessarRequisicao,
 } from '@/types/api'
 
@@ -46,6 +47,10 @@ export const apiClient = {
 
   executarAcao(id: string, requisicao: ExecutarAcaoRequisicao, signal?: AbortSignal) {
     return http.post<Job, ExecutarAcaoRequisicao>(`${jobPath(id)}/actions`, requisicao, signal)
+  },
+
+  renomearJob(id: string, requisicao: RenomearJobRequisicao, signal?: AbortSignal) {
+    return http.put<Job, RenomearJobRequisicao>(`${jobPath(id)}/nome`, requisicao, signal)
   },
 
   reprocessarJob(id: string, requisicao?: ReprocessarRequisicao, signal?: AbortSignal) {
