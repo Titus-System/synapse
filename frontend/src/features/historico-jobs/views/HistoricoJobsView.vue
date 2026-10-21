@@ -7,7 +7,8 @@ import type { JobResumo, StatusJob } from '@/types/api'
 import { apiClient } from '@/services/api'
 import { regraMaisRecente, rotuloDaRegra } from '@/services/job'
 import { transformarRegra } from '@/composables/transformarRegra'
-import { listarTodosOsJobs } from '../services/historicoJobs.api'
+import { storeToRefs } from 'pinia'
+import { usarStoreRegrasRecentes } from '@/stores/regrasRecentes'
 import type { TipoDeHistorico } from '../types'
 
 const tamanhoDaPagina = 6
@@ -16,7 +17,8 @@ const roteador = useRouter()
 const carregando = ref(false)
 const mensagemDeErro = ref('')
 const paginaAtual = ref(0)
-const resumosDosJobs = ref<JobResumo[]>([])
+const regras = usarStoreRegrasRecentes()
+const { resumos: resumosDosJobs } = storeToRefs(regras)
 const regrasFormatadas = ref<Map<string, ReturnType<typeof transformarRegra>>>(
   new Map(),
 )
@@ -35,12 +37,6 @@ const jobsDaPagina = computed(() => {
   const inicio = paginaAtual.value * tamanhoDaPagina
   return jobsDoHistorico.value.slice(inicio, inicio + tamanhoDaPagina)
 })
-const regrasRecentes = computed(() =>
-  resumosDosJobs.value.slice(0, 6).map((resumoDoJob) => ({
-    identificador: resumoDoJob.id,
-    rotulo: rotuloDaRegra(resumoDoJob),
-  })),
-)
 
 function nomearStatus(status: StatusJob): string {
   const nomes: Record<StatusJob, string> = {
@@ -109,17 +105,14 @@ async function carregarHistorico(): Promise<void> {
   paginaAtual.value = 0
   regrasFormatadas.value = new Map()
 
-  try {
-    const jobs = await listarTodosOsJobs()
-    resumosDosJobs.value = jobs
-    await carregarRegrasDosJobs(jobs)
-  } catch {
-    resumosDosJobs.value = []
+  await regras.carregar()
+  if (regras.erro) {
     regrasFormatadas.value = new Map()
     mensagemDeErro.value = 'Não foi possível carregar o histórico agora. Tente novamente em alguns instantes.'
-  } finally {
-    carregando.value = false
+  } else {
+    await carregarRegrasDosJobs(resumosDosJobs.value)
   }
+  carregando.value = false
 }
 
 function obterRegraFormatada(
@@ -144,7 +137,7 @@ watch(
       :secao-ativa="tipoDoHistorico"
       :quantidade-arquivadas="jobsArquivados.length"
       :quantidade-salvas="jobsSalvos.length"
-      :regras-recentes="regrasRecentes"
+      :regras-recentes="regras.regrasRecentes"
     />
 
     <main class="min-w-0 bg-[radial-gradient(circle_at_top,#fffdfb_0%,#fdf7f3_48%,#f8eee8_100%)] lg:min-h-0 lg:overflow-y-auto">

@@ -1,9 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
-import { apiClient } from "@/services/api";
-import { rotuloDaRegra } from "@/services/job";
-import type { JobResumo } from "@/types/api";
+import { computed, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { usarStoreRegrasRecentes } from "@/stores/regrasRecentes";
 import { useJobSimulacao } from "../composables/useJobSimulacao";
 import { calcularProgresso } from "../composables/progressoSimulacao";
 import TheProcessHeader from "@/components/TheProcessHeader.vue";
@@ -17,9 +15,7 @@ import { useDetalhamento } from "@/composables/useDetalhamento";
 const rota = useRoute();
 const roteador = useRouter();
 const jobId = computed(() => String(rota.params.id));
-const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([]);
-const quantidadeArquivadas = ref(0);
-const quantidadeSalvas = ref(0);
+const regras = usarStoreRegrasRecentes();
 
 const {
   job,
@@ -92,46 +88,6 @@ function seguirParaFinalizacao(): void {
 
 async function cancelarFluxo(): Promise<void> {
   if (await cancelar()) await roteador.push("/nova-regra");
-}
-
-async function carregarRegrasRecentes(): Promise<void> {
-  try {
-    const resumosDosJobs: JobResumo[] = [];
-    let numeroDaPagina = 0;
-    let totalDeJobs = 0;
-    let itensDaPagina: JobResumo[] = [];
-
-    do {
-      const paginaDeJobs = await apiClient.listarJobs({
-        pagina: numeroDaPagina,
-        tamanho: 100,
-      });
-
-      totalDeJobs = paginaDeJobs.total;
-      itensDaPagina = paginaDeJobs.itens;
-      resumosDosJobs.push(...itensDaPagina);
-      numeroDaPagina += 1;
-    } while (
-      resumosDosJobs.length < totalDeJobs &&
-      itensDaPagina.length > 0
-    );
-
-    regrasRecentes.value = resumosDosJobs.slice(0, 6).map((resumoDoJob) => ({
-      identificador: resumoDoJob.id,
-      rotulo: rotuloDaRegra(resumoDoJob),
-    }));
-
-    quantidadeArquivadas.value = resumosDosJobs.filter(
-      (resumoDoJob) => resumoDoJob.status === "arquivado",
-    ).length;
-
-    quantidadeSalvas.value =
-      resumosDosJobs.length - quantidadeArquivadas.value;
-  } catch {
-    regrasRecentes.value = [];
-    quantidadeArquivadas.value = 0;
-    quantidadeSalvas.value = 0;
-  }
 }
 
 function formatarCompetencia(valor: string): string {
@@ -212,7 +168,7 @@ watch(
   { immediate: true },
 );
 onMounted(() => {
-  void carregarRegrasRecentes();
+  void regras.carregar();
 });
 
 onBeforeUnmount(parar);
@@ -221,7 +177,10 @@ onBeforeUnmount(parar);
 <template>
     <div class="font-['Tinos'] bg-[#fffaf7]">
     <div class="tela-de-negocio min-h-[100dvh] bg-[#fffaf7] text-[#2e1a10] lg:grid lg:h-[100dvh] lg:grid-cols-[16rem_minmax(0,1fr)] lg:overflow-hidden">
-    <TheSidebar class="sticky top-0 hidden h-screen lg:flex" :quantidade-arquivadas="quantidadeArquivadas" :quantidade-salvas="quantidadeSalvas" :regras-recentes="regrasRecentes"/>
+    <TheSidebar class="sticky top-0 hidden h-screen lg:flex" 
+    :quantidade-arquivadas="regras.quantidadeArquivadas" 
+    :quantidade-salvas="regras.quantidadeSalvas" 
+    :regras-recentes="regras.regrasRecentes"/>
     <main class="min-w-0 lg:min-h-0 lg:overflow-y-auto">
     <TheProcessHeader etapa-da-rota="simulacao" :status-do-job="job?.status ?? null" class="mb-12 sticky top-0" />
     <!-- Simulação -->

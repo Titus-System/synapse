@@ -3,15 +3,15 @@ import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import { apiClient } from "@/services/api";
-import type { JobResumo } from "@/types/api";
 import { HttpError } from "@/services/http";
-import { regraMaisRecente, rotuloDaRegra, simulacaoVisivel } from "@/services/job";
+import { regraMaisRecente, simulacaoVisivel } from "@/services/job";
 import { usarStoreJobAtual } from "@/stores/currentJob";
 import TheProcessHeader from "@/components/TheProcessHeader.vue";
 import TheSidebar from "@/components/TheSidebar.vue";
 import CartaoRegra from "@/components/CartaoRegra.vue";
 import RelatorioSimulacao from "@/components/RelatorioSimulacao.vue";
 import { consultarDetalhamento } from "@/services/detalhamento";
+import { usarStoreRegrasRecentes } from "@/stores/regrasRecentes";
 import { useDetalhamento } from "@/composables/useDetalhamento";
 
 const rota = useRoute();
@@ -19,9 +19,7 @@ const roteador = useRouter();
 const store = usarStoreJobAtual();
 const { job, carregando } = storeToRefs(store);
 const jobId = computed(() => String(rota.params.id));
-const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([]);
-const quantidadeArquivadas = ref(0);
-const quantidadeSalvas = ref(0);
+const regras = usarStoreRegrasRecentes();
 const regra = computed(() =>
   job.value?.regras.find((item) => item.id === simulacao.value?.regra_id)
     ?? regraMaisRecente(job.value?.regras ?? []),
@@ -61,46 +59,6 @@ function exibirAlerta(tipo: "sucesso" | "erro", mensagem: string) {
   temporizadorAlerta = setTimeout(() => {
     alerta.value = null;
   }, 4000);
-}
-
-async function carregarRegrasRecentes(): Promise<void> {
-  try {
-    const resumosDosJobs: JobResumo[] = [];
-    let numeroDaPagina = 0;
-    let totalDeJobs = 0;
-    let itensDaPagina: JobResumo[] = [];
-
-    do {
-      const paginaDeJobs = await apiClient.listarJobs({
-        pagina: numeroDaPagina,
-        tamanho: 100,
-      });
-
-      totalDeJobs = paginaDeJobs.total;
-      itensDaPagina = paginaDeJobs.itens;
-      resumosDosJobs.push(...itensDaPagina);
-      numeroDaPagina += 1;
-    } while (
-      resumosDosJobs.length < totalDeJobs &&
-      itensDaPagina.length > 0
-    );
-
-    regrasRecentes.value = resumosDosJobs.slice(0, 6).map((resumoDoJob) => ({
-      identificador: resumoDoJob.id,
-      rotulo: rotuloDaRegra(resumoDoJob),
-    }));
-
-    quantidadeArquivadas.value = resumosDosJobs.filter(
-      (resumoDoJob) => resumoDoJob.status === "arquivado",
-    ).length;
-
-    quantidadeSalvas.value =
-      resumosDosJobs.length - quantidadeArquivadas.value;
-  } catch {
-    regrasRecentes.value = [];
-    quantidadeArquivadas.value = 0;
-    quantidadeSalvas.value = 0;
-  }
 }
 
 async function executarAcao(acao: "salvar" | "arquivar"): Promise<void> {
@@ -157,7 +115,7 @@ watch(
 );
 
 onMounted(() => {
-  void carregarRegrasRecentes();
+  void regras.carregar()
 });
 
 onBeforeUnmount(() => {
@@ -172,7 +130,10 @@ onBeforeUnmount(() => {
       {{ alerta.mensagem }}
     </div>
     <div class="tela-de-negocio h-[100dvh] overflow-hidden bg-[#fdf7f3] text-[#2e1a10] lg:grid lg:h-[100dvh] lg:grid-cols-[16rem_minmax(0,1fr)] lg:overflow-hidden">
-    <TheSidebar class="sticky top-0 hidden h-screen lg:flex" :quantidade-arquivadas="quantidadeArquivadas" :quantidade-salvas="quantidadeSalvas" :regras-recentes="regrasRecentes"/>
+    <TheSidebar class="sticky top-0 hidden h-screen lg:flex" 
+      :quantidade-arquivadas="regras.quantidadeArquivadas"
+      :quantidade-salvas="regras.quantidadeSalvas"
+      :regras-recentes="regras.regrasRecentes"/>
     <main class="flex h-full min-h-0 min-w-0 flex-col" :class="relatorioAberto ? 'overflow-y-auto' : 'overflow-hidden'">
     <TheProcessHeader etapa-da-rota="salvar" :status-do-job="job?.status ?? null" class="sticky top-0 z-20 mb-4 shrink-0" />
     <div class="flex w-full flex-col items-center px-4 pt-4 pb-4 font-['Tinos'] sm:px-6 sm:pt-6 sm:pb-6" :class="relatorioAberto ? 'shrink-0' : 'min-h-0 flex-1'">
