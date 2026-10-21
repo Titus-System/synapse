@@ -48,9 +48,23 @@ def converter(rascunho: dict[str, Any], contexto: ContextoExtracao) -> dict[str,
 
 
 EXCLUSAO = Construto(
+    # Sem as descrições, a variante exclusao no anyOf levava o modelo a devolver como generico
+    # condições por limiar sem exceção nenhuma. Elas não citam as palavras da exceção entre
+    # aspas: o modelo passou a copiá-las em minúsculas no trecho, que deixava de ser literal.
     propriedades={
-        "dimensao": {"type": "string", "enum": ["loja", "marca", "cargo"]},
-        "valores": _CODIGOS,
+        "dimensao": {
+            "type": "string",
+            "enum": ["loja", "marca", "cargo"],
+            "description": (
+                "Dimensão de onde uma exceção explícita retira códigos da regra inteira. "
+                "Condição sobre a venda (até, menor que, acima de, no mínimo) não é exclusao: "
+                "é condicao_limiar."
+            ),
+        },
+        "valores": {
+            **_CODIGOS,
+            "description": "Códigos que a exceção retira, um {valor, trecho} por código.",
+        },
     },
     obrigatorios=("dimensao", "valores"),
     instrucoes=(

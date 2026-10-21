@@ -191,8 +191,13 @@ async def test_prompt_traz_instrucoes_e_exemplos_de_exclusao() -> None:
 
     instrucoes = json.loads(resultado.chamada.prompt)["instrucoes_fixas_do_sistema"]
     variantes = instrucoes["schema_saida"]["properties"]["elementos"]["items"]["anyOf"]
-    tipados = [v["properties"]["construto_pretendido"].get("enum", [""])[0] for v in variantes]
-    assert tipados.index("exclusao") < tipados.index("condicao_limiar")
+    [variante] = [
+        v for v in variantes if v["properties"]["construto_pretendido"].get("enum") == ["exclusao"]
+    ]
+    dimensao = variante["properties"]["dimensao"]["description"]
+    assert "Condição sobre a venda" in dimensao and "é condicao_limiar" in dimensao
+    assert "'" not in dimensao
+    assert "{valor, trecho} por código" in variante["properties"]["valores"]["description"]
     [exclusao] = [i for i in instrucoes["construtos_habilitados"] if i.startswith("exclusao:")]
     for termo in (
         "loja, marca ou cargo",
