@@ -113,6 +113,18 @@ def test_resolve_datas_com_o_ano_do_texto_ou_o_ano_comum_das_competencias(
 
 
 @pytest.mark.parametrize(
+    "trecho",
+    [
+        "de 24/11 a 31/11",
+        "de 2025-11-31 a 2025-11-24",
+        "de 24 de novembro a 31 de novembro",
+    ],
+)
+def test_data_invalida_impede_resolucao_parcial_do_trecho(trecho: str) -> None:
+    assert resolver_datas(trecho, ANO_UNICO) == []
+
+
+@pytest.mark.parametrize(
     ("trecho", "valor", "publicadas", "esperado"),
     [
         ("até 10/10", "2025-10-10", ANO_UNICO, (True, True)),

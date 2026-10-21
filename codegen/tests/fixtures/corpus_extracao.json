@@ -450,6 +450,94 @@
     "parametros_esperados": {}
   },
   {
+    "id": "janela_black_friday",
+    "texto": "Todas as vendas no período de 24/11 a 30/11 terão um acréscimo no % de comissionamento de +1% (Black Friday).",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "janela_datas",
+          "descricao": "vendas de 24/11 a 30/11 com acréscimo de +1%",
+          "data_inicial": "2025-11-24",
+          "data_final": "2025-11-30",
+          "efeito": {
+            "tipo": "acrescimo_pct",
+            "valor": 0.01
+          }
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "janela_gerentes",
+    "texto": "Para os Gerentes, todas as vendas de 24/11 a 30/11 terão um acréscimo de +0,5%.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {
+        "cargo": [
+          "150"
+        ]
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "janela_datas",
+          "descricao": "vendas de 24/11 a 30/11 com acréscimo de +0,5%",
+          "data_inicial": "2025-11-24",
+          "data_final": "2025-11-30",
+          "efeito": {
+            "tipo": "acrescimo_pct",
+            "valor": 0.005
+          }
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "janela_dia_unico",
+    "texto": "No dia 28/11, bônus de R$ 200.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "janela_datas",
+          "descricao": "no dia 28/11, bônus de R$ 200",
+          "data_inicial": "2025-11-28",
+          "data_final": "2025-11-28",
+          "efeito": {
+            "tipo": "bonus_fixo",
+            "valor": 200
+          }
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
     "id": "exclusao_matricula",
     "texto": "Exceto a matrícula MATRIC-422",
     "competencias_publicadas": [

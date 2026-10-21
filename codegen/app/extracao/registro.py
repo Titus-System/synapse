@@ -2,6 +2,7 @@ from app.extracao.construto import Construto
 from app.extracao.construtos import condicao_limiar
 from app.extracao.construtos.bonus_fixo import BONUS_FIXO
 from app.extracao.construtos.exclusao import EXCLUSAO
+from app.extracao.construtos.janela_datas import JANELA_DATAS
 from app.graph.prompts.extraction import INSTRUCOES_CONDICAO_LIMIAR
 
 CONSTRUTOS_HABILITADOS: dict[str, Construto] = {
@@ -13,5 +14,6 @@ CONSTRUTOS_HABILITADOS: dict[str, Construto] = {
         converter=condicao_limiar.converter,
         lastro_no_trecho=True,
     ),
+    "janela_datas": JANELA_DATAS,
     "exclusao": EXCLUSAO,
 }
