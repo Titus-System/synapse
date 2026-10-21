@@ -99,7 +99,12 @@ async function criarErro(response: Response): Promise<HttpError> {
   const fieldErrors = apiError?.elementos?.map(nomearCampo) ?? []
 
   if (response.status === 400 || response.status === 422) {
-    return new HttpError(response.status, mensagemValidacao(fieldErrors), {
+    const mensagem =
+      fieldErrors.length === 0 && apiError
+        ? (mensagensPorCodigo[apiError.codigo] ?? mensagemValidacao(fieldErrors))
+        : mensagemValidacao(fieldErrors)
+
+    return new HttpError(response.status, mensagem, {
       code: apiError?.codigo,
       fieldErrors,
     })
@@ -163,7 +168,7 @@ async function enviar(url: string, requestInit: RequestInit): Promise<Response> 
 }
 
 async function request<TResponse>(
-  method: 'GET' | 'POST',
+  method: 'GET' | 'POST' | 'PUT',
   path: string,
   options?: { body?: unknown; signal?: AbortSignal },
 ): Promise<TResponse> {
@@ -181,7 +186,7 @@ async function request<TResponse>(
           signal: options?.signal,
         }
       : {
-          method: 'POST',
+          method,
           headers,
           ...(hasBody
             ? { body: multipart ? (options.body as FormData) : JSON.stringify(options.body) }
@@ -201,6 +206,9 @@ export const http = {
   },
   post<TResponse, TBody = undefined>(path: string, body?: TBody, signal?: AbortSignal) {
     return request<TResponse>('POST', path, { body, signal })
+  },
+  put<TResponse, TBody = undefined>(path: string, body?: TBody, signal?: AbortSignal) {
+    return request<TResponse>('PUT', path, { body, signal })
   },
   async stream(url: string, signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
     const response = await enviar(url, {
