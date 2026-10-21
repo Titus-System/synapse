@@ -538,6 +538,74 @@
     "parametros_esperados": {}
   },
   {
+    "id": "exclusao_global_inclusive_bonus",
+    "texto": "Comissão de 2%. Bônus de R$ 500 para a matrícula 422. A regra inteira, inclusive o bônus, não se aplica aos gerentes (150).",
+    "competencias_publicadas": ["2025-11"],
+    "representacao_esperada": {
+      "nucleo": {"percentual": 0.02},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "bonus_fixo",
+          "alvo": {"tipo": "lista", "valor": ["MATRIC-422"]},
+          "valor": 500
+        },
+        {"ref": "elem.2", "construto": "exclusao", "dimensao": "cargo", "valores": ["150"]}
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "exclusao_global_clausulas",
+    "texto": "Comissão de 2%; bônus de R$ 500 para a matrícula 422; a regra inteira não se aplica aos gerentes (150).",
+    "competencias_publicadas": ["2025-11"],
+    "representacao_esperada": {
+      "nucleo": {"percentual": 0.02},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "bonus_fixo",
+          "alvo": {"tipo": "lista", "valor": ["MATRIC-422"]},
+          "valor": 500
+        },
+        {"ref": "elem.2", "construto": "exclusao", "dimensao": "cargo", "valores": ["150"]}
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "exclusao_bonus_retomado",
+    "texto": "Comissão de 2%. Bônus de R$ 500 para a matrícula 422. Ele não se aplica aos gerentes (150).",
+    "competencias_publicadas": ["2025-11"],
+    "representacao_esperada": {
+      "nucleo": {"percentual": 0.02},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "Bônus de R$ 500 para a matrícula 422. Ele não se aplica aos gerentes (150)"
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "exclusao_bonus_sem_valor",
+    "texto": "Comissão de 2%. Este bônus não se aplica aos cargos de gerente.",
+    "competencias_publicadas": ["2025-11"],
+    "representacao_esperada": {
+      "nucleo": {"percentual": 0.02},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "Este bônus não se aplica aos cargos de gerente"
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
     "id": "exclusao_matricula",
     "texto": "Exceto a matrícula MATRIC-422",
     "competencias_publicadas": [

@@ -27,7 +27,7 @@
   },
   {
     "id": "exclusao_cargo_negado",
-    "texto": "Este bônus não se aplica aos cargos de gerente",
+    "texto": "Esta regra não se aplica aos cargos de gerente",
     "competencias_publicadas": ["2025-08", "2025-09", "2025-10", "2025-11", "2025-12"],
     "rascunho": {
       "nucleo": {},
