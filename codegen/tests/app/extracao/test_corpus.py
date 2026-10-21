@@ -54,6 +54,9 @@ def test_corpus_versionado_cobre_categorias_obrigatorias() -> None:
         "bonus_fixo_lista",
         "bonus_fixo_filtro",
         "bonus_fixo_matricula_numero",
+        "janela_black_friday",
+        "janela_gerentes",
+        "janela_dia_unico",
     } <= set(ids)
     for caso in CORPUS:
         assert caso["texto"] and caso["competencias_publicadas"]
