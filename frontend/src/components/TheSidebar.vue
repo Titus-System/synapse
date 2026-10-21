@@ -45,9 +45,10 @@ withDefaults(
         <li v-for="regra in regrasRecentes" :key="regra.identificador">
           <RouterLink
             :to="`/jobs/${regra.identificador}`"
-            class="flex h-10 items-center rounded-[.625rem] bg-[#4d3125] px-4 text-sm text-[#eaddd5] transition hover:bg-[#5a3b2c]"
+            :title="regra.rotulo"
+            class="group relative flex h-10 min-w-0 items-center rounded-[.625rem] bg-[#4d3125] px-4 text-sm text-[#eaddd5] transition hover:bg-[#5a3b2c]"
           >
-            {{ regra.rotulo }}
+            <span class="min-w-0 flex-1 truncate">{{ regra.rotulo }}</span>
           </RouterLink>
         </li>
         <li v-if="regrasRecentes.length === 0" class="px-1 py-2 text-sm text-[#c7afa3]">

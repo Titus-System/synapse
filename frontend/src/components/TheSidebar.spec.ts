@@ -47,4 +47,20 @@ describe('TheSidebar', () => {
     expect(conteiner.get('a[href="/salvas"]').text()).toContain('Salvas')
     expect(conteiner.get('a[href="/arquivadas"]').classes()).toContain('bg-[#4d3125]')
   })
+
+  it('mantém o nome longo em uma linha, com reticências e o nome completo no title', () => {
+    const nomeLongo = `Comissão de novembro ${'x'.repeat(79)}`
+    const conteiner = mount(TheSidebar, {
+      ...opcoesDeMontagem,
+      props: { regrasRecentes: [{ identificador: 'job-1', rotulo: nomeLongo }] },
+    })
+
+    const link = conteiner.get('li a')
+    const texto = link.get('span')
+
+    expect(nomeLongo).toHaveLength(100)
+    expect(texto.text()).toBe(nomeLongo)
+    expect(texto.classes()).toEqual(expect.arrayContaining(['truncate', 'min-w-0']))
+    expect(link.attributes('title')).toBe(nomeLongo)
+  })
 })
