@@ -37,9 +37,10 @@ function botaoDeReprocessamento(conteiner: VueWrapper) {
     .find((botao) => botao.text() === 'Reprocessar regra com novo orçamento')
 }
 
-function criarResumoDoJob(numero: number, status: JobResumo['status'] = 'liberado'): JobResumo {
+function criarResumoDoJob(numero: number, status: JobResumo['status'] = 'liberado', nome: string | undefined = `Regra de teste ${numero}`,): JobResumo {
   return {
     id: `0000000${numero}-1234-4000-8000-000000000000`,
+    nome,
     status,
     competencias: ['2025-09'],
     orcamento: 485000,
@@ -97,9 +98,33 @@ describe('HistoricoJobsView', () => {
     const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
     await flushPromises()
 
-    expect(conteiner.get('article').text()).toContain('Regra 00000001')
+    expect(conteiner.get('article').text()).toContain('Regra de teste 1')
     expect(conteiner.get('article').text()).toContain('Liberado')
     expect(botaoDeReprocessamento(conteiner)).toBeUndefined()
+    conteiner.unmount()
+  })
+
+  it('mostra o nome no cartão e na barra lateral quando o job tem nome', async () => {
+  listarTodosOsJobs.mockResolvedValue([criarResumoDoJob(1, 'liberado', 'Comissão de novembro')])
+
+  const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
+  await flushPromises()
+
+  expect(conteiner.get('article h2').text()).toBe('Comissão de novembro')
+  expect(conteiner.get('aside').text()).toContain('Comissão de novembro')
+  conteiner.unmount()
+})
+
+  it('mostra o rótulo com a data no cartão e na barra lateral quando o job não tem nome', async () => {
+    const resumo = { ...criarResumoDoJob(1), nome: undefined }
+    listarTodosOsJobs.mockResolvedValue([resumo])
+    const rotulo = `Regra · ${new Date(resumo.criado_em).toLocaleDateString('pt-BR')}`
+
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
+    await flushPromises()
+
+    expect(conteiner.get('article h2').text()).toBe(rotulo)
+    expect(conteiner.get('aside').text()).toContain(rotulo)
     conteiner.unmount()
   })
 
@@ -149,7 +174,7 @@ describe('HistoricoJobsView', () => {
     await flushPromises()
 
     const cartao = conteiner.get('article')
-    expect(cartao.get('h2').text()).toBe('Regra 00000001')
+    expect(cartao.get('h2').text()).toBe('Regra de teste 1')
     expect(cartao.findAll('li')).toHaveLength(0)
     expect(cartao.get('a').attributes('href')).toBe(`/jobs/${resumo.id}`)
     conteiner.unmount()
@@ -167,8 +192,8 @@ describe('HistoricoJobsView', () => {
     await vi.waitFor(() => {
       expect(conteiner.get('.tela-de-negocio').classes()).toContain('tela-de-negocio')
       expect(conteiner.text()).toContain('Salvas')
-      expect(conteiner.text()).toContain('Regra 00000001')
-      expect(conteiner.text()).not.toContain('Regra 00000003')
+      expect(conteiner.text()).toContain('Regra de teste 1')
+      expect(conteiner.get('main').text()).not.toContain('Regra de teste 3')
       expect(conteiner.text()).toContain('Salvas2')
       expect(conteiner.text()).toContain('Arquivadas1')
     })
@@ -180,14 +205,14 @@ describe('HistoricoJobsView', () => {
     const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
 
     await vi.waitFor(() => expect(conteiner.text()).toContain('Página 1 de 2'))
-    expect(conteiner.text()).not.toContain('Regra 00000007')
+    expect(conteiner.get('main').text()).not.toContain('Regra de teste 7')
 
     const botaoProxima = conteiner.findAll('button').find((botao) => botao.text() === 'Próxima')
     expect(botaoProxima).toBeDefined()
     await botaoProxima?.trigger('click')
 
     expect(conteiner.text()).toContain('Página 2 de 2')
-    expect(conteiner.text()).toContain('Regra 00000007')
+    expect(conteiner.text()).toContain('Regra de teste 7')
   })
 
   it('mantém a busca e o filtro desabilitados enquanto a API não os suporta', async () => {
