@@ -125,6 +125,21 @@ describe('http', () => {
       message: 'Não foi possível enviar os dados. Revise as informações e tente novamente.',
     })
   })
+  it('envia PUT com corpo JSON', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ id: 'job-1' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    await http.put('/jobs/job-1/nome', { nome: 'Comissão' })
+
+    const init = fetchMock.mock.calls[0]?.[1]
+    expect(init?.method).toBe('PUT')
+    expect(init?.body).toBe(JSON.stringify({ nome: 'Comissão' }))
+    expect(new Headers(init?.headers).get('Content-Type')).toBe('application/json')
+  })
 })
 
 
