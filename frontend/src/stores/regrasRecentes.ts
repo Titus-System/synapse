@@ -9,7 +9,7 @@ const quantidadeDeRecentes = 6
 
 export const usarStoreRegrasRecentes = defineStore('regras-recentes', () => {
   const resumos = ref<JobResumo[]>([])
-  const carregando = ref(false)
+  const carregando = ref(true)
   const erro = ref(false)
   let chamada = 0
 
