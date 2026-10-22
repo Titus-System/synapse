@@ -978,3 +978,180 @@ async def test_condicao_limiar_contada_no_no_sem_expor_texto(
     assert "R$ 50 mil" not in simplejson.dumps(logs)
     assert job_id_ctx.get() is None
     assert no_ctx.get() is None
+
+
+@pytest.mark.parametrize(
+    ("texto", "trecho", "dimensao", "valores", "motivo", "campos"),
+    [
+        pytest.param(
+            "Para todas as lojas, exceto a 13 e a 58",
+            "exceto a 13 e a 58",
+            "loja",
+            [{"valor": "13", "trecho": "13"}, {"valor": "58", "trecho": "58"}],
+            None,
+            {"dimensao": "loja", "valores": ["13", "58"]},
+            id="exclusao_valida",
+        ),
+        pytest.param(
+            "Para todas as lojas, exceto a 13 e a 99",
+            "exceto a 13 e a 99",
+            "loja",
+            [{"valor": "13", "trecho": "13"}, {"valor": "99", "trecho": "99"}],
+            "codigo_fora_do_vocabulario",
+            {"dimensao": "loja", "valores": ["13"]},
+            id="codigo_desconhecido",
+        ),
+        pytest.param(
+            "Para todas as lojas, exceto a 13 e a 99",
+            "exceto a 13 e a 99",
+            "loja",
+            [{"valor": "13", "trecho": "13"}, {"valor": "99", "trecho": "13 e a 99"}],
+            "codigo_fora_do_vocabulario",
+            {"dimensao": "loja", "valores": ["13"]},
+            id="codigo_desconhecido_com_trecho_amplo",
+        ),
+        pytest.param(
+            "Comissão na loja 58. Para todas as lojas, exceto a 13",
+            "exceto a 13",
+            "loja",
+            [{"valor": "13", "trecho": "13"}, {"valor": "58", "trecho": "loja 58"}],
+            "valor_sem_lastro",
+            {"dimensao": "loja", "valores": ["13"]},
+            id="codigo_de_outra_frase",
+        ),
+        pytest.param(
+            "Comissão de 2%. Este bônus não se aplica aos cargos de gerente",
+            "Este bônus não se aplica aos cargos de gerente",
+            "cargo",
+            [{"valor": "gerente", "trecho": "gerente"}],
+            "termo_ambiguo",
+            None,
+            id="excecao_de_bonus_sem_valor",
+        ),
+        pytest.param(
+            "Comissão de 2%. Bônus de R$ 500 para todos, exceto os gerentes (150)",
+            "exceto os gerentes (150)",
+            "cargo",
+            [{"valor": "150", "trecho": "gerentes (150)"}],
+            "termo_ambiguo",
+            None,
+            id="excecao_recortada_de_bonus",
+        ),
+        pytest.param(
+            "Bônus de R$ 500 para a matrícula 422. "
+            "A regra inteira, inclusive o bônus, não se aplica aos gerentes (150)",
+            "A regra inteira, inclusive o bônus, não se aplica aos gerentes (150)",
+            "cargo",
+            [{"valor": "150", "trecho": "gerentes (150)"}],
+            None,
+            {"dimensao": "cargo", "valores": ["150"]},
+            id="global_inclusive_bonus",
+        ),
+        pytest.param(
+            "Comissão de 2%; bônus de R$ 500 para a matrícula 422; "
+            "a regra inteira não se aplica aos gerentes (150)",
+            "a regra inteira não se aplica aos gerentes (150)",
+            "cargo",
+            [{"valor": "150", "trecho": "gerentes (150)"}],
+            None,
+            {"dimensao": "cargo", "valores": ["150"]},
+            id="global_apos_ponto_e_virgula",
+        ),
+        pytest.param(
+            "Comissão de 2%. Bônus de R$ 500 para a matrícula 422. "
+            "Ele não se aplica aos gerentes (150)",
+            "Ele não se aplica aos gerentes (150)",
+            "cargo",
+            [{"valor": "150", "trecho": "gerentes (150)"}],
+            "termo_ambiguo",
+            None,
+            id="retoma_bonus_anterior",
+        ),
+    ],
+)
+async def test_exclusao_contada_no_no_sem_expor_texto(
+    monkeypatch: pytest.MonkeyPatch,
+    cliente: AsyncClient,
+    logs: list[dict[str, Any]],
+    texto: str,
+    trecho: str,
+    dimensao: str,
+    valores: list[dict[str, str]],
+    motivo: str | None,
+    campos: dict[str, Any] | None,
+) -> None:
+    saida = {
+        "nucleo": {},
+        "parametros": {},
+        "elementos": [
+            {
+                "construto_pretendido": "exclusao",
+                "descricao": trecho,
+                "trecho": trecho,
+                "dimensao": dimensao,
+                "valores": valores,
+            }
+        ],
+    }
+    ambiente = AmbienteExtracao(monkeypatch, [saida])
+    entrada = ambiente.entrada()
+    ambiente.banco.transcricoes[UUID(entrada["submissao_id"])] = texto
+    recebida = mensagem(entrada)
+    antes = (await cliente.get("/metrics")).text
+
+    await ambiente.consumer.receber(recebida)
+
+    recebida.ack.assert_awaited_once_with()
+    [extracao] = ambiente.banco.tabela("extracoes_regras")
+    esperado: dict[str, Any]
+    if motivo is None:
+        assert campos is not None
+        esperado = {"ref": "elem.1", "construto": "exclusao", **campos}
+    else:
+        esperado = {"ref": "elem.1", "construto": "generico", "descricao": trecho}
+        if campos is not None:
+            esperado["campos"] = campos
+    assert simplejson.loads(extracao["representacao"])["especificacoes"] == [esperado]
+    assert simplejson.loads(extracao["rebaixamentos"]) == (
+        [{"ref": "elem.1", "construto_pretendido": "exclusao", "motivo": motivo}] if motivo else []
+    )
+    depois = (await cliente.get("/metrics")).text
+    for nome, delta in [
+        ("exclusao", 0 if motivo else 1),
+        ("generico", 1 if motivo else 0),
+    ]:
+        labels = {"construto": nome}
+        assert (
+            amostra(depois, "codegen_extracao_elementos_total", labels)
+            - amostra(antes, "codegen_extracao_elementos_total", labels)
+            == delta
+        )
+    for candidato in ("codigo_fora_do_vocabulario", "valor_sem_lastro", "termo_ambiguo"):
+        labels = {"motivo": candidato}
+        assert amostra(depois, "codegen_extracao_rebaixamentos_total", labels) - amostra(
+            antes, "codegen_extracao_rebaixamentos_total", labels
+        ) == (1 if candidato == motivo else 0)
+    for nome, delta in (
+        ("job_runs_total", 1),
+        ("job_failures_total", 0),
+        ("job_duration_seconds_count", 1),
+    ):
+        labels = {"job_name": "extract_rule"}
+        assert amostra(depois, nome, labels) - amostra(antes, nome, labels) == delta
+    validador = Draft202012Validator(
+        simplejson.loads((CONTRATOS / "observability/log.schema.json").read_text()),
+        format_checker=FormatChecker(),
+    )
+    for log in logs:
+        validador.validate(log)
+        assert log["job_id"] == entrada["job_id"]
+    assert [log["message"] for log in logs if log.get("no") == "extracao_parametros"] == [
+        "extraction started",
+        "extraction finished",
+    ]
+    [conclusao] = [log for log in logs if log["message"] == "extraction finished"]
+    assert conclusao["extra"]["rebaixamentos_por_motivo"] == ({motivo: 1} if motivo else {})
+    assert texto not in simplejson.dumps(logs)
+    assert trecho not in simplejson.dumps(logs)
+    assert job_id_ctx.get() is None
+    assert no_ctx.get() is None
