@@ -1169,9 +1169,16 @@ async def test_meses_enumerados_e_bonus_condicionado_preservam_regra_e_telemetri
 ) -> None:
     periodo = "agosto, outubro e dezembro de 2025"
     bonus = "Bônus de R$ 400,00 para o cargo 100 quando vender pelo menos R$ 45.000,00 no mês"
-    texto = f"Simule {periodo}. {bonus}. CENARIO_RESERVADO"
+    taxa = "Gerente, cargo 150: 6% sobre as vendas da loja"
+    texto = f"Simule {periodo}. {taxa}. {bonus}. CENARIO_RESERVADO".replace(
+        "sobre as", "sobre\n  as"
+    ).replace("quando vender", "quando\n  vender")
     rascunho = {
-        "nucleo": {},
+        "nucleo": {
+            "taxas_por_cargo": [
+                {"valor": {"cargo": "150", "percentual": Decimal("0.06")}, "trecho": taxa}
+            ]
+        },
         "parametros": {
             "competencias": {"valor": ["2025-08", "2025-10", "2025-12"], "trecho": periodo}
         },
@@ -1197,8 +1204,16 @@ async def test_meses_enumerados_e_bonus_condicionado_preservam_regra_e_telemetri
     recebida.ack.assert_awaited_once_with()
     [salva] = ambiente.banco.tabela("extracoes_regras")
     assert simplejson.loads(salva["representacao"])["especificacoes"] == [
-        {"ref": "elem.1", "construto": "generico", "descricao": bonus}
+        {
+            "ref": "elem.1",
+            "construto": "generico",
+            "descricao": bonus.replace("quando vender", "quando\n  vender"),
+        }
     ]
+    assert simplejson.loads(salva["representacao"], use_decimal=True)["nucleo"] == {
+        "cargo": ["150"],
+        "taxas_por_cargo": [{"cargo": "150", "percentual": Decimal("0.06")}],
+    }
     assert simplejson.loads(salva["parametros"]) == {
         "competencias": ["2025-08", "2025-10", "2025-12"]
     }

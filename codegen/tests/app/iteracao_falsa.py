@@ -17,7 +17,7 @@ import pytest
 from app.repositorio.regras import TentativasDeTaxa
 from app.repositorio.resultados import TotaisDaSimulacao
 from app.representacao_regra import RepresentacaoRegra
-from app.sugestao_adaptacao import TaxaSimulada
+from app.sugestao_adaptacao import TaxaSimulada, taxa_de_referencia
 
 NUCLEO = {
     "vigencia": {"inicio": "2025-09", "fim": "2025-11"},
@@ -36,9 +36,10 @@ class Versao:
     representacao: dict[str, Any]
 
     @property
-    def percentual(self) -> Decimal:
-        percentual: Decimal = self.representacao["nucleo"]["percentual"]
-        return percentual
+    def taxa_de_referencia(self) -> Decimal:
+        referencia = taxa_de_referencia(self.representacao)
+        assert referencia is not None
+        return referencia
 
 
 @dataclass
@@ -124,7 +125,7 @@ class HistoricoFalso:
             assert origem is not None
             cadeia.append(origem)
         return [
-            TaxaSimulada(self.versoes[regra].percentual, simulado)
+            TaxaSimulada(self.versoes[regra].taxa_de_referencia, simulado)
             for regra in cadeia
             for simulada, simulado in self.resultados.values()
             if simulada == regra

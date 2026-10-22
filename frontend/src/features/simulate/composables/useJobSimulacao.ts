@@ -10,6 +10,7 @@ export function useJobSimulacao(jobId: MaybeRefOrGetter<string>) {
   const store = usarStoreJobAtual()
   const { job, carregando, etapaAtual, estadoConexao, motivoParada } = storeToRefs(store)
   const erroAcao = ref<HttpError | null>(null)
+  const erroMeta = ref<string | null>(null)
   const acaoProcessando = ref(false)
   let ciclo = 0
 
@@ -18,21 +19,25 @@ export function useJobSimulacao(jobId: MaybeRefOrGetter<string>) {
   const sugestao = computed(() =>
     ultimaRegra.value?.origem === 'sugestao_adaptacao' ? ultimaRegra.value : undefined,
   )
-  const regra = computed(() => sugestao.value
-    ? regraMaisRecente((job.value?.regras ?? []).filter((item) => item.versao < sugestao.value!.versao))
-    : ultimaRegra.value,
+  const regra = computed(() =>
+    sugestao.value
+      ? regraMaisRecente(
+          (job.value?.regras ?? []).filter((item) => item.versao < sugestao.value!.versao),
+        )
+      : ultimaRegra.value,
   )
   function simulacaoDaRegra(regraId: string | undefined): Simulacao | null {
     if (!regraId) return null
     const atual = job.value
-    return atual?.simulacoes?.reduce<Simulacao | null>((encontrada, item) =>
-      item.regra_id === regraId ? item : encontrada, null)
-      ?? (atual?.simulacao?.regra_id === regraId ? atual.simulacao : null)
+    return (
+      atual?.simulacoes?.reduce<Simulacao | null>(
+        (encontrada, item) => (item.regra_id === regraId ? item : encontrada),
+        null,
+      ) ?? (atual?.simulacao?.regra_id === regraId ? atual.simulacao : null)
+    )
   }
   const simulacao = computed(() =>
-    sugestao.value
-      ? simulacaoDaRegra(regra.value?.id)
-      : simulacaoVisivel(job.value),
+    sugestao.value ? simulacaoDaRegra(regra.value?.id) : simulacaoVisivel(job.value),
   )
   const simulacaoSugestao = computed(() => simulacaoDaRegra(sugestao.value?.id))
   const falha = computed(() => erroAcao.value ?? store.erro)
@@ -66,6 +71,44 @@ export function useJobSimulacao(jobId: MaybeRefOrGetter<string>) {
   const podeFinalizar = computed(
     () => status.value === 'aguardando_decisao_usuario' && !acaoProcessando.value,
   )
+  const metaSugerida = computed(() => job.value?.meta_sugerida)
+  const buscandoMeta = computed(
+    () =>
+      job.value != null &&
+      'busca_meta_em_curso' in job.value &&
+      job.value.busca_meta_em_curso === true,
+  )
+  const podeAceitarMeta = computed(
+    () =>
+      !acaoProcessando.value &&
+      status.value === 'aguardando_decisao_usuario' &&
+      metaSugerida.value != null &&
+      'meta_venda' in metaSugerida.value,
+  )
+
+  async function aceitarMeta(): Promise<boolean> {
+    if (!podeAceitarMeta.value) return false
+    const id = toValue(jobId)
+    const atual = ciclo
+    acaoProcessando.value = true
+    erroMeta.value = null
+    try {
+      const atualizado = await apiClient.executarAcao(id, { acao: 'aceitar_meta' })
+      if (atual !== ciclo) return false
+      store.aplicarJob(atualizado)
+      return true
+    } catch (falha) {
+      if (atual !== ciclo) return false
+      erroMeta.value =
+        falha instanceof HttpError
+          ? falha.message
+          : 'Não foi possível aplicar a meta sugerida. Tente novamente.'
+      if (falha instanceof HttpError && falha.status === 409) await store.consultarJob()
+      return false
+    } finally {
+      if (atual === ciclo) acaoProcessando.value = false
+    }
+  }
 
   async function cancelar(): Promise<boolean> {
     if (!podeCancelar.value) return false
@@ -96,6 +139,7 @@ export function useJobSimulacao(jobId: MaybeRefOrGetter<string>) {
     ciclo += 1
     acaoProcessando.value = false
     erroAcao.value = null
+    erroMeta.value = null
     await store.iniciarAcompanhamento(toValue(jobId))
   }
 
@@ -127,6 +171,11 @@ export function useJobSimulacao(jobId: MaybeRefOrGetter<string>) {
     podeCancelar,
     podeFinalizar,
     acaoProcessando,
+    metaSugerida,
+    buscandoMeta,
+    podeAceitarMeta,
+    erroMeta,
+    aceitarMeta,
     cancelar,
     consultarJob: store.consultarJob,
     iniciar,

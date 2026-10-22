@@ -3,33 +3,57 @@ import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiClient } from '@/services/api'
 import { HttpError } from '@/services/http'
-import type { Job, RegraVersionada } from '@/types/api'
+import type { Job, JobResumo, RegraVersionada } from '@/types/api'
 import TheSidebar from '@/components/TheSidebar.vue'
-import CartaoRegra from '@/components/CartaoRegra.vue'
+import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import RelatorioSimulacao from '@/components/RelatorioSimulacao.vue'
 import { useDetalhamento } from '@/composables/useDetalhamento'
+import { observarConsulta } from '@/observability/consultasLogging'
 import { consultarDetalhamento } from '@/services/detalhamento'
-import { formatarReais } from '@/composables/apresentacaoDetalhamento'
-import { simulacoesDoHistorico, versaoDeEncerramento } from '../composables/historicoDoJob'
+import { listarTodosOsJobs } from '../services/historicoJobs.api'
+import ResumoRegraHistorica from '../components/ResumoRegraHistorica.vue'
+import ResultadoVersaoHistorica from '../components/ResultadoVersaoHistorica.vue'
+import { simulacaoAnterior, simulacoesDoHistorico, versaoDeEncerramento } from '../composables/historicoDoJob'
 
 const rota = useRoute()
 const roteador = useRouter()
 const jobId = computed(() => String(rota.params.id))
 const job = shallowRef<Job | null>(null)
+const resumosDosJobs = shallowRef<JobResumo[]>([])
 const erro = ref('')
 const carregando = ref(false)
+const mostrarSimulacoes = ref(false)
 const versaoId = ref('')
 const simulacaoId = ref('')
+const selecoes = ref<Record<string, string>>({})
 let consulta: AbortController | undefined
 const versoes = computed(() => [...(job.value?.regras ?? [])].sort((a, b) => b.versao - a.versao))
+const jobsArquivados = computed(() => resumosDosJobs.value.filter((item) => item.status === 'arquivado'))
+const jobsSalvos = computed(() => resumosDosJobs.value.filter((item) => item.status !== 'arquivado'))
+const regrasRecentes = computed(() =>
+  resumosDosJobs.value.slice(0, 6).map((item) => ({
+    identificador: item.id,
+    rotulo: `Regra · ${new Date(item.criado_em).toLocaleDateString('pt-BR')}`,
+  })),
+)
 const encerramento = computed(() => (job.value ? versaoDeEncerramento(job.value) : undefined))
+const ordenadas = computed(() => [
+  ...(encerramento.value ? [encerramento.value] : []),
+  ...versoes.value.filter((item) => item.id !== encerramento.value?.id),
+])
 const regra = computed(() => versoes.value.find((item) => item.id === versaoId.value))
 const simulacoes = computed(() => (job.value ? simulacoesDoHistorico(job.value) : []))
-const execucoesDaVersao = computed(() =>
-  simulacoes.value.filter((item) => item.regra_id === versaoId.value),
-)
+const execucoes = (id: string) => simulacoes.value.filter((item) => item.regra_id === id)
+const execucaoDaVersao = (id: string) => {
+  const opcoes = execucoes(id)
+  return (
+    opcoes.find((item) => item.id === selecoes.value[id]) ??
+    opcoes.find((item) => item.id === job.value?.simulacao?.id) ??
+    opcoes[0]
+  )
+}
 const simulacao = computed(() =>
-  execucoesDaVersao.value.find((item) => item.id === simulacaoId.value),
+  execucoes(versaoId.value).find((item) => item.id === simulacaoId.value),
 )
 const semVinculo = computed(() =>
   simulacoes.value.some((item) => !versoes.value.some((versao) => versao.id === item.regra_id)),
@@ -39,36 +63,30 @@ const relatorio = useDetalhamento(identidade, (signal) =>
   consultarDetalhamento(jobId.value, simulacaoId.value, signal),
 )
 const { aberto, carregando: carregandoRelatorio, erro: erroRelatorio, resposta } = relatorio
-function rotuloVersao(versao: RegraVersionada) {
-  if (versao.id !== encerramento.value?.id) return 'Versão anterior / descartada'
-  return job.value?.status === 'liberado'
-    ? 'Versão final salva'
-    : 'Versão de encerramento — arquivada'
+function tituloVersao(versao: RegraVersionada) {
+  if (!encerramento.value) return 'Versão registrada'
+  if (versao.id !== encerramento.value?.id) return 'Regra Descartada'
+  return job.value?.status === 'liberado' ? 'Regra Final' : 'Versão de encerramento'
 }
-const origens: Record<RegraVersionada['origem'], string> = {
-  confirmacao_usuario: 'Formulário / confirmação',
-  sugestao_adaptacao: 'Sugestão',
-  reprocessamento: 'Reprocessamento',
-  extracao: 'Proposta inicial',
-  correcao: 'Correção',
+function tituloDoResumo(versao: RegraVersionada) {
+  if (encerramento.value?.id === versao.id && job.value?.status === 'liberado') return 'Regra Final'
+  return `Versão ${versao.versao}`
 }
-watch(
-  versaoId,
-  () => {
-    simulacaoId.value =
-      execucoesDaVersao.value.find((item) => item.id === job.value?.simulacao?.id)?.id ??
-      execucoesDaVersao.value[0]?.id ??
-      ''
-  },
-  { flush: 'sync' },
-)
+function selecionar(versao: RegraVersionada, id?: string) {
+  if (id) selecoes.value[versao.id] = id
+  versaoId.value = versao.id
+  simulacaoId.value = execucaoDaVersao(versao.id)?.id ?? ''
+}
 async function carregar() {
   consulta?.abort()
   const controle = new AbortController()
   consulta = controle
   job.value = null
+  resumosDosJobs.value = []
   versaoId.value = ''
   simulacaoId.value = ''
+  selecoes.value = {}
+  mostrarSimulacoes.value = false
   erro.value = ''
   carregando.value = true
   try {
@@ -81,7 +99,18 @@ async function carregar() {
       return
     }
     job.value = recebido
-    versaoId.value = encerramento.value?.id ?? versoes.value[0]?.id ?? ''
+    try {
+      resumosDosJobs.value = await observarConsulta(
+        'listar_jobs',
+        jobId.value,
+        () => listarTodosOsJobs(controle.signal),
+        controle.signal,
+      )
+    } catch {
+      if (controle.signal.aborted || consulta !== controle) return
+    }
+    const inicial = encerramento.value ?? versoes.value[0]
+    if (inicial) selecionar(inicial)
   } catch (falha) {
     if (consulta !== controle || controle.signal.aborted) return
     erro.value =
@@ -101,98 +130,96 @@ watch(
 )
 onBeforeUnmount(() => consulta?.abort())
 </script>
+
 <template>
-  <div class="min-h-screen bg-[#fffaf7] text-[#2e1a10] lg:grid lg:grid-cols-[16rem_minmax(0,1fr)]">
-    <TheSidebar class="hidden h-screen lg:sticky lg:top-0 lg:flex" />
-    <main class="min-w-0 p-4 sm:p-8">
-      <h1 class="mb-6 text-3xl font-bold">Histórico da regra</h1>
-      <p v-if="carregando" role="status">Carregando histórico...</p>
-      <div v-else-if="erro" role="alert">
-        <p>{{ erro }}</p>
-        <button class="mt-3 underline" @click="carregar">Tentar novamente</button>
-      </div>
-      <template v-else-if="job">
-        <p class="mb-4">
-          {{ job.status === 'liberado' ? 'Regra salva.' : 'Regra arquivada.' }} As versões
-          anteriores mostram a evolução deste processamento.
-        </p>
-        <p v-if="!encerramento && job.status === 'liberado'" role="status" class="mb-4">
-          Os dados disponíveis não identificam a versão final salva.
-        </p>
-        <p v-if="semVinculo" role="status" class="mb-4">
-          Há resultado sem vínculo conhecido com uma versão da regra.
-        </p>
-        <p v-if="!versoes.length" role="status">Nenhuma versão disponível.</p>
-        <label v-else class="mb-4 flex flex-col gap-2"
-          >Versão da regra
-          <select v-model="versaoId" class="rounded-lg border border-[#DFC0B2] bg-white p-3">
-            <option v-for="versao in versoes" :key="versao.id" :value="versao.id">
-              Versão {{ versao.versao }} · {{ rotuloVersao(versao) }} ·
-              {{ origens[versao.origem] }} ·
-              {{ new Date(versao.criada_em).toLocaleString('pt-BR') }}
-            </option>
-          </select>
-        </label>
-        <template v-if="regra">
-          <h2 class="mb-3 font-bold">{{ rotuloVersao(regra) }}</h2>
-          <CartaoRegra :regra="regra" :carregando="false" :erro="false" />
-          <p v-if="!execucoesDaVersao.length" role="status" class="my-5">
-            Sem simulação disponível.
+  <div class="min-h-[100dvh] bg-[#fdf7f3] text-[#2e1a10] lg:grid lg:h-[100dvh] lg:grid-cols-[16rem_minmax(0,1fr)] lg:overflow-hidden">
+    <TheSidebar
+      class="hidden lg:flex"
+      :secao-ativa="job?.status === 'arquivado' ? 'arquivadas' : 'salvas'"
+      :quantidade-arquivadas="jobsArquivados.length"
+      :quantidade-salvas="jobsSalvos.length"
+      :regras-recentes="regrasRecentes"
+    />
+    <main class="min-w-0 bg-[radial-gradient(circle_at_top,#fffdfb_0%,#fdf7f3_48%,#f8eee8_100%)] lg:min-h-0 lg:overflow-y-auto">
+      <TheProcessHeader :etapa-da-rota="null" historico />
+      <div class="mx-auto max-w-4xl px-4 py-10 sm:px-8 sm:pt-20 sm:pb-16">
+        <p v-if="carregando" role="status">Carregando histórico...</p>
+        <div v-else-if="erro" role="alert">
+          <p>{{ erro }}</p>
+          <button class="mt-3 underline" @click="carregar">Tentar novamente</button>
+        </div>
+        <template v-else-if="job">
+          <p class="sr-only">
+            {{ job.status === 'liberado' ? 'Regra salva.' : 'Regra arquivada.' }}
           </p>
-          <label v-else class="my-5 flex flex-col gap-2"
-            >Execução da simulação
-            <select v-model="simulacaoId" class="rounded-lg border border-[#DFC0B2] bg-white p-3">
-              <option v-for="execucao in execucoesDaVersao" :key="execucao.id" :value="execucao.id">
-                {{ new Date(execucao.criado_em).toLocaleString('pt-BR') }} · {{ execucao.id
-                }}{{ execucao.id === job.simulacao?.id ? ' · Resultado vigente' : '' }}
-              </option>
-            </select>
-          </label>
-          <section v-if="simulacao" class="my-5" aria-label="Resultado histórico">
-            <p>
-              {{
-                simulacao.status === 'sucesso'
-                  ? simulacao.veredito === 'viavel'
-                    ? 'Resultado viável'
-                    : simulacao.veredito === 'inviavel'
-                      ? 'Resultado inviável'
-                      : 'Resultado sem veredito'
-                  : 'Execução sem resultado de sucesso'
-              }}
-            </p>
-            <p>
-              Meta de vendas:
-              {{
-                simulacao.meta_venda == null
-                  ? 'Não registrada neste resultado'
-                  : formatarReais(simulacao.meta_venda)
-              }}
-            </p>
-            <p>
-              Orçamento:
-              {{
-                simulacao.resultado?.totais?.orcamento == null
-                  ? 'Não registrado neste resultado'
-                  : formatarReais(simulacao.resultado.totais.orcamento)
-              }}
-            </p>
-            <p v-if="simulacao.resultado?.totais">
-              Comissão simulada: {{ formatarReais(simulacao.resultado.totais.simulado) }}
-            </p>
-          </section>
-          <RelatorioSimulacao
-            v-if="simulacao?.status === 'sucesso'"
-            :aberto="aberto"
-            :carregando="carregandoRelatorio"
-            :erro="erroRelatorio"
-            :linhas="resposta?.linhas"
-            :regra="regra.representacao"
-            :decomposicao="simulacao.resultado?.decomposicao"
-            @alternar="relatorio.alternar"
-            @tentar-novamente="relatorio.carregar"
-          />
+          <p v-if="!encerramento && job.status === 'liberado'" role="status" class="mb-5">
+            Os dados disponíveis não identificam a versão final salva.
+          </p>
+          <p v-if="semVinculo" role="status" class="mb-5">
+            Há resultado sem vínculo conhecido com uma versão da regra.
+          </p>
+          <p v-if="!versoes.length" role="status">Nenhuma versão disponível.</p>
+          <template v-if="regra">
+            <ResumoRegraHistorica
+              :regra="regra"
+              :simulacao="simulacao"
+              :titulo="tituloDoResumo(regra)"
+            >
+              <RelatorioSimulacao
+                v-if="simulacao?.status === 'sucesso'"
+                sem-margens
+                :aberto="aberto"
+                :carregando="carregandoRelatorio"
+                :erro="erroRelatorio"
+                :linhas="resposta?.linhas"
+                :regra="regra.representacao"
+                :decomposicao="simulacao.resultado?.decomposicao"
+                @alternar="relatorio.alternar"
+                @tentar-novamente="relatorio.carregar"
+              />
+              <p v-else role="status" class="mb-6 text-sm text-[#80695c]">
+                Sem simulação disponível.
+              </p>
+            </ResumoRegraHistorica>
+            <div class="my-8 flex justify-center">
+              <button
+                type="button"
+                class="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-semibold text-[#9D4400] hover:underline focus-visible:outline-2 focus-visible:outline-offset-4"
+                :aria-expanded="mostrarSimulacoes"
+                aria-controls="simulacoes-do-historico"
+                @click="mostrarSimulacoes = !mostrarSimulacoes"
+              >
+                Ver simulação <span aria-hidden="true">{{ mostrarSimulacoes ? '⌃' : '⌄' }}</span>
+              </button>
+            </div>
+            <div v-if="mostrarSimulacoes" id="simulacoes-do-historico" class="space-y-14 pb-8">
+              <template v-for="versao in ordenadas" :key="versao.id">
+              <ResultadoVersaoHistorica
+                :regra="versao"
+                :titulo="tituloVersao(versao)"
+                :simulacao="execucaoDaVersao(versao.id)"
+                :execucoes="execucoes(versao.id)"
+                :vigente-id="job.simulacao?.id"
+                @selecionar-execucao="selecionar(versao, $event)"
+              />
+              <ResultadoVersaoHistorica
+                v-if="execucaoDaVersao(versao.id)?.anterior_a_meta_sugerida"
+                :regra="versao"
+                titulo="Regra Descartada"
+                :simulacao="simulacaoAnterior(execucaoDaVersao(versao.id))"
+                :execucoes="[]"
+                anterior
+              />
+              <p
+                v-else-if="execucaoDaVersao(versao.id)?.meta_sugerida_aceita_em"
+                role="status"
+                class="text-sm text-[#80695c]"
+              >O resultado anterior ao aceite não pôde ser recuperado com segurança neste histórico.</p>
+              </template>
+            </div>
+          </template>
         </template>
-      </template>
+      </div>
     </main>
   </div>
 </template>

@@ -17,6 +17,8 @@ from app.sugestao_adaptacao import (
     percentual_que_cabe,
     percentual_refinado,
     propor_alternativa,
+    taxa_de_referencia,
+    taxas,
 )
 
 NUCLEO = {
@@ -31,6 +33,45 @@ NUCLEO = {
 def _representacao(**sobrescritas: object) -> dict[str, object]:
     nucleo = {**NUCLEO, **sobrescritas.pop("nucleo", {})}  # type: ignore[dict-item]
     return {"nucleo": nucleo, "especificacoes": sobrescritas.pop("especificacoes", [])}
+
+
+def _so_taxas_por_cargo(*taxas: dict[str, object]) -> dict[str, object]:
+    nucleo = {chave: valor for chave, valor in NUCLEO.items() if chave != "percentual"}
+    cargos = [taxa["cargo"] for taxa in taxas]
+    return {
+        "nucleo": {**nucleo, "cargo": cargos, "taxas_por_cargo": list(taxas)},
+        "especificacoes": [],
+    }
+
+
+# Elementos sem taxa: valores em reais, limiares, exclusões e texto ficam como estão.
+BONUS = {
+    "ref": "elem.4",
+    "construto": "bonus_fixo",
+    "alvo": {"tipo": "filtro", "valor": {"cargo": "100"}},
+    "valor": Decimal("350"),
+}
+FAIXA_EM_REAIS = {
+    "ref": "elem.3",
+    "construto": "faixa_valor",
+    "limite_inferior": Decimal("100000"),
+    "limite_superior": Decimal("200000"),
+    "efeito": {"tipo": "bonus_fixo", "valor": Decimal("500")},
+}
+LIMIAR = {
+    "ref": "elem.5",
+    "construto": "condicao_limiar",
+    "metrica": "vendas",
+    "escopo_agregacao": "individual",
+    "operador": ">=",
+    "limiar": Decimal("40000"),
+}
+EXCLUSAO = {"ref": "elem.6", "construto": "exclusao", "dimensao": "loja", "valores": ["58"]}
+GENERICO = {
+    "ref": "elem.7",
+    "construto": "generico",
+    "descricao": "Bônus de 1% sobre o que passar de R$ 40.000 em vendas.",
+}
 
 
 def test_candidata_respeita_orcamento_quando_ha_custo_fora_do_escopo() -> None:
@@ -116,8 +157,8 @@ def test_propoe_mexendo_so_no_percentual_sem_mutar_a_regra_original() -> None:
     assert representacao == original
 
 
-def test_nao_aplica_estimativa_proporcional_a_regra_com_bonus_fixo() -> None:
-    especificacoes = [{"ref": "elem.1", "construto": "bonus_fixo", "valor": Decimal("250")}]
+def test_reduz_o_percentual_e_preserva_o_bonus_fixo() -> None:
+    especificacoes = [BONUS]
 
     alternativa = propor_alternativa(
         _representacao(especificacoes=especificacoes),
@@ -126,21 +167,30 @@ def test_nao_aplica_estimativa_proporcional_a_regra_com_bonus_fixo() -> None:
         baseline=Decimal("480312"),
     )
 
-    assert alternativa.motivo == MOTIVO_NAO_SUPORTADA
-    assert alternativa.representacao is None
+    assert alternativa.motivo == MOTIVO_PROPOSTA
+    assert alternativa.representacao == {
+        "nucleo": {**NUCLEO, "percentual": Decimal("0.0099")},
+        "especificacoes": [BONUS],
+    }
 
 
-def test_nao_ajusta_so_a_taxa_uniforme_quando_ha_taxas_por_cargo() -> None:
-    alternativa = propor_alternativa(
-        _representacao(
-            nucleo={"taxas_por_cargo": [{"cargo": "100", "percentual": Decimal("0.03")}]}
-        ),
-        Decimal("492100"),
-        Decimal("485000"),
-        baseline=Decimal("480312"),
+def test_reduz_cada_taxa_por_cargo_pelo_mesmo_fator() -> None:
+    representacao = _so_taxas_por_cargo(
+        {"cargo": "100", "percentual": Decimal("0.03")},
+        {"cargo": "150", "percentual": Decimal("0.05")},
     )
-    assert alternativa.motivo == MOTIVO_NAO_SUPORTADA
-    assert alternativa.representacao is None
+
+    alternativa = propor_alternativa(
+        representacao, Decimal("492100"), Decimal("485000"), baseline=Decimal("480312")
+    )
+
+    assert (alternativa.motivo, alternativa.metodo) == (MOTIVO_PROPOSTA, METODO_ESTIMATIVA)
+    assert alternativa.representacao is not None
+    assert alternativa.representacao["nucleo"]["taxas_por_cargo"] == [
+        {"cargo": "100", "percentual": Decimal("0.0119")},
+        {"cargo": "150", "percentual": Decimal("0.0198")},
+    ]
+    assert "percentual" not in alternativa.representacao["nucleo"]
 
 
 def test_nao_propoe_quando_nao_ha_estimativa() -> None:
@@ -438,3 +488,165 @@ def test_pela_reta_a_sondagem_nao_corta_demais_e_o_refinamento_acha_a_taxa(
         assert comissao(refinada) <= ORCAMENTO_DO_JOB < comissao(refinada + QUANTUM)
     else:
         assert refinada is None
+
+
+# ---- todas as taxas da regra pelo mesmo fator ----
+
+
+def _regra_mista() -> dict[str, object]:
+    """Percentual, taxas por cargo e efeitos percentuais, ao lado de elementos sem taxa."""
+    return {
+        "nucleo": {
+            **NUCLEO,
+            "cargo": ["100", "150", "200"],
+            "percentual": Decimal("0.02"),
+            "taxas_por_cargo": [
+                {"cargo": "100", "percentual": Decimal("0.03")},
+                {"cargo": "150", "percentual": Decimal("0.05")},
+                {"cargo": "200", "percentual": Decimal("0")},
+            ],
+        },
+        "especificacoes": [
+            {
+                "ref": "elem.1",
+                "construto": "janela_datas",
+                "data_inicial": "2025-11-20",
+                "data_final": "2025-11-30",
+                "efeito": {"tipo": "substituicao_pct", "valor": Decimal("0.04")},
+            },
+            {
+                "ref": "elem.2",
+                "construto": "faixa_valor",
+                "limite_inferior": Decimal("50000"),
+                "limite_superior": Decimal("100000"),
+                "efeito": {"tipo": "acrescimo_pct", "valor": Decimal("-0.01")},
+            },
+            FAIXA_EM_REAIS,
+            BONUS,
+            LIMIAR,
+            EXCLUSAO,
+            GENERICO,
+        ],
+    }
+
+
+def test_reduz_todas_as_taxas_e_mantem_o_resto_da_regra() -> None:
+    """A referência é o percentual do núcleo, que a estimativa leva de 0,02 a 0,0079; as outras
+    taxas acompanham na mesma proporção, truncadas."""
+    representacao = _regra_mista()
+    original = deepcopy(representacao)
+
+    alternativa = propor_alternativa(
+        representacao, Decimal("492100"), Decimal("485000"), baseline=Decimal("480312")
+    )
+
+    esperada = deepcopy(original)
+    esperada["nucleo"]["percentual"] = Decimal("0.0079")  # type: ignore[index]
+    esperada["nucleo"]["taxas_por_cargo"][0]["percentual"] = Decimal("0.0118")  # type: ignore[index]
+    esperada["nucleo"]["taxas_por_cargo"][1]["percentual"] = Decimal("0.0197")  # type: ignore[index]
+    esperada["especificacoes"][0]["efeito"]["valor"] = Decimal("0.0158")  # type: ignore[index]
+    # Truncar em direção a zero: o acréscimo negativo diminui em módulo, como as demais taxas.
+    esperada["especificacoes"][1]["efeito"]["valor"] = Decimal("-0.0039")  # type: ignore[index]
+    assert alternativa.motivo == MOTIVO_PROPOSTA
+    assert alternativa.representacao == esperada
+    assert representacao == original
+
+
+def test_sonda_todas_as_taxas_quando_o_orcamento_nao_supera_o_baseline() -> None:
+    representacao = _so_taxas_por_cargo(
+        {"cargo": "100", "percentual": Decimal("0.03")},
+        {"cargo": "150", "percentual": Decimal("0.05")},
+    )
+
+    alternativa = propor_alternativa(
+        representacao, SIMULADO_DO_JOB, ORCAMENTO_DO_JOB, baseline=BASELINE_DO_JOB
+    )
+
+    assert (alternativa.motivo, alternativa.metodo) == (MOTIVO_PROPOSTA, METODO_SONDAGEM)
+    assert alternativa.representacao is not None
+    assert alternativa.representacao["nucleo"]["taxas_por_cargo"] == [
+        {"cargo": "100", "percentual": Decimal("0.0202")},
+        {"cargo": "150", "percentual": Decimal("0.0336")},
+    ]
+
+
+def test_refina_pela_taxa_de_referencia_e_aplica_o_fator_a_todas() -> None:
+    """A primeira taxa da cadeia foi de 0,025 a 0,02; a seguinte cabe em 0,0175, 7/8 da atual."""
+    representacao = _so_taxas_por_cargo(
+        {"cargo": "100", "percentual": Decimal("0.02")},
+        {"cargo": "150", "percentual": Decimal("0.04")},
+    )
+
+    alternativa = propor_alternativa(
+        representacao,
+        Decimal("1800"),
+        Decimal("1700"),
+        baseline=Decimal("1200"),
+        anteriores=[ORIGINAL, PRIMEIRA],
+    )
+
+    assert (alternativa.motivo, alternativa.metodo) == (MOTIVO_PROPOSTA, METODO_REFINAMENTO)
+    assert alternativa.representacao is not None
+    assert alternativa.representacao["nucleo"]["taxas_por_cargo"] == [
+        {"cargo": "100", "percentual": Decimal("0.0175")},
+        {"cargo": "150", "percentual": Decimal("0.0350")},
+    ]
+
+
+def test_nao_propoe_quando_uma_taxa_zeraria() -> None:
+    """Uma taxa que vira zero tira o cargo da regra, e isso não é reduzir a regra."""
+    representacao = _so_taxas_por_cargo(
+        {"cargo": "100", "percentual": Decimal("0.03")},
+        {"cargo": "150", "percentual": Decimal("0.0001")},
+    )
+
+    alternativa = propor_alternativa(
+        representacao, Decimal("492100"), Decimal("485000"), baseline=Decimal("480312")
+    )
+
+    assert (alternativa.motivo, alternativa.representacao) == (MOTIVO_SEM_MARGEM, None)
+
+
+def test_regra_sem_taxa_positiva_nao_e_suportada() -> None:
+    alternativa = propor_alternativa(
+        _representacao(nucleo={"percentual": Decimal("0")}),
+        Decimal("492100"),
+        Decimal("485000"),
+        baseline=Decimal("480312"),
+    )
+
+    assert (alternativa.motivo, alternativa.representacao) == (MOTIVO_NAO_SUPORTADA, None)
+
+
+def test_le_as_taxas_na_ordem_que_a_api_confere() -> None:
+    assert taxas(_regra_mista()) == [
+        Decimal("0.02"),
+        Decimal("0.03"),
+        Decimal("0.05"),
+        Decimal("0"),
+        Decimal("0.04"),
+        Decimal("-0.01"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("representacao", "referencia"),
+    [
+        pytest.param(_regra_mista(), Decimal("0.02"), id="percentual-do-nucleo"),
+        pytest.param(
+            _so_taxas_por_cargo(
+                {"cargo": "200", "percentual": Decimal("0")},
+                {"cargo": "100", "percentual": Decimal("0.03")},
+            ),
+            Decimal("0.03"),
+            id="primeira-taxa-por-cargo-positiva",
+        ),
+        pytest.param(
+            _representacao(nucleo={"percentual": Decimal("0")}), None, id="nenhuma-positiva"
+        ),
+    ],
+)
+def test_a_referencia_e_a_primeira_taxa_positiva(
+    representacao: dict[str, object], referencia: Decimal | None
+) -> None:
+    assert taxa_de_referencia(representacao) == referencia

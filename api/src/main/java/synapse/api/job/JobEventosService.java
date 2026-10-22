@@ -7,6 +7,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -20,6 +21,7 @@ import synapse.api.core.outbox.EventoOutbox;
 import synapse.api.core.outbox.Outbox;
 import synapse.api.job.JobRepository.ContextoDoJob;
 import synapse.api.job.JobRepository.ExtracaoDaRegra;
+import synapse.api.job.JobRepository.VersaoAnterior;
 import synapse.api.job.VersoesDaRegra.VersaoRegra;
 
 @Service
@@ -99,13 +101,14 @@ class JobEventosService {
 		}
 		if (etapa == EtapaDoGrafo.SUGESTAO_ADAPTACAO && STATUS_SEM_ALTERNATIVA.equals(status)) {
 			EventoEstadoDto encerrada = encerrarIteracao(jobId, atual, JobStatus.SIMULACAO_INVIAVEL,
-					MotivoDaParada.SEM_ALTERNATIVA, MotivoDaParada.NENHUMA_TAXA_COUBE);
+					MotivoDaParada.SEM_ALTERNATIVA,
+					() -> MotivoDaParada.semAlternativa(this.repository.buscarComissaoDasLojasForaDaRegra(jobId)));
 			return (encerrada != null) ? EtapaAplicada.comum(encerrada, FimDaIteracao.SEM_ALTERNATIVA)
 					: EtapaAplicada.comum(null, FimDaIteracao.SEM_ALTERNATIVA_SEM_EFEITO);
 		}
 		if (STATUS_ERRO.equals(status) && (etapa == EtapaDoGrafo.DECISAO || etapa == EtapaDoGrafo.SUGESTAO_ADAPTACAO)) {
 			EventoEstadoDto encerrada = encerrarIteracao(jobId, atual, JobStatus.ERRO,
-					MotivoDaParada.falhaNaEtapa(etapa, causa), MotivoDaParada.razaoDaFalha(causa));
+					MotivoDaParada.falhaNaEtapa(etapa, causa), () -> MotivoDaParada.razaoDaFalha(causa));
 			if (encerrada != null) {
 				return EtapaAplicada.comum(encerrada, FimDaIteracao.FALHA);
 			}
@@ -207,7 +210,7 @@ class JobEventosService {
 	 * processamento.
 	 */
 	private @Nullable EventoEstadoDto encerrarIteracao(UUID jobId, JobStatus status, JobStatus destino, String motivo,
-			String razao) {
+			Supplier<String> razao) {
 		if (!status.emProcessamento()) {
 			return null;
 		}
@@ -218,7 +221,7 @@ class JobEventosService {
 		this.maquina.avancarSeEm(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO, ATOR, MOTIVO_ANTECIPADA);
 		this.maquina.transicionar(jobId, destino, ATOR, motivo);
 		this.repository.vincularResultado(jobId, resultados.getFirst());
-		return EventoEstadoDto.transicao(jobId, JobStatus.SIMULANDO, destino, razao);
+		return EventoEstadoDto.transicao(jobId, JobStatus.SIMULANDO, destino, razao.get());
 	}
 
 	/**
@@ -396,10 +399,6 @@ class JobEventosService {
 	@Transactional
 	@Nullable SugestaoAplicada aplicarSugestaoAdaptacao(UUID jobId, UUID regraOrigemId, UUID resultadoId,
 			RepresentacaoRegraDto representacao, @Nullable Integer tentativa) {
-		var percentual = representacao.nucleo().percentual();
-		if (percentual == null || percentual.signum() <= 0 || representacao.nucleo().taxas_por_cargo() != null) {
-			return null;
-		}
 		List<ContextoDoJob> contextos = this.repository.buscarContextoComTrava(jobId);
 		if (contextos.isEmpty()) {
 			return null;
@@ -409,11 +408,17 @@ class JobEventosService {
 			.contains(contexto.status())) {
 			return null;
 		}
-		// A sugestão só ajusta nucleo.percentual; os parâmetros da versão de origem
-		// passam para a nova como estavam, e o hash os cobre pelo mesmo motivo do
-		// núcleo - sem isso, uma origem nascida de texto com parâmetros nunca bateria
-		// hash com a sugestão que ela mesma originou. Lista vazia é regraOrigemId
-		// inexistente: sugestaoElegivel também diria não, mas sem lançar antes dela.
+		List<VersaoAnterior> ultimas = this.repository.buscarUltimaVersao(jobId);
+		if (ultimas.isEmpty() || !ultimas.getFirst().id().equals(regraOrigemId)
+				|| !ReducaoDasTaxas.reduzSoAsTaxas(
+						new RepresentacaoRegraDto(ultimas.getFirst().nucleo(), ultimas.getFirst().especificacoes()),
+						representacao)) {
+			return null;
+		}
+		// A sugestão só reduz as taxas; os parâmetros da versão de origem
+		// passam para a nova como estavam, e o hash os cobre pelo mesmo motivo
+		// do núcleo - sem isso, uma origem nascida de texto com parâmetros
+		// nunca bateria hash com a sugestão que ela mesma originou.
 		List<String> parametrosDaOrigem = this.repository.buscarParametrosDaVersao(regraOrigemId);
 		if (parametrosDaOrigem.isEmpty()) {
 			return null;
@@ -421,8 +426,7 @@ class JobEventosService {
 		String parametrosJson = parametrosDaOrigem.getFirst();
 		ParametrosDaSimulacao parametros = ParametrosExtraidos.deVersaoExistente(parametrosJson);
 		String hash = HashDaRegra.calcular(representacao, parametros);
-		Boolean valida = this.repository.sugestaoElegivel(jobId, regraOrigemId, resultadoId, hash, percentual,
-				representacao);
+		Boolean valida = this.repository.sugestaoElegivel(jobId, regraOrigemId, resultadoId, hash);
 		if (!Boolean.TRUE.equals(valida)) {
 			return null;
 		}

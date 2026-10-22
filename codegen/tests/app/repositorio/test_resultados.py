@@ -119,10 +119,12 @@ async def test_buscar_taxas_simuladas_le_taxa_e_comissao_em_decimal_exato() -> N
     linhas = [
         {
             "nucleo": simplejson.dumps({"percentual": Decimal("0.0183"), "loja": ["13"]}),
+            "especificacoes": "[]",
             "totais": simplejson.dumps({"simulado": Decimal("492100.012345678901234567")}),
         },
         {
             "nucleo": simplejson.dumps({"percentual": Decimal("0.025")}),
+            "especificacoes": "[]",
             "totais": simplejson.dumps({"simulado": Decimal("500000")}),
         },
     ]
@@ -132,6 +134,46 @@ async def test_buscar_taxas_simuladas_le_taxa_e_comissao_em_decimal_exato() -> N
     assert taxas == [
         TaxaSimulada(Decimal("0.0183"), Decimal("492100.012345678901234567")),
         TaxaSimulada(Decimal("0.025"), Decimal("500000")),
+    ]
+
+
+async def test_buscar_taxas_simuladas_le_a_primeira_taxa_positiva_de_qualquer_estrutura() -> None:
+    """Sem percentual uniforme, a referência é a primeira taxa positiva, por cargo ou por efeito."""
+    linhas = [
+        {
+            "nucleo": simplejson.dumps(
+                {
+                    "taxas_por_cargo": [
+                        {"cargo": "200", "percentual": Decimal("0")},
+                        {"cargo": "100", "percentual": Decimal("0.0243")},
+                    ]
+                }
+            ),
+            "especificacoes": simplejson.dumps(
+                [{"ref": "elem.1", "construto": "bonus_fixo", "valor": Decimal("350")}]
+            ),
+            "totais": simplejson.dumps({"simulado": Decimal("2600")}),
+        },
+        {
+            "nucleo": simplejson.dumps({"percentual": Decimal("0")}),
+            "especificacoes": simplejson.dumps(
+                [
+                    {
+                        "ref": "elem.1",
+                        "construto": "janela_datas",
+                        "efeito": {"tipo": "substituicao_pct", "valor": Decimal("0.04")},
+                    }
+                ]
+            ),
+            "totais": simplejson.dumps({"simulado": Decimal("3000")}),
+        },
+    ]
+
+    taxas = await buscar_taxas_simuladas(_sessionmaker(linhas), JOB_ID, REGRA_ID)
+
+    assert taxas == [
+        TaxaSimulada(Decimal("0.0243"), Decimal("2600")),
+        TaxaSimulada(Decimal("0.04"), Decimal("3000")),
     ]
 
 
@@ -147,11 +189,16 @@ async def test_buscar_taxas_simuladas_parte_da_regra_simulada_no_job() -> None:
 @pytest.mark.parametrize(
     "linha",
     [
-        {"nucleo": "{}", "totais": '{"simulado": 1}'},
-        {"nucleo": '{"percentual": 0.02}', "totais": "{}"},
-        {"nucleo": '{"percentual": 0.02}', "totais": None},
+        {"nucleo": "{}", "especificacoes": "[]", "totais": '{"simulado": 1}'},
+        {
+            "nucleo": '{"taxas_por_cargo": [{"cargo": "100", "percentual": 0}]}',
+            "especificacoes": "[]",
+            "totais": '{"simulado": 1}',
+        },
+        {"nucleo": '{"percentual": 0.02}', "especificacoes": "[]", "totais": "{}"},
+        {"nucleo": '{"percentual": 0.02}', "especificacoes": "[]", "totais": None},
     ],
-    ids=["sem_percentual", "sem_simulado", "sem_totais"],
+    ids=["sem_percentual", "sem_taxa_positiva", "sem_simulado", "sem_totais"],
 )
 async def test_buscar_taxas_simuladas_recusa_versao_sem_taxa_ou_comissao(
     linha: dict[str, Any],

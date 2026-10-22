@@ -13,6 +13,7 @@ const props = defineProps<{
   competencias?: string[]
   podeAceitar: boolean
   podeCancelar: boolean
+  motivo?: string | null
 }>()
 defineEmits<{ aceitar: []; cancelar: [] }>()
 
@@ -54,14 +55,16 @@ const cargo = computed(() => nomesDoEscopo('cargo', props.regra?.representacao.n
       class="rounded-lg border border-[#DFC0B2] bg-[#F4ECE6]/50 p-5 text-[#584237]"
     >
       <p class="mb-3 font-bold text-[#2B160D]">Nenhuma sugestão disponível no momento.</p>
-      <p class="mb-3">
-        A busca automática ajusta um percentual uniforme em regras sem condições adicionais. Ela
-        pode testar percentuais menores, inclusive quando o orçamento não supera o custo de
-        referência (baseline), e refinar a alternativa a partir dos resultados, até o limite de
-        tentativas. Nem sempre essa busca encontra uma alternativa viável. Regras com taxas por
-        cargo ou condições adicionais precisam de revisão manual.
+      <p v-if="motivo" data-testid="motivo-sugestao" class="mb-3 font-bold text-[#2B160D]">
+        {{ motivo }}
       </p>
-      <p>
+      <p class="mb-3">
+        A busca automática reduz todas as taxas de comissão da regra na mesma proporção, mantém as
+        demais condições e testa até três alternativas. Ela não altera as comissões que a regra não
+        alcança, como as de lojas, marcas e cargos fora dela, nem valores fixos, como bônus. Nem
+        sempre encontra uma alternativa viável.
+      </p>
+      <p v-if="!motivo">
         Isso não significa que seja impossível encontrar uma regra que caiba no orçamento. Você pode
         revisar a regra e fazer uma nova simulação.
       </p>
@@ -97,8 +100,17 @@ const cargo = computed(() => nomesDoEscopo('cargo', props.regra?.representacao.n
       >
     </div>
     <template v-else-if="sucesso && regra">
-      <p class="mb-11 text-[#584237]">
-        A regra de negócio escolhida é inviável. Mas não se preocupe, criamos esta para você:
+      <p class="mb-5 text-[#584237]">
+        A busca simulou esta alternativa. As taxas foram reduzidas na mesma proporção; as demais
+        condições da regra foram mantidas.
+      </p>
+      <p
+        v-if="simulacao?.veredito === 'inviavel' && motivo"
+        data-testid="motivo-sugestao"
+        role="status"
+        class="mb-8 rounded-lg border border-[#950606]/20 border-l-8 border-l-[#950606] bg-[#F4ECE6]/50 p-4 font-bold text-[#950606]"
+      >
+        {{ motivo }}
       </p>
       <div class="flex flex-col gap-6 lg:flex-row">
         <div class="min-w-0 w-full lg:w-1/2">
@@ -182,7 +194,9 @@ const cargo = computed(() => nomesDoEscopo('cargo', props.regra?.representacao.n
           </h3>
           <hr class="mb-4 border border-[#FFDBCD]" />
           <div class="mb-4 flex flex-col">
-            <label for="orcamento-sugestao" class="mb-1 text-[#584237]">Orçamento de comissão</label>
+            <label for="orcamento-sugestao" class="mb-1 text-[#584237]"
+              >Orçamento de comissão</label
+            >
             <input
               id="orcamento-sugestao"
               type="text"
@@ -204,9 +218,11 @@ const cargo = computed(() => nomesDoEscopo('cargo', props.regra?.representacao.n
           <p v-if="viavel" class="mb-4 font-bold text-[#14532D]">
             A sugestão cabe no seu orçamento.
           </p>
-          <p v-else-if="simulacao?.veredito === 'inviavel'" class="mb-4 text-[#950606]">
-            A alternativa ainda excede o orçamento. Revise a regra para tentar outra simulação.
-          </p>
+          <div v-else-if="simulacao?.veredito === 'inviavel'" class="mb-4 text-[#950606]">
+            <p>
+              A alternativa ainda excede o orçamento. Revise a regra para tentar outra simulação.
+            </p>
+          </div>
           <p v-else class="mb-4 text-[#B45309]">
             Não foi possível determinar se a alternativa cabe no orçamento.
           </p>

@@ -79,15 +79,20 @@ async def test_a_alternativa_que_nao_coube_tambem_vai_a_sugestao_com_a_conta_das
     assert update == {"encaminhamento": "sugestao_adaptacao", "tentativas_de_taxa": feitas}
 
 
-async def test_regra_com_especificacoes_nao_vai_a_sugestao() -> None:
-    estado = _estado()
-    estado["representacao_regra"]["especificacoes"] = [
-        {"ref": "elem.1", "construto": "bonus_fixo", "valor": Decimal("250")}
-    ]
+async def test_regra_com_taxas_por_cargo_e_especificacoes_tambem_vai_a_sugestao() -> None:
+    """Quem decide se há taxa a reduzir é a sugestão, para qualquer estrutura de regra."""
+    estado = _estado(
+        representacao_regra={
+            "nucleo": {"taxas_por_cargo": [{"cargo": "100", "percentual": Decimal("0.03")}]},
+            "especificacoes": [
+                {"ref": "elem.1", "construto": "generico", "descricao": "Bônus condicionado."}
+            ],
+        }
+    )
 
     update = await modulo.decision(estado, _config(_producers()))
 
-    assert update["encaminhamento"] == "fim"
+    assert update == {"encaminhamento": "sugestao_adaptacao", "tentativas_de_taxa": 0}
 
 
 @pytest.mark.parametrize(

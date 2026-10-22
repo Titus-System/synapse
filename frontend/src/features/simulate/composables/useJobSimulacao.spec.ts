@@ -1,12 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { ref } from 'vue'
 import { apiClient } from '@/services/api'
 import type { Job } from '@/types/api'
-import {
-  jobFixture,
-  jobComSugestaoFixture,
-  respostaPendente,
-} from '@/services/job.fixtures'
+import { jobFixture, jobComSugestaoFixture, respostaPendente } from '@/services/job.fixtures'
 import { HttpError } from '@/services/http'
 import { useJobSimulacao } from './useJobSimulacao'
 
@@ -164,12 +161,41 @@ describe('useJobSimulacao', () => {
     expect(simulacao.status.value).toBe('cancelado')
   })
 
-  it.each(['inviavel', 'indeterminado'] as const)('não aceita alternativa com veredito %s', async (veredito) => {
-    const job = jobComSugestaoFixture()
-    job.simulacoes![1]!.veredito = veredito
-    consultarJob.mockResolvedValue(job)
-    const tela = useJobSimulacao('job-1')
+  it('impede aceitação duplicada da meta e descarta a resposta após trocar de job', async () => {
+    consultarJob.mockResolvedValue(
+      jobFixture({
+        meta_sugerida: { meta_venda: 60000000, total_simulado: 2400000, orcamento: 2500000 },
+      }),
+    )
+    const id = ref('job-1')
+    const tela = useJobSimulacao(id)
     await tela.iniciar()
-    expect(tela.podeAceitarSugestao.value).toBe(false)
+    const pendente = respostaPendente<Job>()
+    vi.mocked(apiClient.executarAcao).mockReturnValueOnce(pendente.promise)
+    const aceitando = tela.aceitarMeta()
+    expect(tela.acaoProcessando.value).toBe(true)
+    expect(await tela.aceitarMeta()).toBe(false)
+    expect(apiClient.executarAcao).toHaveBeenCalledExactlyOnceWith('job-1', {
+      acao: 'aceitar_meta',
+    })
+    id.value = 'job-2'
+    consultarJob.mockResolvedValue(jobFixture({ id: 'job-2' }))
+    await tela.iniciar()
+    pendente.resolve(jobFixture())
+    expect(await aceitando).toBe(false)
+    expect(tela.job.value?.id).toBe('job-2')
+    expect(tela.erroMeta.value).toBeNull()
   })
+
+  it.each(['inviavel', 'indeterminado'] as const)(
+    'não aceita alternativa com veredito %s',
+    async (veredito) => {
+      const job = jobComSugestaoFixture()
+      job.simulacoes![1]!.veredito = veredito
+      consultarJob.mockResolvedValue(job)
+      const tela = useJobSimulacao('job-1')
+      await tela.iniciar()
+      expect(tela.podeAceitarSugestao.value).toBe(false)
+    },
+  )
 })

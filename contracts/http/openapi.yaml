@@ -494,6 +494,56 @@ paths:
                       meta_venda: 28500000.0
                       total_simulado: 594000.0
                       orcamento: 600000.0
+                regraFinalComMetaSugeridaAceita:
+                  summary: Regra final salva com a meta sugerida aceita pelo usuário
+                  description: |
+                    A versão da regra permanece a mesma. A simulação usa a meta
+                    aceita, e a data do aceite permanece disponível no histórico.
+                  value:
+                    id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+                    status: liberado
+                    origem: texto
+                    competencias: ["2025-08", "2025-11"]
+                    orcamento: 600000.0
+                    meta_venda: 26000000.0
+                    criado_em: "2025-11-24T16:00:00Z"
+                    finalizado_em: "2025-11-24T16:06:00Z"
+                    regras:
+                      - id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                        versao: 1
+                        origem: extracao
+                        representacao:
+                          nucleo: { loja: ["13"], cargo: ["100"], percentual: 0.02 }
+                          especificacoes: []
+                        criada_em: "2025-11-24T16:00:30Z"
+                    simulacao:
+                      id: "e5f6a7b8-c9d0-4e1f-8a2b-3c4d5e6f7a8b"
+                      regra_id: "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f"
+                      criado_em: "2025-11-24T16:03:12Z"
+                      status: sucesso
+                      veredito: viavel
+                      meta_venda: 28500000.0
+                      meta_sugerida_aceita_em: "2025-11-24T16:05:00Z"
+                      anterior_a_meta_sugerida:
+                        resultado_id: "a5f6a7b8-c9d0-4e1f-8a2b-3c4d5e6f7a8b"
+                        criado_em: "2025-11-24T16:03:20Z"
+                        status: sucesso
+                        veredito: viavel
+                        meta_venda: 26000000.0
+                        resultado:
+                          totais: { baseline: 529520.0, simulado: 541900.0, diferenca_abs: 12380.0, diferenca_pct: 0.0234, orcamento: 600000.0 }
+                          assercoes: []
+                          decomposicao: { elemento: {}, loja: {}, marca: {}, cargo: {}, competencia: {} }
+                      flag_baixa_rastreabilidade: false
+                      resultado:
+                        totais:
+                          baseline: 580000.0
+                          simulado: 594000.0
+                          diferenca_abs: 14000.0
+                          diferenca_pct: 0.0241
+                          orcamento: 600000.0
+                        assercoes: []
+                        decomposicao: { elemento: {}, loja: {}, marca: {}, cargo: {}, competencia: {} }
                 simulacaoNaMetaComBuscaEmCurso:
                   summary: Simulação na meta de venda, abaixo do orçamento, com a busca da meta maior em curso
                   description: |
@@ -630,6 +680,19 @@ paths:
     get:
       tags: [jobs]
       operationId: consultarLinhasSimulacao
+      parameters:
+        - name: resultado_anterior_id
+          in: query
+          required: false
+          description: |
+            Referência de `simulacao.anterior_a_meta_sugerida.resultado_id` para
+            consultar o relatório anterior ao aceite. Só é aceita se pertencer ao
+            mesmo job, versão e código da simulação e estiver registrada como seu
+            resultado anterior. Outra referência recebe 404. Ausente consulta o
+            resultado vigente, como nas versões anteriores do contrato.
+          schema:
+            type: string
+            format: uuid
       summary: Consulta o detalhamento da simulação por competência e matrícula.
       description: |
         Devolve o detalhamento completo do período, sem filtros nem paginação.
@@ -2659,6 +2722,25 @@ components:
             período nessa meta. Depois de `aceitar_meta`, é a meta sugerida. Ausente
             quando a simulação usou as vendas históricas, que estão em
             `resultado.totais.vendas_historicas`.
+        meta_sugerida_aceita_em:
+          type: string
+          format: date-time
+          description: |
+            Data em que o usuário aceitou a meta sugerida usada neste resultado.
+            Presente somente quando a sugestão aceita pertence ao mesmo job e à
+            mesma versão e seu resultado é o vinculado a esta simulação. Permanece
+            após o encerramento do job. Ausente quando não houve aceite ou quando
+            a execução usa outro resultado, nunca nulo. O aceite altera a meta e o
+            resultado da simulação, sem criar uma versão da regra.
+          examples: ["2025-11-24T16:05:00Z"]
+        anterior_a_meta_sugerida:
+          $ref: "#/components/schemas/SimulacaoAnterior"
+          description: |
+            Resultado preservado antes de aceitar a meta sugerida. Permite comparar
+            a simulação original com a final sem recalcular valores. Opcional por
+            compatibilidade; ausente sem aceite ou quando o legado não permite
+            identificar o resultado original sem ambiguidade. Não inclui as
+            candidatas internas da busca.
         flag_baixa_rastreabilidade:
           type: boolean
           description: |
@@ -2672,6 +2754,28 @@ components:
             Totais, desfecho das asserções e decomposição da diferença. Ausente quando
             o status não é sucesso, porque aí não há número. É a fonte dos valores
             exibidos: o frontend apresenta, não calcula.
+
+    SimulacaoAnterior:
+      type: object
+      title: Simulação anterior à meta sugerida
+      required: [resultado_id, criado_em, status, resultado]
+      properties:
+        resultado_id:
+          type: string
+          format: uuid
+        criado_em:
+          type: string
+          format: date-time
+        status:
+          $ref: "#/components/schemas/StatusResultado"
+        veredito:
+          $ref: "#/components/schemas/Veredito"
+        meta_venda:
+          allOf:
+            - $ref: "../domain/comum.schema.json#/$defs/brl"
+          exclusiveMinimum: 0
+        resultado:
+          $ref: "../domain/resultado-simulacao.schema.json"
 
     MetaSugerida:
       type: object

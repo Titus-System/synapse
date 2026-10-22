@@ -553,6 +553,7 @@ Table sugestoes_meta_venda {
   job_id uuid [not null, ref: > jobs.id]
   regra_id uuid [not null, ref: > regras.id]
   resultado_id uuid [ref: > resultados_simulacao.id, note: 'Candidata da busca da meta; ausente no desfecho sem solução. Artefato somente lido pela api.']
+  resultado_anterior_id uuid [ref: > resultados_simulacao.id, note: 'Resultado vigente antes do aceite. Preservado pela api na mesma transacao da troca; permite comparar e consultar o relatorio original. Legado recuperado somente quando existe um unico resultado original de sucesso para o mesmo codigo.']
   motivo_sem_solucao text [note: 'nao_monotonica | intervalo_esgotado | falha_execucao']
   criada_em timestamptz [not null, default: `now()`]
   aceita_em timestamptz [note: 'Aceitação troca simulacoes.resultado_id; mantém esta linha para impedir reentrega da sugestão.']

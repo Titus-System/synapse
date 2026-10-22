@@ -142,6 +142,49 @@ class DetalhamentoSimulacaoFimAFimTests {
 		assertThat(corpo.path("linhas").propertyNames()).containsExactlyInAnyOrder("2025-08", "2025-11");
 	}
 
+	@Test
+	void relatorioAnteriorAoAceiteUsaAReferenciaPreservadaERecusaOutroResultado() throws Exception {
+		Simulacao simulacao = criarSimulacao(criarJob(USUARIO));
+		gravarResultado(simulacao, "sucesso", linhas);
+		UUID original = dono.queryForObject("SELECT resultado_id FROM simulacoes WHERE id = ?", UUID.class,
+				simulacao.id());
+		gravarResultado(simulacao, "sucesso", null);
+		dono.update("""
+				INSERT INTO sugestoes_meta_venda (job_id, regra_id, resultado_id, aceita_em, resultado_anterior_id)
+				SELECT job_id, regra_id, resultado_id, now(), ? FROM simulacoes WHERE id = ?
+				""", original, simulacao.id());
+		long antes = contagem("200");
+		String caminho = "/jobs/" + simulacao.jobId() + "/simulacoes/" + simulacao.id()
+				+ "/linhas?resultado_anterior_id=";
+		try (CapturaDeLog captura = new CapturaDeLog(LOGGER)) {
+			HttpResponse<String> resposta = get(caminho + original);
+			assertThat(resposta.statusCode()).as(resposta.body()).isEqualTo(200);
+			ContratoDeEvento.validarRespostaHttp("DetalhamentoSimulacao", resposta.body());
+			assertThat(JSON.readTree(resposta.body()).path("linhas")).isEqualTo(JSON.readTree(linhas));
+			JsonNode log = unicoLog(captura, "DEBUG");
+			assertThat(log.path("extra").path("resultado_anterior").asBoolean()).isTrue();
+			assertThat(log.path("job_id").asString()).isEqualTo(simulacao.jobId().toString());
+			assertThat(log.toString()).doesNotContain("MATRIC", "comissao", "contribuicoes");
+		}
+		await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(contagem("200")).isEqualTo(antes + 1));
+		assertThat(JSON.readTree(consultar(simulacao.jobId(), simulacao.id()).body()).has("linhas")).isFalse();
+		Simulacao outra = criarSimulacao(criarJob(USUARIO));
+		gravarResultado(outra, "sucesso", linhas);
+		UUID outroResultado = dono.queryForObject("SELECT resultado_id FROM simulacoes WHERE id = ?", UUID.class,
+				outra.id());
+		long recusadas = contagem("404");
+		try (CapturaDeLog captura = new CapturaDeLog(LOGGER)) {
+			HttpResponse<String> resposta = get(caminho + outroResultado);
+			assertThat(resposta.statusCode()).isEqualTo(404);
+			assertThat(resposta.body()).doesNotContain("MATRIC");
+			JsonNode log = unicoLog(captura, "WARN");
+			assertThat(log.path("extra").path("resultado_anterior").asBoolean()).isTrue();
+		}
+		await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(contagem("404")).isEqualTo(recusadas + 1));
+		assertThat(amostras(get("/metrics").body(), "http_server_requests_seconds_count", "200")).isNotEmpty();
+		assertThat(amostras(get("/metrics").body(), "http_server_requests_seconds_count", "404")).isNotEmpty();
+	}
+
 	@ParameterizedTest
 	@ValueSource(strings = { "sem_resultado", "sucesso_anterior_ao_detalhamento", "erro_codigo" })
 	void simulacaoSemDetalhamentoResponde200SemLinhas(String caso) throws Exception {

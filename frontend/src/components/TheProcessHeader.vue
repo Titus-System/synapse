@@ -8,6 +8,7 @@ type EtapaDoProcesso = 'voz-texto' | 'conversa' | 'simulacao' | 'salvar'
 const props = defineProps<{
   etapaDaRota: EtapaDoProcesso | null
   statusDoJob?: StatusJob | null
+  historico?: boolean
 }>()
 
 const sessao = usarStoreSessao()
@@ -34,6 +35,7 @@ const etapasPorStatus: Partial<Record<StatusJob, EtapaDoProcesso>> = {
 }
 
 const etapaAtual = computed<EtapaDoProcesso | null>(() => {
+  if (props.historico) return null
   if (props.statusDoJob === undefined) return props.etapaDaRota
 
   if (props.etapaDaRota === 'salvar') {
@@ -62,7 +64,7 @@ async function sairDaConta(): Promise<void> {
 <template>
   <header class="flex h-14 items-center gap-3 border-b border-[#ebd8cc] bg-[#fffaf7] px-4 sm:gap-6 sm:px-6 lg:h-16 lg:px-8">
 
-    <ol v-if="etapaAtual" class="hidden min-w-0 flex-1 items-center justify-center gap-3 text-sm xl:flex" aria-label="Etapas do processo">
+    <ol v-if="etapaAtual || historico" class="hidden min-w-0 flex-1 items-center justify-center gap-3 text-sm xl:flex" aria-label="Etapas do processo">
       <li
         class="flex shrink-0 items-center gap-2.5"
         :class="etapaEstaAtiva('voz-texto') ? 'font-medium text-[#c2560b]' : 'text-[#a79489]'"
@@ -124,6 +126,7 @@ async function sairDaConta(): Promise<void> {
       </li>
     </ol>
 
+    <p v-if="historico" class="min-w-0 flex-1 text-center text-sm text-[#6b564a] xl:hidden">Histórico da regra</p>
     <p
       v-if="etapaAtual"
       class="min-w-0 flex-1 truncate text-center text-xs font-medium text-[#6b564a] sm:text-sm xl:hidden"
