@@ -1,8 +1,6 @@
-import type {
-  EspecificacaoRegra,
-  RepresentacaoRegra,
-  ResultadoSimulacao,
-} from '@/types/api'
+import { nomesDoEscopo, nomeDaEntidade } from '@/services/catalogoRh'
+import { percentuaisDoNucleo } from './apresentacaoNucleo'
+import type { EspecificacaoRegra, RepresentacaoRegra, ResultadoSimulacao } from '@/types/api'
 
 export interface RegraFormatada {
   se: string[]
@@ -57,9 +55,7 @@ interface Generico extends EspecificacaoRegra {
   campos?: Record<string, unknown>
 }
 
-export function transformarRegra(
-  representacao: RepresentacaoRegra,
-): RegraFormatada {
+export function transformarRegra(representacao: RepresentacaoRegra): RegraFormatada {
   const se: string[] = []
   const entao: string[] = []
 
@@ -68,47 +64,27 @@ export function transformarRegra(
   for (const elemento of representacao.especificacoes) {
     switch (elemento.construto) {
       case 'faixa_valor':
-        adicionarFaixaValor(
-          elemento as FaixaValor,
-          se,
-          entao,
-        )
+        adicionarFaixaValor(elemento as FaixaValor, se, entao)
         break
 
       case 'condicao_limiar':
-        adicionarCondicaoLimiar(
-          elemento as CondicaoLimiar,
-          se,
-        )
+        adicionarCondicaoLimiar(elemento as CondicaoLimiar, se)
         break
 
       case 'janela_datas':
-        adicionarJanelaDatas(
-          elemento as JanelaDatas,
-          se,
-          entao,
-        )
+        adicionarJanelaDatas(elemento as JanelaDatas, se, entao)
         break
 
       case 'exclusao':
-        adicionarExclusao(
-          elemento as Exclusao,
-          se,
-        )
+        adicionarExclusao(elemento as Exclusao, se)
         break
 
       case 'bonus_fixo':
-        adicionarBonusFixo(
-          elemento as BonusFixo,
-          entao,
-        )
+        adicionarBonusFixo(elemento as BonusFixo, entao)
         break
 
       case 'generico':
-        adicionarGenerico(
-          elemento as Generico,
-          se,
-        )
+        adicionarGenerico(elemento as Generico, se)
         break
 
       default:
@@ -123,9 +99,7 @@ export function transformarRegra(
   }
 }
 
-export function transformarResultado(
-  resultado: ResultadoSimulacao,
-): string[] {
+export function transformarResultado(resultado: ResultadoSimulacao): string[] {
   const { totais } = resultado
 
   if (!totais) {
@@ -135,17 +109,12 @@ export function transformarResultado(
   return [
     `comissão = ${formatarMoeda(totais.simulado)}`,
     `orçamento = ${
-      totais.simulado <= (totais.orcamento ?? totais.simulado)
-        ? 'OK'
-        : 'Ultrapassado'
+      totais.simulado <= (totais.orcamento ?? totais.simulado) ? 'OK' : 'Ultrapassado'
     }`,
   ]
 }
 
-function adicionarNucleo(
-  se: string[],
-  representacao: RepresentacaoRegra,
-): void {
+function adicionarNucleo(se: string[], representacao: RepresentacaoRegra): void {
   const { nucleo } = representacao
 
   if (nucleo.vigencia) {
@@ -154,36 +123,28 @@ function adicionarNucleo(
     if (inicio === fim) {
       se.push(`vigência = ${formatarCompetencia(inicio)}`)
     } else {
-      se.push(
-        `vigência = ${formatarCompetencia(inicio)} até ${formatarCompetencia(fim)}`,
-      )
+      se.push(`vigência = ${formatarCompetencia(inicio)} até ${formatarCompetencia(fim)}`)
     }
   }
 
-  if (nucleo.loja?.length) {
-    se.push(`loja = ${nucleo.loja.join(', ')}`)
+  if (nucleo.loja != null) {
+    se.push(`loja = ${nomesDoEscopo('loja', nucleo.loja)}`)
   }
 
-  if (nucleo.marca?.length) {
-    se.push(`marca = ${nucleo.marca.join(', ')}`)
+  if (nucleo.marca != null) {
+    se.push(`marca = ${nomesDoEscopo('marca', nucleo.marca)}`)
   }
 
-  if (nucleo.cargo?.length) {
-    se.push(`cargo = ${nucleo.cargo.join(', ')}`)
+  if (nucleo.cargo != null) {
+    se.push(`cargo = ${nomesDoEscopo('cargo', nucleo.cargo)}`)
   }
 
-  if (nucleo.percentual != null) {
-    se.push(
-      `% de comissionamento = ${formatarPercentual(nucleo.percentual)}`,
-    )
+  if (nucleo.percentual != null || nucleo.taxas_por_cargo?.length) {
+    se.push(`% de comissionamento = ${percentuaisDoNucleo(nucleo)}`)
   }
 }
 
-function adicionarFaixaValor(
-  elemento: FaixaValor,
-  se: string[],
-  entao: string[],
-): void {
+function adicionarFaixaValor(elemento: FaixaValor, se: string[], entao: string[]): void {
   se.push(
     `valor entre ${formatarMoeda(elemento.limite_inferior)} e ${formatarMoeda(elemento.limite_superior)}`,
   )
@@ -191,20 +152,13 @@ function adicionarFaixaValor(
   entao.push(formatarEfeito(elemento.efeito))
 }
 
-function adicionarCondicaoLimiar(
-  elemento: CondicaoLimiar,
-  se: string[],
-): void {
+function adicionarCondicaoLimiar(elemento: CondicaoLimiar, se: string[]): void {
   se.push(
     `${formatarMetrica(elemento.metrica)} ${elemento.operador} ${formatarValorLimiar(elemento.limiar)}`,
   )
 }
 
-function adicionarJanelaDatas(
-  elemento: JanelaDatas,
-  se: string[],
-  entao: string[],
-): void {
+function adicionarJanelaDatas(elemento: JanelaDatas, se: string[], entao: string[]): void {
   se.push(
     `data entre ${formatarData(elemento.data_inicial)} e ${formatarData(elemento.data_final)}`,
   )
@@ -212,28 +166,17 @@ function adicionarJanelaDatas(
   entao.push(formatarEfeito(elemento.efeito))
 }
 
-function adicionarExclusao(
-  elemento: Exclusao,
-  se: string[],
-): void {
+function adicionarExclusao(elemento: Exclusao, se: string[]): void {
   se.push(
-    `excluir ${elemento.dimensao} = ${elemento.valores.join(', ')}`,
+    `excluir ${elemento.dimensao} = ${elemento.valores.map((codigo) => nomeDaEntidade(elemento.dimensao, codigo)).join(', ')}`,
   )
 }
 
-function adicionarBonusFixo(
-  elemento: BonusFixo,
-  entao: string[],
-): void {
-  entao.push(
-    `bônus fixo = ${formatarMoeda(elemento.valor)}`,
-  )
+function adicionarBonusFixo(elemento: BonusFixo, entao: string[]): void {
+  entao.push(`bônus fixo = ${formatarMoeda(elemento.valor)}`)
 }
 
-function adicionarGenerico(
-  elemento: Generico,
-  se: string[],
-): void {
+function adicionarGenerico(elemento: Generico, se: string[]): void {
   se.push(elemento.descricao)
 }
 
@@ -271,7 +214,9 @@ function formatarData(valor: string): string {
 }
 
 function formatarPercentual(valor: number): string {
-  return `${valor * 100}%`
+  return new Intl.NumberFormat('pt-BR', { style: 'percent', maximumFractionDigits: 20 }).format(
+    valor,
+  )
 }
 
 function formatarMoeda(valor: number): string {

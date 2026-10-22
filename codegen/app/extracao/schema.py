@@ -8,7 +8,16 @@ _COMPETENCIA = {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$"}
 
 
 _CODIGOS = {"type": "array", "minItems": 1, "items": com_lastro(_TEXTO)}
+_ESCOPO = {"anyOf": [_CODIGOS, com_lastro({"type": "array", "maxItems": 0})]}
 _MONETARIO = {"type": "number"}
+TAXA_POR_CARGO = com_lastro(
+    {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["cargo", "percentual"],
+        "properties": {"cargo": _TEXTO, "percentual": {"type": "number"}},
+    }
+)
 
 
 def _schema_parametro(valor: dict[str, Any]) -> dict[str, Any]:
@@ -49,10 +58,11 @@ NUCLEO: dict[str, Any] = {
                 "publicadas."
             ),
         },
-        "loja": _CODIGOS,
-        "marca": _CODIGOS,
-        "cargo": _CODIGOS,
+        "loja": _ESCOPO,
+        "marca": _ESCOPO,
+        "cargo": _ESCOPO,
         "percentual": com_lastro({"type": "number"}),
+        "taxas_por_cargo": {"type": "array", "minItems": 1, "items": TAXA_POR_CARGO},
     },
 }
 
@@ -61,7 +71,8 @@ NUCLEO: dict[str, Any] = {
 # deixa de criar o genérico para o que o núcleo não comporta.
 _DESCRICAO_GENERICO = (
     "Qualquer condição ou efeito da regra que nenhum outro construto representa. O núcleo só "
-    "tem vigência, loja, marca, cargo e percentual: qualquer outra condição, como uma base "
+    "tem vigência, loja, marca, cargo, percentual e taxas por cargo: qualquer outra condição, "
+    "como uma base "
     "de cálculo diferente ('sobre a venda total da loja'), é elemento com "
     "construto_pretendido 'generico'. Nunca descarte."
 )

@@ -168,7 +168,7 @@ async def test_parametros_confirmados_drena_validas_duplicadas_e_invalidas(
     monkeypatch.setattr(Consumer, "receber", acompanhar)
     await broker_real.iniciar_consumers(ambiente.roteador)
     nome = "parametros-confirmados"
-    valida = exemplo(nome)
+    valida = exemplo(nome) | {"meta_venda": Decimal("12000000")}
     antiga = {"job_id": valida["job_id"], "regra_id": str(uuid4())}
     invalida = valida | {"competencias": []}
     corpos = [
@@ -417,7 +417,7 @@ async def test_regra_barrada_publica_a_pausa_no_broker_sem_chegar_ao_modelo(
     """
     ambiente = ConfirmacaoFalsa(monkeypatch)
     ambiente.buscar_regra.return_value = RepresentacaoRegra.model_validate(
-        {"nucleo": {}, "especificacoes": []}
+        {"nucleo": {"loja": [], "marca": [], "cargo": []}, "especificacoes": []}
     )
     assentadas: asyncio.Queue[None] = asyncio.Queue()
     receber = Consumer.receber
@@ -430,7 +430,11 @@ async def test_regra_barrada_publica_a_pausa_no_broker_sem_chegar_ao_modelo(
     roteador = GraphRouter(ambiente.banco, broker_real.producers, ambiente.limpeza)
     await broker_real.iniciar_consumers(roteador)
     nome = "parametros-confirmados"
-    payload = exemplo(nome) | {"job_id": str(uuid4()), "regra_id": str(uuid4())}
+    payload = exemplo(nome) | {
+        "job_id": str(uuid4()),
+        "regra_id": str(uuid4()),
+        "meta_venda": Decimal("12000000"),
+    }
 
     await broker_real.canal.default_exchange.publish(
         Message(body=simplejson.dumps(payload, use_decimal=True).encode()), routing_key=nome

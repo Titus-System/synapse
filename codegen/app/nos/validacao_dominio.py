@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
+from app.extracao.vocabulario import carregar_vocabulario
 from app.nos.codigos_conflito import CodigoConflito
 
 
@@ -38,7 +39,7 @@ def verificar(
     competencias_publicadas: Collection[str] = (),
     sem_lastro: Collection[str] = (),
 ) -> ResultadoValidacao:
-    """Verifica a regra e, com `parametros`, os parâmetros da simulação do job (T-280).
+    """Verifica a regra e, com `parametros`, a completude para nova simulação.
 
     `competencias_publicadas` são os meses com dados: com `parametros`, uma competência fora
     delas é conflito, e por isso quem passa os parâmetros passa também a lista. `sem_lastro`
@@ -48,10 +49,12 @@ def verificar(
     conflitos: list[Conflito] = []
     conflitos.extend(_completude_do_nucleo(representacao))
     conflitos.extend(_coerencia_do_percentual(representacao))
+    conflitos.extend(_coerencia_das_taxas_por_cargo(representacao))
     conflitos.extend(_coerencia_da_vigencia(representacao))
     conflitos.extend(_coerencia_de_exclusoes(representacao))
     conflitos.extend(_conflitos_dos_elementos(representacao))
     if parametros is not None:
+        conflitos.extend(_escopos_ausentes(representacao))
         conflitos.extend(_conflitos_dos_parametros(parametros, competencias_publicadas))
     conflitos.extend(_parametros_sem_lastro(sem_lastro))
     return ResultadoValidacao(tuple(conflitos))
@@ -68,18 +71,32 @@ _SEM_LASTRO = {
 def _conflitos_dos_parametros(
     parametros: Mapping[str, object], competencias_publicadas: Collection[str]
 ) -> list[Conflito]:
-    # Orçamento e meta ausentes não são conflito: a simulação segue sem a verificação de
-    # orçamento ou sobre as vendas históricas. Orçamento zero também é válido.
     conflitos: list[Conflito] = []
     orcamento = _numero(parametros.get("orcamento"))
-    if orcamento is not None and orcamento < 0:
+    if orcamento is None:
+        conflitos.append(
+            Conflito(
+                ("parametros.orcamento",),
+                "orçamento não informado",
+                CodigoConflito.ORCAMENTO_AUSENTE,
+            )
+        )
+    elif orcamento < 0:
         conflitos.append(
             Conflito(
                 ("parametros.orcamento",), "orçamento negativo", CodigoConflito.ORCAMENTO_NEGATIVO
             )
         )
     meta = _numero(parametros.get("meta_venda"))
-    if meta is not None and meta <= 0:
+    if meta is None:
+        conflitos.append(
+            Conflito(
+                ("parametros.meta_venda",),
+                "meta de vendas não informada",
+                CodigoConflito.META_VENDA_AUSENTE,
+            )
+        )
+    elif meta <= 0:
         # Sem vendas a escalar, a simulação sobre a meta não tem o que calcular.
         conflitos.append(
             Conflito(
@@ -103,6 +120,21 @@ def _conflitos_dos_parametros(
     return conflitos
 
 
+def _escopos_ausentes(representacao: Mapping[str, object]) -> list[Conflito]:
+    nucleo = representacao.get("nucleo")
+    if not isinstance(nucleo, Mapping):
+        nucleo = {}
+    return [
+        Conflito(
+            (f"nucleo.{campo}",),
+            f"escopo de {campo} não informado; indique os destinatários ou declare todos",
+            CodigoConflito.ESCOPO_AUSENTE,
+        )
+        for campo in ("loja", "marca", "cargo")
+        if campo not in nucleo
+    ]
+
+
 def _parametros_sem_lastro(campos: Collection[str]) -> list[Conflito]:
     # Na ordem do contrato, e não na do chamador, para o resultado ser determinístico.
     return [
@@ -113,16 +145,53 @@ def _parametros_sem_lastro(campos: Collection[str]) -> list[Conflito]:
 
 
 def _completude_do_nucleo(representacao: Mapping[str, object]) -> list[Conflito]:
-    # Só o percentual é obrigatório: loja/marca/cargo/vigência ausentes valem como "todos".
     nucleo = representacao.get("nucleo")
     percentual = nucleo.get("percentual") if isinstance(nucleo, Mapping) else None
-    if percentual is None:
+    taxas = nucleo.get("taxas_por_cargo") if isinstance(nucleo, Mapping) else None
+    if percentual is None and not taxas:
         return [
             Conflito(
                 ("nucleo.percentual",), "percentual ausente", CodigoConflito.PERCENTUAL_AUSENTE
             )
         ]
     return []
+
+
+def _coerencia_das_taxas_por_cargo(representacao: Mapping[str, object]) -> list[Conflito]:
+    nucleo = representacao.get("nucleo")
+    if not isinstance(nucleo, Mapping):
+        return []
+    taxas = nucleo.get("taxas_por_cargo")
+    if not isinstance(taxas, list):
+        return []
+    conflitos: list[Conflito] = []
+    por_cargo: dict[str, Decimal] = {}
+    cargos = nucleo.get("cargo")
+    for taxa in taxas:
+        if not isinstance(taxa, Mapping):
+            continue
+        cargo, percentual = taxa.get("cargo"), _numero(taxa.get("percentual"))
+        if not isinstance(cargo, str) or percentual is None:
+            continue
+        codigo = None
+        motivo = ""
+        if percentual < 0:
+            codigo, motivo = CodigoConflito.PERCENTUAL_NEGATIVO, "taxa por cargo negativa"
+        elif cargo not in carregar_vocabulario()["cargo"]:
+            codigo, motivo = CodigoConflito.TAXA_CARGO_DESCONHECIDO, "cargo da taxa não reconhecido"
+        elif isinstance(cargos, list) and cargos and cargo not in cargos:
+            codigo, motivo = CodigoConflito.TAXA_CARGO_FORA_ESCOPO, "taxa para cargo fora do núcleo"
+        elif cargo in por_cargo and por_cargo[cargo] != percentual:
+            codigo, motivo = (
+                CodigoConflito.TAXA_CARGO_CONTRADITORIA,
+                "taxas distintas para o mesmo cargo",
+            )
+        por_cargo[cargo] = percentual
+        if codigo is not None:
+            conflito = Conflito(("nucleo.taxas_por_cargo",), motivo, codigo)
+            if conflito not in conflitos:
+                conflitos.append(conflito)
+    return conflitos
 
 
 def _coerencia_do_percentual(representacao: Mapping[str, object]) -> list[Conflito]:

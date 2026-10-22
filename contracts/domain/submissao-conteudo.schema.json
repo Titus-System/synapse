@@ -8,8 +8,8 @@
   "properties": {
     "nucleo": {
       "type": "object",
-      "description": "Os cinco campos do núcleo, todos presentes. Diferente de regras.nucleo, aqui as chaves existem sempre: campo de lista sem valor vem como array vazio e campo escalar sem valor vem como null, porque o objetivo é registrar a estrutura recebida e não a regra resultante.",
-      "required": ["vigencia", "loja", "marca", "cargo", "percentual"],
+      "description": "O núcleo recebido do formulário, preservado para auditoria. Vigência e percentual escalar podem ser omitidos; taxas por cargo não exigem uma taxa uniforme adicional. Listas vazias de escopo representam a seleção explícita de todos.",
+      "required": ["loja", "marca", "cargo"],
       "properties": {
         "vigencia": {
           "oneOf": [
@@ -34,6 +34,9 @@
             { "$ref": "comum.schema.json#/$defs/fracao" },
             { "type": "null" }
           ]
+        },
+        "taxas_por_cargo": {
+          "$ref": "regra-nucleo.schema.json#/properties/taxas_por_cargo"
         }
       }
     },

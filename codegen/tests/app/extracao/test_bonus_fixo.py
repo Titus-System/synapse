@@ -334,3 +334,26 @@ async def test_admissao_negada_vira_generico() -> None:
 
     assert [e["construto"] for e in elementos(resultado)] == ["generico"]
     assert [r.motivo for r in resultado.rebaixamentos] == ["termo_ambiguo"]
+
+
+@pytest.mark.parametrize(
+    "condicao",
+    [
+        "quando suas vendas individuais no mês forem iguais ou superiores a R$ 45.000,00",
+        "para quem vender pelo menos R$ 45.000,00 no mês",
+        "somente se completar cinco atendimentos no mês",
+    ],
+)
+async def test_bonus_condicionado_nao_perde_o_requisito_ao_virar_tipado(condicao: str) -> None:
+    texto = f"Para o cargo 100, pague um bônus fixo de R$ 400,00 {condicao}."
+    elemento = rascunho_filtro(
+        descricao=texto,
+        trecho=texto,
+        criterios={"cargo": "100"},
+        valor=lastro(Decimal("400"), "R$ 400,00"),
+    )
+
+    resultado = await extrair(elemento, texto)
+
+    assert elementos(resultado) == [{"ref": "elem.1", "construto": "generico", "descricao": texto}]
+    assert [(r.ref, r.motivo) for r in resultado.rebaixamentos] == [("elem.1", "termo_ambiguo")]

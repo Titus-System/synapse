@@ -1,24 +1,34 @@
 # Sugestão de adaptação ao orçamento
 
-Após uma simulação bem-sucedida cujo veredito é `inviavel`, o codegen tenta reduzir apenas
-o percentual do núcleo de regras simples, sem especificações. Os demais campos permanecem
-iguais. A estimativa usa Decimal e os totais persistidos pelo worker:
-`percentual × (orçamento − baseline) / (simulado − baseline)`, truncado em quatro casas.
-Ela só se aplica quando `0 ≤ baseline < orçamento < simulado` e passa pela validação
-determinística de coerência. Não há chamada adicional de LLM para escolher percentuais
-ou produzir totais. A taxa é uma candidata conservadora; o worker confirma sua viabilidade.
+Após uma simulação bem-sucedida cujo veredito é `inviavel`, o codegen pode ajustar
+apenas o percentual uniforme do núcleo, preservando os demais campos. Regras com
+especificações ou `taxas_por_cargo` exigem revisão manual: reduzir só uma taxa não
+representaria a proposta inteira. Ausência de alternativa não prova que inexiste solução.
 
-Regras com especificações ou fora desse intervalo mantêm o resultado original e o caminho
-de revisão manual. Não produzir proposta não significa que inexiste solução.
+A busca determinística usa `Decimal` e resultados persistidos pelo worker:
 
-1. O codegen publica `sugestao-adaptacao-proposta`, referenciando job, regra original e resultado.
-2. A API trava o job, confere que o resultado pertence à última versão e registra no máximo
-   uma versão com origem `sugestao_adaptacao`. Propostas com outras alterações são descartadas.
-3. A versão e o evento `regra-submetida` são gravados na mesma transação pelo outbox.
-   O evento preserva origem, competências e orçamento do job e aponta a versão nova.
-4. O codegen executa um ciclo com checkpoint próprio para essa versão e delega ao worker.
-5. O worker simula a alternativa no sandbox. Se ela continuar inviável, não há terceira
-   tentativa automática.
+- Estimativa: `percentual × (orçamento − baseline) / (simulado − baseline)`, quando
+  `0 ≤ baseline < orçamento < simulado`.
+- Sondagem: quando o orçamento não supera o baseline e é positivo, tenta uma taxa
+  proporcional ao orçamento e ao total simulado.
+- Refinamento: com pelo menos duas taxas distintas já simuladas, usa a relação observada
+  entre taxas e comissões para escolher outra candidata. O limite é de três propostas.
+
+As taxas são truncadas em quatro casas, precisam ser positivas, menores que a taxa de
+origem e coerentes com a representação. Não há chamada de LLM para escolher a taxa nem
+produzir os totais. Cada candidata precisa de uma simulação no worker para confirmar sua
+viabilidade. Meta e orçamento permanecem os parâmetros do job; a validação completa é
+executada antes de gerar e delegar cada regra.
+
+1. O codegen publica `sugestao-adaptacao-proposta`, referenciando job, versão e resultado
+   de origem, com a tentativa e o método utilizados.
+2. A API trava o job, confere procedência, resultado e tentativa e rejeita mudanças além
+   do percentual permitido ou propostas duplicadas.
+3. A versão com origem `sugestao_adaptacao` e o evento `regra-submetida` são gravados na
+   mesma transação pelo outbox, preservando competências, orçamento e meta.
+4. O codegen executa o ciclo dessa versão e o worker simula a candidata no sandbox.
+5. Uma candidata ainda inviável pode originar a tentativa seguinte, até o limite de três.
+   Esgotamento, regra não suportada ou ausência de candidata encerram a busca automática.
 
 A proposta pode chegar à API antes do evento do resultado, pois são filas independentes.
 Nesse caso a API aplica o desfecho persistido e reabre o processamento na mesma transação.
@@ -42,7 +52,7 @@ aceita e seguir à finalização, usando a versão corrente, sem solicitar outra
 Recusar cancela o job pelo endpoint existente. Se a alternativa não couber, for indeterminada
 ou falhar, a tela explicita esse desfecho e oferece iniciar uma nova regra.
 
-Há uma tentativa automática para o recorte suportado, sem garantia de encontrar toda
+Há até três propostas automáticas para o recorte suportado, sem garantia de encontrar toda
 solução possível. Regras com parcelas fixas ou especificações complexas ficam fora da
 estimativa. O valor final e a viabilidade sempre vêm do worker.
 

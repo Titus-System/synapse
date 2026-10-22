@@ -39,7 +39,15 @@ class ConfirmacaoFalsa:
         self.modelo = FakeChatModel(messages=iter([AIMessage(content=resposta) for _ in range(4)]))
         self.buscar_regra = AsyncMock(
             return_value=RepresentacaoRegra.model_validate(
-                {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []}
+                {
+                    "nucleo": {
+                        "loja": [],
+                        "marca": [],
+                        "cargo": [],
+                        "percentual": Decimal("0.025"),
+                    },
+                    "especificacoes": [],
+                }
             )
         )
 

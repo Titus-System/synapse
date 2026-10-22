@@ -24,7 +24,10 @@ vi.mock('@/services/api', () => ({
   apiClient: {
     consultarJob: vi.fn<(id: string, signal?: AbortSignal) => Promise<Job>>(),
     listarJobs: vi.fn<typeof apiClient.listarJobs>().mockResolvedValue({
-      itens: [], pagina: 0, tamanho: 100, total: 0,
+      itens: [],
+      pagina: 0,
+      tamanho: 100,
+      total: 0,
     }),
   },
 }))
@@ -84,9 +87,9 @@ function criarJob(): Job {
               inicio: '2025-11',
               fim: '2025-11',
             },
-            loja: ['Loja 1'],
-            marca: ['Marca 1'],
-            cargo: ['Cargo 1'],
+            loja: ['1'],
+            marca: ['10'],
+            cargo: ['100'],
             percentual: 0.1,
           },
           especificacoes: [],
@@ -95,6 +98,8 @@ function criarJob(): Job {
     ],
     simulacao: {
       id: 'simulacao-1',
+      regra_id: 'regra-1',
+      meta_venda: 1000000,
       criado_em: '2025-11-24T14:04:47Z',
       status: 'sucesso',
       veredito: 'viavel',
@@ -158,7 +163,17 @@ describe('SimulateView', () => {
     expect(wrapper.text()).toContain('Esta regra falhou antes de produzir um resultado.')
     expect(wrapper.text()).not.toContain('Não foi possível carregar a simulação')
     expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
-    expect(wrapper.text()).toContain('Loja 1')
+    expect(wrapper.text()).toContain('LOJA-1')
+    const campos = wrapper.findAll('dl > div').map((campo) => ({
+      rotulo: campo.get('dt').text(),
+      valor: campo.get('dd').text(),
+    }))
+    expect(campos).toEqual(
+      expect.arrayContaining([
+        { rotulo: 'Meta de vendas', valor: 'Não informada' },
+        { rotulo: 'Orçamento de comissão', valor: 'R$ 485.000,00' },
+      ]),
+    )
 
     const acoes = wrapper
       .findAll('main a')
@@ -179,7 +194,13 @@ describe('SimulateView', () => {
 
     const texto = wrapper.get('main').text()
     expect(texto).toContain(razao)
-    for (const proibido of ['provedor_indisponivel', 'gerando_regra', 'geracao_codigo', '503', 'Gemini']) {
+    for (const proibido of [
+      'provedor_indisponivel',
+      'gerando_regra',
+      'geracao_codigo',
+      '503',
+      'Gemini',
+    ]) {
       expect(texto).not.toContain(proibido)
     }
     wrapper.unmount()
@@ -216,25 +237,32 @@ describe('SimulateView', () => {
     ['gerando_regra', 500],
     ['simulando', 403],
     ['simulando', 500],
-  ] as const)('exibe o erro de consulta durante %s quando a API responde %i', async (status, codigo) => {
-    const { wrapper, store } = await montarProcessamento(status)
-    expect(wrapper.find('[role="progressbar"]').exists()).toBe(true)
+  ] as const)(
+    'exibe o erro de consulta durante %s quando a API responde %i',
+    async (status, codigo) => {
+      const { wrapper, store } = await montarProcessamento(status)
+      expect(wrapper.find('[role="progressbar"]').exists()).toBe(true)
 
-    consultarJob.mockRejectedValueOnce(new HttpError(codigo, 'Não foi possível consultar o processamento.'))
-    await store.consultarJob()
-    await flushPromises()
+      consultarJob.mockRejectedValueOnce(
+        new HttpError(codigo, 'Não foi possível consultar o processamento.'),
+      )
+      await store.consultarJob()
+      await flushPromises()
 
-    expect(store.job?.status).toBe(status)
-    expect(wrapper.get('main h2').text()).toBe('Não foi possível carregar a simulação')
-    expect(wrapper.text()).toContain('Não foi possível consultar o processamento.')
-    expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
-    expect(wrapper.find('[aria-label="Processando simulação"]').exists()).toBe(false)
-    wrapper.unmount()
-  })
+      expect(store.job?.status).toBe(status)
+      expect(wrapper.get('main h2').text()).toBe('Não foi possível carregar a simulação')
+      expect(wrapper.text()).toContain('Não foi possível consultar o processamento.')
+      expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
+      expect(wrapper.find('[aria-label="Processando simulação"]').exists()).toBe(false)
+      wrapper.unmount()
+    },
+  )
 
   it('retoma o progresso e mostra o resultado após recuperar uma consulta com falha', async () => {
     const { wrapper, job, store } = await montarProcessamento()
-    consultarJob.mockRejectedValueOnce(new HttpError(500, 'Não foi possível consultar o processamento.'))
+    consultarJob.mockRejectedValueOnce(
+      new HttpError(500, 'Não foi possível consultar o processamento.'),
+    )
     await store.consultarJob()
     await flushPromises()
     expect(wrapper.get('main h2').text()).toBe('Não foi possível carregar a simulação')
@@ -254,7 +282,7 @@ describe('SimulateView', () => {
   })
 
   it('renderiza a tela de simulação', async () => {
-    const job = criarJob()
+    const job = { ...criarJob(), meta_venda: 2000000, orcamento: 600000 }
     consultarJob.mockResolvedValue(job)
 
     const router = criarRouterDeTeste()
@@ -269,7 +297,7 @@ describe('SimulateView', () => {
     })
 
     await vi.waitFor(() => {
-      expect(wrapper.find('#loja').element).toHaveProperty('value', 'Loja 1')
+      expect(wrapper.find('#loja').element).toHaveProperty('value', 'LOJA-1')
     })
 
     expect(wrapper.text()).toContain('Simulação')
@@ -277,10 +305,13 @@ describe('SimulateView', () => {
     expect(wrapper.text()).toContain('Dados da simulação')
 
     expect(wrapper.find('#vigencia').element).toHaveProperty('value', '11/2025')
-    expect(wrapper.find('#loja').element).toHaveProperty('value', 'Loja 1')
-    expect(wrapper.find('#marca').element).toHaveProperty('value', 'Marca 1')
-    expect(wrapper.find('#cargo').element).toHaveProperty('value', 'Cargo 1')
-    expect(wrapper.find('#meta').element).toHaveProperty('value', 'R$ 485.000,00')
+    expect(wrapper.find('#loja').element).toHaveProperty('value', 'LOJA-1')
+    expect(wrapper.find('#marca').element).toHaveProperty('value', 'PRETO')
+    expect(wrapper.find('#cargo').element).toHaveProperty('value', 'VENDEDOR LOJA')
+    expect(wrapper.find('#meta').element).toHaveProperty('value', 'R$ 1.000.000,00')
+    expect(wrapper.get('label[for="meta"]').text()).toBe('Meta de vendas')
+    expect(wrapper.get('label[for="orcamento"]').text()).toBe('Orçamento de comissão')
+    expect(wrapper.get('#orcamento').element).toHaveProperty('value', 'R$ 485.000,00')
     expect(wrapper.find('#percentual').element).toHaveProperty('value', '10%')
     expect(wrapper.find('#totalComissionamento').element).toHaveProperty('value', 'R$ 492.100,00')
 
@@ -292,10 +323,16 @@ describe('SimulateView', () => {
 })
 
 it('abre a conversa sem clique ao reabrir um job que aguarda correção', async () => {
-  consultarJob.mockResolvedValue({ ...criarJob(), status: 'aguardando_confirmacao_parametros', simulacao: null })
+  consultarJob.mockResolvedValue({
+    ...criarJob(),
+    status: 'aguardando_confirmacao_parametros',
+    simulacao: null,
+  })
   const router = criarRouterDeTeste()
   await router.push('/jobs/job-1')
-  const wrapper = mount(SimulateView, { global: { plugins: [router, createPinia()], stubs: { FontAwesomeIcon: true } } })
+  const wrapper = mount(SimulateView, {
+    global: { plugins: [router, createPinia()], stubs: { FontAwesomeIcon: true } },
+  })
   await flushPromises()
   expect(router.currentRoute.value.path).toBe('/jobs/job-1/correcao')
   expect(wrapper.text()).not.toContain('Corrigir por texto ou voz')
@@ -306,26 +343,32 @@ it('abre a conversa quando o job pausa por conflito durante o acompanhamento', a
   consultarJob.mockResolvedValue({ ...criarJob(), status: 'gerando_regra', simulacao: null })
   const router = criarRouterDeTeste()
   await router.push('/jobs/job-1')
-  const wrapper = mount(SimulateView, { global: { plugins: [router, createPinia()], stubs: { FontAwesomeIcon: true } } })
+  const wrapper = mount(SimulateView, {
+    global: { plugins: [router, createPinia()], stubs: { FontAwesomeIcon: true } },
+  })
   await flushPromises()
   expect(router.currentRoute.value.path).toBe('/jobs/job-1')
   const chamadas = vi.mocked(abrirAcompanhamentoJob).mock.calls
   const handlers = chamadas[chamadas.length - 1]![1]
-  handlers.onEstado({ job_id: 'job-1', status: 'aguardando_confirmacao_parametros', status_anterior: 'gerando_regra' })
+  handlers.onEstado({
+    job_id: 'job-1',
+    status: 'aguardando_confirmacao_parametros',
+    status_anterior: 'gerando_regra',
+  })
   await flushPromises()
   expect(router.currentRoute.value.path).toBe('/jobs/job-1/correcao')
   wrapper.unmount()
 })
 
-it('mostra a lógica da regra e abre o relatório da simulação na própria tela', async () => {
+it('abre os filtros e a tabela no popup sem a representação técnica', async () => {
   consultarJob.mockResolvedValue(criarJob())
   vi.mocked(consultarDetalhamento).mockResolvedValue({
     simulacao_id: 'simulacao-1',
     linhas: {
       '2025-11': {
         'COL-0001': {
-          cod_loja: '013',
-          cod_marca: '010',
+          cod_loja: '1',
+          cod_marca: '10',
           cod_cargo: '100',
           comissao_baseline: 100,
           comissao_simulada: 150,
@@ -337,13 +380,25 @@ it('mostra a lógica da regra e abre o relatório da simulação na própria tel
   })
   const router = criarRouterDeTeste()
   await router.push('/jobs/job-1')
-  const wrapper = mount(SimulateView, { global: { plugins: [router, createPinia()], stubs: { FontAwesomeIcon: true } } })
+  const wrapper = mount(SimulateView, {
+    global: { plugins: [router, createPinia()], stubs: { FontAwesomeIcon: true } },
+  })
   await flushPromises()
-  expect(wrapper.text()).toContain('LÓGICA ESTRUTURADA')
+  expect(wrapper.text()).not.toContain('LÓGICA ESTRUTURADA')
   expect(consultarDetalhamento).not.toHaveBeenCalled()
-  await wrapper.findAll('button').find((botao) => botao.text().includes('Abrir relatório'))!.trigger('click')
+  await wrapper
+    .findAll('button')
+    .find((botao) => botao.text().includes('Abrir relatório'))!
+    .trigger('click')
   await flushPromises()
-  expect(consultarDetalhamento).toHaveBeenCalledWith('job-1', 'simulacao-1', expect.any(AbortSignal))
+  expect(consultarDetalhamento).toHaveBeenCalledWith(
+    'job-1',
+    'simulacao-1',
+    expect.any(AbortSignal),
+  )
+  expect(wrapper.find('table').exists()).toBe(false)
+  await wrapper.get('dialog form').trigger('submit')
+  await flushPromises()
   expect(wrapper.text()).toContain('COL-0001')
   wrapper.unmount()
 })

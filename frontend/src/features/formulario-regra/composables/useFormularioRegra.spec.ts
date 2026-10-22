@@ -30,10 +30,79 @@ function preencherFormularioValido() {
   formulario.formulario.cargo = ['100']
   formulario.formulario.percentual = '2,5'
   formulario.formulario.orcamento = '485.000,00'
+  formulario.formulario.metaVenda = '12.000.000,00'
   return formulario
 }
 
 describe('useFormularioRegra', () => {
+  it('exige meta e escolhas de escopo, mas permite omitir a vigência', async () => {
+    criarJob.mockResolvedValue(jobCriadoFixture())
+    const { formulario, enviarFormulario, erros } = preencherFormularioValido()
+    formulario.vigenciaInicio = ''
+    formulario.vigenciaFim = ''
+    formulario.metaVenda = ''
+    expect(await enviarFormulario()).toBeUndefined()
+    expect(erros.metaVenda).toBe('Informe a meta de vendas.')
+    expect(criarJob).not.toHaveBeenCalled()
+    formulario.metaVenda = '1000000'
+    formulario.loja = []
+    expect(await enviarFormulario()).toBeUndefined()
+    formulario.todasLojas = true
+    await enviarFormulario()
+    const requisicao = criarJob.mock.calls[0]?.[0]
+    expect(requisicao?.meta_venda).toBe(1000000)
+    expect(requisicao?.orcamento).toBe(485000)
+    expect(requisicao?.conteudo.nucleo.loja).toEqual([])
+    expect(requisicao?.conteudo.nucleo).not.toHaveProperty('vigencia')
+  })
+
+  it('envia todos os pares sem copiar uma taxa para o percentual uniforme', async () => {
+    criarJob.mockResolvedValue(jobCriadoFixture())
+    const { formulario, enviarFormulario } = preencherFormularioValido()
+    formulario.modoTaxa = 'porCargo'
+    formulario.taxasPorCargo = [
+      { cargo: '100', percentual: '3' },
+      { cargo: '150', percentual: '5' },
+    ]
+    await enviarFormulario()
+    expect(criarJob.mock.calls[0]?.[0].conteudo.nucleo).toMatchObject({
+      cargo: ['100', '150'],
+      taxas_por_cargo: [
+        { cargo: '100', percentual: 0.03 },
+        { cargo: '150', percentual: 0.05 },
+      ],
+    })
+    expect(criarJob.mock.calls[0]?.[0].conteudo.nucleo).not.toHaveProperty('percentual')
+  })
+
+  it('preserva a taxa uniforme e as exceções ao abrir para reprocessar', async () => {
+    consultarJob.mockResolvedValue(
+      jobComNucleo({
+        cargo: [],
+        percentual: 0.02,
+        taxas_por_cargo: [{ cargo: '150', percentual: 0.05 }],
+      }),
+    )
+    criarJob.mockResolvedValue(jobCriadoFixture())
+    const controle = useFormularioRegra()
+    await controle.preencherComRegraDoJob('job-1')
+    controle.formulario.orcamento = '485000'
+    controle.formulario.metaVenda = '12000000'
+    await controle.enviarFormulario()
+    expect(criarJob.mock.calls[0]?.[0].conteudo.nucleo).toMatchObject({
+      cargo: [],
+      percentual: 0.02,
+      taxas_por_cargo: [{ cargo: '150', percentual: 0.05 }],
+    })
+  })
+
+  it('não converte escopo antigo ausente em todas as lojas', async () => {
+    consultarJob.mockResolvedValue(jobComNucleo({ loja: undefined }))
+    const controle = useFormularioRegra()
+    await controle.preencherComRegraDoJob('job-1')
+    expect(controle.formulario.loja).toEqual([])
+    expect(controle.formulario.todasLojas).toBe(false)
+  })
   afterEach(() => {
     vi.resetAllMocks()
   })
@@ -72,7 +141,9 @@ describe('useFormularioRegra', () => {
   })
 
   it('descarta a competência que não está entre as opções de vigência', async () => {
-    consultarJob.mockResolvedValue(jobComNucleo({ vigencia: { inicio: '2024-01', fim: '2024-02' } }))
+    consultarJob.mockResolvedValue(
+      jobComNucleo({ vigencia: { inicio: '2024-01', fim: '2024-02' } }),
+    )
     const formulario = useFormularioRegra()
 
     await formulario.preencherComRegraDoJob('job-1')
@@ -83,7 +154,10 @@ describe('useFormularioRegra', () => {
   })
 
   it.each([
-    ['a consulta falha', () => consultarJob.mockRejectedValue(new HttpError(404, 'Job não encontrado.'))],
+    [
+      'a consulta falha',
+      () => consultarJob.mockRejectedValue(new HttpError(404, 'Job não encontrado.')),
+    ],
     ['o job não tem regra', () => consultarJob.mockResolvedValue(jobFixture({ regras: [] }))],
   ])('pede o preenchimento manual quando %s', async (_cenario, prepararConsulta) => {
     prepararConsulta()
@@ -102,13 +176,15 @@ describe('useFormularioRegra', () => {
     const formulario = useFormularioRegra()
 
     expect(formulario.validarFormulario()).toBe(false)
-    expect(formulario.erros.loja).toBe('Selecione ao menos uma loja.')
+    expect(formulario.erros.loja).toBe('Selecione lojas ou declare todas.')
     expect(formulario.erros.percentual).toBe('Informe o percentual de comissão.')
     expect(formulario.erros.orcamento).toBe('Informe o orçamento disponível.')
   })
 
   it('descarta os códigos que não existem entre as opções do quadro de RH', async () => {
-    consultarJob.mockResolvedValue(jobComNucleo({ loja: ['13', '999'], marca: ['10'], cargo: ['100'] }))
+    consultarJob.mockResolvedValue(
+      jobComNucleo({ loja: ['13', '999'], marca: ['10'], cargo: ['100'] }),
+    )
     const formulario = useFormularioRegra()
 
     await formulario.preencherComRegraDoJob('job-1')
@@ -125,6 +201,7 @@ describe('useFormularioRegra', () => {
     expect(criarJob).toHaveBeenCalledWith({
       origem: 'formulario',
       orcamento: 485000,
+      meta_venda: 12000000,
       conteudo: {
         nucleo: {
           vigencia: { inicio: '2025-11', fim: '2025-11' },

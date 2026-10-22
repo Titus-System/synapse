@@ -5,6 +5,7 @@ import unicodedata
 from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from itertools import pairwise
 
 _MESES = (
     "janeiro",
@@ -152,23 +153,44 @@ def resolver_periodo(
 ) -> list[str] | None:
     """Extrai somente meses presentes no trecho; o ano implícito vem do job."""
     normalizado = normalizar(trecho)
-    explicitadas = [f"{ano}-{mes}" for ano, mes in _COMPETENCIA.findall(trecho)]
-    if not explicitadas:
-        explicitadas = [f"{ano}-{int(mes):02d}" for mes, ano in _COMPETENCIA_BR.findall(trecho)]
-    if explicitadas:
-        if len(explicitadas) > 2:
+    iso = list(_COMPETENCIA.finditer(trecho))
+    brasileiro = list(_COMPETENCIA_BR.finditer(trecho))
+    por_nome = list(_MES.finditer(normalizado))
+    if sum(bool(formato) for formato in (iso, brasileiro, por_nome)) != 1:
+        return None
+    base = trecho
+    if iso:
+        referencias = iso
+        meses = [f"{item[1]}-{item[2]}" for item in iso]
+    elif brasileiro:
+        referencias = brasileiro
+        meses = [f"{item[2]}-{int(item[1]):02d}" for item in brasileiro]
+    else:
+        base = normalizado
+        referencias = por_nome
+        anos = set(_ANO.findall(normalizado))
+        if not anos:
+            anos = {c[:4] for c in publicadas if _COMPETENCIA.fullmatch(c)}
+        if len(anos) != 1:
             return None
-        return _meses_inclusivos(explicitadas[0], explicitadas[-1], vigencia=vigencia)
-    meses = [str(_MESES.index(m.group()) + 1).zfill(2) for m in _MES.finditer(normalizado)]
-    if not 1 <= len(meses) <= 2:
+        ano = anos.pop()
+        meses = [f"{ano}-{_MESES.index(item.group()) + 1:02d}" for item in referencias]
+
+    ligacoes = [base[a.end() : b.start()] for a, b in pairwise(referencias)]
+    intervalo = any(
+        re.search(r"\b(?:a|ate)$", normalizar(ligacao))
+        or ligacao.strip() in ("-", "\u2013", "\u2014")
+        for ligacao in ligacoes
+    ) or bool(re.search(r"\bentre\s*$", normalizar(base[: referencias[0].start()])))
+    if len(meses) == 2 and re.search(r"\s[-\u2013\u2014]\s", trecho):
+        intervalo = True
+    if intervalo:
+        if len(meses) != 2:
+            return None
+        return _meses_inclusivos(meses[0], meses[-1], vigencia=vigencia)
+    if vigencia and len(meses) > 1:
         return None
-    anos = set(_ANO.findall(normalizado))
-    if not anos:
-        anos = {c[:4] for c in publicadas if _COMPETENCIA.fullmatch(c)}
-    if len(anos) != 1:
-        return None
-    ano = anos.pop()
-    return _meses_inclusivos(f"{ano}-{meses[0]}", f"{ano}-{meses[-1]}", vigencia=vigencia)
+    return sorted(set(meses))
 
 
 def conferir_periodo(

@@ -45,11 +45,17 @@ export interface Vigencia {
 }
 
 export interface NucleoSubmissao {
-  vigencia: Vigencia | null
+  vigencia?: Vigencia | null
   loja: string[]
   marca: string[]
   cargo: string[]
-  percentual: number | null
+  percentual?: number | null
+  taxas_por_cargo?: TaxaPorCargo[]
+}
+
+export interface TaxaPorCargo {
+  cargo: string
+  percentual: number
 }
 
 export interface ConteudoSubmissao {
@@ -63,6 +69,7 @@ export interface NucleoRegra {
   marca?: string[]
   cargo?: string[]
   percentual?: number
+  taxas_por_cargo?: TaxaPorCargo[]
 }
 
 export interface EspecificacaoRegra {
@@ -79,6 +86,7 @@ export interface RepresentacaoRegra {
 export interface CriarJobRequisicao {
   origem: 'formulario'
   orcamento: number
+  meta_venda?: number
   conteudo: ConteudoSubmissao
   competencias?: string[]
 }
@@ -86,6 +94,7 @@ export interface CriarJobRequisicao {
 export interface ConfirmarParametrosRequisicao {
   regra: RepresentacaoRegra
   orcamento?: number
+  meta_venda?: number
   competencias?: string[]
 }
 

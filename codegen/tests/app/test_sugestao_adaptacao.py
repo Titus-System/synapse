@@ -130,6 +130,19 @@ def test_nao_aplica_estimativa_proporcional_a_regra_com_bonus_fixo() -> None:
     assert alternativa.representacao is None
 
 
+def test_nao_ajusta_so_a_taxa_uniforme_quando_ha_taxas_por_cargo() -> None:
+    alternativa = propor_alternativa(
+        _representacao(
+            nucleo={"taxas_por_cargo": [{"cargo": "100", "percentual": Decimal("0.03")}]}
+        ),
+        Decimal("492100"),
+        Decimal("485000"),
+        baseline=Decimal("480312"),
+    )
+    assert alternativa.motivo == MOTIVO_NAO_SUPORTADA
+    assert alternativa.representacao is None
+
+
 def test_nao_propoe_quando_nao_ha_estimativa() -> None:
     alternativa = propor_alternativa(
         _representacao(), Decimal("400000"), Decimal("485000"), baseline=Decimal("480312")

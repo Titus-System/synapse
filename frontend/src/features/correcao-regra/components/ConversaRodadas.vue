@@ -4,10 +4,17 @@ import type { RegraVersionada } from '@/types/api'
 import MensagemConversa from './MensagemConversa.vue'
 import { parametrosDaRegra } from '../composables/parametrosDaRegra'
 import type { Rodada } from '../types'
-const props = defineProps<{ rodadas: Rodada[]; regras?: RegraVersionada[]; metaVenda?: number }>()
+const props = defineProps<{
+  rodadas: Rodada[]
+  regras?: RegraVersionada[]
+  metaVenda?: number
+  competencias?: string[]
+}>()
 const parametros = computed(() => {
   const regra = props.regras?.find((item) => item.id === props.rodadas[0]?.regra_analisada_id)
-  return regra ? parametrosDaRegra(regra.representacao.nucleo, props.metaVenda) : []
+  return regra
+    ? parametrosDaRegra(regra.representacao.nucleo, props.metaVenda, props.competencias)
+    : []
 })
 </script>
 
@@ -17,7 +24,6 @@ const parametros = computed(() => {
     <p v-for="parametro in parametros" :key="parametro.rotulo">
       {{ parametro.rotulo }}: {{ parametro.valor }}
     </p>
-    <p class="mt-4">Podemos prosseguir para a simulação?</p>
   </MensagemConversa>
   <div v-for="rodada in rodadas" :key="rodada.id" class="space-y-5" :data-rodada="rodada.id">
     <MensagemConversa v-if="rodada.conflitos.length">

@@ -1,0 +1,17 @@
+{
+  "classe": "sucesso",
+  "competencias": [
+    "2025-08",
+    "2025-11"
+  ],
+  "elemento": {
+    "nucleo.taxas_por_cargo": 861729.36
+  },
+  "motivo": "ok",
+  "totais": {
+    "baseline": 871403.78,
+    "diferenca_abs": 861729.36,
+    "diferenca_pct": 0.9888978907114678,
+    "simulado": 1733133.14
+  }
+}

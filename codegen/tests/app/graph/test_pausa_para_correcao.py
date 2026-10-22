@@ -28,7 +28,7 @@ def ambiente(monkeypatch: pytest.MonkeyPatch) -> ConfirmacaoFalsa:
     confirmacao = ConfirmacaoFalsa(monkeypatch)
     confirmacao.buscar_regra.return_value = RepresentacaoRegra.model_validate(
         {
-            "nucleo": {},
+            "nucleo": {"loja": [], "marca": [], "cargo": []},
             "especificacoes": [
                 {
                     "ref": "elem.1",
@@ -99,7 +99,7 @@ def delta(antes: str, depois: str, nome: str, labels: dict[str, str]) -> float:
 async def test_regra_barrada_publica_a_pausa_e_encerra_o_ciclo_sem_falha(
     ambiente: ConfirmacaoFalsa,
 ) -> None:
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     recebida = mensagem(payload)
 
     await ambiente.consumer.receber(recebida)
@@ -123,9 +123,12 @@ async def test_regra_liberada_segue_para_a_geracao_sem_publicar_a_pausa(
     ambiente: ConfirmacaoFalsa, cliente: AsyncClient
 ) -> None:
     ambiente.buscar_regra.return_value = RepresentacaoRegra.model_validate(
-        {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []}
+        {
+            "nucleo": {"loja": [], "marca": [], "cargo": [], "percentual": Decimal("0.025")},
+            "especificacoes": [],
+        }
     )
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     antes = (await cliente.get("/metrics")).text
 
     await ambiente.consumer.receber(mensagem(payload))
@@ -140,7 +143,7 @@ async def test_falha_ao_publicar_a_pausa_reenfileira_e_conta_falha_do_no(
     ambiente: ConfirmacaoFalsa, cliente: AsyncClient, logs: list[dict[str, Any]]
 ) -> None:
     falhar_uma_vez_na_pausa(ambiente)
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     recebida = mensagem(payload)
     antes = (await cliente.get("/metrics")).text
 
@@ -169,7 +172,7 @@ async def test_reentrega_depois_da_falha_publica_so_a_pausa_sem_revalidar(
     ambiente: ConfirmacaoFalsa, cliente: AsyncClient
 ) -> None:
     falhar_uma_vez_na_pausa(ambiente)
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     await ambiente.consumer.receber(mensagem(payload))
     publicadas = len(ambiente.publicacoes)
     antes = (await cliente.get("/metrics")).text
@@ -190,7 +193,7 @@ async def test_reentrega_depois_da_falha_publica_so_a_pausa_sem_revalidar(
 async def test_reentrega_depois_do_fim_do_ciclo_nao_publica_de_novo(
     ambiente: ConfirmacaoFalsa, cliente: AsyncClient
 ) -> None:
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     await ambiente.consumer.receber(mensagem(payload))
     publicadas = list(ambiente.publicacoes)
     antes = (await cliente.get("/metrics")).text
@@ -210,7 +213,7 @@ async def test_logs_e_metricas_da_pausa_no_caminho_real_sem_vazamento(
     antes = (await cliente.get("/metrics")).text
     jobs: list[dict[str, Any]] = []
     for _ in range(2):
-        payload = exemplo("parametros-confirmados") | {
+        payload = (exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}) | {
             "job_id": str(uuid4()),
             "regra_id": str(uuid4()),
         }
@@ -270,7 +273,9 @@ async def test_regra_id_publicado_e_o_da_versao_analisada_no_ciclo(
     ambiente: ConfirmacaoFalsa,
 ) -> None:
     analisada = uuid4()
-    payload = exemplo("parametros-confirmados") | {"regra_id": str(analisada)}
+    payload = (exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}) | {
+        "regra_id": str(analisada)
+    }
 
     await ambiente.consumer.receber(mensagem(payload))
 

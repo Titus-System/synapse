@@ -8,7 +8,13 @@ import pytest
 import simplejson
 
 from app.repositorio.extracoes import PersistenciaExtracaoError, buscar_extracao, gravar_extracao
-from tests.app.extracao.test_motor import ELEMENTO, PARAMETROS_BRUTOS, extrair, modelo_falso
+from tests.app.extracao.test_motor import (
+    ELEMENTO,
+    PARAMETROS_BRUTOS,
+    TEXTO_PARAMETROS,
+    extrair,
+    modelo_falso,
+)
 
 pytestmark = [
     pytest.mark.postgres,
@@ -24,11 +30,18 @@ async def resultado() -> Any:
     return await extrair(
         modelo_falso(
             {
-                "nucleo": {"loja": ["0013"], "percentual": Decimal("2.1234567890123456789")},
+                "nucleo": {
+                    "loja": [{"valor": "13", "trecho": "loja 13"}],
+                    "percentual": {
+                        "valor": Decimal("0.021234567890123456789"),
+                        "trecho": "2,1234567890123456789%",
+                    },
+                },
                 "elementos": [ELEMENTO],
                 "parametros": PARAMETROS_BRUTOS,
             }
-        )
+        ),
+        TEXTO_PARAMETROS + " Comissão de 2,1234567890123456789%.",
     )
 
 
@@ -80,7 +93,13 @@ async def test_reentrega_retorna_artefato_original_mesmo_com_outra_resposta(
     original = await resultado()
     salvo = await gravar_extracao(sessoes, job_id=job, submissao_id=submissao, resultado=original)
     diferente = await extrair(
-        modelo_falso({"nucleo": {"percentual": 2}, "elementos": [], "parametros": {}})
+        modelo_falso(
+            {
+                "nucleo": {"percentual": {"valor": Decimal("0.025"), "trecho": "2,5%"}},
+                "elementos": [],
+                "parametros": {},
+            }
+        )
     )
 
     repetido = await gravar_extracao(
@@ -95,7 +114,14 @@ async def test_concorrencia_reverte_artefatos_da_transacao_perdedora(banco_extra
     sessoes, dono, job, submissao = banco_extracao
     resultados = [
         await extrair(
-            modelo_falso({"nucleo": {"percentual": i}, "elementos": [], "parametros": {}})
+            modelo_falso(
+                {
+                    "nucleo": {"percentual": {"valor": Decimal(i) / 100, "trecho": f"{i}%"}},
+                    "elementos": [],
+                    "parametros": {},
+                }
+            ),
+            f"Comissão de {i}%",
         )
         for i in range(8)
     ]
@@ -113,8 +139,8 @@ async def test_concorrencia_reverte_artefatos_da_transacao_perdedora(banco_extra
         "SELECT conteudo FROM respostas_modelo WHERE id=$1", salvos[0].resposta_id
     )
     assert (
-        simplejson.loads(resposta, use_decimal=True)["nucleo"]
-        == salvos[0].representacao.para_contrato()["nucleo"]
+        simplejson.loads(resposta, use_decimal=True)["nucleo"]["percentual"]["valor"]
+        == salvos[0].representacao.para_contrato()["nucleo"]["percentual"]
     )
 
 

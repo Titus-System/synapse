@@ -48,7 +48,9 @@ def logs() -> Any:
 async def test_confirmacao_abre_load_rule_e_delega_contexto_exato(
     ambiente: ConfirmacaoFalsa,
 ) -> None:
-    payload = exemplo("parametros-confirmados") | {"orcamento": Decimal("485000.123456789012345")}
+    payload = (exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}) | {
+        "orcamento": Decimal("485000.123456789012345")
+    }
     recebida = mensagem(payload)
 
     await ambiente.consumer.receber(recebida)
@@ -89,7 +91,7 @@ async def test_reentrega_na_pausa_ou_apos_fim_nao_repete_efeitos(
     concluido: bool,
     cliente: AsyncClient,
 ) -> None:
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     await ambiente.consumer.receber(mensagem(payload))
     if concluido:
         monkeypatch.setattr(
@@ -125,12 +127,15 @@ async def test_reentrega_na_pausa_ou_apos_fim_nao_repete_efeitos(
 
 
 async def test_outra_versao_do_mesmo_job_tem_ciclo_proprio(ambiente: ConfirmacaoFalsa) -> None:
-    primeira = exemplo("parametros-confirmados")
+    primeira = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     segunda = primeira | {"regra_id": str(uuid4()), "competencias": ["2025-11"]}
 
     await ambiente.consumer.receber(mensagem(primeira))
     ambiente.buscar_regra.return_value = RepresentacaoRegra.model_validate(
-        {"nucleo": {"percentual": Decimal("0.03")}, "especificacoes": []}
+        {
+            "nucleo": {"loja": [], "marca": [], "cargo": [], "percentual": Decimal("0.03")},
+            "especificacoes": [],
+        }
     )
     await ambiente.consumer.receber(mensagem(segunda))
 
@@ -147,7 +152,7 @@ async def test_outra_versao_do_mesmo_job_tem_ciclo_proprio(ambiente: Confirmacao
 async def test_sem_competencias_descarta_sem_grafo_nem_erro_do_job(
     ambiente: ConfirmacaoFalsa, logs: list[dict[str, Any]]
 ) -> None:
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     del payload["competencias"]
     recebida = mensagem(payload)
 
@@ -171,7 +176,7 @@ async def test_job_encerrado_confirma_sem_recriar_checkpoint(
     ambiente: ConfirmacaoFalsa, encerramento: EstadoDoEncerramento, tem_contexto: bool
 ) -> None:
     ambiente.limpeza.encerramento = encerramento
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     if not tem_contexto:
         del payload["competencias"]
     recebida = mensagem(payload)
@@ -202,7 +207,9 @@ async def test_job_encerrado_confirma_sem_recriar_checkpoint(
 async def test_schema_recusa_contexto_invalido_antes_do_grafo(
     ambiente: ConfirmacaoFalsa, campo: str, valor: Any
 ) -> None:
-    payload = exemplo("parametros-confirmados") | {campo: valor}
+    payload = (exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}) | {
+        campo: valor
+    }
     recebida = mensagem(payload)
 
     await ambiente.consumer.receber(recebida)
@@ -219,7 +226,7 @@ async def test_falha_permanente_do_ciclo_publica_erro_e_rejeita(
     cliente: AsyncClient,
 ) -> None:
     ambiente = ConfirmacaoFalsa(monkeypatch, "```python\nsegredo_da_resposta(\n```")
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     recebida = mensagem(payload)
     antes = amostras((await cliente.get("/metrics")).text)
 
@@ -255,7 +262,7 @@ async def test_reentrega_apos_falha_transitoria_continua_sem_repetir_modelo(
     ambiente: ConfirmacaoFalsa,
 ) -> None:
     ambiente.banco.falhar_em = ("codigos_gerados",)
-    recebida = mensagem()
+    recebida = mensagem(exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")})
 
     await ambiente.consumer.receber(recebida)
 
@@ -263,7 +270,7 @@ async def test_reentrega_apos_falha_transitoria_continua_sem_repetir_modelo(
     recebida.reject.assert_not_awaited()
     assert all(p.get("status") != "erro" for _, p in ambiente.publicacoes)
     ambiente.banco.falhar_em = ()
-    repetida = mensagem()
+    repetida = mensagem(exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")})
     await ambiente.consumer.receber(repetida)
     repetida.ack.assert_awaited_once_with()
     assert len(ambiente.modelo.seen_messages) == 1
@@ -289,7 +296,7 @@ async def test_metricas_e_logs_dos_tres_resultados_passam_pelo_roteador_real(
 ) -> None:
     antes = amostras((await cliente.get("/metrics")).text)
     assert set(antes) == {"ciclo_aberto", "reentrega_ignorada", "descartada"}
-    primeiro = exemplo("parametros-confirmados")
+    primeiro = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     segundo = primeiro | {"job_id": str(uuid4()), "regra_id": str(uuid4())}
     del segundo["competencias"]
 
@@ -342,14 +349,16 @@ async def test_cobertura_passa_pelo_consumidor_grafo_e_observabilidade(
     desfecho: str,
 ) -> None:
     regra: dict[str, Any] = {
-        "nucleo": {"percentual": Decimal("0.025")} if refs else {},
+        "nucleo": {"loja": [], "marca": [], "cargo": [], "percentual": Decimal("0.025")}
+        if refs
+        else {"loja": [], "marca": [], "cargo": []},
         "especificacoes": [
             {"ref": ref, "construto": "generico", "descricao": "REGRA_PRIVADA", "campos": {}}
             for ref in refs
         ],
     }
     ambiente.buscar_regra.return_value = RepresentacaoRegra.model_validate(regra)
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     recebida = mensagem(payload)
     antes = amostras((await cliente.get("/metrics")).text)
 
@@ -420,7 +429,7 @@ async def test_correlacao_anterior_e_restaurada_em_sucesso_e_descarte(
     try:
         await ambiente.consumer.receber(mensagem())
         assert job_id_ctx.get() == "contexto-anterior"
-        payload = exemplo("parametros-confirmados")
+        payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
         del payload["competencias"]
         await ambiente.consumer.receber(mensagem(payload))
         assert job_id_ctx.get() == "contexto-anterior"

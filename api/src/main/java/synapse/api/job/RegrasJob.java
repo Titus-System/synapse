@@ -63,7 +63,7 @@ final class HashDaRegra {
 	static String calcular(RepresentacaoRegraDto regra, @Nullable ParametrosDaSimulacao parametros) {
 		NucleoRegraDto nucleo = regra.nucleo();
 		NucleoRegraDto canonico = new NucleoRegraDto(nucleo.vigencia(), nucleo.loja(), nucleo.marca(), nucleo.cargo(),
-				semZerosAtras(nucleo.percentual()));
+				semZerosAtras(nucleo.percentual()), taxasCanonicas(nucleo.taxas_por_cargo()));
 		byte[] json = JSON
 			.writeValueAsString(new RegraCanonica(regra.especificacoes(), canonico, canonicos(parametros)))
 			.getBytes(StandardCharsets.UTF_8);
@@ -73,6 +73,13 @@ final class HashDaRegra {
 		catch (NoSuchAlgorithmException ex) {
 			throw new IllegalStateException("SHA-256 indisponível.", ex);
 		}
+	}
+
+	private static @Nullable List<TaxaPorCargoDto> taxasCanonicas(@Nullable List<TaxaPorCargoDto> taxas) {
+		return taxas == null ? null
+				: taxas.stream()
+					.map(taxa -> new TaxaPorCargoDto(taxa.cargo(), taxa.percentual().stripTrailingZeros()))
+					.toList();
 	}
 
 	/**

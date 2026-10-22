@@ -432,11 +432,29 @@
           "fim": "2025-11",
           "inicio": "2025-11"
         }
+      },
+      {
+        "cargo": [
+          "100",
+          "150"
+        ],
+        "loja": [],
+        "marca": [],
+        "taxas_por_cargo": [
+          {
+            "cargo": "100",
+            "percentual": 0.03
+          },
+          {
+            "cargo": "150",
+            "percentual": 0.05
+          }
+        ]
       }
     ],
     "properties": {
       "cargo": {
-        "description": "Cod_Cargo. Filtro de escopo. Ausente ou vazio significa todos. Corresponde ao termo equipe ou funções do backlog.",
+        "description": "Cod_Cargo. Filtro de escopo. Vazio declara todos explicitamente. Ausente permanece pendente antes de uma nova simulação; versões históricas continuam legíveis. Corresponde ao termo equipe ou funções do backlog.",
         "examples": [
           [
             "100",
@@ -449,7 +467,7 @@
         "type": "array"
       },
       "loja": {
-        "description": "Cod_Loja. Filtro de escopo: a regra só se aplica a estas lojas. Ausente ou vazio significa todas. Corresponde ao termo canal do backlog.",
+        "description": "Cod_Loja. Filtro de escopo: a regra só se aplica a estas lojas. Vazio declara todas explicitamente. Ausente permanece pendente antes de uma nova simulação; versões históricas continuam legíveis. Corresponde ao termo canal do backlog.",
         "examples": [
           [
             "13"
@@ -461,7 +479,7 @@
         "type": "array"
       },
       "marca": {
-        "description": "Cod_Marca. Filtro de escopo. Ausente ou vazio significa todas. Corresponde ao termo produto do backlog; não há granularidade de item ou SKU.",
+        "description": "Cod_Marca. Filtro de escopo. Vazio declara todas explicitamente. Ausente permanece pendente antes de uma nova simulação; versões históricas continuam legíveis. Corresponde ao termo produto do backlog; não há granularidade de item ou SKU.",
         "examples": [
           [
             "10",
@@ -476,6 +494,26 @@
       "percentual": {
         "$ref": "comum.schema.json#/$defs/fracao",
         "description": "%_Comiss proposto, em fração. 0.025 são 2,5%."
+      },
+      "taxas_por_cargo": {
+        "description": "Taxas explicitamente propostas para cada cargo, em fração. Cargos sem taxa própria conservam o baseline, salvo uma taxa uniforme explicitamente declarada em percentual. Uma taxa própria substitui a uniforme para seu cargo; não é um acréscimo. Não implica taxa uniforme para os demais cargos.",
+        "items": {
+          "properties": {
+            "cargo": {
+              "$ref": "comum.schema.json#/$defs/codigo"
+            },
+            "percentual": {
+              "$ref": "comum.schema.json#/$defs/fracao"
+            }
+          },
+          "required": [
+            "cargo",
+            "percentual"
+          ],
+          "type": "object"
+        },
+        "minItems": 1,
+        "type": "array"
       },
       "vigencia": {
         "$ref": "comum.schema.json#/$defs/vigencia",

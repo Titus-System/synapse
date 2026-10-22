@@ -11,6 +11,12 @@ from enum import StrEnum
 class CodigoConflito(StrEnum):
     PERCENTUAL_AUSENTE = "percentual_ausente"
     PERCENTUAL_NEGATIVO = "percentual_negativo"
+    TAXA_CARGO_CONTRADITORIA = "taxa_cargo_contraditoria"
+    TAXA_CARGO_FORA_ESCOPO = "taxa_cargo_fora_escopo"
+    TAXA_CARGO_DESCONHECIDO = "taxa_cargo_desconhecido"
+    ESCOPO_AUSENTE = "escopo_ausente"
+    ORCAMENTO_AUSENTE = "orcamento_ausente"
+    META_VENDA_AUSENTE = "meta_venda_ausente"
     VIGENCIA_INVERTIDA = "vigencia_invertida"
     EXCLUSAO_REPETIDA = "exclusao_repetida"
     FAIXA_INVERTIDA = "faixa_invertida"

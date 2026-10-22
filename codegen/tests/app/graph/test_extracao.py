@@ -900,7 +900,12 @@ async def test_regra_gravada_abre_outro_ciclo_sem_repetir_extracao(
     ambiente = AmbienteExtracao(monkeypatch)
     entrada = ambiente.entrada()
     await ambiente.consumer.receber(mensagem(entrada))
-    versao = {**entrada, "regra_id": str(uuid4())}
+    versao = {
+        **entrada,
+        "regra_id": str(uuid4()),
+        "orcamento": Decimal("500000"),
+        "meta_venda": Decimal("12000000"),
+    }
     recebida = mensagem(versao)
 
     await ambiente.consumer.receber(recebida)
@@ -1153,5 +1158,72 @@ async def test_exclusao_contada_no_no_sem_expor_texto(
     assert conclusao["extra"]["rebaixamentos_por_motivo"] == ({motivo: 1} if motivo else {})
     assert texto not in simplejson.dumps(logs)
     assert trecho not in simplejson.dumps(logs)
+    assert job_id_ctx.get() is None
+    assert no_ctx.get() is None
+
+
+async def test_meses_enumerados_e_bonus_condicionado_preservam_regra_e_telemetria(
+    monkeypatch: pytest.MonkeyPatch,
+    cliente: AsyncClient,
+    logs: list[dict[str, Any]],
+) -> None:
+    periodo = "agosto, outubro e dezembro de 2025"
+    bonus = "Bônus de R$ 400,00 para o cargo 100 quando vender pelo menos R$ 45.000,00 no mês"
+    texto = f"Simule {periodo}. {bonus}. CENARIO_RESERVADO"
+    rascunho = {
+        "nucleo": {},
+        "parametros": {
+            "competencias": {"valor": ["2025-08", "2025-10", "2025-12"], "trecho": periodo}
+        },
+        "elementos": [
+            {
+                "construto_pretendido": "bonus_fixo",
+                "descricao": bonus,
+                "trecho": bonus,
+                "tipo_alvo": "filtro",
+                "criterios": {"cargo": "100"},
+                "valor": {"valor": Decimal("400"), "trecho": "R$ 400,00"},
+            }
+        ],
+    }
+    ambiente = AmbienteExtracao(monkeypatch, [rascunho])
+    entrada = ambiente.entrada()
+    ambiente.banco.transcricoes[UUID(entrada["submissao_id"])] = texto
+    antes = (await cliente.get("/metrics")).text
+    recebida = mensagem(entrada)
+
+    await ambiente.consumer.receber(recebida)
+
+    recebida.ack.assert_awaited_once_with()
+    [salva] = ambiente.banco.tabela("extracoes_regras")
+    assert simplejson.loads(salva["representacao"])["especificacoes"] == [
+        {"ref": "elem.1", "construto": "generico", "descricao": bonus}
+    ]
+    assert simplejson.loads(salva["parametros"]) == {
+        "competencias": ["2025-08", "2025-10", "2025-12"]
+    }
+    depois = (await cliente.get("/metrics")).text
+    for nome, rotulos in (
+        (
+            "codegen_extracao_parametros_total",
+            {"parametro": "competencias", "resultado": "extraido"},
+        ),
+        ("codegen_extracao_rebaixamentos_total", {"motivo": "termo_ambiguo"}),
+        ("job_duration_seconds_count", {"job_name": "extract_rule"}),
+    ):
+        assert amostra(depois, nome, rotulos) - amostra(antes, nome, rotulos) == 1
+    validador = Draft202012Validator(
+        simplejson.loads((CONTRATOS / "observability/log.schema.json").read_text()),
+        format_checker=FormatChecker(),
+    )
+    for log in logs:
+        validador.validate(log)
+        assert log["job_id"] == entrada["job_id"]
+    assert [log["message"] for log in logs if log.get("no") == "extracao_parametros"] == [
+        "extraction started",
+        "extraction finished",
+    ]
+    assert "CENARIO_RESERVADO" not in simplejson.dumps(logs)
+    assert bonus not in simplejson.dumps(logs)
     assert job_id_ctx.get() is None
     assert no_ctx.get() is None

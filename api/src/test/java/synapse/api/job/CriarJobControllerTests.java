@@ -148,8 +148,44 @@ class CriarJobControllerTests {
 	}
 
 	static Stream<Arguments> camposAusentes() {
-		return Stream.of("vigencia", "loja", "marca", "cargo", "percentual")
+		return Stream.of("loja", "marca", "cargo", "percentual")
 			.flatMap(campo -> Stream.of(Arguments.of(campo, false), Arguments.of(campo, true)));
+	}
+
+	@Test
+	void recebeTaxasPorCargoSemExigirTaxaUniformeOuVigencia() throws Exception {
+		when(this.service.criar(any(), any())).thenAnswer(invocacao -> {
+			CriarJobRequisicao requisicao = invocacao.getArgument(0);
+			return new JobCriadoDto(UUID.randomUUID(), "gerando_regra", "formulario", requisicao.competencias(),
+					requisicao.orcamento(), Instant.parse("2026-09-16T15:00:00Z"), UUID.randomUUID(), null,
+					new RegraCriadaDto(UUID.randomUUID(), 1, "confirmacao_usuario", requisicao.representacao(),
+							Instant.parse("2026-09-16T15:00:00Z")));
+		});
+		String corpo = FORMULARIO.replace("\"vigencia\":{\"inicio\":\"2025-11\",\"fim\":\"2025-11\"},", "")
+			.replace("\"percentual\":0.025",
+					"\"taxas_por_cargo\":[{\"cargo\":\"100\",\"percentual\":0.03},{\"cargo\":\"300\",\"percentual\":0.05}]");
+		this.mvc.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON).content(corpo))
+			.andExpect(status().isCreated());
+		var captor = org.mockito.ArgumentCaptor.forClass(CriarJobRequisicao.class);
+		verify(this.service).criar(captor.capture(), any());
+		NucleoRegraDto nucleo = captor.getValue().representacao().nucleo();
+		assertThat(nucleo.percentual()).isNull();
+		assertThat(nucleo.vigencia()).isNull();
+		assertThat(nucleo.taxas_por_cargo()).containsExactly(
+				new TaxaPorCargoDto("100", new java.math.BigDecimal("0.03")),
+				new TaxaPorCargoDto("300", new java.math.BigDecimal("0.05")));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "[]", "null", "[{}]", "[{\"cargo\":\"100\",\"percentual\":\"3%\"}]",
+			"[{\"cargo\":100,\"percentual\":0.03}]" })
+	void recusaParesDeTaxaMalformados(String taxas) throws Exception {
+		this.mvc
+			.perform(post("/jobs").contentType(MediaType.APPLICATION_JSON)
+				.content(FORMULARIO.replace("\"percentual\":0.025", "\"taxas_por_cargo\":" + taxas)))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.elementos[0].ref").value("nucleo.taxas_por_cargo"));
+		verifyNoInteractions(this.service);
 	}
 
 	@ParameterizedTest

@@ -397,7 +397,7 @@ class JobEventosService {
 	@Nullable SugestaoAplicada aplicarSugestaoAdaptacao(UUID jobId, UUID regraOrigemId, UUID resultadoId,
 			RepresentacaoRegraDto representacao, @Nullable Integer tentativa) {
 		var percentual = representacao.nucleo().percentual();
-		if (percentual == null || percentual.signum() <= 0) {
+		if (percentual == null || percentual.signum() <= 0 || representacao.nucleo().taxas_por_cargo() != null) {
 			return null;
 		}
 		List<ContextoDoJob> contextos = this.repository.buscarContextoComTrava(jobId);

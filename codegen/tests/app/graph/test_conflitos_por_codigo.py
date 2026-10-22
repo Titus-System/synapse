@@ -63,7 +63,13 @@ def _regra(
 ) -> RepresentacaoRegra:
     return RepresentacaoRegra.model_validate(
         {
-            "nucleo": {"percentual": Decimal("0.025"), **(nucleo or {})},
+            "nucleo": {
+                "loja": [],
+                "marca": [],
+                "cargo": [],
+                "percentual": Decimal("0.025"),
+                **(nucleo or {}),
+            },
             "especificacoes": especificacoes or [],
         }
     )
@@ -73,7 +79,9 @@ def _regra(
 _ALCANCAVEIS: list[tuple[CodigoConflito, RepresentacaoRegra]] = [
     (
         CodigoConflito.PERCENTUAL_AUSENTE,
-        RepresentacaoRegra.model_validate({"nucleo": {}, "especificacoes": []}),
+        RepresentacaoRegra.model_validate(
+            {"nucleo": {"loja": [], "marca": [], "cargo": []}, "especificacoes": []}
+        ),
     ),
     (CodigoConflito.PERCENTUAL_NEGATIVO, _regra({"percentual": Decimal("-0.01")})),
     (
@@ -106,7 +114,7 @@ _ALCANCAVEIS: list[tuple[CodigoConflito, RepresentacaoRegra]] = [
 
 
 async def _processar(ambiente: ConfirmacaoFalsa, regra: RepresentacaoRegra) -> dict[str, Any]:
-    payload = exemplo("parametros-confirmados") | {
+    payload = (exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}) | {
         "job_id": str(uuid4()),
         "regra_id": str(uuid4()),
     }
@@ -162,10 +170,11 @@ async def test_regra_com_dois_conflitos_conta_os_dois_codigos_e_uma_regra_barrad
 @pytest.mark.parametrize(
     "arquivo", ["representacao-regra-elementos", "representacao-regra-generico"]
 )
-async def test_exemplos_do_contrato_sao_liberados_pelo_no_sem_contar_conflito(
+async def test_exemplos_com_escopo_completado_sao_liberados_sem_conflito(
     ambiente: ConfirmacaoFalsa, cliente: AsyncClient, arquivo: str
 ) -> None:
     exemplo_regra = simplejson.loads((EXEMPLOS / f"{arquivo}.json").read_bytes(), use_decimal=True)
+    exemplo_regra["nucleo"] = {"loja": [], "marca": [], "cargo": [], **exemplo_regra["nucleo"]}
     antes = _contagens((await cliente.get("/metrics")).text)
 
     payload = await _processar(ambiente, RepresentacaoRegra.model_validate(exemplo_regra))
@@ -238,7 +247,10 @@ async def test_condicao_limiar_sem_escopo_falha_na_leitura_como_regra_fora_do_co
         "operador": ">=",
         "limiar": 50000,
     }
-    linha = {"nucleo": {"percentual": 0.025}, "especificacoes": [limiar]}
+    linha = {
+        "nucleo": {"loja": [], "marca": [], "cargo": [], "percentual": 0.025},
+        "especificacoes": [limiar],
+    }
 
     with pytest.raises(RegraInvalidaError):
         await buscar_regra(_sessionmaker(linha), uuid4(), uuid4())
