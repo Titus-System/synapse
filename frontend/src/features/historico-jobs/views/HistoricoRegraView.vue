@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiClient } from '@/services/api'
 import { HttpError } from '@/services/http'
@@ -11,9 +11,11 @@ import { useDetalhamento } from '@/composables/useDetalhamento'
 import { consultarDetalhamento } from '@/services/detalhamento'
 import { formatarReais } from '@/composables/apresentacaoDetalhamento'
 import { simulacoesDoHistorico, versaoDeEncerramento } from '../composables/historicoDoJob'
+import { usarStoreRegrasRecentes } from '@/stores/regrasRecentes'
 
 const rota = useRoute()
 const roteador = useRouter()
+const regras = usarStoreRegrasRecentes()
 const jobId = computed(() => String(rota.params.id))
 const job = shallowRef<Job | null>(null)
 const erro = ref('')
@@ -99,11 +101,18 @@ watch(
   },
   { immediate: true },
 )
+onMounted(() => {
+  void regras.carregar()
+})
 onBeforeUnmount(() => consulta?.abort())
 </script>
 <template>
   <div class="min-h-screen bg-[#fffaf7] text-[#2e1a10] lg:grid lg:grid-cols-[16rem_minmax(0,1fr)]">
-    <TheSidebar class="hidden h-screen lg:sticky lg:top-0 lg:flex" />
+    <TheSidebar class="hidden h-screen lg:sticky lg:top-0 lg:flex" 
+      :quantidade-arquivadas="regras.quantidadeArquivadas"
+      :quantidade-salvas="regras.quantidadeSalvas"
+      :regras-recentes="regras.regrasRecentes"
+    />
     <main class="min-w-0 p-4 sm:p-8">
       <h1 class="mb-6 text-3xl font-bold">Histórico da regra</h1>
       <p v-if="carregando" role="status">Carregando histórico...</p>
