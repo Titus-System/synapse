@@ -46,7 +46,7 @@ Uma linha por envio do usuário, com o conteúdo como ele chegou e antes de qual
 
 O codegen lê a descrição e a correção sempre em `transcricao`, seja ela digitada ou transcrita.
 
-A coluna `conteudo` tem duas chaves, `nucleo` e `texto_livre`, e o núcleo traz seus cinco campos.
+A coluna `conteudo` tem duas chaves, `nucleo` e `texto_livre`, e o núcleo segue o schema de submissão, incluindo a coleção opcional `taxas_por_cargo`.
 
 ```json
 {
@@ -61,7 +61,7 @@ A coluna `conteudo` tem duas chaves, `nucleo` e `texto_livre`, e o núcleo traz 
 }
 ```
 
-O núcleo tem esses cinco campos e nenhum outro. Matrícula não está entre eles, aqui nem em `regras.nucleo`, pelo motivo da seção 3; quando a regra precisa mirar pessoas, isso entra em `regras.especificacoes`.
+O núcleo também admite `taxas_por_cargo`, com pares de cargo e percentual. Vigência e taxa uniforme podem ser omitidas; as dimensões de escopo precisam de seleção explícita. Matrícula não está entre eles, aqui nem em `regras.nucleo`, pelo motivo da seção 3; quando a regra precisa mirar pessoas, isso entra em `regras.especificacoes`.
 
 As outras quatro colunas cobrem as submissões de texto e de voz. `binario` guarda os bytes do áudio. `formato` é o contêiner que o navegador gravou, declarado no `Content-Type` da parte `audio` de `POST /submissoes`: `webm`, `ogg`, `wav` ou `mp4`. `transcricao` guarda o texto, digitado ou transcrito, e `transcrito_em` marca a conclusão da transcrição do áudio.
 
@@ -92,7 +92,7 @@ O job cobre o período inteiro em uma simulação, com os meses agregados. Qualq
 
 Na entrada por texto ou voz definida pela T-277, o job nasce antes da extração, com todas as competências publicadas e com `orcamento` e `meta_venda` nulos. A API aplica depois os parâmetros extraídos: substitui o período quando o texto o diz e grava os valores monetários como foram ditos. Orçamento negativo, meta zero ou negativa e competência fora das publicadas ficam disponíveis para a validação apontar conflitos, antes da execução. Não há restrição numérica de faixa nessas duas colunas.
 
-`orcamento` é o orçamento de comissão do período; sem ele, a simulação não verifica orçamento. `meta_venda` é o total de vendas pretendido para o período; sem ela, a simulação usa as vendas históricas. A ausência de período preserva todas as competências publicadas. A migration e a aplicação dos parâmetros no job pertencem à T-279; a extração é da T-278 e a validação, da T-280. O DBML registra esse contrato, não a conclusão dessas implementações.
+`orcamento` é o orçamento de comissão do período; `meta_venda` é o total de vendas pretendido para o período. Ambos precisam ser explícitos antes de uma nova simulação: orçamento não negativo e meta positiva. A ausência aciona o loop de correção, sem assumir vendas históricas nem dispensar a verificação orçamentária. Resultados antigos continuam legíveis. A ausência de período preserva todas as competências publicadas. A migration e a aplicação dos parâmetros no job pertencem à T-279; a extração é da T-278 e a validação, da T-280. O DBML registra esse contrato, não a conclusão dessas implementações.
 
 A procedência é `submissao_id` ou `job_origem_id`, nunca as duas. É dela que se deduz o ponto de entrada no grafo, sem precisar de coluna dedicada.
 
@@ -166,7 +166,7 @@ A representação estruturada da regra, armazenada em `nucleo` e `especificacoes
 }
 ```
 
-São esses cinco campos e nenhum outro, no vocabulário da DEC-084. Matrícula não é um deles, e a seção 3 explica por quê. `percentual` é fração e não porcentagem, então `0.025` são 2,5%. `vigencia` usa `AAAA-MM` pelo mesmo motivo que `competencias`. Chave ausente é situação válida: sem `vigencia`, a regra vale para todas as competências do job.
+Além dos campos do exemplo, `taxas_por_cargo` registra pares `{cargo, percentual}`. Cada taxa própria substitui a uniforme naquele cargo. Cargos sem taxa própria nem uniforme conservam o baseline; não é necessário inventar uma taxa geral. Matrícula não é um deles, e a seção 3 explica por quê. `percentual` é fração e não porcentagem, então `0.025` são 2,5%. `vigencia` usa `AAAA-MM` pelo mesmo motivo que `competencias`. Sem `vigencia`, a regra vale para as competências do job. Ausência de loja, marca ou cargo representa pendência; lista vazia registra a declaração explícita de todos. A extração pode produzir dados incompletos, mas a validação bloqueia sua execução.
 
 `especificacoes` é um array, vazio quando a regra é só o núcleo.
 
@@ -321,7 +321,7 @@ A coluna `totais` traz os agregados do período inteiro, somando todas as compet
 
 Os valores são em reais, com exceção de `diferenca_pct`, que é fração. O orçamento aparece aqui embora também exista em `jobs.orcamento`: como esta tabela só aceita `INSERT`, guardar o critério junto do veredito impede que o parâmetro que produziu aquele julgamento seja alterado depois.
 
-Definido pela T-269, o job sem orçamento é simulado sem a verificação de orçamento: `totais.orcamento` fica ausente e `veredito` fica nulo num `sucesso`, porque o número vale e não há critério que o julgue. `totais.vendas_historicas` é o total de vendas das competências do job antes de qualquer escalonamento, acrescentado pelo worker fora do container.
+O worker preserva a capacidade técnica da T-269 para comandos e resultados legados sem orçamento; os produtores atuais exigem orçamento e meta antes de novas simulações. Nesse caso legado, `totais.orcamento` fica ausente e `veredito` fica nulo num `sucesso`, porque o número vale e não há critério que o julgue. `totais.vendas_historicas` é o total de vendas das competências do job antes de qualquer escalonamento, acrescentado pelo worker fora do container.
 
 ```json
 { "baseline": 529520.00, "simulado": 541900.00,

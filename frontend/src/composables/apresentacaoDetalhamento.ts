@@ -21,6 +21,7 @@ export function rotulosContribuicoes(
   regra: RepresentacaoRegra | undefined,
 ): Record<string, string> {
   const rotulos: Record<string, string> = {
+    'nucleo.taxas_por_cargo': 'Taxas de comissão por cargo',
     'nucleo.percentual':
       regra?.nucleo.percentual == null
         ? 'Percentual de comissão'

@@ -1,10 +1,11 @@
+import type { OpcaoDeCodigo } from '@/types/catalogoRh'
 import { reactive, ref } from 'vue'
 import { apiClient } from '@/services/api'
 import { HttpError } from '@/services/http'
 import { regraMaisRecente } from '@/services/job'
 import type { CriarJobRequisicao, JobCriado, NucleoRegra } from '@/types/api'
-import { opcoesDeCargo, opcoesDeLoja, opcoesDeMarca } from '../opcoesDeRh'
-import type { CampoDoFormulario, FormularioDeRegra, OpcaoDeCodigo, OpcaoDeVigencia } from '../types'
+import { opcoesDeCargo, opcoesDeLoja, opcoesDeMarca } from '@/services/catalogoRh'
+import type { CampoDoFormulario, FormularioDeRegra, OpcaoDeVigencia } from '../types'
 
 const opcoesDeVigencia: readonly OpcaoDeVigencia[] = [
   { valor: '2025-08', rotulo: 'Agosto de 2025' },
@@ -26,6 +27,8 @@ const nomesDeCampo: Record<string, CampoDoFormulario[]> = {
   Cargo: ['cargo'],
   'Percentual de comissionamento': ['percentual'],
   Orçamento: ['orcamento'],
+  'Meta de vendas': ['metaVenda'],
+  'Taxas por cargo': ['taxasPorCargo'],
 }
 
 function criarFormularioVazio(): FormularioDeRegra {
@@ -35,8 +38,14 @@ function criarFormularioVazio(): FormularioDeRegra {
     loja: [],
     marca: [],
     cargo: [],
+    todasLojas: false,
+    todasMarcas: false,
+    todosCargos: false,
+    modoTaxa: 'uniforme',
+    taxasPorCargo: [{ cargo: '', percentual: '' }],
     percentual: '',
     orcamento: '',
+    metaVenda: '',
   }
 }
 
@@ -49,10 +58,13 @@ function criarErrosVazios(): Record<CampoDoFormulario, string> {
     cargo: '',
     percentual: '',
     orcamento: '',
+    metaVenda: '',
+    taxasPorCargo: '',
   }
 }
 
 function converterPercentual(valor: string): number | undefined {
+  if (!valor.trim()) return undefined
   const valorNormalizado = valor.trim().replace('%', '').replace(',', '.')
   const numero = Number(valorNormalizado)
 
@@ -60,6 +72,7 @@ function converterPercentual(valor: string): number | undefined {
 }
 
 function converterOrcamento(valor: string): number | undefined {
+  if (!valor.trim()) return undefined
   const valorSemEspacos = valor.trim()
   const valorNormalizado = valorSemEspacos.includes(',')
     ? valorSemEspacos.replace(/\./g, '').replace(',', '.')
@@ -94,7 +107,7 @@ function codigosDisponiveis(
   return opcoes.map((opcao) => opcao.valor).filter((valor) => (codigos ?? []).includes(valor))
 }
 
-function campoPreenchido(valor: string | string[]): boolean {
+function campoPreenchido(valor: string | unknown[]): boolean {
   return Array.isArray(valor) ? valor.length > 0 : valor.trim() !== ''
 }
 
@@ -124,25 +137,50 @@ export function useFormularioRegra() {
     limparErros()
 
     const obrigatorios: { campo: CampoDoFormulario; mensagem: string }[] = [
-      { campo: 'vigenciaInicio', mensagem: 'Informe o início da vigência.' },
-      { campo: 'vigenciaFim', mensagem: 'Informe o fim da vigência.' },
-      { campo: 'loja', mensagem: 'Selecione ao menos uma loja.' },
-      { campo: 'marca', mensagem: 'Selecione ao menos uma marca.' },
-      { campo: 'cargo', mensagem: 'Selecione ao menos um cargo.' },
-      { campo: 'percentual', mensagem: 'Informe o percentual de comissão.' },
       { campo: 'orcamento', mensagem: 'Informe o orçamento disponível.' },
+      { campo: 'metaVenda', mensagem: 'Informe a meta de vendas.' },
     ]
 
     for (const { campo, mensagem } of obrigatorios) {
       if (!campoPreenchido(formulario[campo])) erros[campo] = mensagem
     }
 
-    if (formulario.percentual && converterPercentual(formulario.percentual) === undefined) {
+    if (!formulario.todasLojas && !formulario.loja.length)
+      erros.loja = 'Selecione lojas ou declare todas.'
+    if (!formulario.todasMarcas && !formulario.marca.length)
+      erros.marca = 'Selecione marcas ou declare todas.'
+    if (formulario.vigenciaInicio && !formulario.vigenciaFim)
+      erros.vigenciaFim = 'Informe o fim da vigência.'
+    if (formulario.vigenciaFim && !formulario.vigenciaInicio)
+      erros.vigenciaInicio = 'Informe o início da vigência.'
+    if (formulario.modoTaxa !== 'porCargo') {
+      if (!formulario.todosCargos && !formulario.cargo.length)
+        erros.cargo = 'Selecione cargos ou declare todos.'
+      if (!formulario.percentual.trim()) erros.percentual = 'Informe o percentual de comissão.'
+    }
+    if (
+      formulario.modoTaxa !== 'uniforme' &&
+      (!formulario.taxasPorCargo.length ||
+        formulario.taxasPorCargo.some(
+          (taxa) => !taxa.cargo || converterPercentual(taxa.percentual) === undefined,
+        ))
+    ) {
+      erros.taxasPorCargo = 'Informe o cargo e o percentual de cada taxa.'
+    }
+
+    if (
+      formulario.modoTaxa !== 'porCargo' &&
+      formulario.percentual &&
+      converterPercentual(formulario.percentual) === undefined
+    ) {
       erros.percentual = 'Informe o percentual no formato 2,5.'
     }
 
     if (formulario.orcamento && converterOrcamento(formulario.orcamento) === undefined) {
       erros.orcamento = 'Informe o orçamento no formato 485.000,00.'
+    }
+    if (formulario.metaVenda && converterOrcamento(formulario.metaVenda) === undefined) {
+      erros.metaVenda = 'Informe a meta no formato 12.000.000,00.'
     }
 
     return Object.values(erros).every((erro) => erro === '')
@@ -151,18 +189,42 @@ export function useFormularioRegra() {
   function montarRequisicao(): CriarJobRequisicao | undefined {
     const percentual = converterPercentual(formulario.percentual)
     const orcamento = converterOrcamento(formulario.orcamento)
-    if (percentual === undefined || orcamento === undefined) return undefined
+    const metaVenda = converterOrcamento(formulario.metaVenda)
+    if (orcamento === undefined || metaVenda === undefined) return undefined
+    const taxas = formulario.taxasPorCargo.map((taxa) => ({
+      cargo: taxa.cargo,
+      percentual: converterPercentual(taxa.percentual),
+    }))
+    if (formulario.modoTaxa !== 'porCargo' && percentual === undefined) return undefined
+    if (formulario.modoTaxa !== 'uniforme' && taxas.some((taxa) => taxa.percentual === undefined))
+      return undefined
 
     return {
       origem: 'formulario',
       orcamento,
+      meta_venda: metaVenda,
       conteudo: {
         nucleo: {
-          vigencia: { inicio: formulario.vigenciaInicio, fim: formulario.vigenciaFim },
-          loja: [...formulario.loja],
-          marca: [...formulario.marca],
-          cargo: [...formulario.cargo],
-          percentual,
+          ...(formulario.vigenciaInicio && formulario.vigenciaFim
+            ? { vigencia: { inicio: formulario.vigenciaInicio, fim: formulario.vigenciaFim } }
+            : {}),
+          loja: formulario.todasLojas ? [] : [...formulario.loja],
+          marca: formulario.todasMarcas ? [] : [...formulario.marca],
+          cargo:
+            formulario.modoTaxa === 'porCargo'
+              ? [...new Set(taxas.map((taxa) => taxa.cargo))]
+              : formulario.todosCargos
+                ? []
+                : [...formulario.cargo],
+          ...(formulario.modoTaxa !== 'uniforme'
+            ? {
+                taxas_por_cargo: taxas.map((taxa) => ({
+                  cargo: taxa.cargo,
+                  percentual: taxa.percentual!,
+                })),
+              }
+            : {}),
+          ...(formulario.modoTaxa !== 'porCargo' ? { percentual } : {}),
         },
         texto_livre: null,
       },
@@ -188,6 +250,18 @@ export function useFormularioRegra() {
     formulario.loja = codigosDisponiveis(nucleo.loja, opcoesDeLoja)
     formulario.marca = codigosDisponiveis(nucleo.marca, opcoesDeMarca)
     formulario.cargo = codigosDisponiveis(nucleo.cargo, opcoesDeCargo)
+    formulario.todasLojas = nucleo.loja?.length === 0
+    formulario.todasMarcas = nucleo.marca?.length === 0
+    formulario.todosCargos = nucleo.cargo?.length === 0
+    formulario.modoTaxa = nucleo.taxas_por_cargo?.length
+      ? nucleo.percentual == null
+        ? 'porCargo'
+        : 'uniformeComExcecoes'
+      : 'uniforme'
+    formulario.taxasPorCargo = nucleo.taxas_por_cargo?.map((taxa) => ({
+      cargo: taxa.cargo,
+      percentual: formatarPercentualDoNucleo(taxa.percentual),
+    })) ?? [{ cargo: '', percentual: '' }]
     formulario.percentual =
       nucleo.percentual == null ? '' : formatarPercentualDoNucleo(nucleo.percentual)
     // O orçamento é justamente o que o reprocessamento vem trocar.
@@ -211,6 +285,7 @@ export function useFormularioRegra() {
       }
 
       preencherComNucleo(regra.representacao.nucleo)
+      formulario.metaVenda = job.meta_venda == null ? '' : String(job.meta_venda)
       mensagemDoFormulario.value =
         'Campos preenchidos com a regra selecionada. Informe o novo orçamento.'
     } catch {

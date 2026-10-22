@@ -69,7 +69,7 @@ async def test_parametro_invalido_barra_a_regra_e_pausa_sem_chegar_a_geracao(
     motivo: str,
     codigo: str,
 ) -> None:
-    payload = exemplo("parametros-confirmados") | alteracao
+    payload = (exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}) | alteracao
     recebida = mensagem(payload)
     antes = (await cliente.get("/metrics")).text
 
@@ -110,7 +110,7 @@ async def test_parametro_sem_lastro_barra_a_versao_extraida_na_referencia_do_par
     ambiente: ConfirmacaoFalsa, cliente: AsyncClient
 ) -> None:
     ambiente.sem_lastro.return_value = frozenset({"orcamento"})
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     antes = (await cliente.get("/metrics")).text
 
     await ambiente.consumer.receber(mensagem(payload))
@@ -131,10 +131,10 @@ async def test_parametro_sem_lastro_barra_a_versao_extraida_na_referencia_do_par
     )
 
 
-async def test_job_sem_orcamento_e_sem_meta_nao_gera_conflito(
+async def test_job_sem_orcamento_e_sem_meta_pausa_antes_da_geracao(
     ambiente: ConfirmacaoFalsa,
 ) -> None:
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     for campo in ("orcamento", "meta_venda"):
         payload.pop(campo, None)
     recebida = mensagem(payload)
@@ -142,7 +142,50 @@ async def test_job_sem_orcamento_e_sem_meta_nao_gera_conflito(
     await ambiente.consumer.receber(recebida)
 
     recebida.ack.assert_awaited_once_with()
-    assert [p for _, p in ambiente.publicacoes if p.get("status") == "aguardando_correcao"] == []
-    [comando] = [p for nome, p in ambiente.publicacoes if nome == "executar-codigo"]
-    assert "orcamento" not in comando
-    assert "meta_venda" not in comando
+    [pausa] = [p for _, p in ambiente.publicacoes if p.get("status") == "aguardando_correcao"]
+    assert {ref for conflito in pausa["conflitos"] for ref in conflito["elementos"]} == {
+        "parametros.orcamento",
+        "parametros.meta_venda",
+    }
+    assert ambiente.modelo.seen_messages == []
+    assert "executar-codigo" not in [nome for nome, _ in ambiente.publicacoes]
+
+
+async def test_loja_fora_do_catalogo_e_preservada_e_nao_amplia_simulacao_para_todas(
+    ambiente: ConfirmacaoFalsa,
+) -> None:
+    from tests.app.extracao.test_motor import extrair, modelo_falso
+
+    texto = "Pague 3% na loja 9999, para todas as marcas e todos os cargos."
+    extraida = await extrair(
+        modelo_falso(
+            {
+                "nucleo": {
+                    "percentual": {"valor": Decimal("0.03"), "trecho": "3%"},
+                    "loja": [{"valor": "9999", "trecho": "loja 9999"}],
+                    "marca": {"valor": [], "trecho": "todas as marcas"},
+                    "cargo": {"valor": [], "trecho": "todos os cargos"},
+                },
+                "elementos": [],
+                "parametros": {},
+            }
+        ),
+        texto,
+    )
+    ambiente.buscar_regra.return_value = extraida.representacao
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
+
+    await ambiente.consumer.receber(mensagem(payload))
+
+    representacao = extraida.representacao.para_contrato()
+    assert "loja" not in representacao["nucleo"]
+    assert representacao["especificacoes"] == [
+        {"ref": "elem.1", "construto": "generico", "descricao": "loja 9999"}
+    ]
+    assert ambiente.publicacoes[-1] == _pausa(
+        payload,
+        "nucleo.loja",
+        "escopo de loja não informado; indique os destinatários ou declare todos",
+    )
+    assert ambiente.modelo.seen_messages == []
+    assert "executar-codigo" not in [nome for nome, _ in ambiente.publicacoes]

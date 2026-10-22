@@ -27,7 +27,10 @@ from tests.app.graph.conftest import FakeChatModel
 ScriptedModel = Callable[[Iterable[AIMessage]], FakeChatModel]
 
 _REGRA = RepresentacaoRegra.model_validate(
-    {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []}
+    {
+        "nucleo": {"loja": [], "marca": [], "cargo": [], "percentual": Decimal("0.025")},
+        "especificacoes": [],
+    }
 )
 
 
@@ -144,6 +147,7 @@ class _Execucao:
             "regra_id": REGRA_ID,
             "competencias": ["2025-08", "2025-11"],
             "orcamento": "485000.00",
+            "meta_venda": "12000000",
         }
         return await self.graph.ainvoke(initial_state, self.config)
 
@@ -224,7 +228,10 @@ async def test_an_unaffordable_result_routes_to_the_adaptation_and_proposes_one(
     A proposta sai do total apurado, não do modelo - o nó de sugestão não chama LLM.
     """
     regra = RepresentacaoRegra.model_validate(
-        {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []}
+        {
+            "nucleo": {"loja": [], "marca": [], "cargo": [], "percentual": Decimal("0.025")},
+            "especificacoes": [],
+        }
     )
     monkeypatch.setattr(
         "app.graph.nodes.suggest_adaptation.buscar_totais",

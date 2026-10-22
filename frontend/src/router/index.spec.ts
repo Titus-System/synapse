@@ -50,7 +50,10 @@ describe('navegação entre simulação e finalização', () => {
     vi.resetAllMocks()
     vi.mocked(apiClient.consultarJob).mockResolvedValue(jobFixture())
     vi.mocked(apiClient.listarJobs).mockResolvedValue({
-      itens: [], pagina: 0, tamanho: 100, total: 0,
+      itens: [],
+      pagina: 0,
+      tamanho: 100,
+      total: 0,
     })
     vi.mocked(abrirAcompanhamentoJob).mockImplementation(() => ({
       fechar: vi.fn<() => void>(),
@@ -77,7 +80,10 @@ describe('navegação entre simulação e finalização', () => {
     const consultaFinalizacao = respostaPendente<Job>()
     vi.mocked(apiClient.consultarJob).mockReturnValueOnce(consultaFinalizacao.promise)
 
-    await wrapper.findAll('button').find((botao) => botao.text() === 'Seguir para Finalização')!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((botao) => botao.text() === 'Seguir para Finalização')!
+      .trigger('click')
     await vi.waitFor(() => expect(roteador.currentRoute.value.name).toBe('finalizar'))
     await flushPromises()
     expect(wrapper.get('h1').text()).toBe('Finalizar Regra')
@@ -118,7 +124,10 @@ describe('navegação entre simulação e finalização', () => {
     await flushPromises()
 
     expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
-    expect(wrapper.get('#loja').element).toHaveProperty('value', 'Loja atualizada na simulação')
+    expect(wrapper.get('#loja').element).toHaveProperty(
+      'value',
+      'Nome não disponível (código Loja atualizada na simulação)',
+    )
     expect(wrapper.text()).toContain('Resultado: Regra de negócio aprovada!')
     expect(abrirAcompanhamentoJob).toHaveBeenCalledTimes(2)
     const [finalizacao, simulacao] = vi.mocked(abrirAcompanhamentoJob).mock.results
@@ -129,3 +138,44 @@ describe('navegação entre simulação e finalização', () => {
     expect(simulacao!.value.fechar).toHaveBeenCalledOnce()
   })
 })
+
+it.each(['liberado', 'arquivado'] as const)(
+  'abre %s no histórico e encerra o SSE do processamento',
+  async (status) => {
+    vi.resetAllMocks()
+    const job = jobFixture({ status })
+    job.simulacao!.regra_id = job.regras[0]!.id
+    vi.mocked(apiClient.consultarJob).mockResolvedValue(job)
+    vi.mocked(apiClient.listarJobs).mockResolvedValue({
+      itens: [],
+      total: 0,
+      pagina: 0,
+      tamanho: 100,
+    })
+    const fechar = vi.fn<() => void>()
+    vi.mocked(abrirAcompanhamentoJob).mockReturnValue({ fechar })
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    usarStoreSessao().estaAutenticado = true
+    await roteador.push('/jobs/job-1')
+    const wrapper = mount(RouterView, {
+      global: {
+        plugins: [pinia, roteador],
+        stubs: { TheSidebar: true, TheProcessHeader: true, FontAwesomeIcon: true },
+      },
+    })
+    await flushPromises()
+    await vi.waitFor(() => expect(roteador.currentRoute.value.path).toBe('/jobs/job-1/historico'))
+    expect(wrapper.get('h1').text()).toBe('Histórico da regra')
+    expect(wrapper.text()).not.toContain('Seguir para Finalização')
+    expect(fechar).toHaveBeenCalledOnce()
+    expect(abrirAcompanhamentoJob).toHaveBeenCalledTimes(1)
+    vi.mocked(apiClient.consultarJob).mockResolvedValue(
+      jobFixture({ id: 'job-2', status: 'simulando', simulacao: null }),
+    )
+    await roteador.push('/jobs/job-2')
+    await flushPromises()
+    expect(roteador.currentRoute.value.path).toBe('/jobs/job-2')
+    expect(wrapper.find('[role="progressbar"]').exists()).toBe(true)
+  },
+)

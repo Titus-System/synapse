@@ -86,8 +86,8 @@ describe('FormularioRegraView', () => {
     expect(valorDoCampo(conteiner, '#vigencia-inicio')).toBe('2025-11')
     expect(valorDoCampo(conteiner, '#vigencia-fim')).toBe('2025-11')
     expect(resumoDoCampo(conteiner, '#loja')).toBe('LOJA-13')
-    expect(resumoDoCampo(conteiner, '#marca')).toBe('PRETO (10)')
-    expect(resumoDoCampo(conteiner, '#cargo')).toBe('VENDEDOR LOJA (100)')
+    expect(resumoDoCampo(conteiner, '#marca')).toBe('PRETO')
+    expect(resumoDoCampo(conteiner, '#cargo')).toBe('VENDEDOR LOJA')
     expect(valorDoCampo(conteiner, '#percentual')).toBe('2,5')
     expect(valorDoCampo(conteiner, '#orcamento')).toBe('')
     expect(conteiner.get('[role="status"]').text()).toContain('Informe o novo orçamento')
@@ -153,7 +153,7 @@ describe('FormularioRegraView', () => {
 
     await conteiner.get('form').trigger('submit')
 
-    expect(conteiner.get('#loja-erro').text()).toBe('Selecione ao menos uma loja.')
+    expect(conteiner.get('#loja-erro').text()).toBe('Selecione lojas ou declare todas.')
     expect(conteiner.get('#loja').attributes('aria-invalid')).toBe('true')
   })
 })

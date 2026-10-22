@@ -8,14 +8,12 @@ import logging
 from collections.abc import Iterator
 from decimal import Decimal
 from typing import Any
-from unittest.mock import AsyncMock
-from uuid import UUID
 
 import pytest
 import simplejson
 from jsonschema import Draft202012Validator, FormatChecker
 
-from app.contratos.mensagens import ParametrosConfirmados, RegraSubmetida, SimulacaoConcluida
+from app.contratos.mensagens import ParametrosConfirmados, RegraSubmetida
 from app.core.logger import FormatadorJson, ManipuladorFilaContexto
 from app.mensageria.consumers import Consumer
 from tests.app.confirmacao_falsa import ConfirmacaoFalsa, mensagem
@@ -91,7 +89,7 @@ async def test_ciclo_aberto_com_meta_publica_o_comando_com_a_mesma_meta(
 
 
 @pytest.mark.parametrize(("modelo", "fila", "nome"), EVENTOS_DE_ENTRADA)
-async def test_ciclo_aberto_sem_meta_publica_o_comando_sem_o_campo(
+async def test_ciclo_aberto_sem_meta_pausa_para_correcao(
     ambiente: ConfirmacaoFalsa,
     modelo: type[ParametrosConfirmados | RegraSubmetida],
     fila: str,
@@ -104,51 +102,31 @@ async def test_ciclo_aberto_sem_meta_publica_o_comando_sem_o_campo(
     await Consumer(modelo, fila, ambiente.roteador).receber(recebida)
 
     recebida.ack.assert_awaited_once_with()
-    comando = _comando(ambiente)
-    assert "meta_venda" not in comando
-    assert comando["proposito"] == "simulacao"
+    assert ambiente.modelo.seen_messages == []
+    assert "executar-codigo" not in [nome for nome, _ in ambiente.publicacoes]
+    assert ambiente.publicacoes[-1][1]["conflitos"] == [
+        {"elementos": ["parametros.meta_venda"], "motivo": "meta de vendas não informada"}
+    ]
 
 
 @pytest.mark.parametrize(("modelo", "fila", "nome"), EVENTOS_DE_ENTRADA)
-async def test_ciclo_sem_orcamento_simula_e_termina_sem_sugestao_e_sem_erro(
+async def test_ciclo_sem_orcamento_pausa_sem_gerar_sugestao(
     ambiente: ConfirmacaoFalsa,
-    monkeypatch: pytest.MonkeyPatch,
     modelo: type[ParametrosConfirmados | RegraSubmetida],
     fila: str,
     nome: str,
 ) -> None:
     payload = exemplo(nome)
     del payload["orcamento"]
-    del payload["meta_venda"]
     recebida = mensagem(payload)
-
     await Consumer(modelo, fila, ambiente.roteador).receber(recebida)
-
     recebida.ack.assert_awaited_once_with()
-    assert "orcamento" not in _comando(ambiente)
-    assert (await ambiente.estado(payload)).next == ("await_execution",)
-
-    monkeypatch.setattr(
-        "app.mensageria.roteamento.buscar_regra_do_resultado",
-        AsyncMock(return_value=UUID(payload["regra_id"])),
-    )
-    resultado = exemplo("simulacao-concluida-sem-orcamento") | {"job_id": payload["job_id"]}
-    assert "veredito" not in resultado
-    recebido = mensagem(resultado)
-
-    await Consumer(SimulacaoConcluida, "simulacao-concluida", ambiente.roteador).receber(recebido)
-
-    recebido.ack.assert_awaited_once_with()
-    recebido.reject.assert_not_awaited()
-    recebido.nack.assert_not_awaited()
-    estado = await ambiente.estado(payload)
-    assert estado.next == ()
-    assert estado.values["encaminhamento"] == "fim"
-    assert "sugestao-adaptacao-proposta" not in [n for n, _ in ambiente.publicacoes]
-    etapas = [p for n, p in ambiente.publicacoes if n == "etapa-alterada"]
-    assert [etapa for etapa in etapas if etapa["status"] == "erro"] == []
-    [decisao] = [p for n, p in ambiente.publicacoes if n == "no-concluido" and p["no"] == "decisao"]
-    assert decisao["conclusao"]["encaminhamento"] == "fim"
+    assert ambiente.modelo.seen_messages == []
+    assert "executar-codigo" not in [nome for nome, _ in ambiente.publicacoes]
+    assert "sugestao-adaptacao-proposta" not in [nome for nome, _ in ambiente.publicacoes]
+    assert ambiente.publicacoes[-1][1]["conflitos"] == [
+        {"elementos": ["parametros.orcamento"], "motivo": "orçamento não informado"}
+    ]
 
 
 @pytest.mark.parametrize("meta", [Decimal("0"), Decimal("-1")])

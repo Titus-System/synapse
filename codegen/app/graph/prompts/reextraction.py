@@ -51,13 +51,29 @@ def montar_prompt_reextracao(
                     "novos valores e operações."
                 ),
                 "tipos_de_operacao": {
+                    "definir_taxa_cargo": (
+                        "Inclua ou altere somente a taxa do cargo citado. valor é "
+                        "{valor: {cargo, percentual}, trecho}, em fração, com trecho literal "
+                        "que associa esse cargo à taxa, sem incluir outros percentuais. "
+                        "Não substitua a coleção inteira nem copie a taxa para percentual. "
+                        "Se já houver taxa uniforme, uma taxa por cargo é exceção: somente "
+                        "crie essa exceção quando o usuário a declarar inequivocamente."
+                    ),
+                    "remover_taxa_cargo": (
+                        "Remova somente o par do cargo indicado em cargo: {valor, trecho}. "
+                        "Os demais pares e a taxa uniforme permanecem inalterados. Remover "
+                        "o último par sem taxa uniforme reabre a pendência de comissionamento."
+                    ),
                     "definir_nucleo": (
                         "Defina somente o campo indicado: percentual, vigencia, loja, "
                         "marca ou cargo. valor tem a forma do campo na extração inicial: "
                         "{valor, trecho}, com trecho literal do texto da correção atual. "
                         "Percentual é fração (3% -> 0.03). Vigência usa inicio/fim AAAA-MM. "
                         "loja, marca e cargo são listas de {valor, trecho}, um por código do "
-                        "vocabulário; a lista vazia tira o filtro. Não repare incoerências."
+                        "vocabulário. Para um escopo universal explicitamente declarado, use "
+                        "{valor: [], trecho: citação literal de 'todas as lojas', "
+                        "'todas as marcas' ou 'todos os cargos'}. Ausência não significa todos. "
+                        "Não repare incoerências."
                     ),
                     "substituir_elemento": (
                         "Use ref existente na regra atual; inclua elemento como o rascunho "

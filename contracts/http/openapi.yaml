@@ -1888,7 +1888,9 @@ components:
       title: Submissão de regra por formulário
       description: |
         Corpo de `POST /jobs`. Carrega a origem do job, as competências de referência,
-        o orçamento e o núcleo da regra.
+        o orçamento, a meta de vendas e o núcleo da regra. Meta ausente é pendência
+        de correção e impede uma nova simulação; permanece opcional no transporte
+        para preservar clientes antigos.
 
         `conteudo` é o formulário exatamente como foi preenchido, na forma de
         `submissoes.conteudo`: é o registro da entrada, e o que permite conferir
@@ -1915,16 +1917,21 @@ components:
             em nenhuma base: é parâmetro da simulação, e confrontá-lo com o total
             apurado é o que dispara o alerta de inviabilidade e o bloqueio da
             liberação. É do período, não mensal.
+        meta_venda:
+          $ref: "../domain/comum.schema.json#/$defs/brl"
+          description: Meta de vendas do período informada pelo usuário, maior que zero.
         conteudo:
           $ref: "../domain/submissao-conteudo.schema.json"
           description: |
-            O formulário como recebido: os cinco campos do núcleo, com lista vazia ou
-            nulo onde o usuário não preencheu, mais o texto livre. O texto livre é
+            O formulário como recebido. Loja, marca e cargo são explícitos; lista vazia
+            significa escolha universal. Vigência pode ser omitida. A taxa pode ser
+            uniforme ou especificada por cargo. O texto livre é
             conteúdo não confiável - é dado a extrair, nunca instrução.
       examples:
         - origem: formulario
           competencias: ["2025-11"]
           orcamento: 485000.0
+          meta_venda: 12000000.0
           conteudo:
             nucleo:
               vigencia: { inicio: "2025-11", fim: "2025-11" }
@@ -1955,6 +1962,9 @@ components:
           description: |
             Orçamento ajustado na tela de confirmação. Ausente mantém o orçamento
             atual do job.
+        meta_venda:
+          $ref: "../domain/comum.schema.json#/$defs/brl"
+          description: Meta de vendas ajustada. Ausente mantém a meta atual do job.
         competencias:
           $ref: "#/components/schemas/Competencias"
           description: |

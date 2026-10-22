@@ -28,19 +28,25 @@ class ExemplosDeContratoTests {
 
 	@Test
 	void desserializaOConteudoDaSubmissao() throws IOException {
-		ConteudoSubmissaoDto conteudo = desserializar("domain/submissao-conteudo.json", ConteudoSubmissaoDto.class);
+		ConteudoSubmissaoDto conteudo = this.objectMapper.readerFor(ConteudoSubmissaoDto.class)
+			.with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+			.readValue(Files.readString(exemplo("domain/submissao-conteudo.json")));
 		VigenciaDto vigencia = Objects.requireNonNull(conteudo.nucleo().vigencia());
 
 		assertThat(vigencia.inicio()).isEqualTo("2025-11");
 		assertThat(conteudo.nucleo().percentual()).isEqualByComparingTo("0.03");
+		assertThat(conteudo.nucleo().taxas_por_cargo()).isNull();
 		assertThat(conteudo.texto_livre()).contains("MATRIC-422");
 	}
 
 	@Test
 	void desserializaARepresentacaoDaRegra() throws IOException {
-		RepresentacaoRegraDto regra = desserializar("domain/representacao-regra.json", RepresentacaoRegraDto.class);
+		RepresentacaoRegraDto regra = this.objectMapper.readerFor(RepresentacaoRegraDto.class)
+			.with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+			.readValue(Files.readString(exemplo("domain/representacao-regra.json")));
 
 		assertThat(regra.nucleo().percentual()).isEqualByComparingTo("0.025");
+		assertThat(regra.nucleo().taxas_por_cargo()).isNull();
 		assertThat(regra.especificacoes()).isEmpty();
 	}
 

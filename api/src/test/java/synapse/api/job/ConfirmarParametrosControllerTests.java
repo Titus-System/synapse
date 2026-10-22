@@ -146,6 +146,22 @@ class ConfirmarParametrosControllerTests {
 	}
 
 	@Test
+	void confirmaTaxasPorCargoSemReduzirAoPercentualEscalar() throws Exception {
+		String taxas = "\"taxas_por_cargo\":[{\"cargo\":\"100\",\"percentual\":0.031234567890123456789},{\"cargo\":\"300\",\"percentual\":0.05}]";
+		this.mvc
+			.perform(post("/jobs/" + JOB + "/parameters").contentType(MediaType.APPLICATION_JSON)
+				.content(CONFIRMAR.replace("\"percentual\":0.03", taxas)))
+			.andExpect(status().isAccepted());
+		var captor = ArgumentCaptor.forClass(ConfirmarParametrosRequisicao.class);
+		verify(this.service).confirmar(eq(JOB), captor.capture());
+		NucleoRegraDto nucleo = captor.getValue().representacao().nucleo();
+		assertThat(nucleo.percentual()).isNull();
+		assertThat(nucleo.taxas_por_cargo()).containsExactly(
+				new TaxaPorCargoDto("100", new BigDecimal("0.031234567890123456789")),
+				new TaxaPorCargoDto("300", new BigDecimal("0.05")));
+	}
+
+	@Test
 	void jobNaoEncontradoResponde404() throws Exception {
 		when(this.service.confirmar(any(), any())).thenThrow(new JobNaoEncontradoException(JOB));
 		this.mvc

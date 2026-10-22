@@ -138,7 +138,12 @@ onBeforeUnmount(() => controlador.abort())
               Tentar atualizar conversa
             </button>
           </div>
-          <ConversaRodadas :rodadas="rodadas" :regras="job?.regras" :meta-venda="job?.meta_venda" />
+          <ConversaRodadas
+            :rodadas="rodadas"
+            :regras="job?.regras"
+            :meta-venda="job?.meta_venda"
+            :competencias="job?.competencias"
+          />
           <p v-if="encerrado" role="status">Esta conversa está disponível apenas para consulta.</p>
           <p v-if="semCorrecao" role="status">Esta regra não tem pontos para corrigir.</p>
         </section>

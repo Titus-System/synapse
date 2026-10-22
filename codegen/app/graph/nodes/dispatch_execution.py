@@ -84,6 +84,8 @@ async def dispatch_execution(state: AgentState, config: RunnableConfig) -> Agent
 
     representacao = state["representacao_regra"]
     elementos_exigidos = ["nucleo.percentual"] if "percentual" in representacao["nucleo"] else []
+    if "taxas_por_cargo" in representacao["nucleo"]:
+        elementos_exigidos.append("nucleo.taxas_por_cargo")
     elementos_exigidos.extend(elemento["ref"] for elemento in representacao["especificacoes"])
     if not elementos_exigidos:
         raise ElementosExigidosAusentesError("executar-codigo requires at least one rule element")
