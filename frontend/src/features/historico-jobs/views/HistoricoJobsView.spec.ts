@@ -141,42 +141,47 @@ describe('HistoricoJobsView', () => {
     conteiner.unmount()
   })
 
-  it.each([
+    it.each([
     ['regras-salvas', 'liberado'],
     ['regras-arquivadas', 'arquivado'],
-  ] as const)('mostra somente a versão mais recente, sem repetir a prévia em %s', async (nome, status) => {
-    rota.name = nome
-    const resumo = criarResumoDoJob(1, status)
-    const anterior = regraFixture(1)
-    anterior.representacao.nucleo.loja = ['Loja anterior']
-    const recente = regraFixture(2)
-    recente.representacao.nucleo.loja = ['Loja atual']
-    recente.representacao.especificacoes = [{
-      ref: 'bonus-1',
-      construto: 'bonus_fixo',
-      alvo: { tipo: 'lista', valor: ['13'] },
-      valor: 250,
-    }]
-    listarComResumos([resumo])
-    vi.mocked(apiClient.consultarJob).mockResolvedValue(
-      jobFixture({ ...resumo, regras: [anterior, recente] }),
-    )
+  ] as const)(
+    'mostra somente a versão mais recente, sem repetir a prévia em %s',
+    async (nome, status) => {
+      rota.name = nome
+      const resumo = criarResumoDoJob(1, status)
+      const anterior = regraFixture(1)
+      anterior.representacao.nucleo.loja = ['Loja anterior']
+      const recente = regraFixture(2)
+      recente.representacao.nucleo.loja = ['Loja atual']
+      recente.representacao.especificacoes = [
+        {
+          ref: 'bonus-1',
+          construto: 'bonus_fixo',
+          alvo: { tipo: 'lista', valor: ['13'] },
+          valor: 250,
+        },
+      ]
+      listarComResumos([resumo])
+      vi.mocked(apiClient.consultarJob).mockResolvedValue(
+        jobFixture({ ...resumo, regras: [anterior, recente] }),
+      )
 
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem())
-    await flushPromises()
+      const conteiner = mount(HistoricoJobsView, opcoesDeMontagem())
+      await flushPromises()
 
-    const cartao = conteiner.get('article')
-    expect(cartao.text()).not.toContain('Loja anterior')
-    expect(cartao.findAll('li').map((linha) => linha.text())).toEqual([
-      'vigência = 11/2025',
-      'loja = Loja atual',
-      'marca = 10',
-      'cargo = 100',
-      '% de comissionamento = 2.5%',
-      'bônus fixo = R$ 250,00',
-    ])
-    conteiner.unmount()
-  })
+      const cartao = conteiner.get('article')
+      expect(cartao.text()).not.toContain('Loja anterior')
+      expect(cartao.findAll('li').map((linha) => linha.text())).toEqual([
+        'vigência = 11/2025',
+        'loja = Nome não disponível (código Loja atual)',
+        'marca = PRETO',
+        'cargo = VENDEDOR LOJA',
+        '% de comissionamento = 2,5%',
+        'bônus fixo = R$ 250,00',
+      ])
+      conteiner.unmount()
+    },
+  )
 
   it('mantém o cartão e o acesso ao relatório quando o job ainda não possui regras', async () => {
     const resumo = criarResumoDoJob(1)

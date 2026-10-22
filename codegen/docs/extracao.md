@@ -8,9 +8,15 @@ O motor em `app/extracao/motor.py` recebe texto, competências e o modelo config
 
 A chamada pede JSON nativo com `response_json_schema`, sem ferramentas. O rascunho fechado contém `nucleo`, `parametros` e `elementos`, nessa ordem; cada elemento traz `construto_pretendido`, `descricao` e `trecho`. O modelo não fornece referências: o motor atribui `elem.1`, `elem.2`, etc. na ordem dos elementos, solicitada no prompt como a ordem do texto.
 
-O núcleo aceita somente vigência, loja, marca, cargo e percentual. Campos não mencionados permanecem ausentes. Códigos são strings; números são lidos como `Decimal` e permanecem números JSON, inclusive no banco. Percentual negativo e intervalo invertido não são corrigidos nesta etapa. Texto sem regra pode resultar em núcleo vazio e nenhuma especificação.
+O núcleo aceita vigência, loja, marca, cargo, percentual uniforme e `taxas_por_cargo` (pares cargo/percentual). Campos não mencionados permanecem ausentes. Códigos são strings; números são lidos como `Decimal` e permanecem números JSON, inclusive no banco. Percentual negativo e intervalo invertido não são corrigidos nesta etapa. Texto sem regra pode resultar em núcleo vazio e nenhuma especificação. A declaração universal usa lista vazia com evidência literal por dimensão; silêncio mantém o campo ausente. Cada par cargo/taxa exige trecho que comprove a associação e todos os pares precisam ser resolvidos, preservando os demais na correção. Antes de nova simulação, a validação exige meta positiva, orçamento não negativo, escopos explícitos e taxa uniforme ou taxas por cargo suficientes. Apenas a vigência admite o período do job como padrão. Cargos sem taxa proposta conservam o baseline.
 
 `parametros` traz orçamento, meta de venda e período da simulação (`orcamento`, `meta_venda`, `competencias`), nunca parte da regra (T-277): cada um, quando o texto o diz, é `{valor, trecho}` no rascunho do modelo. O motor descarta o trecho e guarda só o valor, validado contra `parametros-simulacao.schema.json` (`app/extracao/parametros.py`); o trecho não verificado continua recuperável na resposta bruta auditada em `respostas_modelo`, para a conferência de lastro da T-210. Um parâmetro não dito no texto fica fora de `parametros`; nada dito deixa `parametros` vazio (`{}`). O valor entra como o modelo o devolveu, sem faixa nem correção — orçamento negativo ou competência fora das publicadas são apontados pela validação de domínio (T-280), não aqui. Uma condição de atingimento de meta dentro da regra não é `meta_venda`: permanece em elemento.
+
+Enumerações de competências preservam somente os meses citados, inclusive listas não
+contíguas em nomes, `AAAA-MM` ou `MM/AAAA`. “Agosto e dezembro” é uma lista;
+“entre agosto e dezembro” é um intervalo inclusivo. Um ano implícito só é resolvido
+quando o contexto tem um único ano. Uma vigência contínua não é fabricada a partir
+de uma enumeração descontínua.
 
 O período da simulação só existe quando o texto manda simular um período ou o liga ao orçamento ou à meta ("meta de vender R$ 12 milhões entre setembro e novembro de 2025"); o período ligado à comissão ("comissão de 3% em novembro") é a vigência, em `nucleo.vigencia`. As competências que o motor recebe são as publicadas, que é o que o job tem ao nascer (T-277), e o prompt proíbe copiá-las para `parametros`: sem essa instrução o modelo as devolve como período em todo texto, com um trecho que não está no texto. O schema pede `parametros` antes de `elementos` porque o modelo gera as chaves na ordem das propriedades, e é decidindo os parâmetros primeiro que ele não faz do pedido de simular um período também um elemento, que chegaria à geração como regra a implementar.
 
@@ -28,6 +34,9 @@ O rascunho traz `tipo_alvo` (`lista` ou `filtro`), `matriculas` ou `criterios`, 
 - **Filtro**: o vocabulário é fechado em `cargo` (resolvido pelo vocabulário canônico) e `admitido_ate` (`AAAA-MM-DD`). Outra chave não cabe no schema do rascunho e rebaixa o elemento como `construto_nao_habilitado`.
 - **Data**: `resolver_datas` e `conferir_data` (`lastro.py`) leem `dd/mm`, `dd/mm/aaaa`, `AAAA-MM-DD` e "10 de outubro". O ano que o trecho não diz é o ano comum das competências do job; com mais de um ano o elemento rebaixa com `periodo_nao_resolvido`.
 - **Valor**: precisa de lastro numérico e de um trecho sem `%` nem "por cento"; um bônus percentual rebaixa com `campo_obrigatorio_ausente`.
+- **Condição adicional**: o conversor recusa bônus com condição de vendas, meta,
+  quantidade ou outro requisito que o tipo não representa. A cláusula completa é
+  preservada como `generico`; não se transforma em um pagamento incondicional.
 - **Alvo**: lista e filtro não coexistem, e alvo sem critério não é representável; ambos rebaixam com `campo_obrigatorio_ausente`.
 
 ### `exclusao` (T-205)

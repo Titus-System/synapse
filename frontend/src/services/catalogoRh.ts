@@ -1,4 +1,4 @@
-import type { OpcaoDeCodigo } from './types'
+import type { OpcaoDeCodigo } from '@/types/catalogoRh'
 
 // Os códigos espelham o quadro de RH de `src/assets/rh/rh.jsonl`, a mesma base
 // histórica que a simulação percorre. A api não expõe um endpoint de domínio
@@ -88,19 +88,41 @@ export const opcoesDeLoja: readonly OpcaoDeCodigo[] = [
 ]
 
 export const opcoesDeMarca: readonly OpcaoDeCodigo[] = [
-  { valor: '10', rotulo: 'PRETO (10)' },
-  { valor: '20', rotulo: 'BRANCO (20)' },
-  { valor: '30', rotulo: 'AZUL (30)' },
-  { valor: '40', rotulo: 'VERMELHO (40)' },
-  { valor: '50', rotulo: 'AMARELO (50)' },
-  { valor: '60', rotulo: 'CINZA (60)' },
+  { valor: '10', rotulo: 'PRETO' },
+  { valor: '20', rotulo: 'BRANCO' },
+  { valor: '30', rotulo: 'AZUL' },
+  { valor: '40', rotulo: 'VERMELHO' },
+  { valor: '50', rotulo: 'AMARELO' },
+  { valor: '60', rotulo: 'CINZA' },
 ]
 
 // O código 150 aparece com duas descrições no quadro de RH; o rótulo mantém as
 // duas para que a escolha não pareça excluir uma delas.
 export const opcoesDeCargo: readonly OpcaoDeCodigo[] = [
-  { valor: '100', rotulo: 'VENDEDOR LOJA (100)' },
-  { valor: '150', rotulo: 'GERENTE DE LOJA / GERENTE QUIOSQUE (150)' },
-  { valor: '200', rotulo: 'VENDEDOR BALCAO (200)' },
-  { valor: '300', rotulo: 'ASSISTENTE DE VENDAS (300)' },
+  { valor: '100', rotulo: 'VENDEDOR LOJA' },
+  { valor: '150', rotulo: 'GERENTE DE LOJA / GERENTE QUIOSQUE' },
+  { valor: '200', rotulo: 'VENDEDOR BALCAO' },
+  { valor: '300', rotulo: 'ASSISTENTE DE VENDAS' },
 ]
+
+export type DimensaoRh = 'loja' | 'marca' | 'cargo'
+
+export const catalogoRh = { loja: opcoesDeLoja, marca: opcoesDeMarca, cargo: opcoesDeCargo }
+
+export function nomeDaEntidade(dimensao: DimensaoRh, codigo: string): string {
+  return (
+    catalogoRh[dimensao].find((opcao) => opcao.valor === codigo)?.rotulo ??
+    `Nome não disponível (código ${codigo})`
+  )
+}
+
+export function nomesDoEscopo(dimensao: DimensaoRh, codigos?: string[]): string {
+  if (codigos == null) return 'Não informado'
+  if (!codigos.length)
+    return dimensao === 'cargo'
+      ? 'Todos os cargos'
+      : dimensao === 'loja'
+        ? 'Todas as lojas'
+        : 'Todas as marcas'
+  return codigos.map((codigo) => nomeDaEntidade(dimensao, codigo)).join(', ')
+}

@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { jobFixture, regraFixture, jobComSugestaoFixture, respostaPendente } from '@/services/job.fixtures'
+import {
+  jobFixture,
+  regraFixture,
+  jobComSugestaoFixture,
+  respostaPendente,
+} from '@/services/job.fixtures'
 import type { Job } from '@/types/api'
 import SimulateView from './SimulateView.vue'
 
@@ -16,20 +21,31 @@ class Stream {
   static atual: Stream
   private controlador!: ReadableStreamDefaultController<Uint8Array>
   readonly corpo = new ReadableStream<Uint8Array>({
-    start: (controlador) => { this.controlador = controlador },
+    start: (controlador) => {
+      this.controlador = controlador
+    },
   })
   fechado = false
 
-  constructor(readonly url: string, signal: AbortSignal) {
+  constructor(
+    readonly url: string,
+    signal: AbortSignal,
+  ) {
     Stream.atual = this
-    signal.addEventListener('abort', () => {
-      this.fechado = true
-      this.controlador.error(new DOMException('Cancelado', 'AbortError'))
-    }, { once: true })
+    signal.addEventListener(
+      'abort',
+      () => {
+        this.fechado = true
+        this.controlador.error(new DOMException('Cancelado', 'AbortError'))
+      },
+      { once: true },
+    )
   }
 
   emitir(tipo: string, dados: unknown) {
-    this.controlador.enqueue(new TextEncoder().encode(`event: ${tipo}\ndata: ${JSON.stringify(dados)}\n\n`))
+    this.controlador.enqueue(
+      new TextEncoder().encode(`event: ${tipo}\ndata: ${JSON.stringify(dados)}\n\n`),
+    )
   }
 }
 
@@ -75,7 +91,9 @@ describe('integração da tela com HTTP e SSE', () => {
     recente.representacao.nucleo.loja = ['Loja mais recente']
     let resposta = jobFixture({ status: 'gerando_regra', regras: [recente, regraFixture()] })
     const { wrapper, fetchMock } = await montar(() => resposta)
-    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(expect.arrayContaining(['/api/jobs/job-1', '/api/jobs/job-1/events']))
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(
+      expect.arrayContaining(['/api/jobs/job-1', '/api/jobs/job-1/events']),
+    )
     for (const [, init] of fetchMock.mock.calls) {
       expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer token-da-sessao')
     }
@@ -90,7 +108,10 @@ describe('integração da tela com HTTP e SSE', () => {
       veredito: 'viavel',
     })
     await flushPromises()
-    expect(wrapper.get('#loja').element).toHaveProperty('value', 'Loja mais recente')
+    expect(wrapper.get('#loja').element).toHaveProperty(
+      'value',
+      'Nome não disponível (código Loja mais recente)',
+    )
     expect(wrapper.get('#totalComissionamento').element).toHaveProperty('value', 'R$ 482.000,00')
     expect(wrapper.text()).toContain('Resultado: Regra de negócio aprovada!')
     expect(wrapper.find('#titulo-sugestao').exists()).toBe(false)
@@ -113,9 +134,13 @@ describe('integração da tela com HTTP e SSE', () => {
 
     expect(secao.text()).toContain('Nenhuma sugestão disponível no momento.')
     expect(secao.text()).toContain('sem condições adicionais')
-    expect(secao.text()).toContain('acima do custo de referência (baseline) e abaixo do total simulado')
-    expect(secao.text()).toContain('Fora dessas condições, o método atual não consegue propor uma alternativa automaticamente.')
-    expect(secao.text()).toContain('Isso não significa que seja impossível encontrar uma regra que caiba no orçamento.')
+    expect(secao.text()).toContain(
+      'inclusive quando o orçamento não supera o custo de referência (baseline)',
+    )
+    expect(secao.text()).toContain('Nem sempre essa busca encontra uma alternativa viável.')
+    expect(secao.text()).toContain(
+      'Isso não significa que seja impossível encontrar uma regra que caiba no orçamento.',
+    )
     expect(wrapper.get('#totalComissionamento').element).toHaveProperty('value', 'R$ 3.299.894,24')
     expect(wrapper.get('#percentual').element).toHaveProperty('value', '2,5%')
     expect(wrapper.text()).toContain('Resultado: Regra de negócio reprovada!')
@@ -159,14 +184,32 @@ describe('integração da tela com HTTP e SSE', () => {
   })
 
   it('exibe os dois resultados e aceita a alternativa sem solicitar outra simulação', async () => {
-    const { wrapper, router, fetchMock } = await montar(() => jobComSugestaoFixture())
+    const job = jobComSugestaoFixture({ meta_venda: 30000000, orcamento: 2500000 })
+    job.simulacoes![0]!.meta_venda = 1000000
+    job.simulacoes![1]!.meta_venda = 1100000
+    job.simulacoes![1]!.resultado!.totais!.orcamento = 486000
+    const { wrapper, router, fetchMock } = await montar(() => job)
+    expect(wrapper.get('label[for="meta"]').text()).toBe('Meta de vendas')
+    expect(wrapper.get('#meta').element).toHaveProperty('value', 'R$ 1.000.000,00')
+    expect(wrapper.get('label[for="meta-sugestao"]').text()).toBe('Meta de vendas')
+    expect(wrapper.get('#meta-sugestao').element).toHaveProperty('value', 'R$ 1.100.000,00')
+    expect(wrapper.get('label[for="orcamento"]').text()).toBe('Orçamento de comissão')
+    expect(wrapper.get('#orcamento').element).toHaveProperty('value', 'R$ 485.000,00')
+    expect(wrapper.get('label[for="orcamento-sugestao"]').text()).toBe('Orçamento de comissão')
+    expect(wrapper.get('#orcamento-sugestao').element).toHaveProperty('value', 'R$ 486.000,00')
     expect(wrapper.get('#percentual').element).toHaveProperty('value', '2,5%')
-    expect(wrapper.get('[data-testid="percentual-sugestao"]').element).toHaveProperty('value', '2,46%')
+    expect(wrapper.get('[data-testid="percentual-sugestao"]').element).toHaveProperty(
+      'value',
+      '2,46%',
+    )
     expect(wrapper.get('#totalComissionamento').element).toHaveProperty('value', 'R$ 492.100,00')
     expect(wrapper.get('#total-sugestao').element).toHaveProperty('value', 'R$ 484.226,40')
     expect(wrapper.text()).toContain('A regra de negócio NÃO cabe no seu orçamento.')
     expect(wrapper.text()).toContain('A sugestão cabe no seu orçamento.')
-    await wrapper.findAll('button').find((botao) => botao.text().includes('Seguir para a próxima etapa.'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((botao) => botao.text().includes('Seguir para a próxima etapa.'))!
+      .trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('finalizar')
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)

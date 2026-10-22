@@ -93,7 +93,7 @@ def test_o_avaliador_aprova_todas_as_referencias_e_sai_com_zero(
 
     saida = capsys.readouterr().out
     assert codigo == 0, saida
-    assert saida.splitlines()[-1] == "9 de 9 casos passaram"
+    assert saida.splitlines()[-1] == "10 de 10 casos passaram"
 
 
 def test_o_avaliador_reprova_elem_1_alterado_aponta_o_elemento_e_sai_com_um(
@@ -142,6 +142,12 @@ def test_o_avaliador_reprova_elem_1_alterado_aponta_o_elemento_e_sai_com_um(
         ("condicao-limiar-loja", "_LIMIAR = 50000.0", "_LIMIAR = 0.0", ["nucleo.percentual"]),
         ("combinado-elementos", "_BONUS_FAIXA = 3500.0", "_BONUS_FAIXA = 0.0", ["elem.1"]),
         (
+            "taxas-por-cargo",
+            "_TAXAS = {100: 0.03, 150: 0.05}",
+            "_TAXAS = {100: 0.03}",
+            ["nucleo.taxas_por_cargo"],
+        ),
+        (
             "combinado-elementos",
             "_ACRESCIMO_JANELA = 0.01",
             "_ACRESCIMO_JANELA = 0.0",
@@ -156,6 +162,7 @@ def test_o_avaliador_reprova_elem_1_alterado_aponta_o_elemento_e_sai_com_um(
         "faixa",
         "limiar",
         "combinado-faixa",
+        "taxa-do-gerente-ausente",
         "combinado-janela",
     ],
 )

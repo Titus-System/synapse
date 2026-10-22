@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import {
-  transformarRegra,
-  transformarResultado,
-} from './transformarRegra'
-import type {
-  RepresentacaoRegra,
-  ResultadoSimulacao,
-} from '@/types/api'
+import { transformarRegra, transformarResultado } from './transformarRegra'
+import type { RepresentacaoRegra, ResultadoSimulacao } from '@/types/api'
 
 describe('transformarRegra', () => {
   it('transforma o núcleo da regra', () => {
@@ -29,10 +23,10 @@ describe('transformarRegra', () => {
     expect(resultado).toEqual({
       se: [
         'vigência = 11/2025',
-        'loja = 13',
-        'marca = 10',
-        'cargo = 100',
-        '% de comissionamento = 2.5%',
+        'loja = LOJA-13',
+        'marca = PRETO',
+        'cargo = VENDEDOR LOJA',
+        '% de comissionamento = 2,5%',
       ],
       entao: [],
     })
@@ -57,13 +51,9 @@ describe('transformarRegra', () => {
 
     const resultado = transformarRegra(representacao)
 
-    expect(resultado.se).toEqual([
-      'valor entre R$ 40.000,00 e R$ 50.000,00',
-    ])
+    expect(resultado.se).toEqual(['valor entre R$ 40.000,00 e R$ 50.000,00'])
 
-    expect(resultado.entao).toEqual([
-      'bônus fixo = R$ 3.500,00',
-    ])
+    expect(resultado.entao).toEqual(['bônus fixo = R$ 3.500,00'])
   })
 
   it('transforma uma condição de limiar', () => {
@@ -83,9 +73,7 @@ describe('transformarRegra', () => {
 
     const resultado = transformarRegra(representacao)
 
-    expect(resultado.se).toEqual([
-      'venda total >= R$ 50.000,00',
-    ])
+    expect(resultado.se).toEqual(['venda total >= R$ 50.000,00'])
   })
 
   it('transforma uma janela de datas com acréscimo percentual', () => {
@@ -107,13 +95,9 @@ describe('transformarRegra', () => {
 
     const resultado = transformarRegra(representacao)
 
-    expect(resultado.se).toEqual([
-      'data entre 24/11/2025 e 30/11/2025',
-    ])
+    expect(resultado.se).toEqual(['data entre 24/11/2025 e 30/11/2025'])
 
-    expect(resultado.entao).toEqual([
-      'acréscimo = 1%',
-    ])
+    expect(resultado.entao).toEqual(['acréscimo = 1%'])
   })
 
   it('transforma uma exclusão', () => {
@@ -132,7 +116,7 @@ describe('transformarRegra', () => {
     const resultado = transformarRegra(representacao)
 
     expect(resultado.se).toEqual([
-      'excluir cargo = 150, 200',
+      'excluir cargo = GERENTE DE LOJA / GERENTE QUIOSQUE, VENDEDOR BALCAO',
     ])
   })
 
@@ -154,9 +138,7 @@ describe('transformarRegra', () => {
 
     const resultado = transformarRegra(representacao)
 
-    expect(resultado.entao).toEqual([
-      'bônus fixo = R$ 500,00',
-    ])
+    expect(resultado.entao).toEqual(['bônus fixo = R$ 500,00'])
   })
 
   it('transforma uma regra genérica', () => {
@@ -173,9 +155,7 @@ describe('transformarRegra', () => {
 
     const resultado = transformarRegra(representacao)
 
-    expect(resultado.se).toEqual([
-      'dobrar a comissão no aniversário da loja',
-    ])
+    expect(resultado.se).toEqual(['dobrar a comissão no aniversário da loja'])
   })
 
   it('preserva a ordem das especificações', () => {
@@ -212,12 +192,10 @@ describe('transformarRegra', () => {
 
     expect(resultado.se).toEqual([
       'venda total >= R$ 50.000,00',
-      'excluir cargo = 150',
+      'excluir cargo = GERENTE DE LOJA / GERENTE QUIOSQUE',
     ])
 
-    expect(resultado.entao).toEqual([
-      'bônus fixo = R$ 500,00',
-    ])
+    expect(resultado.entao).toEqual(['bônus fixo = R$ 500,00'])
   })
 })
 
@@ -235,10 +213,7 @@ describe('transformarResultado', () => {
       decomposicao: {},
     }
 
-    expect(transformarResultado(resultado)).toEqual([
-      'comissão = R$ 12.000,00',
-      'orçamento = OK',
-    ])
+    expect(transformarResultado(resultado)).toEqual(['comissão = R$ 12.000,00', 'orçamento = OK'])
   })
 
   it('indica quando o valor simulado ultrapassa o orçamento', () => {
@@ -272,10 +247,7 @@ describe('transformarResultado', () => {
       decomposicao: {},
     }
 
-    expect(transformarResultado(resultado)).toEqual([
-      'comissão = R$ 18.000,00',
-      'orçamento = OK',
-    ])
+    expect(transformarResultado(resultado)).toEqual(['comissão = R$ 18.000,00', 'orçamento = OK'])
   })
 
   it('retorna lista vazia quando a simulação não tem totais', () => {

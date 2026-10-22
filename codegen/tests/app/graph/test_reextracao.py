@@ -217,7 +217,15 @@ async def test_prompt_leva_o_texto_como_dado_e_os_conflitos_recalculados(
     assert prompt["dados_nao_confiaveis_da_correcao"] == {"texto": TEXTO}
     assert prompt["dados_do_sistema"]["regra_atual"] == REGRA
     assert prompt["dados_do_sistema"]["conflitos"] == [
-        {"elementos": ["nucleo.percentual"], "motivo": MOTIVO_DO_CONFLITO}
+        {"elementos": ["nucleo.percentual"], "motivo": MOTIVO_DO_CONFLITO},
+        {
+            "elementos": ["nucleo.marca"],
+            "motivo": "escopo de marca não informado; indique os destinatários ou declare todos",
+        },
+        {
+            "elementos": ["nucleo.cargo"],
+            "motivo": "escopo de cargo não informado; indique os destinatários ou declare todos",
+        },
     ]
     assert prompt["dados_do_sistema"]["parametros_atuais"] == {
         "competencias": ["2025-10", "2025-11"],
@@ -250,7 +258,16 @@ async def test_conflitos_dos_parametros_da_versao_chegam_ao_prompt(
     prompt = simplejson.loads(str(enviada.content), use_decimal=True)
     assert prompt["dados_do_sistema"]["conflitos"] == [
         {"elementos": ["nucleo.percentual"], "motivo": MOTIVO_DO_CONFLITO},
+        {
+            "elementos": ["nucleo.marca"],
+            "motivo": "escopo de marca não informado; indique os destinatários ou declare todos",
+        },
+        {
+            "elementos": ["nucleo.cargo"],
+            "motivo": "escopo de cargo não informado; indique os destinatários ou declare todos",
+        },
         {"elementos": ["parametros.orcamento"], "motivo": "orçamento negativo"},
+        {"elementos": ["parametros.meta_venda"], "motivo": "meta de vendas não informada"},
         {
             "elementos": ["parametros.meta_venda"],
             "motivo": "meta de venda citada sem valor reconhecido",

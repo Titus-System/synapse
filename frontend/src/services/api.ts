@@ -1,3 +1,4 @@
+import { observarConsulta } from '@/observability/consultasLogging'
 import { http } from '@/services/http'
 import type {
   ConfirmarParametrosRequisicao,
@@ -30,7 +31,7 @@ export const apiClient = {
   },
 
   consultarJob(id: string, signal?: AbortSignal) {
-    return http.get<Job>(jobPath(id), signal)
+    return observarConsulta('consultar_job', id, () => http.get<Job>(jobPath(id), signal), signal)
   },
 
   acompanharJob(id: string) {

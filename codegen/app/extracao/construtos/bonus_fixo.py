@@ -21,6 +21,10 @@ _CRITERIOS = {
 
 # Negação e exceção invertem ou restringem o alvo, que o conversor só lê pelas matrículas citadas.
 _NEGACAO = re.compile(r"\b(?:nao|nunca|nem|sem|exceto|salvo|ninguem|demais)\b")
+_CONDICAO_ADICIONAL = re.compile(
+    r"\b(?:quando|se|caso|desde que|condicionad[oa]s?|vendas?|vender|venderem|"
+    r"faturamento|metas?|cotas?|atingimento|ticket|quantidade)\b"
+)
 # O filtro só tem admitido_ate, que inclui o dia; outra direção seria o alvo oposto.
 _ATE = re.compile(r"\bate\b")
 _OUTRA_DIRECAO = re.compile(
@@ -83,7 +87,8 @@ def _filtro(
 
 def converter(rascunho: dict[str, Any], contexto: ContextoExtracao) -> dict[str, ValorRegra]:
     valor = valor_monetario(rascunho["valor"], contexto.texto, rascunho["trecho"])
-    if _NEGACAO.search(normalizar(rascunho["trecho"])):
+    frase = normalizar(rascunho["trecho"])
+    if _NEGACAO.search(frase) or _CONDICAO_ADICIONAL.search(frase):
         raise ElementoRebaixadoError("termo_ambiguo")
     # O alvo declarado tem de ser o único presente; um rascunho com os dois não é representável.
     if rascunho["tipo_alvo"] == "lista" and "criterios" not in rascunho:
@@ -115,6 +120,9 @@ BONUS_FIXO = Construto(
         "Exemplos: 'bônus fixo de R$ 500 para as matrículas MATRIC-422 e MATRIC-517' -> lista; "
         "'os admitidos até 10/10 no cargo 100 terão bônus de R$ 1.000' -> filtro. "
         "admitido_ate só vale para 'até'; 'a partir de', 'depois de' e 'antes de' são generico. "
+        "Condição sobre vendas, meta, quantidade ou qualquer requisito além do cargo e da "
+        "admissão precisa permanecer junto do bônus em um único generico, com o trecho "
+        "completo; nunca converta esse bônus em pagamento incondicional. "
         "Bônus em percentual, negado ('não', 'exceto', 'nunca'), sem alvo identificável, por "
         "faixa de venda ou com outro critério de filtro (loja, marca) é generico."
     ),

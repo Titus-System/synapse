@@ -148,6 +148,8 @@ def propor_alternativa(
         return Alternativa(MOTIVO_NAO_SUPORTADA)
 
     nucleo = representacao.get("nucleo")
+    if isinstance(nucleo, Mapping) and "taxas_por_cargo" in nucleo:
+        return Alternativa(MOTIVO_NAO_SUPORTADA)
     if not isinstance(nucleo, Mapping):
         return Alternativa(MOTIVO_SEM_MARGEM)
 

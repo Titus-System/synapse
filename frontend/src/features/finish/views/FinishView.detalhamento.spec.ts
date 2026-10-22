@@ -211,7 +211,7 @@ it('descarta a resposta antiga quando a rota muda para outro job', async () => {
   expect(wrapper.text()).not.toContain('COL-0000')
 })
 
-it('filtra o período completo sem repetir a consulta e apresenta os totais da simulação visível', async () => {
+it('apresenta o período completo e totais sem filtros e sem repetir consultas', async () => {
   const job = jobFixture()
   job.simulacao!.resultado!.decomposicao = {
     matricula: { 'COL-0001': 999.99 },
@@ -225,19 +225,17 @@ it('filtra o período completo sem repetir a consulta e apresenta os totais da s
   await wrapper.get('[aria-controls="relatorio-simulacao"]').trigger('click')
   await flushPromises()
   const relatorio = wrapper.get('#relatorio-simulacao')
-  await relatorio.get('input[type="search"]').setValue('col-0001')
-  await relatorio.findAll('select')[0]!.setValue('013')
-  await relatorio.findAll('select')[1]!.setValue('2025-11')
-  expect(wrapper.findAll('tbody tr')).toHaveLength(1)
+  expect(relatorio.find('input').exists()).toBe(false)
+  expect(relatorio.find('select').exists()).toBe(false)
+  expect(wrapper.findAll('tbody tr')).toHaveLength(25)
   const totais = relatorio.get('[aria-label="Totais da simulação"]')
   expect(totais.text()).toContain('R$ 999,99')
   expect(totais.text()).toContain('R$ 555,55')
   expect(totais.text()).toContain('R$ 777,77')
-  await relatorio
-    .findAll('button')
-    .find((b) => b.text() === 'Limpar filtros')!
-    .trigger('click')
-  expect(wrapper.findAll('tbody tr')).toHaveLength(25)
+  expect(relatorio.find('dialog').exists()).toBe(false)
+  expect(relatorio.html().indexOf('Totais da Simulação')).toBeLessThan(
+    relatorio.html().indexOf('<table'),
+  )
   expect(fetch).toHaveBeenCalledTimes(1)
   expect(apiClient.consultarJob).toHaveBeenCalledTimes(consultasIniciais)
 })

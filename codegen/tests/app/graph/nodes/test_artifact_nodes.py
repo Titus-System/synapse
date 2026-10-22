@@ -172,13 +172,33 @@ async def test_dispatch_execution_publica_so_referencias() -> None:
         ({"percentual": Decimal("0.025")}, [], ["nucleo.percentual"]),
         ({"percentual": Decimal("0")}, [], ["nucleo.percentual"]),
         (
+            {"taxas_por_cargo": [{"cargo": "100", "percentual": Decimal("0.03")}]},
+            [],
+            ["nucleo.taxas_por_cargo"],
+        ),
+        (
+            {
+                "percentual": Decimal("0.02"),
+                "taxas_por_cargo": [{"cargo": "150", "percentual": Decimal("0.05")}],
+            },
+            [],
+            ["nucleo.percentual", "nucleo.taxas_por_cargo"],
+        ),
+        (
             {"percentual": Decimal("0.025"), "loja": ["13"], "marca": ["10"], "cargo": ["100"]},
             ["elem.2", "elem.1"],
             ["nucleo.percentual", "elem.2", "elem.1"],
         ),
         ({"loja": ["13"]}, ["elem.2", "elem.1"], ["elem.2", "elem.1"]),
     ],
-    ids=["so-nucleo", "percentual-zero", "especificacoes-na-ordem", "sem-percentual"],
+    ids=[
+        "so-nucleo",
+        "percentual-zero",
+        "taxas-por-cargo",
+        "uniforme-com-excecao",
+        "especificacoes-na-ordem",
+        "sem-percentual",
+    ],
 )
 async def test_dispatch_execution_envia_elementos_da_representacao(
     nucleo: dict[str, Any], refs: list[str], esperados: list[str], caplog: pytest.LogCaptureFixture

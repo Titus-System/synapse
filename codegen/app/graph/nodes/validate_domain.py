@@ -42,8 +42,8 @@ def _classe_da_falha(erro: BaseException) -> str:
 def parametros_do_job(state: AgentState) -> dict[str, ValorRegra]:
     """Os parâmetros da simulação que a mensagem trouxe, com os números em `Decimal`.
 
-    O estado os guarda como texto decimal. Um parâmetro ausente fica de fora: a ausência tem
-    significado na simulação e não é conflito.
+    O estado os guarda como texto decimal. Ausência fica explícita para a validação pedir
+    os parâmetros obrigatórios antes de liberar uma nova simulação.
     """
     parametros: dict[str, ValorRegra] = {}
     if "competencias" in state:

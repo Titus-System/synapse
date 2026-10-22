@@ -470,12 +470,12 @@ class JobRepository {
 
 	List<JobDeOrigem> buscarJobDeOrigem(UUID jobId) {
 		return this.jdbc.query("""
-				SELECT status, usuario_id, competencias, orcamento, nome FROM jobs WHERE id = ?
+				SELECT status, usuario_id, competencias, orcamento, nome, meta_venda FROM jobs WHERE id = ?
 				""",
 				(rs, linha) -> new JobDeOrigem(JobStatus.deColuna(Objects.requireNonNull(rs.getString("status"))),
 						Objects.requireNonNull(rs.getObject("usuario_id", UUID.class)),
 						List.of((String[]) rs.getArray("competencias").getArray()), rs.getBigDecimal("orcamento"),
-						rs.getString("nome")),
+						rs.getString("nome"), rs.getBigDecimal("meta_venda")),
 				jobId);
 	}
 
@@ -781,7 +781,7 @@ class JobRepository {
 	}
 
 	record JobDeOrigem(JobStatus status, UUID usuarioId, List<String> competencias, @Nullable BigDecimal orcamento,
-			@Nullable String nome) {
+			@Nullable String nome, @Nullable BigDecimal metaVenda) {
 	}
 
 	/**

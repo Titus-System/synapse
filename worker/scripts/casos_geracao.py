@@ -90,6 +90,8 @@ class Caso:
         como o codegen os monta (T-242): ``nucleo.percentual`` quando o núcleo tem percentual, e
         o ``ref`` de cada especificação, na ordem."""
         exigidos = ["nucleo.percentual"] if "percentual" in self.representacao["nucleo"] else []
+        if "taxas_por_cargo" in self.representacao["nucleo"]:
+            exigidos.append("nucleo.taxas_por_cargo")
         exigidos.extend(elemento["ref"] for elemento in self.representacao["especificacoes"])
         return exigidos
 
