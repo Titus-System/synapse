@@ -1,10 +1,11 @@
-"""Os baselines congelados que o worker mantém por conta própria (T-066).
+"""Os baselines congelados que o worker mantém por conta própria (T-066, T-262).
 
 A imagem do sandbox carrega os mesmos arquivos (T-033), e o harness soma deles o
 ``totais.baseline`` que sai no envelope. O worker precisa da própria cópia porque o número que
 volta do container não se valida sozinho: a regra divide o processo com o harness (T-034) e
 alcança o que ele guarda. Conferir o total devolvido contra o que o worker leu por conta
-própria é o que denuncia adulteração ou descompasso antes de o número ser julgado.
+própria é o que denuncia adulteração ou descompasso antes de o número ser julgado. As linhas,
+indexadas por competência e matrícula, conferem o detalhamento do resultado (T-262).
 
 Só stdlib: ``app/sandbox/carga.py`` lê os mesmos arquivos, mas importa pandas, e o processo
 do worker não o carrega (``test_isolamento_harness.py``).
@@ -16,12 +17,12 @@ no repositório, ``/app`` na imagem (o ``worker/Dockerfile`` os copia para lá).
 import hashlib
 import json
 import math
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from decimal import Decimal
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from decimal import ROUND_HALF_UP, Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 CAMINHO_RELATIVO = Path("sandbox") / "data" / "domrock" / "baselines"
 CENTAVO = Decimal("0.01")
@@ -40,11 +41,26 @@ class CompetenciaSemBaselineError(KeyError):
     """O job pede uma competência que não tem baseline congelado."""
 
 
+class LinhaDoBaseline(NamedTuple):
+    """Uma matrícula numa competência, como o harness a indexa em ``apuracao_base``: códigos como
+    texto e comissão exata em centavos."""
+
+    cod_loja: str
+    cod_marca: str
+    cod_cargo: str
+    comissao: Decimal
+
+
+# Competência, depois matrícula: o mesmo aninhamento do detalhamento do resultado.
+type LinhasDoBaseline = Mapping[str, Mapping[str, LinhaDoBaseline]]
+
+
 @dataclass(frozen=True)
 class BaselinesCongelados:
-    """O total de cada competência, exato em centavos."""
+    """O total e as linhas de cada competência, exatos em centavos."""
 
     por_competencia: Mapping[str, Decimal]
+    linhas: LinhasDoBaseline = field(default_factory=dict, repr=False)
 
     def total(self, competencias: Sequence[str]) -> Decimal:
         """A soma do período, na mesma aritmética do harness: centavos exatos somados.
@@ -52,10 +68,51 @@ class BaselinesCongelados:
         Uma competência sem baseline é defeito do comando, não da regra: a imagem também não
         a tem, e o harness teria falhado antes de escrever qualquer envelope.
         """
-        faltando = [c for c in competencias if c not in self.por_competencia]
+        self._conferir(competencias, self.por_competencia)
+        return sum((self.por_competencia[c] for c in competencias), Decimal(0))
+
+    def linhas_do_periodo(self, competencias: Sequence[str]) -> LinhasDoBaseline:
+        """As linhas das competências do job, contra as quais o detalhamento é conferido."""
+        self._conferir(competencias, self.linhas)
+        return {competencia: self.linhas[competencia] for competencia in competencias}
+
+    @staticmethod
+    def _conferir(competencias: Sequence[str], disponiveis: Mapping[str, object]) -> None:
+        faltando = [c for c in competencias if c not in disponiveis]
         if faltando:
             raise CompetenciaSemBaselineError(f"competências sem baseline congelado: {faltando}")
-        return sum((self.por_competencia[c] for c in competencias), Decimal(0))
+
+
+def indexar_linhas(
+    registros: Iterable[Mapping[str, object]],
+) -> dict[str, dict[str, LinhaDoBaseline]]:
+    """Linhas na forma de ``apuracao_base`` indexadas como o harness as indexa (T-035): códigos
+    inteiros viram texto, e a comissão é arredondada a centavos uma vez. É também o que indexa
+    o baseline reapurado na meta (``app/execucao/bases.py``), para os dois serem conferidos do
+    mesmo jeito."""
+    linhas: dict[str, dict[str, LinhaDoBaseline]] = {}
+    for registro in registros:
+        competencia = str(registro["competencia"])
+        matricula = str(registro["matricula"])
+        da_competencia = linhas.setdefault(competencia, {})
+        if matricula in da_competencia:
+            raise BaselineIndisponivelError(f"{competencia}: matrícula repetida no baseline")
+        comissao = Decimal(str(registro["comissao"]))
+        da_competencia[matricula] = LinhaDoBaseline(
+            cod_loja=_codigo(registro["cod_loja"]),
+            cod_marca=_codigo(registro["cod_marca"]),
+            cod_cargo=_codigo(registro["cod_cargo"]),
+            comissao=comissao.quantize(CENTAVO, rounding=ROUND_HALF_UP),
+        )
+    return linhas
+
+
+def total_das_linhas(linhas: LinhasDoBaseline) -> Decimal:
+    """A soma das comissões, em centavos exatos: a aritmética do ``totais.baseline`` do harness."""
+    return sum(
+        (linha.comissao for da_competencia in linhas.values() for linha in da_competencia.values()),
+        Decimal(0),
+    )
 
 
 def localizar() -> Path:
@@ -84,12 +141,16 @@ def ler_baselines(diretorio: Path) -> BaselinesCongelados:
         raise BaselineIndisponivelError("manifesto.json não registra nenhum baseline")
 
     totais: dict[str, Decimal] = {}
+    linhas: dict[str, Mapping[str, LinhaDoBaseline]] = {}
     for competencia, esperado in registrados.items():
-        totais[competencia] = _conferir_competencia(diretorio, competencia, esperado)
-    return BaselinesCongelados(por_competencia=totais)
+        linhas[competencia] = _conferir_competencia(diretorio, competencia, esperado)
+        totais[competencia] = total_das_linhas({competencia: linhas[competencia]})
+    return BaselinesCongelados(por_competencia=totais, linhas=linhas)
 
 
-def _conferir_competencia(diretorio: Path, competencia: str, esperado: Any) -> Decimal:
+def _conferir_competencia(
+    diretorio: Path, competencia: str, esperado: Any
+) -> Mapping[str, LinhaDoBaseline]:
     if not isinstance(esperado, dict):
         raise BaselineIndisponivelError(f"{competencia}: registro do manifesto inválido")
     # O manifesto registra o caminho relativo à pasta das bases ("baselines/<arquivo>").
@@ -104,23 +165,26 @@ def _conferir_competencia(diretorio: Path, competencia: str, esperado: Any) -> D
             f"{competencia}: {arquivo.name} difere do sha256 registrado no manifesto"
         )
 
-    comissoes = _comissoes_por_matricula(conteudo, competencia, arquivo.name)
-    if len(comissoes) != esperado.get("matriculas"):
+    registros = _registros_da_competencia(conteudo, competencia, arquivo.name)
+    if len(registros) != esperado.get("matriculas"):
         raise BaselineIndisponivelError(
-            f"{competencia}: {len(comissoes)} matrículas, "
+            f"{competencia}: {len(registros)} matrículas, "
             f"o manifesto registra {esperado.get('matriculas')}"
         )
-    total = sum(comissoes, Decimal(0))
+    linhas = indexar_linhas(registros).get(competencia, {})
+    total = total_das_linhas({competencia: linhas})
     if total != _decimal(esperado.get("total"), f"{competencia}: total do manifesto"):
         raise BaselineIndisponivelError(
             f"{competencia}: as matrículas somam {total}, "
             f"o manifesto registra {esperado.get('total')}"
         )
-    return total
+    return linhas
 
 
-def _comissoes_por_matricula(conteudo: bytes, competencia: str, nome: str) -> list[Decimal]:
-    comissoes: list[Decimal] = []
+def _registros_da_competencia(
+    conteudo: bytes, competencia: str, nome: str
+) -> list[Mapping[str, object]]:
+    registros: list[Mapping[str, object]] = []
     vistas: set[object] = set()
     for numero, texto in enumerate(conteudo.decode("utf-8").splitlines(), start=1):
         if not texto.strip():
@@ -139,8 +203,21 @@ def _comissoes_por_matricula(conteudo: bytes, competencia: str, nome: str) -> li
         if matricula in vistas:
             raise BaselineIndisponivelError(f"{origem}: matrícula repetida")
         vistas.add(matricula)
-        comissoes.append(_decimal(linha["comissao"], f"{origem}: comissão"))
-    return comissoes
+        for coluna in ("cod_loja", "cod_marca", "cod_cargo"):
+            _codigo(linha[coluna], f"{origem}: {coluna}")
+        _decimal(linha["comissao"], f"{origem}: comissão")
+        registros.append(linha)
+    return registros
+
+
+def _codigo(valor: object, origem: str = "código do baseline") -> str:
+    """Loja, marca ou cargo como texto, a mesma leitura do harness (``resultado._codigo_de``): o
+    dataset traz inteiro, e o detalhamento traz o código como texto."""
+    if isinstance(valor, int) and not isinstance(valor, bool):
+        return str(valor)
+    if isinstance(valor, str) and valor:
+        return valor
+    raise BaselineIndisponivelError(f"{origem} não é código inteiro nem texto")
 
 
 def _decimal(valor: object, origem: str) -> Decimal:

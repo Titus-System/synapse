@@ -446,3 +446,20 @@ def test_a_linha_reentregue_na_meta_publica_o_mesmo_evento_que_a_recem_gravada()
     )
 
     assert evento_de(do_banco) == evento_de(recem_gravado)
+
+
+def test_resultado_incoerente_guarda_so_a_causa_e_valida_contra_o_contrato() -> None:
+    """A causa que a T-256 acrescentou ao contrato (T-262): sem conteúdo do detalhamento."""
+    julgamento = Julgamento(
+        "erro_codigo",
+        "resultado_incoerente",
+        "indeterminado",
+        conferencia="resultado_incoerente",
+        verificacao="quebras",
+    )
+
+    linha = linha_do_julgamento(julgamento)
+
+    assert linha.diagnostico == {"causa": "resultado_incoerente"}
+    assert erros_do_dominio("resultado-diagnostico", linha.diagnostico) == []
+    assert (linha.status, linha.veredito, linha.linhas) == ("erro_codigo", None, None)

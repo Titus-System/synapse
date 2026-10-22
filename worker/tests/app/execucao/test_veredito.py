@@ -6,7 +6,6 @@ jogo é o número que o usuário vai ler como "cabe" ou "não cabe" no orçament
 impede de vir de um total adulterado.
 """
 
-import copy
 import dataclasses
 import json
 from collections.abc import Sequence
@@ -16,7 +15,7 @@ from typing import Any
 import pytest
 
 from app.core.metrics.global_metrics import DESFECHOS_DA_EXECUCAO
-from app.execucao.baseline import BaselinesCongelados, carregar_baselines
+from app.execucao.baseline import BaselinesCongelados, LinhaDoBaseline, carregar_baselines
 from app.execucao.bases import carregar_bases
 from app.execucao.coleta import DesfechoClassificado, classificar, classificar_falha_de_infra
 from app.execucao.schema import validador
@@ -32,9 +31,10 @@ from tests.app.execucao.envelopes import (
     ASSERCAO_VIOLADA,
     FALHA,
     PAYLOAD,
-    RESULTADO,
     envelope,
     linhas_para,
+    montar_sobre,
+    resultado_para,
     saida,
 )
 
@@ -42,6 +42,10 @@ BASELINE_2025_11 = "508382.32"
 BASELINE_2025_08_11 = "871403.78"
 # A soma de vlr_venda de 2025-11 no dataset canônico, em centavos (T-270).
 VENDAS_2025_11 = 13271681.51
+# O baseline de 2025-11 reapurado sobre as vendas escaladas até 10% acima do total histórico, e
+# essa meta. O total vem do motor congelado (test_escalonamento.py e test_bases.py o conferem).
+BASELINE_NA_META_2025_11 = "558870.26"
+META_2025_11 = float(Decimal(str(VENDAS_2025_11)) * Decimal("1.1"))
 
 
 def totais(baseline: str, simulado: str, /) -> dict[str, float]:
@@ -56,12 +60,23 @@ def totais(baseline: str, simulado: str, /) -> dict[str, float]:
     }
 
 
-def sucesso(baseline: str, simulado: str, /, **mudancas: Any) -> DesfechoClassificado:
-    resultado = copy.deepcopy(RESULTADO)
+def sucesso(
+    baseline: str, simulado: str, /, *, competencias: Sequence[str] = ("2025-11",), **mudancas: Any
+) -> DesfechoClassificado:
+    """O resultado legítimo das competências com este simulado, sobre o baseline reapurado na meta
+    quando `baseline` é o de 2025-11 na meta, e sobre o congelado nos demais. Um `baseline` que não
+    é o do worker, ou `mudancas`, adulteram só os totais: o detalhamento segue o legítimo."""
+    periodo = list(competencias)
+    meta_venda = META_2025_11 if baseline == BASELINE_NA_META_2025_11 else None
+    if meta_venda is not None:
+        referencia = Decimal(BASELINE_NA_META_2025_11)
+    else:
+        referencia = carregar_baselines().total(periodo)
+    a_mais = str(Decimal(simulado) - referencia)
+    resultado = resultado_para(periodo, a_mais, meta_venda=meta_venda)
     resultado["totais"] = totais(baseline, simulado) | mudancas
-    return DesfechoClassificado(
-        "sucesso", "ok", [ASSERCAO_OK], resultado=resultado, linhas=linhas_para(["2025-11"])
-    )
+    linhas = linhas_para(periodo, a_mais, meta_venda=meta_venda)
+    return DesfechoClassificado("sucesso", "ok", [ASSERCAO_OK], resultado=resultado, linhas=linhas)
 
 
 def julgar_2025_11(
@@ -160,7 +175,7 @@ def test_a_diferenca_absoluta_e_a_percentual_acompanham_o_veredito() -> None:
 
 
 def test_periodo_de_varias_competencias_confere_a_soma_dos_baselines() -> None:
-    desfecho = sucesso(BASELINE_2025_08_11, "880000.00")
+    desfecho = sucesso(BASELINE_2025_08_11, "880000.00", competencias=["2025-08", "2025-11"])
 
     julgamento = julgar(
         desfecho,
@@ -270,8 +285,12 @@ def test_competencia_sem_baseline_no_worker_e_divergencia() -> None:
 
 
 def test_baseline_zero_tem_fracao_zero_como_na_t035() -> None:
-    baselines = BaselinesCongelados({"2025-11": Decimal("0.00")})
-    desfecho = sucesso("0.00", "10.00")
+    linhas = {"2025-11": {"MATRIC-1": LinhaDoBaseline("75", "20", "200", Decimal("0.00"))}}
+    baselines = BaselinesCongelados({"2025-11": Decimal("0.00")}, linhas)
+    montado = montar_sobre(linhas, ["2025-11"], Decimal("10.00"))
+    desfecho = DesfechoClassificado(
+        "sucesso", "ok", [ASSERCAO_OK], resultado=montado.resultado, linhas=montado.linhas
+    )
 
     julgamento = julgar(
         desfecho, ["2025-11"], 100.0, baselines, elementos_exigidos=None, bases=carregar_bases()
@@ -282,7 +301,7 @@ def test_baseline_zero_tem_fracao_zero_como_na_t035() -> None:
 
 # ---- a conferência de cobertura (T-241) ----
 
-# A decomposição de RESULTADO tem contribuição de nucleo.percentual e de elem.1.
+# A decomposição do resultado de `sucesso` tem contribuição de nucleo.percentual e de elem.1.
 EXIGIDOS_DO_RESULTADO = ["nucleo.percentual", "elem.1"]
 
 
@@ -438,9 +457,12 @@ def test_desfecho_que_nao_e_sucesso_nao_passa_pela_cobertura() -> None:
 
 
 def _por_classificar(baseline: str, simulado: str) -> DesfechoClassificado:
-    resultado = copy.deepcopy(RESULTADO)
-    resultado["totais"] = totais(baseline, simulado)
-    dados = envelope(competencias=PAYLOAD.competencias, resultado=resultado)
+    a_mais = str(Decimal(simulado) - Decimal(baseline))
+    dados = envelope(
+        competencias=PAYLOAD.competencias,
+        resultado=resultado_para(PAYLOAD.competencias, a_mais),
+        linhas=linhas_para(PAYLOAD.competencias, a_mais),
+    )
     return classificar(saida(dados), PAYLOAD, 485000.0)
 
 
@@ -577,11 +599,6 @@ def test_os_desfechos_da_metrica_sao_um_conjunto_fechado() -> None:
 
 # ---- na meta de venda: a conferência contra o baseline que o worker reapurou (T-270) ----
 
-# O baseline de 2025-11 reapurado sobre as vendas escaladas até 10% acima do total histórico, e
-# essa meta. O total vem do motor congelado (test_escalonamento.py e test_bases.py o conferem).
-BASELINE_NA_META_2025_11 = "558870.26"
-META_2025_11 = float(Decimal(str(VENDAS_2025_11)) * Decimal("1.1"))
-
 
 def julgar_na_meta(desfecho: DesfechoClassificado, orcamento: float | None = 600000.0) -> Any:
     return julgar(
@@ -591,7 +608,7 @@ def julgar_na_meta(desfecho: DesfechoClassificado, orcamento: float | None = 600
         carregar_baselines(),
         elementos_exigidos=None,
         bases=carregar_bases(),
-        baseline_na_meta=carregar_bases().baseline_na_meta(["2025-11"], META_2025_11),
+        baseline_na_meta=carregar_bases().linhas_na_meta(["2025-11"], META_2025_11),
         meta_venda=META_2025_11,
     )
 
@@ -682,20 +699,19 @@ def test_todo_sucesso_leva_o_total_de_vendas_das_competencias(
 
 
 def test_cada_linha_do_sucesso_leva_o_total_vendido_das_bases_do_worker() -> None:
-    """MATRIC-1 vendeu R$ 24.785,01 em novembro. Quem não vendeu no mês fica com zero, e não sem o
-    campo, que é o que distingue as linhas gravadas antes dele. O resto da linha segue como veio
-    do container."""
+    """MATRIC-1 vendeu R$ 24.785,01 em novembro, e MATRIC-16 não vendeu: quem não vendeu no mês
+    fica com zero, e não sem o campo, que é o que distingue as linhas gravadas antes dele. O resto
+    da linha segue como veio do container."""
     desfecho = sucesso(BASELINE_2025_11, "520000.00")
     assert desfecho.linhas is not None
     novembro = desfecho.linhas["2025-11"]
-    novembro["MATRIC-SEM-VENDA"] = copy.deepcopy(novembro["MATRIC-1"])
 
     julgamento = julgar_2025_11(desfecho)
 
     assert julgamento.classe == "sucesso" and julgamento.linhas is not None
     julgadas = julgamento.linhas["2025-11"]
     assert julgadas["MATRIC-1"]["vendas"] == 24785.01
-    assert julgadas["MATRIC-SEM-VENDA"]["vendas"] == 0.0
+    assert julgadas["MATRIC-16"]["vendas"] == 0.0
     assert julgadas.keys() == novembro.keys()
     for matricula, linha in novembro.items():
         assert {k: v for k, v in julgadas[matricula].items() if k != "vendas"} == linha
@@ -731,5 +747,104 @@ def test_baseline_na_meta_sem_a_meta_do_comando_e_recusado() -> None:
             carregar_baselines(),
             elementos_exigidos=None,
             bases=carregar_bases(),
-            baseline_na_meta=Decimal(BASELINE_NA_META_2025_11),
+            baseline_na_meta=carregar_bases().linhas_na_meta(["2025-11"], META_2025_11),
         )
+
+
+# ---- a conferência do detalhamento e das quebras (T-262) ----
+
+
+def test_o_sucesso_conferido_sai_coerente_e_sem_verificacao_reprovada() -> None:
+    julgamento = julgar_2025_11(sucesso(BASELINE_2025_11, "520000.00"))
+
+    assert (julgamento.classe, julgamento.conferencia, julgamento.verificacao) == (
+        "sucesso",
+        "coerente",
+        None,
+    )
+
+
+def test_o_que_nao_e_sucesso_nao_passa_pela_conferencia() -> None:
+    julgamento = julgar_2025_11(classificar(saida(envelope("erro_codigo"), 1), PAYLOAD, None))
+
+    assert (julgamento.conferencia, julgamento.verificacao) == (None, None)
+
+
+def test_total_do_baseline_adulterado_e_recusado_pela_verificacao_do_baseline() -> None:
+    julgamento = julgar_2025_11(sucesso("508382.33", "520000.00"))
+
+    assert (julgamento.motivo, julgamento.conferencia, julgamento.verificacao) == (
+        "baseline_divergente",
+        "baseline_divergente",
+        "baseline",
+    )
+
+
+def test_linha_do_baseline_adulterada_e_baseline_divergente_sem_veredito_nem_linhas() -> None:
+    desfecho = sucesso(BASELINE_2025_11, "520000.00")
+    assert desfecho.linhas is not None
+    linha = desfecho.linhas["2025-11"]["MATRIC-16"]
+    linha["comissao_baseline"] = float(Decimal(str(linha["comissao_baseline"])) + Decimal("0.01"))
+
+    julgamento = julgar_2025_11(desfecho)
+
+    assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == (
+        "erro_codigo",
+        "baseline_divergente",
+        "indeterminado",
+    )
+    assert (julgamento.conferencia, julgamento.verificacao) == ("baseline_divergente", "baseline")
+    assert julgamento.resultado is None and julgamento.linhas is None
+
+
+def test_quebra_adulterada_e_resultado_incoerente_sem_veredito_nem_linhas() -> None:
+    desfecho = sucesso(BASELINE_2025_11, "520000.00")
+    assert desfecho.resultado is not None
+    loja = desfecho.resultado["decomposicao"]["loja"]
+    chave = next(iter(loja))
+    loja[chave] = float(Decimal(str(loja[chave])) + Decimal("0.01"))
+
+    julgamento = julgar_2025_11(desfecho)
+
+    assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == (
+        "erro_codigo",
+        "resultado_incoerente",
+        "indeterminado",
+    )
+    assert (julgamento.conferencia, julgamento.verificacao) == ("resultado_incoerente", "quebras")
+    assert julgamento.resultado is None and julgamento.linhas is None
+
+
+def test_a_conferencia_vem_antes_da_cobertura() -> None:
+    """Com o detalhamento incoerente, a cobertura nem é conferida: ela lê a quebra por elemento,
+    que só vale depois de conferida contra as linhas."""
+    desfecho = declarando(sucesso(BASELINE_2025_11, "520000.00"), ("nucleo.percentual",))
+    assert desfecho.linhas is not None
+    novembro = desfecho.linhas["2025-11"]
+    linha = next(linha for linha in novembro.values() if linha["contribuicoes"])
+    linha["diferenca"] = float(Decimal(str(linha["diferenca"])) + Decimal("0.01"))
+
+    julgamento = julgar_2025_11(desfecho, elementos_exigidos=EXIGIDOS_DO_RESULTADO)
+
+    assert (julgamento.motivo, julgamento.verificacao) == ("resultado_incoerente", "diferencas")
+    assert julgamento.cobertura is None
+
+
+def test_a_cobertura_incompleta_vem_de_um_resultado_conferido_coerente() -> None:
+    desfecho = declarando(sucesso(BASELINE_2025_11, "520000.00"), ("nucleo.percentual",))
+
+    julgamento = julgar_2025_11(desfecho, elementos_exigidos=EXIGIDOS_DO_RESULTADO)
+
+    assert (julgamento.motivo, julgamento.conferencia) == ("cobertura_incompleta", "coerente")
+
+
+def test_na_meta_o_detalhamento_sobre_o_baseline_congelado_e_baseline_divergente() -> None:
+    """O container que devolve o total reapurado na meta, mas linhas do baseline histórico, não
+    simulou na meta linha a linha: só o total não basta."""
+    desfecho = sucesso(BASELINE_NA_META_2025_11, "570000.00")
+    a_mais = str(Decimal("570000.00") - Decimal(BASELINE_2025_11))
+    historico = dataclasses.replace(desfecho, linhas=linhas_para(["2025-11"], a_mais))
+
+    julgamento = julgar_na_meta(historico)
+
+    assert (julgamento.motivo, julgamento.verificacao) == ("baseline_divergente", "baseline")
