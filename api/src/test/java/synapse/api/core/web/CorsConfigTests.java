@@ -52,6 +52,27 @@ class CorsConfigTests {
 						.containsIgnoringCase("Content-Type"));
 	}
 
+		/** A renomeação da regra (PUT /jobs/{id}/nome) é cross-origin como as demais rotas. */
+	@Test
+	void allowsThePreflightOfPutForTheRenameRoute() {
+		this.client.options()
+			.uri("/jobs/job-1/nome")
+			.header("Origin", ORIGEM)
+			.header("Access-Control-Request-Method", "PUT")
+			.header("Access-Control-Request-Headers", "authorization, content-type")
+			.exchange()
+			.expectStatus()
+			.isOk()
+			.expectHeader()
+			.valueEquals("Access-Control-Allow-Origin", ORIGEM)
+			.expectHeader()
+			.value("Access-Control-Allow-Methods", (metodos) -> assertThat(metodos).contains("PUT"))
+			.expectHeader()
+			.value("Access-Control-Allow-Headers",
+					(cabecalhos) -> assertThat(cabecalhos).containsIgnoringCase("Authorization")
+						.containsIgnoringCase("Content-Type"));
+	}
+
 	/** Cada origem da lista vale por si; o separador é vírgula, não um valor só. */
 	@Test
 	void allowsEveryOriginOfTheList() {
@@ -81,7 +102,7 @@ class CorsConfigTests {
 			.isEqualTo("Invalid CORS request");
 	}
 
-	/** O contrato em contracts/http/ só tem GET e POST. */
+	/** O contrato em contracts/http/ só usa GET, POST e PUT; DELETE continua fora. */
 	@Test
 	void rejectsThePreflightOfAMethodOutsideTheContract() {
 		this.client.options()
