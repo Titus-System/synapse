@@ -668,8 +668,9 @@ class TestarRebaixamentos(unittest.TestCase):
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn("campo $[2].ref", resultado.stderr)
 
-    def test_rejeita_campo_do_nucleo(self) -> None:
-        # Um campo do núcleo sem lastro fica ausente da representação; não é rebaixado.
+    def test_rejeita_percentual_do_nucleo(self) -> None:
+        # Um percentual sem lastro fica ausente da representação sem registro: a validação
+        # já o pede como ausente.
         def alterar(rebaixamentos: Any) -> None:
             rebaixamentos[0]["ref"] = "nucleo.percentual"
 
@@ -677,6 +678,23 @@ class TestarRebaixamentos(unittest.TestCase):
 
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn("campo $[0].ref", resultado.stderr)
+
+    def test_aceita_criterio_do_nucleo_nao_reconhecido(self) -> None:
+        def alterar(rebaixamentos: Any) -> None:
+            rebaixamentos[1]["ref"] = "nucleo.taxas_por_cargo"
+
+        resultado = validar_com_alteracao("domain/rebaixamentos-extracao-nucleo.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_campo_inexistente_do_nucleo(self) -> None:
+        def alterar(rebaixamentos: Any) -> None:
+            rebaixamentos[1]["ref"] = "nucleo.matricula"
+
+        resultado = validar_com_alteracao("domain/rebaixamentos-extracao-nucleo.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $[1].ref", resultado.stderr)
 
 
 class TestarRegraSubmetida(unittest.TestCase):

@@ -58,6 +58,10 @@ class HistoricoFalso:
             AsyncMock(return_value=frozenset()),
         )
         monkeypatch.setattr(
+            "app.graph.nodes.validate_domain.nucleo_sem_lastro",
+            AsyncMock(return_value=frozenset()),
+        )
+        monkeypatch.setattr(
             "app.mensageria.roteamento.buscar_regra_do_resultado", self.buscar_regra_do_resultado
         )
         monkeypatch.setattr("app.graph.nodes.decision.contar_tentativas", self.contar_tentativas)

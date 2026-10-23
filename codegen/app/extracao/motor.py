@@ -11,14 +11,12 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from pydantic import ValidationError
 
-from app.extracao.construtos.generico import montar_generico
 from app.extracao.escopo import conferir_escopo_universal
 from app.extracao.lastro import (
     conferir_numero,
     conferir_periodo,
     normalizar,
     restaurar_trechos_literais,
-    trecho_literal,
 )
 from app.extracao.modelos import (
     ChamadaExtracao,
@@ -63,12 +61,13 @@ def _montar(
         if conferir_numero(texto, campo["trecho"], campo["valor"], percentual=True):
             nucleo["percentual"] = campo["valor"]
 
-    def rebaixar_nucleo(trecho: str, motivo: MotivoRebaixamento) -> None:
-        # Valores não resolvidos continuam visíveis para confirmação, fora do núcleo.
-        referencia = f"elem.{len(elementos) + 1}"
-        descricao = trecho if trecho_literal(texto, trecho) else "Critério sem lastro verificável"
-        elementos.append(montar_generico(referencia, descricao))
-        rebaixamentos.append(Rebaixamento(ref=referencia, motivo=motivo))
+    def rebaixar_nucleo(campo: str, motivo: MotivoRebaixamento) -> None:
+        # O critério não reconhecido não vira elemento genérico: o código gerado não teria o
+        # que implementar, e a simulação pararia na conferência de cobertura. O registro faz a
+        # validação pedir a correção dele.
+        referencia = f"nucleo.{campo}"
+        if all(rebaixamento.ref != referencia for rebaixamento in rebaixamentos):
+            rebaixamentos.append(Rebaixamento(ref=referencia, motivo=motivo))
 
     if "vigencia" in rascunho_nucleo:
         campo = rascunho_nucleo["vigencia"]
@@ -79,7 +78,7 @@ def _montar(
             nucleo["vigencia"] = campo["valor"]
         else:
             rebaixar_nucleo(
-                campo["trecho"], "periodo_nao_resolvido" if not resolvido else "valor_sem_lastro"
+                "vigencia", "periodo_nao_resolvido" if not resolvido else "valor_sem_lastro"
             )
 
     for nome in ("loja", "marca", "cargo"):
@@ -90,7 +89,7 @@ def _montar(
             if conferir_escopo_universal(nome, escopo["trecho"], texto):
                 nucleo[nome] = []
             else:
-                rebaixar_nucleo(escopo["trecho"], "valor_sem_lastro")
+                rebaixar_nucleo(nome, "valor_sem_lastro")
             continue
         aprovados: list[ValorRegra] = []
         for campo in rascunho_nucleo[nome]:
@@ -100,7 +99,7 @@ def _montar(
                     aprovados.append(codigo)
             else:
                 assert motivo is not None
-                rebaixar_nucleo(campo["trecho"], motivo)
+                rebaixar_nucleo(nome, motivo)
         if aprovados:
             nucleo[nome] = aprovados
 
@@ -128,8 +127,7 @@ def _montar(
             if "cargo" not in rascunho_nucleo:
                 nucleo["cargo"] = cargos
         else:
-            for campo, falha in zip(rascunho_nucleo["taxas_por_cargo"], falhas, strict=True):
-                rebaixar_nucleo(campo["trecho"], falha or "valor_sem_lastro")
+            rebaixar_nucleo("taxas_por_cargo", next(falha for falha in falhas if falha))
             nucleo.pop("percentual", None)
 
     representacao = RepresentacaoRegra.model_validate(

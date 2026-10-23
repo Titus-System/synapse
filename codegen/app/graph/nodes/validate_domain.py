@@ -23,7 +23,7 @@ from app.falhas import FalhaDoJobError
 from app.graph.core.state import AgentState, ConflitoDominio
 from app.nos import validacao_dominio
 from app.repositorio.artefatos import id_do_evento_de_trilha
-from app.repositorio.extracoes import parametros_sem_lastro
+from app.repositorio.extracoes import nucleo_sem_lastro, parametros_sem_lastro
 from app.tipos_estado import ValorRegra
 
 logger = get_logger("app.graph.nodes.validate_domain")
@@ -69,11 +69,13 @@ async def verificar_versao(
     resultado que esta validação gravou na rodada.
     """
     sem_lastro = await parametros_sem_lastro(sessoes, job_id, regra_id)
+    criterios_sem_lastro = await nucleo_sem_lastro(sessoes, job_id, regra_id)
     return validacao_dominio.verificar(
         representacao,
         parametros,
         competencias_publicadas=carregar_vocabulario()["competencias_publicadas"],
         sem_lastro=sem_lastro,
+        nucleo_sem_lastro=criterios_sem_lastro,
     )
 
 

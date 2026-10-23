@@ -8,11 +8,14 @@
     "type": "object",
     "required": ["ref", "motivo"],
     "properties": {
-      "ref": {"type": "string", "pattern": "^(elem\\.[1-9][0-9]*|parametros\\.(orcamento|meta_venda|competencias))$", "description": "Elemento convertido para generico, ou parâmetro da simulação que o texto disse e que não entrou em extracoes_regras.parametros."},
+      "ref": {"type": "string", "pattern": "^(elem\\.[1-9][0-9]*|nucleo\\.(vigencia|loja|marca|cargo|taxas_por_cargo)|parametros\\.(orcamento|meta_venda|competencias))$", "description": "Elemento convertido para generico; critério do núcleo que o texto disse e que não entrou na representação; ou parâmetro da simulação que o texto disse e que não entrou em extracoes_regras.parametros."},
       "construto_pretendido": {"type": "string", "minLength": 1, "description": "Ausente quando o rascunho não informa um construto utilizável."},
       "motivo": {"type": "string", "enum": ["construto_nao_habilitado", "campo_obrigatorio_ausente", "valor_sem_lastro", "codigo_fora_do_vocabulario", "termo_ambiguo", "periodo_nao_resolvido"], "description": "Vocabulário fechado, ampliado de forma aditiva. valor_sem_lastro é um valor sem trecho correspondente no texto; codigo_fora_do_vocabulario e termo_ambiguo são um código de loja, marca ou cargo que não existe no dataset ou que corresponde a mais de um; periodo_nao_resolvido é um período cujo ano não pôde ser determinado."}
     },
     "additionalProperties": false
   },
-  "examples": [[{"ref": "elem.1", "construto_pretendido": "bonus_fixo", "motivo": "construto_nao_habilitado"}]]
+  "examples": [
+    [{"ref": "elem.1", "construto_pretendido": "bonus_fixo", "motivo": "construto_nao_habilitado"}],
+    [{"ref": "nucleo.loja", "motivo": "valor_sem_lastro"}, {"ref": "nucleo.vigencia", "motivo": "periodo_nao_resolvido"}]
+  ]
 }

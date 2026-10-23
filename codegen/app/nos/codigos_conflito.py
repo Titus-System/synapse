@@ -27,3 +27,6 @@ class CodigoConflito(StrEnum):
     META_VENDA_NAO_POSITIVA = "meta_venda_nao_positiva"
     COMPETENCIA_NAO_PUBLICADA = "competencia_nao_publicada"
     PARAMETRO_SEM_LASTRO = "parametro_sem_lastro"
+    # Critério ou elemento citado sem lastro no texto, que o código gerado não implementaria.
+    NUCLEO_SEM_LASTRO = "nucleo_sem_lastro"
+    ELEMENTO_SEM_LASTRO = "elemento_sem_lastro"

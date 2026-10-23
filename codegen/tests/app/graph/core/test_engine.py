@@ -120,6 +120,10 @@ class _Execucao:
             AsyncMock(return_value=frozenset()),
         )
         monkeypatch.setattr(
+            "app.graph.nodes.validate_domain.nucleo_sem_lastro",
+            AsyncMock(return_value=frozenset()),
+        )
+        monkeypatch.setattr(
             "app.graph.nodes.decision.contar_tentativas",
             AsyncMock(return_value=TentativasDeTaxa(feitas=0, regra_e_tentativa=False)),
         )

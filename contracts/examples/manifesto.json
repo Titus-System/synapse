@@ -45,6 +45,7 @@
     "domain/parametros-simulacao-vazio.json": "domain/parametros-simulacao.schema.json",
     "domain/conflitos-rodada-parametros.json": "domain/conflitos-rodada.schema.json",
     "domain/rebaixamentos-extracao-parametros.json": "domain/rebaixamentos-extracao.schema.json",
+    "domain/rebaixamentos-extracao-nucleo.json": "domain/rebaixamentos-extracao.schema.json",
     "events/regra-submetida-parametros.json": "events/regra-submetida.schema.json",
     "events/parametros-confirmados-meta-venda.json": "events/parametros-confirmados.schema.json",
     "events/correcao-submetida-parametros.json": "events/correcao-submetida.schema.json",

@@ -1,4 +1,5 @@
-"""`parametros_sem_lastro` contra o DDL das migrations da api, num Postgres descartável (T-280)."""
+"""`parametros_sem_lastro` e `nucleo_sem_lastro` contra o DDL das migrations da api, num Postgres
+descartável (T-280)."""
 
 import os
 from typing import Any
@@ -7,7 +8,7 @@ from uuid import UUID, uuid4
 import pytest
 import simplejson
 
-from app.repositorio.extracoes import parametros_sem_lastro
+from app.repositorio.extracoes import nucleo_sem_lastro, parametros_sem_lastro
 
 pytestmark = [
     pytest.mark.postgres,
@@ -22,6 +23,8 @@ REBAIXAMENTOS = [
     {"ref": "parametros.orcamento", "motivo": "valor_sem_lastro"},
     {"ref": "elem.1", "construto_pretendido": "bonus_fixo", "motivo": "construto_nao_habilitado"},
     {"ref": "parametros.competencias", "motivo": "periodo_nao_resolvido"},
+    {"ref": "nucleo.loja", "motivo": "valor_sem_lastro"},
+    {"ref": "nucleo.vigencia", "motivo": "periodo_nao_resolvido"},
 ]
 
 
@@ -80,6 +83,16 @@ async def test_versao_extraida_traz_os_parametros_descartados_por_falta_de_lastr
     assert await parametros_sem_lastro(sessoes, job, extraida) == {"orcamento", "competencias"}
 
 
+async def test_versao_extraida_traz_os_criterios_do_nucleo_nao_reconhecidos(
+    banco_extracao: Any,
+) -> None:
+    sessoes, dono, job, submissao = banco_extracao
+    await _extracao(dono, job, submissao)
+    extraida = await _versao(dono, job, 1, "extracao")
+
+    assert await nucleo_sem_lastro(sessoes, job, extraida) == {"loja", "vigencia"}
+
+
 @pytest.mark.parametrize("origem", ["correcao", "confirmacao_usuario", "sugestao_adaptacao"])
 async def test_versao_seguinte_nao_e_checada_contra_a_extracao(
     banco_extracao: Any, origem: str
@@ -91,6 +104,7 @@ async def test_versao_seguinte_nao_e_checada_contra_a_extracao(
     seguinte = await _versao(dono, job, 2, origem, extraida)
 
     assert await parametros_sem_lastro(sessoes, job, seguinte) == frozenset()
+    assert await nucleo_sem_lastro(sessoes, job, seguinte) == frozenset()
 
 
 async def test_versao_de_outro_job_nao_traz_parametro(banco_extracao: Any) -> None:
