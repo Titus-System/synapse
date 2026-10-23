@@ -99,7 +99,7 @@ function aoSair(): void {
             <button
               type="button"
               :aria-label="`Renomear a regra ${regra.rotulo}`"
-              class="absolute top-1/2 right-2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-[#d6bdb0] opacity-100 transition hover:bg-[#6b4535] focus-visible:opacity-100 group-focus-within:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
+              class="cursor-pointer absolute top-1/2 right-2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-[#d6bdb0] opacity-100 transition hover:bg-[#6b4535] focus-visible:opacity-100 group-focus-within:opacity-100 lg:[@media(hover:hover)]:opacity-0 lg:[@media(hover:hover)]:group-hover:opacity-100 lg:[@media(hover:hover)]:group-focus-within:opacity-100 lg:[@media(hover:hover)]:focus-visible:opacity-100"
               @mousedown.prevent
               @click="editar(regra)"
             >

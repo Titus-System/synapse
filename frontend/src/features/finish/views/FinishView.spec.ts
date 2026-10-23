@@ -11,6 +11,7 @@ vi.mock('@/services/api', () => ({
   apiClient: {
     consultarJob: vi.fn<typeof apiClient.consultarJob>(),
     executarAcao: vi.fn<typeof apiClient.executarAcao>(),
+    listarJobs: vi.fn<typeof apiClient.listarJobs>(),
   },
 }))
 vi.mock('@/services/jobEvents', () => ({
@@ -22,6 +23,12 @@ vi.mock('@/services/jobEvents', () => ({
 beforeEach(() => {
   vi.resetAllMocks()
   vi.mocked(apiClient.consultarJob).mockResolvedValue(jobFixture())
+  vi.mocked(apiClient.listarJobs).mockResolvedValue({
+    itens: [],
+    pagina: 0,
+    tamanho: 100,
+    total: 0,
+  })
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -54,12 +61,13 @@ describe('FinishView', () => {
   })
 
   it('mostra a versão mais recente da resposta real de consulta', async () => {
-    vi.mocked(apiClient.consultarJob).mockResolvedValue(
-      jobFixture({ regras: [{ ...regraFixture(2), id: 'recente-2' }, regraFixture(1)] }),
-    )
+    const job = jobFixture({ regras: [{ ...regraFixture(2), id: 'recente-2' }, regraFixture(1)] })
+    vi.mocked(apiClient.consultarJob).mockResolvedValue(job)
     const { wrapper } = await montar()
+    const data = new Date(job.criado_em).toLocaleDateString('pt-BR')
     expect(wrapper.get('h1').text()).toBe('Finalizar Regra')
-    expect(wrapper.get('h2').text()).toBe('Regra · versão 2')
+    expect(wrapper.get('h2').text()).toBe(`Regra · ${data}`)
+    expect(wrapper.text()).toContain('versão 2')
     expect(wrapper.text()).toContain('13')
     expect(wrapper.text()).toContain('482.000')
     wrapper.unmount()

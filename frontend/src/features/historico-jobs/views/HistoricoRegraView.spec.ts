@@ -1,5 +1,6 @@
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { apiClient } from '@/services/api'
 import { consultarDetalhamento } from '@/services/detalhamento'
@@ -8,12 +9,23 @@ import { jobFixture, regraFixture, respostaPendente } from '@/services/job.fixtu
 import type { DetalhamentoSimulacao, Job } from '@/types/api'
 import HistoricoRegraView from './HistoricoRegraView.vue'
 vi.mock('@/services/api', () => ({
-  apiClient: { consultarJob: vi.fn<typeof apiClient.consultarJob>() },
+  apiClient: {
+    consultarJob: vi.fn<typeof apiClient.consultarJob>(),
+    listarJobs: vi.fn<typeof apiClient.listarJobs>(),
+  },
 }))
 vi.mock('@/services/detalhamento', () => ({
   consultarDetalhamento: vi.fn<typeof consultarDetalhamento>(),
 }))
 const wrappers: ReturnType<typeof mount>[] = []
+beforeEach(() => {
+  vi.mocked(apiClient.listarJobs).mockResolvedValue({
+    itens: [],
+    pagina: 0,
+    tamanho: 100,
+    total: 0,
+  })
+})
 afterEach(() => {
   for (const wrapper of wrappers.splice(0)) wrapper.unmount()
   vi.resetAllMocks()
@@ -45,7 +57,7 @@ async function montar(job = encerrado()) {
   })
   await router.push('/jobs/job-1/historico')
   const wrapper = mount(HistoricoRegraView, {
-    global: { plugins: [router], stubs: { TheSidebar: true } },
+    global: { plugins: [router, createPinia()], stubs: { TheSidebar: true } },
   })
   wrappers.push(wrapper)
   await flushPromises()

@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { RegraVersionada, Simulacao } from '@/types/api'
+import { computed, nextTick, ref } from 'vue'
+import { storeToRefs } from 'pinia'
+import { rotuloDaRegra } from '@/services/job'
+import { usarStoreRenomearRegra, limiteDoNome } from '@/stores/renomearRegra'
+import type { Job, RegraVersionada, Simulacao } from '@/types/api'
 import { transformarRegra, transformarResultado } from '@/composables/transformarRegra'
 
 const props = defineProps<{
   regra?: RegraVersionada
   simulacao?: Simulacao | null
+  job?: Pick<Job, 'id' | 'nome' | 'criado_em'> | null
   carregando: boolean
   erro: boolean
 }>()
@@ -22,9 +26,37 @@ const dataRegra = computed(() =>
     : '',
 )
 const baixaRastreabilidade = computed(() => props.simulacao?.flag_baixa_rastreabilidade === true)
-const tituloRegra = computed(() =>
-  props.regra ? `Regra · versão ${props.regra.versao}` : 'Nova Regra',
-)
+const tituloRegra = computed(() => (props.job ? rotuloDaRegra(props.job) : 'Nova Regra'))
+
+const renomear = usarStoreRenomearRegra()
+const {
+  idEmEdicao,
+  texto,
+  enviando,
+  erro: erroRenomear,
+  tamanho,
+  mensagemDeValidacao,
+  podeConfirmar,
+} = storeToRefs(renomear)
+const campo = ref<HTMLInputElement | null>(null)
+const editando = computed(() => props.job != null && idEmEdicao.value === props.job.id)
+
+async function editarNome(): Promise<void> {
+  if (!props.job) return
+  renomear.iniciar(props.job.id, tituloRegra.value)
+  await nextTick()
+  campo.value?.focus()
+  campo.value?.select()
+}
+
+function confirmarNome(): void {
+  if (podeConfirmar.value) void renomear.confirmar()
+}
+
+function aoSairNome(): void {
+  if (!enviando.value) renomear.cancelar()
+}
+
 const regraFormatada = computed(() =>
   props.regra ? transformarRegra(props.regra.representacao) : { se: [], entao: [] },
 )
@@ -39,13 +71,58 @@ const resultadoFormatado = computed(() =>
   <div class="flex w-full min-w-0 flex-col rounded-xl border-2 border-[#DFC0B2] bg-white">
     <div class="shrink-0 px-4 pt-7 pb-3 sm:px-8 sm:pt-8">
       <div>
-        <h2 class="mb-2 text-2xl font-bold">{{ carregando ? 'Carregando regra...' : tituloRegra }}</h2>
-        <div class="flex flex-row gap-2">
-          <span v-if="!erro" class="text-sm text-[#9D4400]">Extraída</span>
-          <template v-if="dataRegra">
-            <p class="text-sm text-[#9D4400]">•</p>
-            <span class="text-sm text-[#9D4400]">{{ dataRegra }}</span>
-          </template>
+        <div v-if="editando">
+          <input
+            ref="campo"
+            v-model="texto"
+            type="text"
+            :disabled="enviando"
+            aria-label="Novo nome da regra"
+            :aria-invalid="mensagemDeValidacao !== '' || erroRenomear !== ''"
+            class="mb-1 h-10 w-full rounded-2xl px-3 py-2 border border-[#DFC0B2] text-xl font-bold outline-none focus:bg-[#FFF1EC] disabled:opacity-60"
+            @keydown.enter.prevent="confirmarNome"
+            @keydown.esc.prevent="renomear.cancelar()"
+            @blur="aoSairNome"
+          />
+          <div class="mb-2 flex items-center justify-between gap-2 text-xs text-[#584237]">
+            <span v-if="mensagemDeValidacao || erroRenomear" role="alert" class="text-[#950606]">
+              {{ erroRenomear || mensagemDeValidacao }}
+            </span>
+            <span v-else>
+              <span class="hidden lg:inline">Enter confirma · Esc cancela</span>
+              <span class="lg:hidden">Enter confirma · Toque fora para cancelar</span>
+            </span>
+            <span class="shrink-0">{{ tamanho }}/{{ limiteDoNome }}</span>
+          </div>
+        </div>
+        <div v-else class="flex min-w-0 flex-row items-center justify-between gap-4">
+          <div class="min-w-0">
+            <h2 class="mb-2 text-2xl font-bold break-words">
+              {{ carregando ? 'Carregando regra...' : tituloRegra }}
+            </h2>
+            <div class="flex flex-row gap-2">
+              <span v-if="!erro" class="text-sm text-[#9D4400]">Extraída</span>
+              <template v-if="regra">
+                <p class="text-sm text-[#9D4400]">•</p>
+                <span class="text-sm text-[#9D4400]">versão {{ regra.versao }}</span>
+              </template>
+              <template v-if="dataRegra">
+                <p class="text-sm text-[#9D4400]">•</p>
+                <span class="text-sm text-[#9D4400]">{{ dataRegra }}</span>
+              </template>
+            </div>
+          </div>
+          <div>
+            <button
+              v-if="job && !carregando && !erro"
+              type="button"
+              class="shrink-0 cursor-pointer rounded-2xl border border-[#DFC0B2] px-5 py-1 text-[16px] text-[#5C4035] bg-[#FFE0D6] hover:bg-[#fec5b3]"
+              @mousedown.prevent
+              @click="editarNome"
+            >
+              Editar
+            </button>
+          </div>
         </div>
         <div
           v-if="baixaRastreabilidade"

@@ -144,7 +144,7 @@ onBeforeUnmount(() => consulta?.abort())
         </label>
         <template v-if="regra">
           <h2 class="mb-3 font-bold">{{ rotuloVersao(regra) }}</h2>
-          <CartaoRegra :regra="regra" :carregando="false" :erro="false" />
+          <CartaoRegra :regra="regra" :job="job" :carregando="false" :erro="false" />
           <p v-if="!execucoesDaVersao.length" role="status" class="my-5">
             Sem simulação disponível.
           </p>

@@ -24,7 +24,7 @@ export const usarStoreRegrasRecentes = defineStore('regras-recentes', () => {
   )
   const quantidadeSalvas = computed(() => resumos.value.length - quantidadeArquivadas.value)
 
-  async function carregar(): Promise<void> {
+    async function carregar(signal?: AbortSignal): Promise<void> {
     const numero = ++chamada
     carregando.value = true
     erro.value = false
@@ -34,7 +34,7 @@ export const usarStoreRegrasRecentes = defineStore('regras-recentes', () => {
       let total = 0
       let itens: JobResumo[] = []
       do {
-        const resposta = await apiClient.listarJobs({ pagina, tamanho: tamanhoDaPagina })
+        const resposta = await apiClient.listarJobs({ pagina, tamanho: tamanhoDaPagina }, signal)
         total = resposta.total
         itens = resposta.itens
         todos.push(...itens)
@@ -42,7 +42,7 @@ export const usarStoreRegrasRecentes = defineStore('regras-recentes', () => {
       } while (todos.length < total && itens.length > 0)
       if (numero === chamada) resumos.value = todos
     } catch {
-      if (numero === chamada) {
+      if (numero === chamada && !signal?.aborted) {
         resumos.value = []
         erro.value = true
       }

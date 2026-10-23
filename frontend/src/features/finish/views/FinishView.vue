@@ -143,7 +143,7 @@ onBeforeUnmount(() => {
         </div>
         <CartaoRegra
           class="mb-5 max-w-4xl" :class="relatorioAberto ? 'shrink-0' : 'min-h-0 flex-1'"
-          :regra="regra" :simulacao="simulacao" :carregando="carregando" :erro="erroCarregamento"
+          :regra="regra" :simulacao="simulacao" :job="job" :carregando="carregando" :erro="erroCarregamento"
         >
                 <RelatorioSimulacao
                   v-if="!carregando && !erroCarregamento && simulacao?.status === 'sucesso'"
