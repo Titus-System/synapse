@@ -3,7 +3,7 @@
 <br>
 <br>
 
-> Entega programada: 03/12/2026 ⏳
+> Entrega: 27/09/2026 ⏳
 
 ## 🏁 O Desafio
 
@@ -16,7 +16,7 @@ O **Synapse** é uma aplicação web inteligente criada para solucionar esse pro
 Inteligência Artificial captura a intenção e a converte em código processável. Além disso, a aplicação simula o impacto financeiro da nova regra (comparando com o *baseline* da empresa), sugere adaptações 
 em caso de inviabilidade orçamentária e garante total transparência e auditoria das decisões tomadas pelo modelo generativo.
 
-## MVP Sprint 1
+## ⭐ MVP Sprint 1
 O Produto Mínimo Viável (MVP) da primeira sprint foca na recepção inicial das novas regras de negócio e na validação de sua viabilidade orçamentária. As entregas que compõem este escopo inicial são:
 * **Input de Dados:** Inserção das informações da regra de negócio via texto.
 * **Simulação da Regra:** Cálculo do comissionamento gerados pela nova regra. O sistema compara os resultados com o cenário atual da empresa e emite alertas visuais caso a regra apresente inviabilidade financeira.
