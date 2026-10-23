@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
 import { apiClient } from '@/services/api'
+import { rotuloDaRegra } from '@/services/job'
 import type { JobResumo } from '@/types/api'
 import CampoDeMultiSelecao from '../components/CampoDeMultiSelecao.vue'
 import CampoDeSelecao from '../components/CampoDeSelecao.vue'
@@ -31,11 +32,6 @@ const {
   preencherComRegraDoJob,
 } = useFormularioRegra()
 
-function criarRotuloDaRegra(resumoDoJob: JobResumo): string {
-  const data = new Date(resumoDoJob.criado_em).toLocaleDateString('pt-BR')
-  return `Regra · ${data}`
-}
-
 function atualizarContagensDeRegras(resumosDosJobs: readonly JobResumo[]): void {
   quantidadeArquivadas.value = resumosDosJobs.filter(
     (resumoDoJob) => resumoDoJob.status === 'arquivado',
@@ -60,7 +56,7 @@ async function carregarRegrasRecentes(): Promise<void> {
 
     regrasRecentes.value = resumosDosJobs.slice(0, 6).map((resumoDoJob) => ({
       identificador: resumoDoJob.id,
-      rotulo: criarRotuloDaRegra(resumoDoJob),
+      rotulo: rotuloDaRegra(resumoDoJob),
     }))
     atualizarContagensDeRegras(resumosDosJobs)
   } catch {
