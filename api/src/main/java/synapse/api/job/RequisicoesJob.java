@@ -17,7 +17,8 @@ import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-record CriarJobRequisicao(String origem, List<String> competencias, BigDecimal orcamento, JsonNode conteudo) {
+record CriarJobRequisicao(String origem, List<String> competencias, BigDecimal orcamento, JsonNode conteudo,
+		@Nullable BigDecimal meta_venda) {
 
 	private static final JsonMapper JSON = JsonMapper.builder()
 		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS, DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
@@ -72,7 +73,17 @@ record CriarJobRequisicao(String origem, List<String> competencias, BigDecimal o
 			}
 		}
 		return new CriarJobRequisicao(raiz.path("origem").asString(), competencias, orcamento.decimalValue(),
-				raiz.path("conteudo"));
+				raiz.path("conteudo"), metaVenda(raiz.path("meta_venda")));
+	}
+
+	private static @Nullable BigDecimal metaVenda(JsonNode meta) {
+		if (meta.isMissingNode() || meta.isNull()) {
+			return null;
+		}
+		if (!meta.isNumber()) {
+			throw CriarJobException.requisicao("O campo meta_venda precisa ser um número.");
+		}
+		return meta.decimalValue();
 	}
 
 	RepresentacaoRegraDto representacao() {
@@ -89,25 +100,31 @@ record CriarJobRequisicao(String origem, List<String> competencias, BigDecimal o
 			throw CriarJobException.requisicao("O campo conteudo.nucleo é obrigatório e precisa ser um objeto.");
 		}
 		List<ElementoErroDto> ausentes = new ArrayList<>();
-		for (String campo : List.of("vigencia", "loja", "marca", "cargo", "percentual")) {
+		for (String campo : List.of("loja", "marca", "cargo")) {
 			if (nucleo.path(campo).isMissingNode() || nucleo.path(campo).isNull()) {
 				ausentes.add(new ElementoErroDto("nucleo." + campo, "Campo obrigatório não informado."));
 			}
+		}
+		if ((nucleo.path("percentual").isMissingNode() || nucleo.path("percentual").isNull())
+				&& !nucleo.has("taxas_por_cargo")) {
+			ausentes.add(new ElementoErroDto("nucleo.percentual", "Informe uma taxa uniforme ou taxas por cargo."));
 		}
 		if (!ausentes.isEmpty()) {
 			throw CriarJobException.nucleoIncompleto(ausentes);
 		}
 		JsonNode vigencia = nucleo.path("vigencia");
-		for (String limite : List.of("inicio", "fim")) {
-			JsonNode mes = vigencia.path(limite);
-			if (!mes.isString() || !mes.asString().matches("[0-9]{4}-(0[1-9]|1[0-2])")) {
-				throw CriarJobException.campoInvalido("vigencia",
-						"Informe vigencia." + limite + " no formato AAAA-MM.");
+		if (!vigencia.isMissingNode() && !vigencia.isNull()) {
+			for (String limite : List.of("inicio", "fim")) {
+				JsonNode mes = vigencia.path(limite);
+				if (!mes.isString() || !mes.asString().matches("[0-9]{4}-(0[1-9]|1[0-2])")) {
+					throw CriarJobException.campoInvalido("vigencia",
+							"Informe vigencia." + limite + " no formato AAAA-MM.");
+				}
 			}
-		}
-		if (vigencia.path("inicio").asString().compareTo(vigencia.path("fim").asString()) > 0) {
-			throw CriarJobException.campoInvalido("vigencia",
-					"O início da vigência deve ser anterior ou igual ao fim.");
+			if (vigencia.path("inicio").asString().compareTo(vigencia.path("fim").asString()) > 0) {
+				throw CriarJobException.campoInvalido("vigencia",
+						"O início da vigência deve ser anterior ou igual ao fim.");
+			}
 		}
 		for (String campo : List.of("loja", "marca", "cargo")) {
 			JsonNode codigos = nucleo.path(campo);
@@ -120,8 +137,12 @@ record CriarJobRequisicao(String origem, List<String> competencias, BigDecimal o
 				}
 			}
 		}
-		if (!nucleo.path("percentual").isNumber()) {
+		if (nucleo.has("percentual") && !nucleo.path("percentual").isNull() && !nucleo.path("percentual").isNumber()) {
 			throw CriarJobException.campoInvalido("percentual", "Informe o percentual como número em fração.");
+		}
+		if (nucleo.has("taxas_por_cargo")
+				&& !ConfirmarParametrosRequisicao.taxasPorCargoValidas(nucleo.path("taxas_por_cargo"))) {
+			throw CriarJobException.campoInvalido("taxas_por_cargo", "Informe pares de cargo e percentual em fração.");
 		}
 		JsonNode texto = conteudo.path("texto_livre");
 		if (!texto.isNull() && !texto.isString()) {
@@ -156,11 +177,29 @@ record ListarJobsRequisicao(int pagina, int tamanho) {
  * codegen (T-052).
  */
 record ConfirmarParametrosRequisicao(RepresentacaoRegraDto representacao, @Nullable BigDecimal orcamento,
-		@Nullable List<String> competencias) {
+		@Nullable List<String> competencias, @Nullable BigDecimal meta_venda) {
+
+	ConfirmarParametrosRequisicao(RepresentacaoRegraDto representacao, @Nullable BigDecimal orcamento,
+			@Nullable List<String> competencias) {
+		this(representacao, orcamento, competencias, null);
+	}
 
 	private static final List<String> MESES = List.of("2025-08", "2025-09", "2025-10", "2025-11", "2025-12");
 
-	private static final List<String> CAMPOS_NUCLEO = List.of("vigencia", "loja", "marca", "cargo", "percentual");
+	private static final List<String> CAMPOS_NUCLEO = List.of("loja", "marca", "cargo");
+
+	private static final JsonSchema TAXAS_POR_CARGO = JsonSchemaFactory
+		.getInstance(VersionFlag.V202012,
+				builder -> builder.schemaMappers(mappers -> mappers.mapPrefix("https://synapse.local/contracts/domain/",
+						"classpath:static/openapi/domain/")))
+		.getSchema(
+				SchemaLocation
+					.of("classpath:static/openapi/domain/regra-nucleo.schema.json#/properties/taxas_por_cargo"),
+				SchemaValidatorsConfig.builder().formatAssertionsEnabled(true).build());
+
+	static boolean taxasPorCargoValidas(JsonNode taxas) {
+		return TAXAS_POR_CARGO.validate(taxas.toString(), InputFormat.JSON).isEmpty();
+	}
 
 	private static final JsonSchema ESPECIFICACOES = JsonSchemaFactory
 		.getInstance(VersionFlag.V202012,
@@ -194,7 +233,18 @@ record ConfirmarParametrosRequisicao(RepresentacaoRegraDto representacao, @Nulla
 		RepresentacaoRegraDto representacao = new RepresentacaoRegraDto(
 				JSON.treeToValue(regra.path("nucleo"), NucleoRegraDto.class),
 				regra.path("especificacoes").valueStream().toList());
-		return new ConfirmarParametrosRequisicao(representacao, orcamento(raiz.path("orcamento")), competencias(raiz));
+		return new ConfirmarParametrosRequisicao(representacao, orcamento(raiz.path("orcamento")), competencias(raiz),
+				metaVenda(raiz.path("meta_venda")));
+	}
+
+	private static @Nullable BigDecimal metaVenda(JsonNode meta) {
+		if (meta.isMissingNode() || meta.isNull()) {
+			return null;
+		}
+		if (!meta.isNumber()) {
+			throw ConfirmarParametrosException.requisicao("O campo meta_venda precisa ser um número.");
+		}
+		return meta.decimalValue();
 	}
 
 	private static void validarNucleo(JsonNode nucleo) {
@@ -208,20 +258,26 @@ record ConfirmarParametrosRequisicao(RepresentacaoRegraDto representacao, @Nulla
 				ausentes.add(new ElementoErroDto("nucleo." + campo, "Campo obrigatório não informado."));
 			}
 		}
+		if ((nucleo.path("percentual").isMissingNode() || nucleo.path("percentual").isNull())
+				&& !nucleo.has("taxas_por_cargo")) {
+			ausentes.add(new ElementoErroDto("nucleo.percentual", "Informe uma taxa uniforme ou taxas por cargo."));
+		}
 		if (!ausentes.isEmpty()) {
 			throw ConfirmarParametrosException.nucleoIncompleto(ausentes);
 		}
 		JsonNode vigencia = nucleo.path("vigencia");
-		for (String limite : List.of("inicio", "fim")) {
-			JsonNode mes = vigencia.path(limite);
-			if (!mes.isString() || !mes.asString().matches("[0-9]{4}-(0[1-9]|1[0-2])")) {
-				throw ConfirmarParametrosException.campoInvalido("vigencia",
-						"Informe vigencia." + limite + " no formato AAAA-MM.");
+		if (!vigencia.isMissingNode() && !vigencia.isNull()) {
+			for (String limite : List.of("inicio", "fim")) {
+				JsonNode mes = vigencia.path(limite);
+				if (!mes.isString() || !mes.asString().matches("[0-9]{4}-(0[1-9]|1[0-2])")) {
+					throw ConfirmarParametrosException.campoInvalido("vigencia",
+							"Informe vigencia." + limite + " no formato AAAA-MM.");
+				}
 			}
-		}
-		if (vigencia.path("inicio").asString().compareTo(vigencia.path("fim").asString()) > 0) {
-			throw ConfirmarParametrosException.campoInvalido("vigencia",
-					"O início da vigência deve ser anterior ou igual ao fim.");
+			if (vigencia.path("inicio").asString().compareTo(vigencia.path("fim").asString()) > 0) {
+				throw ConfirmarParametrosException.campoInvalido("vigencia",
+						"O início da vigência deve ser anterior ou igual ao fim.");
+			}
 		}
 		for (String campo : List.of("loja", "marca", "cargo")) {
 			JsonNode codigos = nucleo.path(campo);
@@ -235,9 +291,13 @@ record ConfirmarParametrosRequisicao(RepresentacaoRegraDto representacao, @Nulla
 				}
 			}
 		}
-		if (!nucleo.path("percentual").isNumber()) {
+		if (nucleo.has("percentual") && !nucleo.path("percentual").isNull() && !nucleo.path("percentual").isNumber()) {
 			throw ConfirmarParametrosException.campoInvalido("percentual",
 					"Informe o percentual como número em fração.");
+		}
+		if (nucleo.has("taxas_por_cargo") && !taxasPorCargoValidas(nucleo.path("taxas_por_cargo"))) {
+			throw ConfirmarParametrosException.campoInvalido("taxas_por_cargo",
+					"Informe pares de cargo e percentual em fração.");
 		}
 	}
 

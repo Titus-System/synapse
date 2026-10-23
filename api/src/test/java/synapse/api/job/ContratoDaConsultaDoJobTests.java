@@ -90,4 +90,21 @@ class ContratoDaConsultaDoJobTests {
 			.satisfies((erro) -> assertThat(erro.getMessage()).contains("status"));
 	}
 
+	@Test
+	void aceitaRegistroOpcionalDaMetaSugeridaNoHistorico() throws IOException {
+		String simulacao = simulacao(
+				",\"status\":\"sucesso\",\"meta_venda\":2000,\"meta_sugerida_aceita_em\":\"2026-01-01T10:03:00Z\"");
+		ContratoDeEvento.validarRespostaHttp("JobDetalhado", job(",\"simulacao\":" + simulacao));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "null", "42" })
+	void recusaDataDeAceiteNulaOuComTipoInvalido(String valor) {
+		String simulacao = simulacao(",\"status\":\"sucesso\",\"meta_sugerida_aceita_em\":" + valor);
+		assertThatThrownBy(
+				() -> ContratoDeEvento.validarRespostaHttp("JobDetalhado", job(",\"simulacao\":" + simulacao)))
+			.isInstanceOf(AssertionError.class)
+			.hasMessageContaining("meta_sugerida_aceita_em");
+	}
+
 }

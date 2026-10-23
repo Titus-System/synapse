@@ -1,0 +1,12 @@
+{
+  "nucleo": {
+    "loja": [],
+    "marca": ["10"],
+    "cargo": ["100", "150"],
+    "taxas_por_cargo": [
+      {"cargo": "100", "percentual": 0.03},
+      {"cargo": "150", "percentual": 0.05}
+    ]
+  },
+  "especificacoes": []
+}

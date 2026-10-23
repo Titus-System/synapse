@@ -98,13 +98,14 @@ class JobService {
 		String status = JobStatus.GERANDO_REGRA.paraColuna();
 		UUID jobId = this.repository.inserirJob(status, usuarioId, submissaoId, requisicao.competencias(),
 				requisicao.orcamento(), timestamp);
+		if (requisicao.meta_venda() != null) {
+			this.repository.atualizarMetaVenda(jobId, requisicao.meta_venda());
+		}
 		this.maquina.registrarCriacao(jobId, JobStatus.GERANDO_REGRA, "usuario");
 		UUID regraId = this.repository.inserirRegraInicial(jobId, representacao, hash, timestamp);
 		RegraCriadaDto regra = new RegraCriadaDto(regraId, 1, "confirmacao_usuario", representacao, agora);
-		// O formulário tem campo de orçamento e nenhum de meta: a meta de venda só é dita
-		// na descrição de uma regra por texto ou voz, que nasce por outro caminho.
 		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, new RegraSubmetidaDto(jobId, requisicao.origem(),
-				requisicao.competencias(), requisicao.orcamento(), null, submissaoId, regraId));
+				requisicao.competencias(), requisicao.orcamento(), requisicao.meta_venda(), submissaoId, regraId));
 		return new JobCriadoDto(jobId, status, requisicao.origem(), requisicao.competencias(), requisicao.orcamento(),
 				agora, submissaoId, null, regra);
 	}
@@ -133,17 +134,26 @@ class JobService {
 	 */
 	@Transactional(readOnly = true)
 	DetalhamentoSimulacaoDto detalharSimulacao(UUID jobId, UUID simulacaoId) {
+		return detalharSimulacao(jobId, simulacaoId, null);
+	}
+
+	@Transactional(readOnly = true)
+	DetalhamentoSimulacaoDto detalharSimulacao(UUID jobId, UUID simulacaoId, @Nullable UUID resultadoAnteriorId) {
 		try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
-			List<DetalhamentoSimulacaoDto> encontrados = this.repository.buscarDetalhamento(jobId, simulacaoId);
+			List<DetalhamentoSimulacaoDto> encontrados = resultadoAnteriorId == null
+					? this.repository.buscarDetalhamento(jobId, simulacaoId)
+					: this.repository.buscarDetalhamentoAnterior(jobId, simulacaoId, resultadoAnteriorId);
 			if (encontrados.isEmpty()) {
 				log.atWarn()
 					.addKeyValue("simulacao_id", simulacaoId)
+					.addKeyValue("resultado_anterior", resultadoAnteriorId != null)
 					.log("detalhamento recusado: simulação não encontrada no job");
 				throw new SimulacaoNaoEncontradaException(simulacaoId);
 			}
 			DetalhamentoSimulacaoDto detalhamento = encontrados.getFirst();
 			log.atDebug()
 				.addKeyValue("simulacao_id", simulacaoId)
+				.addKeyValue("resultado_anterior", resultadoAnteriorId != null)
 				.addKeyValue("com_detalhamento", detalhamento.linhas() != null)
 				.log("detalhamento da simulação consultado");
 			return detalhamento;
@@ -179,6 +189,9 @@ class JobService {
 	 */
 	private @Nullable String motivo(UUID jobId, JobStatus status, @Nullable String motivoDaTrilha) {
 		String razao = MotivoDaParada.razaoLocalizada(status, motivoDaTrilha);
+		if (status == JobStatus.SIMULACAO_INVIAVEL && MotivoDaParada.SEM_ALTERNATIVA.equals(motivoDaTrilha)) {
+			razao = MotivoDaParada.semAlternativa(this.repository.buscarComissaoDasLojasForaDaRegra(jobId));
+		}
 		if (razao == null && (status == JobStatus.ERRO || status == JobStatus.SIMULACAO_INVIAVEL)) {
 			try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
 				log.atWarn()
@@ -251,10 +264,14 @@ class JobService {
 				(anterior != null) ? anterior.id() : null, timestamp, agora);
 
 		BigDecimal orcamento = resolverOrcamento(jobId, requisicao, dados.orcamento());
+		BigDecimal metaVenda = requisicao.meta_venda() != null ? requisicao.meta_venda() : contexto.metaVenda();
+		if (requisicao.meta_venda() != null) {
+			this.repository.atualizarMetaVenda(jobId, requisicao.meta_venda());
+		}
 		List<String> competencias = resolverCompetencias(jobId, requisicao);
 
 		this.outbox.registrar(jobId, EventoOutbox.PARAMETROS_CONFIRMADOS,
-				new ParametrosConfirmadosDto(jobId, versao.id(), competencias, orcamento, contexto.metaVenda()));
+				new ParametrosConfirmadosDto(jobId, versao.id(), competencias, orcamento, metaVenda));
 		TrilhaDaConfirmacao.registrar(this.repository, jobId, versao.id(), editado || !parametrosCorrigidos.isEmpty(),
 				representacao, anterior, parametrosCorrigidos, timestamp);
 		if (rodada != null) {
@@ -289,6 +306,10 @@ class JobService {
 		if (requisicao.competencias() != null && !requisicao.competencias().equals(contexto.competencias())) {
 			campos.add("parametros.competencias");
 		}
+		if (requisicao.meta_venda() != null
+				&& TrilhaDaConfirmacao.decimalDiferente(contexto.metaVenda(), requisicao.meta_venda())) {
+			campos.add("parametros.meta_venda");
+		}
 		return campos;
 	}
 
@@ -308,6 +329,9 @@ class JobService {
 		}
 		if (corrigidos.contains("parametros.competencias")) {
 			parametros.set("competencias", JSON.valueToTree(Objects.requireNonNull(requisicao.competencias())));
+		}
+		if (corrigidos.contains("parametros.meta_venda")) {
+			parametros.put("meta_venda", Objects.requireNonNull(requisicao.meta_venda()));
 		}
 		return JSON.writeValueAsString(parametros);
 	}
@@ -419,10 +443,13 @@ class JobService {
 		JobStatus status = JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS;
 		UUID jobId = this.repository.inserirJobReprocessado(status.paraColuna(), origem.usuarioId(), origemId,
 				competencias, orcamento, origem.nome(), timestamp);
+		if (origem.metaVenda() != null) {
+			this.repository.atualizarMetaVenda(jobId, origem.metaVenda());
+		}
 		this.maquina.registrarCriacao(jobId, status, "usuario");
 		RegraCriadaDto regra = this.repository.copiarRegra(jobId, regras.getFirst(), timestamp, agora);
-		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA,
-				new RegraSubmetidaDto(jobId, "reprocessamento", competencias, orcamento, null, null, regra.id()));
+		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, new RegraSubmetidaDto(jobId, "reprocessamento",
+				competencias, orcamento, origem.metaVenda(), null, regra.id()));
 		return new JobCriadoDto(jobId, status.paraColuna(), "reprocessamento", competencias, orcamento, agora, null,
 				origemId, regra);
 	}

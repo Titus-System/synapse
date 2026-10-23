@@ -1,3 +1,4 @@
+import re
 from collections.abc import Sequence
 from contextlib import suppress
 from copy import deepcopy
@@ -11,9 +12,12 @@ from langchain_core.messages import HumanMessage
 from pydantic import ValidationError
 
 from app.extracao.construtos.generico import montar_generico
+from app.extracao.escopo import conferir_escopo_universal
 from app.extracao.lastro import (
     conferir_numero,
     conferir_periodo,
+    normalizar,
+    restaurar_trechos_literais,
     trecho_literal,
 )
 from app.extracao.modelos import (
@@ -27,6 +31,7 @@ from app.extracao.montagem import consumo_de_tokens, montar_elemento, objeto_sem
 from app.extracao.parametros import validar_parametros
 from app.extracao.registro import CONSTRUTOS_HABILITADOS
 from app.extracao.schema import schema_envelope, schema_saida
+from app.extracao.taxas import conferir_taxa_por_cargo
 from app.extracao.vocabulario import carregar_vocabulario, resolver_codigo
 from app.graph.prompts.extraction import montar_prompt_extracao
 from app.representacao_regra import RepresentacaoRegra
@@ -41,6 +46,7 @@ def _montar(
         conteudo, use_decimal=True, allow_nan=False, object_pairs_hook=objeto_sem_duplicatas
     )
     Draft202012Validator(schema_envelope()).validate(rascunho)
+    restaurar_trechos_literais(rascunho, texto)
     elementos: list[dict[str, ValorRegra]] = []
     rebaixamentos: list[Rebaixamento] = []
     for indice, elemento in enumerate(rascunho["elementos"], 1):
@@ -79,6 +85,13 @@ def _montar(
     for nome in ("loja", "marca", "cargo"):
         if nome not in rascunho_nucleo:
             continue
+        escopo = rascunho_nucleo[nome]
+        if isinstance(escopo, dict):
+            if conferir_escopo_universal(nome, escopo["trecho"], texto):
+                nucleo[nome] = []
+            else:
+                rebaixar_nucleo(escopo["trecho"], "valor_sem_lastro")
+            continue
         aprovados: list[ValorRegra] = []
         for campo in rascunho_nucleo[nome]:
             codigo, motivo = resolver_codigo(nome, campo["valor"], campo["trecho"], texto)
@@ -90,6 +103,34 @@ def _montar(
                 rebaixar_nucleo(campo["trecho"], motivo)
         if aprovados:
             nucleo[nome] = aprovados
+
+    if "taxas_por_cargo" in rascunho_nucleo:
+        taxas: list[ValorRegra] = []
+        cargos: list[ValorRegra] = []
+        falhas: list[MotivoRebaixamento | None] = []
+        for campo in rascunho_nucleo["taxas_por_cargo"]:
+            taxa, motivo = conferir_taxa_por_cargo(campo, texto)
+            if "percentual" in rascunho_nucleo and not re.search(
+                r"\b(exceto|excecao|salvo)\b", normalizar(campo["trecho"])
+            ):
+                taxa, motivo = None, "termo_ambiguo"
+            if taxa is None:
+                assert motivo is not None
+            else:
+                if taxa not in taxas:
+                    taxas.append(taxa)
+                if taxa["cargo"] not in cargos:
+                    cargos.append(taxa["cargo"])
+            falhas.append(motivo)
+        # Não aplicar só os pares reconhecidos de uma proposta parcialmente resolvida.
+        if not any(falhas):
+            nucleo["taxas_por_cargo"] = taxas
+            if "cargo" not in rascunho_nucleo:
+                nucleo["cargo"] = cargos
+        else:
+            for campo, falha in zip(rascunho_nucleo["taxas_por_cargo"], falhas, strict=True):
+                rebaixar_nucleo(campo["trecho"], falha or "valor_sem_lastro")
+            nucleo.pop("percentual", None)
 
     representacao = RepresentacaoRegra.model_validate(
         {"nucleo": nucleo, "especificacoes": elementos}

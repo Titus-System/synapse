@@ -98,7 +98,14 @@ export const usarStoreJobAtual = defineStore('current-job', () => {
       onEtapa(evento) {
         if (!ativo()) return
         etapaAtual.value = evento
-        if (evento.status === 'concluido') void consultarJob()
+        if (
+          evento.status === 'concluido' ||
+          (evento.etapa === 'sugestao_adaptacao' &&
+            ['buscando_meta', 'meta_sugerida', 'sem_solucao', 'busca_meta_encerrada'].includes(
+              evento.status,
+            ))
+        )
+          void consultarJob()
       },
       onResultado() {
         if (ativo()) void consultarJob()

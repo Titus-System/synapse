@@ -29,12 +29,30 @@ record RegraCriadaDto(UUID id, int versao, String origem, RepresentacaoRegraDto 
 }
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
+record SimulacaoAnteriorDto(UUID resultado_id, Instant criado_em, String status, @Nullable String veredito,
+		@Nullable BigDecimal meta_venda, ResultadoSimulacaoDto resultado) {
+}
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
 record SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, String status, @Nullable String veredito,
-		boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado,
-		@Nullable BigDecimal meta_venda) {
+		boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado, @Nullable BigDecimal meta_venda,
+		@Nullable Instant meta_sugerida_aceita_em, @Nullable SimulacaoAnteriorDto anterior_a_meta_sugerida) {
+	SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, String status, @Nullable String veredito,
+			boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado,
+			@Nullable BigDecimal meta_venda, @Nullable Instant meta_sugerida_aceita_em) {
+		this(id, regra_id, criado_em, status, veredito, flag_baixa_rastreabilidade, resultado, meta_venda,
+				meta_sugerida_aceita_em, null);
+	}
+
+	SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, String status, @Nullable String veredito,
+			boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado,
+			@Nullable BigDecimal meta_venda) {
+		this(id, regra_id, criado_em, status, veredito, flag_baixa_rastreabilidade, resultado, meta_venda, null);
+	}
+
 	SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, String status, @Nullable String veredito,
 			boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado) {
-		this(id, regra_id, criado_em, status, veredito, flag_baixa_rastreabilidade, resultado, null);
+		this(id, regra_id, criado_em, status, veredito, flag_baixa_rastreabilidade, resultado, null, null);
 	}
 }
 

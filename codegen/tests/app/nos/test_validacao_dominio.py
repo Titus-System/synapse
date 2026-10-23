@@ -16,7 +16,12 @@ def _representacao(
     nucleo: Mapping[str, object] | None = None,
     especificacoes: list[object] | None = None,
 ) -> dict[str, object]:
-    nucleo_final: dict[str, object] = {"percentual": Decimal("0.03")}
+    nucleo_final: dict[str, object] = {
+        "loja": [],
+        "marca": [],
+        "cargo": [],
+        "percentual": Decimal("0.03"),
+    }
     if nucleo is not None:
         nucleo_final.update(nucleo)
     return {
@@ -260,6 +265,43 @@ def _limiar_sem_escopo() -> dict[str, object]:
 
 
 _REGRAS_COM_UM_CONFLITO: list[tuple[CodigoConflito, dict[str, object]]] = [
+    (
+        CodigoConflito.TAXA_CARGO_CONTRADITORIA,
+        {
+            "nucleo": {
+                "cargo": ["100"],
+                "taxas_por_cargo": [
+                    {"cargo": "100", "percentual": Decimal("0.03")},
+                    {"cargo": "100", "percentual": Decimal("0.05")},
+                ],
+            },
+            "especificacoes": [],
+        },
+    ),
+    (
+        CodigoConflito.TAXA_CARGO_FORA_ESCOPO,
+        {
+            "nucleo": {
+                "cargo": ["100"],
+                "taxas_por_cargo": [
+                    {"cargo": "150", "percentual": Decimal("0.03")},
+                ],
+            },
+            "especificacoes": [],
+        },
+    ),
+    (
+        CodigoConflito.TAXA_CARGO_DESCONHECIDO,
+        {
+            "nucleo": {
+                "cargo": ["999"],
+                "taxas_por_cargo": [
+                    {"cargo": "999", "percentual": Decimal("0.03")},
+                ],
+            },
+            "especificacoes": [],
+        },
+    ),
     (CodigoConflito.PERCENTUAL_AUSENTE, {"nucleo": {}, "especificacoes": []}),
     (
         CodigoConflito.PERCENTUAL_NEGATIVO,
@@ -297,6 +339,12 @@ def test_conjunto_fechado_de_codigos_e_o_das_verificacoes_existentes() -> None:
     assert {codigo.value for codigo in CodigoConflito} == {
         "percentual_ausente",
         "percentual_negativo",
+        "taxa_cargo_contraditoria",
+        "taxa_cargo_fora_escopo",
+        "taxa_cargo_desconhecido",
+        "escopo_ausente",
+        "orcamento_ausente",
+        "meta_venda_ausente",
         "vigencia_invertida",
         "exclusao_repetida",
         "faixa_invertida",
@@ -322,6 +370,8 @@ def test_cada_verificacao_classifica_o_conflito_com_o_seu_codigo(
 
 PUBLICADAS = ("2025-08", "2025-09", "2025-10", "2025-11", "2025-12")
 _PARAMETROS_COM_UM_CONFLITO: list[tuple[CodigoConflito, dict[str, object], frozenset[str]]] = [
+    (CodigoConflito.ORCAMENTO_AUSENTE, {"orcamento": None}, frozenset()),
+    (CodigoConflito.META_VENDA_AUSENTE, {"meta_venda": None}, frozenset()),
     (CodigoConflito.ORCAMENTO_NEGATIVO, {"orcamento": Decimal("-1")}, frozenset()),
     (CodigoConflito.META_VENDA_NAO_POSITIVA, {"meta_venda": Decimal("0")}, frozenset()),
     (
@@ -337,13 +387,17 @@ def _com_parametros(
     parametros: Mapping[str, object], sem_lastro: frozenset[str] = frozenset()
 ) -> validacao_dominio.ResultadoValidacao:
     return verificar(
-        _representacao(), parametros, competencias_publicadas=PUBLICADAS, sem_lastro=sem_lastro
+        _representacao(),
+        {"orcamento": 500000, "meta_venda": 12000000, **parametros},
+        competencias_publicadas=PUBLICADAS,
+        sem_lastro=sem_lastro,
     )
 
 
 def test_toda_verificacao_do_modulo_produz_conflito_com_codigo_do_conjunto() -> None:
     cobertos = {codigo for codigo, _ in _REGRAS_COM_UM_CONFLITO}
     cobertos |= {codigo for codigo, _, _ in _PARAMETROS_COM_UM_CONFLITO}
+    cobertos.add(CodigoConflito.ESCOPO_AUSENTE)
 
     assert cobertos == set(CodigoConflito)
     for _, regra in _REGRAS_COM_UM_CONFLITO:
@@ -398,9 +452,9 @@ def test_parametro_invalido_aponta_o_conflito_na_referencia_do_parametro(
             "competencias": ["2025-09", "2025-11"],
         },
     ],
-    ids=["sem_orcamento_e_sem_meta", "orcamento_zero", "todas_publicadas", "completos"],
+    ids=["parametros_preservados", "orcamento_zero", "todas_publicadas", "completos"],
 )
-def test_parametros_validos_ou_ausentes_nao_geram_conflito(parametros: dict[str, object]) -> None:
+def test_parametros_completos_validos_nao_geram_conflito(parametros: dict[str, object]) -> None:
     assert _com_parametros(parametros).liberado
 
 
@@ -432,7 +486,7 @@ def test_motivo_do_parametro_e_texto_do_sistema_sem_o_valor_dito() -> None:
 def test_conflitos_da_regra_vem_antes_dos_dos_parametros() -> None:
     resultado = verificar(
         _representacao(nucleo={"percentual": Decimal("-0.01")}),
-        {"orcamento": Decimal("-1")},
+        {"orcamento": Decimal("-1"), "meta_venda": Decimal("12000000")},
         competencias_publicadas=PUBLICADAS,
     )
 

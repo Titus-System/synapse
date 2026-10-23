@@ -11,6 +11,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class HashDaRegraTests {
 
+	@Test
+	void hashPreservaCadaParEIgnoraSomenteZerosDecimais() {
+		String regra = """
+				{"nucleo":{"cargo":["100","150"],"taxas_por_cargo":[
+				{"cargo":"100","percentual":0.03},{"cargo":"150","percentual":0.05}]},"especificacoes":[]}
+				""";
+		String hash = HashDaRegra.calcular(JSON.readValue(regra, RepresentacaoRegraDto.class));
+		assertThat(hash)
+			.isEqualTo(
+					HashDaRegra.calcular(JSON.readValue(regra.replace("0.03", "0.0300"), RepresentacaoRegraDto.class)))
+			.isNotEqualTo(
+					HashDaRegra.calcular(JSON.readValue(regra.replace("0.05", "0.04"), RepresentacaoRegraDto.class)))
+			.isNotEqualTo(
+					HashDaRegra.calcular(JSON.readValue(regra.replace("0.03", "0.04"), RepresentacaoRegraDto.class)));
+	}
+
 	private static final JsonMapper JSON = JsonMapper.builder()
 		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
 		.build();

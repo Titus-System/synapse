@@ -8,11 +8,19 @@ from jsonschema import Draft202012Validator
 from pydantic import ConfigDict, TypeAdapter
 
 from app.extracao.construtos.generico import montar_generico
-from app.extracao.lastro import conferir_numero, conferir_periodo, numeros_citados, trecho_literal
+from app.extracao.escopo import conferir_escopo_universal
+from app.extracao.lastro import (
+    conferir_numero,
+    conferir_periodo,
+    numeros_citados,
+    restaurar_trechos_literais,
+    trecho_literal,
+)
 from app.extracao.modelos import FalhaExtracaoError, Rebaixamento
 from app.extracao.montagem import montar_elemento
 from app.extracao.parametros import validar_parametros
 from app.extracao.schema_correcao import schema_envelope_correcao, schema_operacao_correcao
+from app.extracao.taxas import conferir_taxa_por_cargo
 from app.extracao.vocabulario import CampoCodigo, resolver_codigo
 from app.representacao_regra import RepresentacaoRegra
 from app.tipos_estado import ValorRegra
@@ -53,10 +61,17 @@ class _Elemento:
 
 
 def _conferir(
-    campo: str, valor: Any, texto: str, publicadas: Sequence[str]
+    campo: str, valor: Any, texto: str, publicadas: Sequence[str], trecho_operacao: str
 ) -> tuple[object, MotivoDiagnostico | None]:
     """Confere o valor contra o texto da correção como a extração inicial confere (T-210)."""
     if campo in ("loja", "marca", "cargo"):
+        if isinstance(valor, dict) or not valor:
+            trecho = valor["trecho"] if isinstance(valor, dict) else trecho_operacao
+            return (
+                ([], None)
+                if conferir_escopo_universal(cast(CampoCodigo, campo), trecho, texto)
+                else (None, "valor_sem_lastro")
+            )
         # Tudo ou nada: aplicar só os códigos resolvidos encolheria o escopo sem o usuário pedir.
         codigos: list[str] = []
         for item in valor:
@@ -116,9 +131,56 @@ def _aplicar(
     publicadas: Sequence[str],
 ) -> MotivoDiagnostico | None:
     tipo = operacao["tipo"]
-    if tipo in ("definir_nucleo", "definir_parametro"):
+    motivo: MotivoDiagnostico | None
+    if tipo in ("definir_taxa_cargo", "remover_taxa_cargo"):
+        atuais = cast(list[dict[str, ValorRegra]], nucleo.get("taxas_por_cargo", []))
+        taxa_nova: dict[str, ValorRegra] | None = None
+        if tipo == "definir_taxa_cargo":
+            taxa_nova, motivo = conferir_taxa_por_cargo(operacao["valor"], texto)
+            if taxa_nova is None:
+                return motivo
+            cargo = taxa_nova["cargo"]
+        else:
+            campo = operacao["cargo"]
+            cargo, motivo = resolver_codigo("cargo", campo["valor"], campo["trecho"], texto)
+            if cargo is None:
+                return motivo
+            if not any(taxa["cargo"] == cargo for taxa in atuais):
+                return "referencia_inexistente"
+        novas: list[ValorRegra] = []
+        inserida = False
+        for taxa in atuais:
+            if taxa["cargo"] != cargo:
+                novas.append(taxa)
+            elif taxa_nova is not None and not inserida:
+                novas.append(taxa_nova)
+                inserida = True
+        if taxa_nova is not None and not inserida:
+            novas.append(taxa_nova)
+        if novas:
+            nucleo["taxas_por_cargo"] = novas
+        else:
+            nucleo.pop("taxas_por_cargo", None)
+        escopo = nucleo.get("cargo")
+        destinatarios = [taxa["cargo"] for taxa in atuais]
+        if (
+            novas
+            and "percentual" not in nucleo
+            and (
+                escopo is None
+                or (isinstance(escopo, list) and escopo and set(escopo) == set(destinatarios))
+            )
+        ):
+            nucleo["cargo"] = list(
+                dict.fromkeys(
+                    cast(str, taxa["cargo"]) for taxa in cast(list[dict[str, ValorRegra]], novas)
+                )
+            )
+    elif tipo in ("definir_nucleo", "definir_parametro"):
         campo = operacao["campo"]
-        conferido, motivo = _conferir(campo, operacao["valor"], texto, publicadas)
+        conferido, motivo = _conferir(
+            campo, operacao["valor"], texto, publicadas, operacao["trecho"]
+        )
         if motivo is not None:
             return motivo
         valor = _VALOR.validate_python(conferido, strict=True)
@@ -183,7 +245,8 @@ def aplicar_operacoes_correcao(
     if len(refs) != len(set(refs)):
         raise FalhaExtracaoError("Referências da regra atual ambíguas")
     completos = deepcopy(validar_parametros(parametros))
-    envelope = cast(dict[str, Any], operacoes)
+    envelope = deepcopy(cast(dict[str, Any], operacoes))
+    restaurar_trechos_literais(envelope, texto_correcao)
     diagnosticos: list[DiagnosticoCorrecao] = []
     # A montagem da T-203 recupera rascunhos incompletos; o envelope do item segue fechado.
     validador = Draft202012Validator(schema_operacao_correcao(validar_elemento=False))

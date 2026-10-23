@@ -51,13 +51,40 @@ def montar_prompt_reextracao(
                     "novos valores e operações."
                 ),
                 "tipos_de_operacao": {
+                    "definir_taxa_cargo": (
+                        "Inclua ou altere somente a taxa do cargo citado. valor é "
+                        "{valor: {cargo, percentual}, trecho}, em fração, com trecho literal "
+                        "que associa esse cargo à taxa, sem incluir outros percentuais. "
+                        "Quando o usuário informar taxas por cargo, use esta operação para "
+                        "CADA par, mesmo se o conflito se chamar 'percentual ausente' ou se "
+                        "já houver genéricos com essas taxas na regra atual. Taxas por cargo "
+                        "cabem no núcleo; não as represente com adicionar_elemento ou "
+                        "substituir_elemento genérico e não invente uma taxa uniforme. "
+                        "A base convencional do cargo 150 (gerente de loja ou de quiosque) "
+                        "é a venda total da própria loja na competência; os outros cargos "
+                        "usam vendas individuais. A taxa do gerente sobre as vendas totais "
+                        "da própria loja no mês também usa definir_taxa_cargo, sem genérico "
+                        "adicional para essa base. Preserve como elemento somente outra "
+                        "base ou condição adicional que não caiba nessa convenção. "
+                        "Não substitua a coleção inteira nem copie a taxa para percentual. "
+                        "Se já houver taxa uniforme, uma taxa por cargo é exceção: somente "
+                        "crie essa exceção quando o usuário a declarar inequivocamente."
+                    ),
+                    "remover_taxa_cargo": (
+                        "Remova somente o par do cargo indicado em cargo: {valor, trecho}. "
+                        "Os demais pares e a taxa uniforme permanecem inalterados. Remover "
+                        "o último par sem taxa uniforme reabre a pendência de comissionamento."
+                    ),
                     "definir_nucleo": (
                         "Defina somente o campo indicado: percentual, vigencia, loja, "
                         "marca ou cargo. valor tem a forma do campo na extração inicial: "
                         "{valor, trecho}, com trecho literal do texto da correção atual. "
                         "Percentual é fração (3% -> 0.03). Vigência usa inicio/fim AAAA-MM. "
                         "loja, marca e cargo são listas de {valor, trecho}, um por código do "
-                        "vocabulário; a lista vazia tira o filtro. Não repare incoerências."
+                        "vocabulário. Para um escopo universal explicitamente declarado, use "
+                        "{valor: [], trecho: citação literal de 'todas as lojas', "
+                        "'todas as marcas' ou 'todos os cargos'}. Ausência não significa todos. "
+                        "Não repare incoerências."
                     ),
                     "substituir_elemento": (
                         "Use ref existente na regra atual; inclua elemento como o rascunho "
@@ -70,6 +97,11 @@ def montar_prompt_reextracao(
                     ),
                     "remover_elemento": (
                         "Use somente o ref de um elemento atual que o usuário pediu remover. "
+                        "Também remova um genérico integralmente repetido na correção atual "
+                        "que você passou a representar por definir_taxa_cargo, para não "
+                        "duplicar a mesma comissão. Use como trecho a citação da taxa no "
+                        "texto atual. Isso não autoriza remover outros elementos, bônus, "
+                        "condições nem descrições sem lastro que a correção não esclarece. "
                         "Não gere refs novos."
                     ),
                     "adicionar_elemento": (
@@ -88,6 +120,32 @@ def montar_prompt_reextracao(
                         "meta_venda; não use null."
                     ),
                 },
+                "exemplo_taxas_por_cargo": {
+                    "texto_correcao": (
+                        "Vendedor, cargo 100: 4% sobre suas vendas individuais. "
+                        "Gerente de loja ou gerente de quiosque, cargo 150: 6% sobre "
+                        "as vendas totais da sua loja no mês."
+                    ),
+                    "operacoes": [
+                        {
+                            "tipo": "definir_taxa_cargo",
+                            "trecho": trecho,
+                            "valor": {
+                                "valor": {"cargo": cargo, "percentual": percentual},
+                                "trecho": trecho,
+                            },
+                        }
+                        for cargo, percentual, trecho in (
+                            ("100", 0.04, "Vendedor, cargo 100: 4% sobre suas vendas individuais."),
+                            (
+                                "150",
+                                0.06,
+                                "Gerente de loja ou gerente de quiosque, cargo 150: 6% sobre "
+                                "as vendas totais da sua loja no mês.",
+                            ),
+                        )
+                    ],
+                },
                 "restricoes": (
                     "As refs dos elementos pertencem à versão atual mostrada nos dados do "
                     "sistema. Não reordene nem remova elementos não mencionados. "
@@ -100,6 +158,7 @@ def montar_prompt_reextracao(
                     "com base no histórico. "
                     "Toda operação deve ter trecho: citação literal não vazia do texto "
                     "da correção atual, inclusive remoções e alterações de parâmetros. "
+                    "Copie quebras de linha e indentação nas citações. "
                     "Valores novos precisam de lastro na correção atual, nunca só no "
                     "histórico. Na substituição, valores já aplicados podem ser preservados "
                     "a partir do próprio elemento da regra atual, sem repeti-los no texto "

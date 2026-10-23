@@ -99,14 +99,14 @@ data real (Black Friday) - ver regras.especificacoes.
 ''']
   orcamento numeric [note: '''
 Orcamento de comissao do periodo, parametro da simulacao (US01). NULL quando o job nao tem
-orcamento, e entao a simulacao e feita sem a verificacao de orcamento.
+orcamento. A validacao bloqueia novas simulacoes ate seu preenchimento.
 Formulario: informado no campo da requisicao. Texto ou voz: NULL ate a extracao e quando
 o texto nao diz orcamento; quando diz, o valor como foi dito. Sem restricao de faixa no
 banco: um orcamento negativo e gravado e a validacao de dominio o aponta como conflito.
 ''']
   meta_venda numeric [note: '''
 Meta de venda do periodo, dita no texto ou no audio: o total de vendas sobre o qual a regra
-e simulada. NULL quando nao dita, e entao a simulacao usa as vendas historicas.
+e simulada. NULL quando nao dita; a validacao exige preenchimento antes de simular.
 Valor como foi dito, sem restricao de faixa no banco: meta zero ou negativa e gravada e a
 validacao de dominio a aponta como conflito.
 ''']
@@ -250,9 +250,10 @@ Nao altera o algoritmo do hash nem o consumo de extensoes pelo codegen.
 ''']
   nucleo jsonb [not null, note: '''
 Formato: contracts/domain/regra-nucleo.schema.json
-Os cinco campos do vocabulario canonico da DEC-084: vigencia, loja, marca, cargo,
-percentual. Campo ausente cai no comportamento do BASELINE - a regra proposta nao dispara
-ali, e a competencia entra no total sem o efeito dela.
+Campos do nucleo: vigencia, loja, marca, cargo, percentual e taxas_por_cargo.
+Escopo ausente e pendencia antes de nova simulacao; [] declara todos explicitamente.
+Vigencia ausente usa as competencias do job. Pares cargo/percentual substituem a taxa
+uniforme em seu cargo; sem taxa propria nem uniforme, preserva-se o baseline.
 matricula NAO e campo do nucleo: identifica pessoa, e o conjunto muda a cada competencia
 por admissao e demissao, entao congelaria uma lista desatualizada numa regra imutavel.
 Entra como DADO no alvo do construto bonus_fixo, em especificacoes.
@@ -552,6 +553,7 @@ Table sugestoes_meta_venda {
   job_id uuid [not null, ref: > jobs.id]
   regra_id uuid [not null, ref: > regras.id]
   resultado_id uuid [ref: > resultados_simulacao.id, note: 'Candidata da busca da meta; ausente no desfecho sem solução. Artefato somente lido pela api.']
+  resultado_anterior_id uuid [ref: > resultados_simulacao.id, note: 'Resultado vigente antes do aceite. Preservado pela api na mesma transacao da troca; permite comparar e consultar o relatorio original. Legado recuperado somente quando existe um unico resultado original de sucesso para o mesmo codigo.']
   motivo_sem_solucao text [note: 'nao_monotonica | intervalo_esgotado | falha_execucao']
   criada_em timestamptz [not null, default: `now()`]
   aceita_em timestamptz [note: 'Aceitação troca simulacoes.resultado_id; mantém esta linha para impedir reentrega da sugestão.']

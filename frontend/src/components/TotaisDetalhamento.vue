@@ -1,27 +1,44 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { nomeDaEntidade } from '@/services/catalogoRh'
 import type { ResultadoSimulacao } from '@/types/api'
 import { formatarReais } from '@/composables/apresentacaoDetalhamento'
 
 const props = defineProps<{
   decomposicao?: ResultadoSimulacao['decomposicao']
   matricula: string
-  loja: string
-  competencia: string
+  loja: string | string[]
+  competencia: string | string[]
 }>()
 const paginas = ref<Record<string, number>>({})
 const grupos = computed(() =>
   [
-    { chave: 'matricula', titulo: 'Por colaborador', filtro: props.matricula },
-    { chave: 'loja_absoluto', titulo: 'Por loja', filtro: props.loja },
-    { chave: 'competencia_absoluto', titulo: 'Por competência', filtro: props.competencia },
+    {
+      chave: 'matricula',
+      titulo: 'Por colaborador',
+      filtro: props.matricula ? [props.matricula] : [],
+    },
+    {
+      chave: 'loja_absoluto',
+      titulo: 'Por loja',
+      filtro: Array.isArray(props.loja) ? props.loja : props.loja ? [props.loja] : [],
+    },
+    {
+      chave: 'competencia_absoluto',
+      titulo: 'Por competência',
+      filtro: Array.isArray(props.competencia)
+        ? props.competencia
+        : props.competencia
+          ? [props.competencia]
+          : [],
+    },
   ].map((grupo) => ({
     ...grupo,
     disponivel: props.decomposicao?.[grupo.chave] != null,
     itens: Object.entries(props.decomposicao?.[grupo.chave] ?? {}).filter(([chave]) =>
       grupo.chave === 'matricula'
-        ? chave.toLocaleLowerCase('pt-BR').includes(grupo.filtro.toLocaleLowerCase('pt-BR'))
-        : !grupo.filtro || chave === grupo.filtro,
+        ? chave.toLocaleLowerCase('pt-BR').includes(props.matricula.toLocaleLowerCase('pt-BR'))
+        : !grupo.filtro.length || grupo.filtro.includes(chave),
     ),
   })),
 )
@@ -36,7 +53,7 @@ watch(
 
 <template>
   <section class="mb-5" aria-label="Totais da simulação">
-    <h3 class="font-bold">Totais da simulação</h3>
+    <h3 class="font-bold">Totais da Simulação</h3>
     <p class="mb-3 text-sm">
       Colaborador e loja: período completo. Competência: total do mês. Cada grupo considera apenas o
       filtro correspondente.
@@ -68,7 +85,9 @@ watch(
                 {{
                   grupo.chave === 'competencia_absoluto'
                     ? chave.split('-').reverse().join('/')
-                    : chave
+                    : grupo.chave === 'loja_absoluto'
+                      ? nomeDaEntidade('loja', chave)
+                      : chave
                 }}
               </dt>
               <dd class="font-bold">{{ formatarReais(valor) }}</dd>

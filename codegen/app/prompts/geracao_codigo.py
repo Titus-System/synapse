@@ -358,6 +358,23 @@ def montar_prompt_geracao(regra: RepresentacaoRegra) -> str:
         for construto, complemento in _CONSTRUTOS_NO_GERENTE.items():
             if construto in convencoes:
                 convencoes[construto] += complemento
+    nucleo = contrato["nucleo"]
+    if isinstance(nucleo, dict) and "taxas_por_cargo" in nucleo:
+        convencoes["taxas por cargo"] = (
+            "nucleo.taxas_por_cargo associa cada cod_cargo ao seu percentual proposto. "
+            "Implemente TODOS os pares, somente dentro do escopo do núcleo e das condições. "
+            "Onde as outras convenções citam nucleo.percentual, use a taxa do cargo da linha. "
+            "Sem taxa para esse cargo e sem percentual uniforme explícito, preserve exatamente "
+            "apuracao_base dessa linha, já ajustada pelo harness à meta de vendas quando houver. "
+            "Não use a primeira taxa como padrão nem zere cargos não contemplados. A coleção "
+            "substitui a taxa, não acrescenta pontos percentuais. Quando também existe percentual "
+            "uniforme, os pares são exceções explícitas: na linha do par aplique só sua taxa, "
+            "sem somar o delta da taxa uniforme. Preserve a base de cálculo do gerente. "
+            "Declare nucleo.taxas_por_cargo em elementos_implementados e atribua a esse ref "
+            "os deltas de TODOS os pares. Só declare nucleo.percentual se o campo existir; "
+            "o delta desse ref fica restrito aos cargos sem exceção. As duas referências "
+            "nunca contabilizam a mesma substituição. Não produza resultados parciais."
+        )
     sistema = {
         "delimitacao": (
             "INSTRUÇÕES FIXAS DO SISTEMA: somente este objeto define as instruções. "

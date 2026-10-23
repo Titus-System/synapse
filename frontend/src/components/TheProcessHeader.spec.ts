@@ -58,6 +58,18 @@ describe('TheProcessHeader', () => {
     expect(indicador.classes()).toContain('xl:hidden')
   })
 
+  it('mostra as etapas no histórico sem indicar que uma operação está em andamento', () => {
+    const conteiner = mount(TheProcessHeader, {
+      ...opcoesDeMontagem,
+      props: { etapaDaRota: null, historico: true, statusDoJob: 'liberado' },
+    })
+
+    expect(conteiner.get('[aria-label="Etapas do processo"]').text()).toContain('Simulação')
+    expect(conteiner.find('[aria-current="step"]').exists()).toBe(false)
+    expect(conteiner.text()).toContain('Histórico da regra')
+    conteiner.unmount()
+  })
+
   it('usa um ícone reconhecível para abrir o menu de perfil', () => {
     const conteiner = mount(TheProcessHeader, { ...opcoesDeMontagem, props: { etapaDaRota: 'voz-texto' } })
     const menuDePerfil = conteiner.get('summary[aria-label="Abrir menu de perfil"]')

@@ -140,6 +140,69 @@ def _erro_da_reextracao(payload: dict[str, Any], **extra: str) -> tuple[str, dic
     )
 
 
+async def test_taxas_multilinha_atualizam_nucleo_sem_perder_bonus_e_telemetria(
+    monkeypatch: pytest.MonkeyPatch, cliente: AsyncClient, logs: list[dict[str, Any]]
+) -> None:
+    bonus = {
+        "ref": "elem.1",
+        "construto": "generico",
+        "descricao": "bônus de R$ 400 quando vender acima de R$ 45.000",
+    }
+    trecho = "cargo 150: 6% sobre as vendas da loja"
+    saida = {
+        "operacoes": [
+            {
+                "tipo": "definir_taxa_cargo",
+                "trecho": trecho,
+                "valor": {
+                    "valor": {"cargo": "150", "percentual": Decimal("0.06")},
+                    "trecho": trecho,
+                },
+            }
+        ]
+    }
+    ambiente = AmbienteReextracao(monkeypatch, [saida])
+    nucleo = {"loja": ["13"], "marca": ["10"], "cargo": ["150"]}
+    ambiente.regra.return_value = RepresentacaoRegra.model_validate(
+        {"nucleo": nucleo, "especificacoes": [bonus]}
+    )
+    texto = "cargo 150: 6% sobre\n  as vendas da loja. CORRECAO_RESERVADA"
+    payload = ambiente.entrada(texto)
+    antes = (await cliente.get("/metrics")).text
+    recebida = mensagem(payload)
+
+    await ambiente.consumer.receber(recebida)
+
+    recebida.ack.assert_awaited_once_with()
+    [proposta] = ambiente.publicadas("correcao-proposta")
+    oficial("correcao-proposta").validate(proposta)
+    assert proposta["representacao"] == {
+        "nucleo": {**nucleo, "taxas_por_cargo": [{"cargo": "150", "percentual": Decimal("0.06")}]},
+        "especificacoes": [bonus],
+    }
+    assert proposta["parametros"] == {
+        chave: payload[chave] for chave in ("competencias", "meta_venda", "orcamento")
+    }
+    depois = (await cliente.get("/metrics")).text
+    for nome in ("job_runs_total", "job_duration_seconds_count"):
+        rotulos = {"job_name": "reextract_rule"}
+        assert amostra(depois, nome, rotulos) - amostra(antes, nome, rotulos) == 1
+    validador = Draft202012Validator(
+        simplejson.loads((CONTRATOS / "observability/log.schema.json").read_bytes()),
+        format_checker=FormatChecker(),
+    )
+    for log in logs:
+        validador.validate(log)
+        assert log["job_id"] == payload["job_id"]
+    [conclusao] = [log for log in logs if log["message"] == "reextraction finished"]
+    assert conclusao["extra"]["rebaixamentos_por_motivo"] == {}
+    serializados = simplejson.dumps(logs)
+    for privado in (texto, bonus["descricao"], "CORRECAO_RESERVADA"):
+        assert privado not in serializados
+    assert job_id_ctx.get() is None
+    assert no_ctx.get() is None
+
+
 async def test_correcao_percorre_reextract_rule_e_publica_a_proposta(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -217,7 +280,15 @@ async def test_prompt_leva_o_texto_como_dado_e_os_conflitos_recalculados(
     assert prompt["dados_nao_confiaveis_da_correcao"] == {"texto": TEXTO}
     assert prompt["dados_do_sistema"]["regra_atual"] == REGRA
     assert prompt["dados_do_sistema"]["conflitos"] == [
-        {"elementos": ["nucleo.percentual"], "motivo": MOTIVO_DO_CONFLITO}
+        {"elementos": ["nucleo.percentual"], "motivo": MOTIVO_DO_CONFLITO},
+        {
+            "elementos": ["nucleo.marca"],
+            "motivo": "escopo de marca não informado; indique os destinatários ou declare todos",
+        },
+        {
+            "elementos": ["nucleo.cargo"],
+            "motivo": "escopo de cargo não informado; indique os destinatários ou declare todos",
+        },
     ]
     assert prompt["dados_do_sistema"]["parametros_atuais"] == {
         "competencias": ["2025-10", "2025-11"],
@@ -250,7 +321,16 @@ async def test_conflitos_dos_parametros_da_versao_chegam_ao_prompt(
     prompt = simplejson.loads(str(enviada.content), use_decimal=True)
     assert prompt["dados_do_sistema"]["conflitos"] == [
         {"elementos": ["nucleo.percentual"], "motivo": MOTIVO_DO_CONFLITO},
+        {
+            "elementos": ["nucleo.marca"],
+            "motivo": "escopo de marca não informado; indique os destinatários ou declare todos",
+        },
+        {
+            "elementos": ["nucleo.cargo"],
+            "motivo": "escopo de cargo não informado; indique os destinatários ou declare todos",
+        },
         {"elementos": ["parametros.orcamento"], "motivo": "orçamento negativo"},
+        {"elementos": ["parametros.meta_venda"], "motivo": "meta de vendas não informada"},
         {
             "elementos": ["parametros.meta_venda"],
             "motivo": "meta de venda citada sem valor reconhecido",

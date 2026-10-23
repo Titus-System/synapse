@@ -6,9 +6,12 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.IntFunction;
 
@@ -26,6 +29,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.MapperFeature;
 import tools.jackson.databind.cfg.JsonNodeFeature;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import org.springframework.stereotype.Component;
 
@@ -63,7 +67,7 @@ final class HashDaRegra {
 	static String calcular(RepresentacaoRegraDto regra, @Nullable ParametrosDaSimulacao parametros) {
 		NucleoRegraDto nucleo = regra.nucleo();
 		NucleoRegraDto canonico = new NucleoRegraDto(nucleo.vigencia(), nucleo.loja(), nucleo.marca(), nucleo.cargo(),
-				semZerosAtras(nucleo.percentual()));
+				semZerosAtras(nucleo.percentual()), taxasCanonicas(nucleo.taxas_por_cargo()));
 		byte[] json = JSON
 			.writeValueAsString(new RegraCanonica(regra.especificacoes(), canonico, canonicos(parametros)))
 			.getBytes(StandardCharsets.UTF_8);
@@ -73,6 +77,13 @@ final class HashDaRegra {
 		catch (NoSuchAlgorithmException ex) {
 			throw new IllegalStateException("SHA-256 indisponível.", ex);
 		}
+	}
+
+	private static @Nullable List<TaxaPorCargoDto> taxasCanonicas(@Nullable List<TaxaPorCargoDto> taxas) {
+		return taxas == null ? null
+				: taxas.stream()
+					.map(taxa -> new TaxaPorCargoDto(taxa.cargo(), taxa.percentual().stripTrailingZeros()))
+					.toList();
 	}
 
 	/**
@@ -95,6 +106,110 @@ final class HashDaRegra {
 	 */
 	private static @Nullable BigDecimal semZerosAtras(@Nullable BigDecimal valor) {
 		return (valor != null) ? valor.stripTrailingZeros() : null;
+	}
+
+}
+
+/**
+ * A procedência do conteúdo de uma sugestão de adaptação: a proposta é a versão de origem
+ * com as taxas reduzidas e nada mais alterado. Taxa é o percentual do núcleo, cada taxa
+ * por cargo e o efeito percentual de faixas e janelas de datas - o mesmo recorte que o
+ * codegen reduz na mesma proporção. Valores em reais, limiares, exclusões e texto livre
+ * ficam como estavam.
+ */
+final class ReducaoDasTaxas {
+
+	private static final JsonMapper JSON = new JsonMapper();
+
+	private static final Set<String> CONSTRUTOS_COM_TAXA = Set.of("faixa_valor", "janela_datas");
+
+	private static final Set<String> EFEITOS_PERCENTUAIS = Set.of("acrescimo_pct", "substituicao_pct");
+
+	// O mesmo número chega como inteiro, double ou decimal, conforme quem o leu.
+	private static final Comparator<JsonNode> NUMEROS_POR_VALOR = (a, b) -> {
+		if (a.isNumber() && b.isNumber()) {
+			return a.decimalValue().compareTo(b.decimalValue());
+		}
+		return a.equals(b) ? 0 : 1;
+	};
+
+	private ReducaoDasTaxas() {
+	}
+
+	/**
+	 * Taxa zero continua zero; as demais mantêm o sinal e diminuem em módulo, e pelo
+	 * menos uma precisa ter mudado.
+	 */
+	static boolean reduzSoAsTaxas(RepresentacaoRegraDto origem, RepresentacaoRegraDto proposta) {
+		if (!semTaxas(origem).equals(NUMEROS_POR_VALOR, semTaxas(proposta))) {
+			return false;
+		}
+		List<BigDecimal> deOrigem = taxas(origem);
+		List<BigDecimal> propostas = taxas(proposta);
+		if (deOrigem.size() != propostas.size()) {
+			return false;
+		}
+		boolean mudou = false;
+		for (int i = 0; i < deOrigem.size(); i++) {
+			BigDecimal anterior = deOrigem.get(i);
+			BigDecimal nova = propostas.get(i);
+			if (!reduzida(anterior, nova)) {
+				return false;
+			}
+			mudou |= anterior.compareTo(nova) != 0;
+		}
+		return mudou;
+	}
+
+	private static boolean reduzida(BigDecimal anterior, BigDecimal nova) {
+		if (anterior.signum() == 0) {
+			return nova.signum() == 0;
+		}
+		return nova.signum() == anterior.signum() && nova.abs().compareTo(anterior.abs()) < 0;
+	}
+
+	private static List<BigDecimal> taxas(RepresentacaoRegraDto regra) {
+		List<BigDecimal> taxas = new ArrayList<>();
+		BigDecimal percentual = regra.nucleo().percentual();
+		if (percentual != null) {
+			taxas.add(percentual);
+		}
+		List<TaxaPorCargoDto> porCargo = regra.nucleo().taxas_por_cargo();
+		if (porCargo != null) {
+			porCargo.forEach((taxa) -> taxas.add(taxa.percentual()));
+		}
+		for (JsonNode elemento : regra.especificacoes()) {
+			if (temTaxa(elemento)) {
+				taxas.add(elemento.path("efeito").path("valor").decimalValue());
+			}
+		}
+		return taxas;
+	}
+
+	private static JsonNode semTaxas(RepresentacaoRegraDto regra) {
+		JsonNode arvore = JSON.valueToTree(regra);
+		if (arvore.path("nucleo") instanceof ObjectNode nucleo) {
+			nucleo.remove("percentual");
+			for (JsonNode taxa : nucleo.path("taxas_por_cargo")) {
+				if (taxa instanceof ObjectNode objeto) {
+					objeto.remove("percentual");
+				}
+			}
+		}
+		for (JsonNode elemento : arvore.path("especificacoes")) {
+			if (temTaxa(elemento) && elemento.path("efeito") instanceof ObjectNode efeito) {
+				efeito.remove("valor");
+			}
+		}
+		return arvore;
+	}
+
+	private static boolean temTaxa(JsonNode elemento) {
+		JsonNode construto = elemento.path("construto");
+		JsonNode efeito = elemento.path("efeito");
+		JsonNode tipo = efeito.path("tipo");
+		return construto.isString() && CONSTRUTOS_COM_TAXA.contains(construto.stringValue()) && tipo.isString()
+				&& EFEITOS_PERCENTUAIS.contains(tipo.stringValue()) && efeito.path("valor").isNumber();
 	}
 
 }

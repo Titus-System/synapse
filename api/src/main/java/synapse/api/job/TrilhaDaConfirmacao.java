@@ -53,6 +53,9 @@ final class TrilhaDaConfirmacao {
 		if (!Objects.equals(atual.cargo(), anterior.cargo())) {
 			corrigidos.add("nucleo.cargo");
 		}
+		if (!Objects.equals(atual.taxas_por_cargo(), anterior.taxas_por_cargo())) {
+			corrigidos.add("nucleo.taxas_por_cargo");
+		}
 		if (decimalDiferente(atual.percentual(), anterior.percentual())) {
 			corrigidos.add("nucleo.percentual");
 		}

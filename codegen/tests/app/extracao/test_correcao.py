@@ -516,20 +516,22 @@ def test_rebaixa_elemento_sem_lastro_usando_trecho_da_operacao(
     assert diagnosticos == [Rebaixamento("elem.4", "valor_sem_lastro", "construto_futuro")]
 
 
-def test_schema_fecha_envelope_e_exatamente_seis_operacoes() -> None:
+def test_schema_fecha_envelope_e_operacoes_conhecidas() -> None:
     schema = schema_operacoes_correcao()
 
     assert schema["additionalProperties"] is False
     variantes = schema["properties"]["operacoes"]["items"]["anyOf"]
     assert {v["properties"]["tipo"]["const"] for v in variantes} == {
         "definir_nucleo",
+        "definir_taxa_cargo",
+        "remover_taxa_cargo",
         "substituir_elemento",
         "remover_elemento",
         "adicionar_elemento",
         "definir_parametro",
         "remover_parametro",
     }
-    assert len(variantes) == 6
+    assert len(variantes) == 8
     assert all(v["additionalProperties"] is False for v in variantes)
     Draft202012Validator.check_schema(schema)
     validador = Draft202012Validator(schema)
