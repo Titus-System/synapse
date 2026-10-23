@@ -5,6 +5,7 @@ import { HttpError } from '@/services/http'
 import { enviarTexto, enviarAudio } from '../services/submissoes.api'
 import { registrarEntrada } from '../services/observabilidade'
 import { apiClient } from '@/services/api'
+import { rotuloDaRegra } from '@/services/job'
 import type { JobResumo } from '@/types/api'
 import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
@@ -76,7 +77,7 @@ async function carregarHistorico() {
     } while (jobs.length < total)
     regrasRecentes.value = jobs.slice(0, 6).map((job) => ({
       identificador: job.id,
-      rotulo: `Regra · ${new Date(job.criado_em).toLocaleDateString('pt-BR')}`,
+      rotulo: rotuloDaRegra(job),
     }))
     quantidadeArquivadas.value = jobs.filter((job) => job.status === 'arquivado').length
     quantidadeSalvas.value = jobs.length - quantidadeArquivadas.value

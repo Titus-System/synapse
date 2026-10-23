@@ -17,6 +17,7 @@ vi.mock('../services/historicoJobs.api', () => ({ listarTodosOsJobs }))
 vi.mock('@/services/api', () => ({
   apiClient: {
     consultarJob: vi.fn<typeof apiClient.consultarJob>(),
+    renomearJob: vi.fn<typeof apiClient.renomearJob>(),
   },
 }))
 
@@ -27,6 +28,7 @@ vi.mock('vue-router', () => ({
 
 beforeEach(() => {
   vi.resetAllMocks()
+  opcoesDeMontagem = criarOpcoesDeMontagem()
   rota.name = 'regras-salvas'
   vi.mocked(apiClient.consultarJob).mockImplementation(async (id) => jobFixture({ id }))
 })
@@ -40,6 +42,7 @@ function botaoDeReprocessamento(conteiner: VueWrapper) {
 function criarResumoDoJob(numero: number, status: JobResumo['status'] = 'liberado'): JobResumo {
   return {
     id: `0000000${numero}-1234-4000-8000-000000000000`,
+    nome: `Regra de teste ${numero}`,
     status,
     competencias: ['2025-09'],
     orcamento: 485000,
@@ -48,17 +51,20 @@ function criarResumoDoJob(numero: number, status: JobResumo['status'] = 'liberad
   }
 }
 
-const opcoesDeMontagem = {
-  global: {
-    plugins: [createPinia()],
-    stubs: {
-      RouterLink: {
-        props: ['to'],
-        template: '<a :href="to"><slot /></a>',
+function criarOpcoesDeMontagem() {
+  return {
+    global: {
+      plugins: [createPinia()],
+      stubs: {
+        RouterLink: {
+          props: ['to'],
+          template: '<a :href="to"><slot /></a>',
+        },
       },
     },
-  },
+  }
 }
+let opcoesDeMontagem = criarOpcoesDeMontagem()
 
 describe('HistoricoJobsView', () => {
   it('abre o formulário com a regra do job ao reprocessar com novo orçamento', async () => {
@@ -91,13 +97,54 @@ describe('HistoricoJobsView', () => {
     conteiner.unmount()
   })
 
+  it.each([
+    ['regras-salvas', 'liberado'],
+    ['regras-arquivadas', 'arquivado'],
+  ] as const)('oferece o botão Editar no cartão em %s', async (nomeDaRota, status) => {
+    rota.name = nomeDaRota
+    listarTodosOsJobs.mockResolvedValue([criarResumoDoJob(1, status)])
+
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
+    await flushPromises()
+
+    const botao = conteiner.get('article button[aria-label^="Editar o nome da regra"]')
+    expect(botao.text()).toBe('Editar')
+    conteiner.unmount()
+  })
+
+  it('renomeia pelo cartão e atualiza o cartão e a barra lateral sem recarregar a lista', async () => {
+    const resumo = criarResumoDoJob(1)
+    listarTodosOsJobs.mockResolvedValue([resumo])
+    vi.mocked(apiClient.renomearJob).mockResolvedValue({
+      ...jobFixture({ id: resumo.id }),
+      nome: 'Comissão de dezembro',
+    })
+
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
+    await flushPromises()
+    await conteiner.get('article button[aria-label^="Editar o nome da regra"]').trigger('click')
+    const campo = conteiner.get('article input')
+    await campo.setValue('  Comissão de dezembro ')
+    await campo.trigger('keydown.enter')
+    await flushPromises()
+
+    expect(apiClient.renomearJob).toHaveBeenCalledWith(resumo.id, {
+      nome: '  Comissão de dezembro ',
+    })
+    expect(listarTodosOsJobs).toHaveBeenCalledTimes(1)
+    expect(conteiner.get('article h2').text()).toBe('Comissão de dezembro')
+    expect(conteiner.get('aside').text()).toContain('Comissão de dezembro')
+    expect(conteiner.get('aside').text()).not.toContain('Regra de teste 1')
+    conteiner.unmount()
+  })
+
   it('não oferece o reprocessamento nas regras salvas', async () => {
     listarTodosOsJobs.mockResolvedValue([criarResumoDoJob(1)])
 
     const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
     await flushPromises()
 
-    expect(conteiner.get('article').text()).toContain('Regra 00000001')
+    expect(conteiner.get('article').text()).toContain('Regra de teste 1')
     expect(conteiner.get('article').text()).toContain('Liberado')
     expect(botaoDeReprocessamento(conteiner)).toBeUndefined()
     conteiner.unmount()
@@ -154,7 +201,7 @@ describe('HistoricoJobsView', () => {
     await flushPromises()
 
     const cartao = conteiner.get('article')
-    expect(cartao.get('h2').text()).toBe('Regra 00000001')
+    expect(cartao.get('h2').text()).toBe('Regra de teste 1')
     expect(cartao.findAll('li')).toHaveLength(0)
     expect(cartao.get('a').attributes('href')).toBe(`/jobs/${resumo.id}`)
     conteiner.unmount()
@@ -172,8 +219,8 @@ describe('HistoricoJobsView', () => {
     await vi.waitFor(() => {
       expect(conteiner.get('.tela-de-negocio').classes()).toContain('tela-de-negocio')
       expect(conteiner.text()).toContain('Salvas')
-      expect(conteiner.text()).toContain('Regra 00000001')
-      expect(conteiner.text()).not.toContain('Regra 00000003')
+      expect(conteiner.get('main').text()).toContain('Regra de teste 1')
+      expect(conteiner.get('main').text()).not.toContain('Regra de teste 3')
       expect(conteiner.text()).toContain('Salvas2')
       expect(conteiner.text()).toContain('Arquivadas1')
     })
@@ -187,14 +234,14 @@ describe('HistoricoJobsView', () => {
     const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
 
     await vi.waitFor(() => expect(conteiner.text()).toContain('Página 1 de 2'))
-    expect(conteiner.text()).not.toContain('Regra 00000007')
+    expect(conteiner.text()).not.toContain('Regra de teste 7')
 
     const botaoProxima = conteiner.findAll('button').find((botao) => botao.text() === 'Próxima')
     expect(botaoProxima).toBeDefined()
     await botaoProxima?.trigger('click')
 
     expect(conteiner.text()).toContain('Página 2 de 2')
-    expect(conteiner.text()).toContain('Regra 00000007')
+    expect(conteiner.text()).toContain('Regra de teste 7')
   })
 
   it('mantém a busca e o filtro desabilitados enquanto a API não os suporta', async () => {

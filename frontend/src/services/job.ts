@@ -7,6 +7,12 @@ export function regraMaisRecente(regras: readonly RegraVersionada[]): RegraVersi
   )
 }
 
+export function rotuloDaRegra(job: Pick<JobResumo, 'nome' | 'criado_em'>): string {
+  const nome = job.nome?.trim()
+  if (nome) return nome
+  return `Regra · ${new Date(job.criado_em).toLocaleDateString('pt-BR')}`
+}
+
 export function simulacaoVisivel(job: Job | null) {
   if (
     !job ||

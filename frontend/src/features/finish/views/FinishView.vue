@@ -5,7 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import { apiClient } from "@/services/api";
 import type { JobResumo } from "@/types/api";
 import { HttpError } from "@/services/http";
-import { regraMaisRecente, simulacaoVisivel } from "@/services/job";
+import { regraMaisRecente, rotuloDaRegra, simulacaoVisivel } from "@/services/job";
 import { usarStoreJobAtual } from "@/stores/currentJob";
 import TheProcessHeader from "@/components/TheProcessHeader.vue";
 import TheSidebar from "@/components/TheSidebar.vue";
@@ -50,11 +50,6 @@ let temporizadorAlerta: ReturnType<typeof setTimeout> | null = null;
 let temporizadorNavegacao: ReturnType<typeof setTimeout> | null = null;
 let ciclo = 0;
 
-function criarRotuloDaRegra(resumoDoJob: JobResumo): string {
-  const data = new Date(resumoDoJob.criado_em).toLocaleDateString("pt-BR");
-  return `Regra · ${data}`;
-}
-
 function limparTemporizadores() {
   if (temporizadorAlerta) clearTimeout(temporizadorAlerta);
   if (temporizadorNavegacao) clearTimeout(temporizadorNavegacao);
@@ -92,7 +87,7 @@ async function carregarRegrasRecentes(): Promise<void> {
 
     regrasRecentes.value = resumosDosJobs.slice(0, 6).map((resumoDoJob) => ({
       identificador: resumoDoJob.id,
-      rotulo: criarRotuloDaRegra(resumoDoJob),
+      rotulo: rotuloDaRegra(resumoDoJob),
     }));
 
     quantidadeArquivadas.value = resumosDosJobs.filter(

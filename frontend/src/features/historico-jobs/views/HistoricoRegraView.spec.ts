@@ -37,12 +37,13 @@ function encerrado(status: 'liberado' | 'arquivado' = 'liberado') {
   ]
   return job
 }
-async function montar(job = encerrado()) {
+async function montar(job = encerrado(), nome?: string) {
   vi.mocked(apiClient.consultarJob).mockResolvedValueOnce(job)
   vi.mocked(apiClient.listarJobs).mockResolvedValue({
     itens: [
       {
         id: job.id,
+        nome,
         status: job.status,
         competencias: [],
         criado_em: job.criado_em,
@@ -317,4 +318,19 @@ it('cancela a consulta anterior e não mistura respostas de jobs diferentes', as
   await flushPromises()
   expect(wrapper.text()).toContain('Regra arquivada.')
   expect(wrapper.text()).not.toContain('Versão final salva')
+})
+it('exibe na barra lateral o nome da regra e, sem nome, o rótulo com a data', async () => {
+  const job = encerrado()
+  const comNome = await montar(job, 'Comissão de novembro')
+  expect(comNome.wrapper.findComponent(TheSidebar).props('regrasRecentes')).toEqual([
+    { identificador: 'job-1', rotulo: 'Comissão de novembro' },
+  ])
+  vi.resetAllMocks()
+  const semNome = await montar(encerrado())
+  expect(semNome.wrapper.findComponent(TheSidebar).props('regrasRecentes')).toEqual([
+    {
+      identificador: 'job-1',
+      rotulo: `Regra · ${new Date(job.criado_em).toLocaleDateString('pt-BR')}`,
+    },
+  ])
 })
