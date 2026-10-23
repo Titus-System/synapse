@@ -63,7 +63,7 @@ def executar_na_meta(
     codigo = CodigoGerado(id=codigo_id, job_id=job_id, linguagem="python", fonte=fonte)
     execucao = preparar_execucao(comando, codigo)
     bases = carregar_bases()
-    baseline_na_meta = bases.baseline_na_meta(competencias, meta_venda)
+    baseline_na_meta = bases.linhas_na_meta(competencias, meta_venda)
 
     saida = executar_no_sandbox(execucao.payload, imagem=imagem, limites=CURTO)
     desfecho = classificar(saida, execucao.payload, execucao.orcamento)

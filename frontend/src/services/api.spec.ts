@@ -61,4 +61,44 @@ describe('apiClient', () => {
       await expect(apiClient.reprocessarJob('job-original')).rejects.toMatchObject({ status })
     },
   )
+
+    it('renomeia o job com PUT e devolve o job com o nome da resposta', async () => {
+    const atualizado = { id: 'job-1', nome: 'Comissão de novembro' }
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify(atualizado), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    const resposta = await apiClient.renomearJob('job-1', { nome: '  Comissão de novembro  ' })
+
+    expect(resposta).toEqual(atualizado)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/jobs/job-1/nome')
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('PUT')
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(
+      JSON.stringify({ nome: '  Comissão de novembro  ' }),
+    )
+  })
+
+  it('codifica o identificador na URL de renomeação', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }),
+    )
+
+    await apiClient.renomearJob('job 1', { nome: 'x' })
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/jobs/job%201/nome')
+  })
+
+  it.each([400, 403, 404])('propaga a recusa HTTP %i da renomeação', async (status) => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ codigo: 'requisicao_invalida', mensagem: 'detalhe interno' }), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    await expect(apiClient.renomearJob('job-1', { nome: 'x' })).rejects.toMatchObject({ status })
+  })
 })

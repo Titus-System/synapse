@@ -10,6 +10,7 @@ import RelatorioSimulacao from '@/components/RelatorioSimulacao.vue'
 import { useDetalhamento } from '@/composables/useDetalhamento'
 import { observarConsulta } from '@/observability/consultasLogging'
 import { consultarDetalhamento } from '@/services/detalhamento'
+import { rotuloDaRegra } from '@/services/job'
 import { listarTodosOsJobs } from '../services/historicoJobs.api'
 import ResumoRegraHistorica from '../components/ResumoRegraHistorica.vue'
 import ResultadoVersaoHistorica from '../components/ResultadoVersaoHistorica.vue'
@@ -33,7 +34,7 @@ const jobsSalvos = computed(() => resumosDosJobs.value.filter((item) => item.sta
 const regrasRecentes = computed(() =>
   resumosDosJobs.value.slice(0, 6).map((item) => ({
     identificador: item.id,
-    rotulo: `Regra · ${new Date(item.criado_em).toLocaleDateString('pt-BR')}`,
+    rotulo: rotuloDaRegra(item),
   })),
 )
 const encerramento = computed(() => (job.value ? versaoDeEncerramento(job.value) : undefined))

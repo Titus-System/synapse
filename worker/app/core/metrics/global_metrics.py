@@ -109,3 +109,17 @@ duracao_do_baseline_na_meta = prometheus.register_histogram(
 )
 for _resultado in RESULTADOS_DA_REAPURACAO:
     duracao_do_baseline_na_meta.labels(resultado=_resultado)
+
+# A conferência do resultado contra o baseline do worker e da coerência entre o detalhamento, os
+# totais e as quebras (T-066, T-262), pelo que ela decidiu. Uma por execução com sucesso julgada:
+# a reentrega que encontra o resultado já gravado não confere de novo e não conta, e o desfecho
+# que não é sucesso não chega à conferência.
+RESULTADOS_DA_CONFERENCIA = ("coerente", "baseline_divergente", "resultado_incoerente")
+
+resultados_conferidos = prometheus.register_counter(
+    "job_resultado_conferencia_total",
+    "Resultados com sucesso conferidos pelo worker contra o baseline e entre si, por resultado",
+    ["resultado"],
+)
+for _resultado in RESULTADOS_DA_CONFERENCIA:
+    resultados_conferidos.labels(resultado=_resultado)

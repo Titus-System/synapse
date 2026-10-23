@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { apiClient } from '@/services/api'
+import { rotuloDaRegra } from '@/services/job'
 import type { JobResumo } from '@/types/api'
 import { useRoute, useRouter } from 'vue-router'
 import { useJobSimulacao } from '../composables/useJobSimulacao'
@@ -98,11 +99,6 @@ watch(
   { immediate: true },
 )
 
-function criarRotuloDaRegra(resumoDoJob: JobResumo): string {
-  const data = new Date(resumoDoJob.criado_em).toLocaleDateString('pt-BR')
-  return `Regra · ${data}`
-}
-
 function seguirParaFinalizacao(): void {
   if (!podeFinalizar.value) return
   roteador.push({
@@ -138,7 +134,7 @@ async function carregarRegrasRecentes(): Promise<void> {
 
     regrasRecentes.value = resumosDosJobs.slice(0, 6).map((resumoDoJob) => ({
       identificador: resumoDoJob.id,
-      rotulo: criarRotuloDaRegra(resumoDoJob),
+      rotulo: rotuloDaRegra(resumoDoJob),
     }))
 
     quantidadeArquivadas.value = resumosDosJobs.filter(

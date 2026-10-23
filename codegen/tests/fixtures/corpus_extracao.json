@@ -653,5 +653,114 @@
       ]
     },
     "parametros_esperados": {}
+  },
+  {
+    "id": "faixa_escada_de_bonus",
+    "texto": "Todas as vendas individuais das marcas 10 e 20 acima de R$ 40 mil fazem jus a um bônus: 40.000 até 50.000, R$ 3.500; 50.001 até 60.000, R$ 4.000; acima de 60.001, R$ 4.500.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {
+        "marca": [
+          "10",
+          "20"
+        ]
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "faixa_valor",
+          "descricao": "40.000 até 50.000, R$ 3.500",
+          "limite_inferior": 40000,
+          "limite_superior": 50000,
+          "efeito": {
+            "tipo": "bonus_fixo",
+            "valor": 3500
+          }
+        },
+        {
+          "ref": "elem.2",
+          "construto": "faixa_valor",
+          "descricao": "50.001 até 60.000, R$ 4.000",
+          "limite_inferior": 50001,
+          "limite_superior": 60000,
+          "efeito": {
+            "tipo": "bonus_fixo",
+            "valor": 4000
+          }
+        },
+        {
+          "ref": "elem.3",
+          "construto": "faixa_valor",
+          "descricao": "acima de 60.001, R$ 4.500",
+          "limite_inferior": 60001,
+          "limite_superior": 1000000000,
+          "efeito": {
+            "tipo": "bonus_fixo",
+            "valor": 4500
+          }
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "faixa_limiar_unico",
+    "texto": "Acima de R$ 40 mil, bônus de R$ 3.500.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "faixa_valor",
+          "descricao": "acima de R$ 40 mil, bônus de R$ 3.500",
+          "limite_inferior": 40000,
+          "limite_superior": 1000000000,
+          "efeito": {
+            "tipo": "bonus_fixo",
+            "valor": 3500
+          }
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "faixa_loja_generico",
+    "texto": "Para os gerentes, vendas totais de loja acima de R$ 120 mil fazem jus a bônus de R$ 5.000.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {
+        "cargo": [
+          "150"
+        ]
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "vendas totais de loja acima de R$ 120 mil fazem jus a bônus de R$ 5.000"
+        }
+      ]
+    },
+    "parametros_esperados": {}
   }
 ]

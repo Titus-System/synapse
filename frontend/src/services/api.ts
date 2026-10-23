@@ -8,6 +8,7 @@ import type {
   JobCriado,
   ListarJobsParametros,
   PaginaJobs,
+  RenomearJobRequisicao,
   ReprocessarRequisicao,
 } from '@/types/api'
 
@@ -51,6 +52,10 @@ export const apiClient = {
     return requisicao.acao === 'aceitar_meta'
       ? observarConsulta('aceitar_meta', id, executar, signal)
       : executar()
+  },
+
+  renomearJob(id: string, requisicao: RenomearJobRequisicao, signal?: AbortSignal) {
+    return http.put<Job, RenomearJobRequisicao>(`${jobPath(id)}/nome`, requisicao, signal)
   },
 
   reprocessarJob(id: string, requisicao?: ReprocessarRequisicao, signal?: AbortSignal) {

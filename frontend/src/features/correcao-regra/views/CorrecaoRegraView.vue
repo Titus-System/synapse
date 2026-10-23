@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
 import { apiClient } from '@/services/api'
+import { rotuloDaRegra } from '@/services/job'
 import type { JobResumo } from '@/types/api'
 import { useRoute, useRouter } from 'vue-router'
 import { useCorrecao } from '../composables/useCorrecao'
@@ -59,7 +60,7 @@ async function carregarHistorico() {
     } while (jobs.length < total)
     regrasRecentes.value = jobs.slice(0, 6).map((job) => ({
       identificador: job.id,
-      rotulo: `Regra · ${new Date(job.criado_em).toLocaleDateString('pt-BR')}`,
+      rotulo: rotuloDaRegra(job),
     }))
     quantidadeArquivadas.value = jobs.filter((job) => job.status === 'arquivado').length
     quantidadeSalvas.value = jobs.length - quantidadeArquivadas.value

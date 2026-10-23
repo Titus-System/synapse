@@ -83,7 +83,7 @@ CAMPOS_DA_LINHA_DO_WORKER = ("vendas",)
 
 
 def validar_linhas(linhas: object, competencias: Sequence[str]) -> list[Problema]:
-    """Valida a forma e o período; conferência dos valores pertence à T-262.
+    """Valida a forma e o período; os valores são conferidos no julgamento (T-262).
 
     Caminhos do validador contêm chaves arbitrárias do container (inclusive matrícula).
     O diagnóstico e os logs levam somente a raiz estática e a classe do erro.
