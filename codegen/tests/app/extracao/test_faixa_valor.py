@@ -193,3 +193,45 @@ async def test_faixa_fechada_sem_limite_superior_vira_generico() -> None:
 
     assert [e["construto"] for e in especificacoes(resultado)] == ["generico"]
     assert motivos(resultado) == ["campo_obrigatorio_ausente"]
+
+
+def limiar_aberto(texto: str) -> dict[str, Any]:
+    elemento = faixa(texto, "40000", None, "3500")
+    elemento["limite_inferior"] = lastro("40000", "R$ 40 mil")
+    return elemento
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Quem atingir a meta e vender acima de R$ 40 mil recebe bônus de R$ 3500",
+        "Acima de R$ 40 mil, bônus de R$ 3500, desde que o colaborador esteja ativo",
+        "Acima de R$ 40 mil e com ticket médio acima de R$ 800, bônus de R$ 3500",
+        "Acima de R$ 40 mil, bônus de R$ 3500, salvo para os gerentes",
+    ],
+    ids=["meta", "desde_que", "ticket", "excecao"],
+)
+async def test_faixa_com_outra_condicao_fica_no_generico_com_o_trecho_inteiro(texto: str) -> None:
+    resultado = await extrair([limiar_aberto(texto)], texto)
+
+    [generico] = especificacoes(resultado)
+    assert generico["construto"] == "generico"
+    assert generico["descricao"] == texto
+    assert motivos(resultado) == ["termo_ambiguo"]
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Caso venda acima de R$ 40 mil, bônus de R$ 3500",
+        "Se o colaborador vender acima de R$ 40 mil, bônus de R$ 3500",
+        "Quando as vendas passarem de R$ 40 mil, acima disso o bônus é de R$ 3500",
+    ],
+    ids=["caso", "se", "quando"],
+)
+async def test_palavra_que_introduz_a_propria_faixa_nao_a_rebaixa(texto: str) -> None:
+    resultado = await extrair([limiar_aberto(texto)], texto)
+
+    [unica] = especificacoes(resultado)
+    assert unica["construto"] == "faixa_valor"
+    assert resultado.rebaixamentos == []

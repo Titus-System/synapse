@@ -4,6 +4,7 @@ from typing import Any
 
 from app.extracao.construto import Construto, ContextoExtracao
 from app.extracao.efeito import SCHEMA_EFEITO, normalizar_efeito
+from app.extracao.lastro import normalizar
 from app.extracao.modelos import ElementoRebaixadoError
 from app.tipos_estado import ValorRegra
 
@@ -18,7 +19,16 @@ _ABERTURA = re.compile(
 )
 
 
+# Outra condição, ou uma exceção, restringe quem recebe o efeito, e a faixa só representa o total
+# vendido. "se", "caso" e "quando" ficam de fora porque introduzem a própria faixa.
+_CONDICAO_ADICIONAL = re.compile(
+    r"\b(?:desde que|condicionad[oa]s?|metas?|cotas?|atingimento|ticket|quantidade|exceto|salvo)\b"
+)
+
+
 def converter(rascunho: dict[str, Any], contexto: ContextoExtracao) -> dict[str, ValorRegra]:
+    if _CONDICAO_ADICIONAL.search(normalizar(rascunho["trecho"])):
+        raise ElementoRebaixadoError("termo_ambiguo")
     efeito = normalizar_efeito(rascunho["efeito"], contexto.texto)
     if rascunho["faixa_aberta"]:
         if "limite_superior" in rascunho:
@@ -53,7 +63,10 @@ FAIXA_VALOR = Construto(
         "limiar. O trecho cobre os limites e o efeito da faixa. efeito: tipo bonus_fixo (reais), "
         "acrescimo_pct ou substituicao_pct. Venda total de loja ou de marca, quantidade, ticket, "
         "atingimento de meta e faixa sem efeito identificável são generico; no generico de "
-        "uma faixa de loja ou marca, informe em campos o escopo e os limites."
+        "uma faixa de loja ou marca, informe em campos o escopo e os limites. Condição além do "
+        "total vendido ('desde que', meta, ticket) ou exceção ('exceto', 'salvo') permanece junto "
+        "da faixa em um único generico, com o trecho completo; nunca converta essa faixa em "
+        "pagamento incondicional."
     ),
     converter=converter,
 )
