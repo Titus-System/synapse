@@ -1,12 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { ref } from 'vue'
 import { apiClient } from '@/services/api'
 import type { Job } from '@/types/api'
-import {
-  jobFixture,
-  jobComSugestaoFixture,
-  respostaPendente,
-} from '@/services/job.fixtures'
+import { jobFixture, jobComSugestaoFixture, respostaPendente } from '@/services/job.fixtures'
+import { jobComMetaFixture, jobMetaAceitaFixture } from '@/services/job.fixtures'
 import { HttpError } from '@/services/http'
 import { useJobSimulacao } from './useJobSimulacao'
 
@@ -40,6 +38,42 @@ function criarJobParcial(overrides: Partial<Job> = {}): Job {
 }
 
 describe('useJobSimulacao', () => {
+  it('impede aceite duplicado mesmo quando chamado diretamente', async () => {
+    consultarJob.mockResolvedValue(jobComMetaFixture())
+    const pendente = respostaPendente<Job>()
+    vi.mocked(apiClient.executarAcao).mockReturnValue(pendente.promise)
+    const tela = useJobSimulacao('job-1')
+    await tela.iniciar()
+    const aceite = tela.aceitarMeta()
+    await tela.aceitarMeta()
+    expect(apiClient.executarAcao).toHaveBeenCalledExactlyOnceWith('job-1', {
+      acao: 'aceitar_meta',
+    })
+    consultarJob.mockResolvedValue(jobMetaAceitaFixture())
+    pendente.resolve(jobMetaAceitaFixture())
+    await aceite
+    expect(tela.acaoProcessando.value).toBe(false)
+    expect(tela.metaSugerida.value).toBeUndefined()
+  })
+
+  it('não aplica a resposta do aceite ao navegar para outro job', async () => {
+    const id = ref('job-1')
+    consultarJob.mockResolvedValue(jobComMetaFixture())
+    const pendente = respostaPendente<Job>()
+    vi.mocked(apiClient.executarAcao).mockReturnValue(pendente.promise)
+    const tela = useJobSimulacao(id)
+    await tela.iniciar()
+    const aceite = tela.aceitarMeta()
+    id.value = 'job-2'
+    consultarJob.mockResolvedValue(jobFixture({ id: 'job-2' }))
+    await tela.iniciar()
+    pendente.resolve(jobMetaAceitaFixture())
+    await aceite
+    expect(tela.job.value?.id).toBe('job-2')
+    expect(tela.simulacao.value?.id).toBe('simulacao-1')
+    expect(tela.acaoProcessando.value).toBe(false)
+  })
+
   beforeEach(() => {
     setActivePinia(createPinia())
   })
@@ -128,13 +162,13 @@ describe('useJobSimulacao', () => {
     expect(apiClient.confirmarParametros).not.toHaveBeenCalled()
   })
 
-  it('mantém o resultado original durante a simulação da sugestão', async () => {
+  it('oculta resultados durante a simulação da sugestão', async () => {
     const job = jobComSugestaoFixture({ status: 'simulando', simulacao: null })
     job.simulacoes = job.simulacoes!.slice(0, 1)
     consultarJob.mockResolvedValue(job)
     const tela = useJobSimulacao('job-1')
     await tela.iniciar()
-    expect(tela.simulacao.value?.veredito).toBe('inviavel')
+    expect(tela.simulacao.value).toBeNull()
     expect(tela.simulacaoSugestao.value).toBeNull()
     expect(tela.podeAceitarSugestao.value).toBe(false)
   })
@@ -164,12 +198,15 @@ describe('useJobSimulacao', () => {
     expect(simulacao.status.value).toBe('cancelado')
   })
 
-  it.each(['inviavel', 'indeterminado'] as const)('não aceita alternativa com veredito %s', async (veredito) => {
-    const job = jobComSugestaoFixture()
-    job.simulacoes![1]!.veredito = veredito
-    consultarJob.mockResolvedValue(job)
-    const tela = useJobSimulacao('job-1')
-    await tela.iniciar()
-    expect(tela.podeAceitarSugestao.value).toBe(false)
-  })
+  it.each(['inviavel', 'indeterminado'] as const)(
+    'não aceita alternativa com veredito %s',
+    async (veredito) => {
+      const job = jobComSugestaoFixture()
+      job.simulacoes![1]!.veredito = veredito
+      consultarJob.mockResolvedValue(job)
+      const tela = useJobSimulacao('job-1')
+      await tela.iniciar()
+      expect(tela.podeAceitarSugestao.value).toBe(false)
+    },
+  )
 })

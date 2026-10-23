@@ -48,28 +48,7 @@ const cargo = computed(() => nomesDoEscopo('cargo', props.regra?.representacao.n
     class="mx-auto mb-12 w-full max-w-6xl px-4 sm:px-6 lg:px-10"
   >
     <h2 id="titulo-sugestao" class="mb-2 text-3xl font-semibold text-[#2B160D]">Sugestão</h2>
-    <div
-      v-if="!regra"
-      role="status"
-      class="rounded-lg border border-[#DFC0B2] bg-[#F4ECE6]/50 p-5 text-[#584237]"
-    >
-      <p class="mb-3 font-bold text-[#2B160D]">Nenhuma sugestão disponível no momento.</p>
-      <p class="mb-3">
-        A busca automática ajusta um percentual uniforme em regras sem condições adicionais. Ela
-        pode testar percentuais menores, inclusive quando o orçamento não supera o custo de
-        referência (baseline), e refinar a alternativa a partir dos resultados, até o limite de
-        tentativas. Nem sempre essa busca encontra uma alternativa viável. Regras com taxas por
-        cargo ou condições adicionais precisam de revisão manual.
-      </p>
-      <p>
-        Isso não significa que seja impossível encontrar uma regra que caiba no orçamento. Você pode
-        revisar a regra e fazer uma nova simulação.
-      </p>
-      <RouterLink to="/nova-regra" class="mt-4 inline-block underline"
-        >Revisar em uma nova regra</RouterLink
-      >
-    </div>
-    <p v-else-if="processando" role="status" class="text-[#584237]">
+    <p v-if="processando" role="status" class="text-[#584237]">
       <template v-if="status === 'gerando_regra'"
         >Estamos preparando a regra alternativa para a simulação.</template
       >
@@ -96,7 +75,22 @@ const cargo = computed(() => nomesDoEscopo('cargo', props.regra?.representacao.n
         >Revisar em uma nova regra</RouterLink
       >
     </div>
-    <template v-else-if="sucesso && regra">
+    <div
+      v-else-if="status === 'simulacao_inviavel'"
+      role="status"
+      class="rounded-lg border border-[#DFC0B2] bg-[#F4ECE6]/50 p-5 text-[#584237]"
+    >
+      <p class="mb-3 font-bold text-[#2B160D]">
+        Não encontramos uma taxa alternativa que caiba no orçamento.
+      </p>
+      <p>Você pode revisar as condições e iniciar uma nova regra.</p>
+      <RouterLink
+        to="/nova-regra"
+        class="mt-4 inline-block rounded-lg bg-[#c2560b] px-5 py-3 text-white"
+        >Iniciar nova regra</RouterLink
+      >
+    </div>
+    <template v-else-if="viavel && regra">
       <p class="mb-11 text-[#584237]">
         A regra de negócio escolhida é inviável. Mas não se preocupe, criamos esta para você:
       </p>
@@ -182,7 +176,9 @@ const cargo = computed(() => nomesDoEscopo('cargo', props.regra?.representacao.n
           </h3>
           <hr class="mb-4 border border-[#FFDBCD]" />
           <div class="mb-4 flex flex-col">
-            <label for="orcamento-sugestao" class="mb-1 text-[#584237]">Orçamento de comissão</label>
+            <label for="orcamento-sugestao" class="mb-1 text-[#584237]"
+              >Orçamento de comissão</label
+            >
             <input
               id="orcamento-sugestao"
               type="text"
@@ -203,12 +199,6 @@ const cargo = computed(() => nomesDoEscopo('cargo', props.regra?.representacao.n
           </div>
           <p v-if="viavel" class="mb-4 font-bold text-[#14532D]">
             A sugestão cabe no seu orçamento.
-          </p>
-          <p v-else-if="simulacao?.veredito === 'inviavel'" class="mb-4 text-[#950606]">
-            A alternativa ainda excede o orçamento. Revise a regra para tentar outra simulação.
-          </p>
-          <p v-else class="mb-4 text-[#B45309]">
-            Não foi possível determinar se a alternativa cabe no orçamento.
           </p>
           <p v-if="podeAceitar" class="mb-3 text-xl font-semibold text-[#2B160D]">
             Deseja escolher essa nova regra?

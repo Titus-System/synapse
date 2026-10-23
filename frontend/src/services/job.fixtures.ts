@@ -80,7 +80,6 @@ export function respostaPendente<T>() {
   return { promise, resolve: (value: T) => resolver(value) }
 }
 
-
 export function jobComSugestaoFixture(overrides: Partial<Job> = {}): Job {
   const original = regraFixture()
   const sugestao = regraFixture(2, 'sugestao_adaptacao')
@@ -99,4 +98,60 @@ export function jobComSugestaoFixture(overrides: Partial<Job> = {}): Job {
     simulacao: resultadoSugestao,
     ...overrides,
   })
+}
+
+export function jobSemOrcamentoFixture(): Job {
+  const job = jobFixture({ orcamento: undefined })
+  delete job.simulacao!.veredito
+  delete job.simulacao!.resultado!.totais!.orcamento
+  return job
+}
+
+export function jobComMetaFixture(): Job {
+  const job = jobFixture({
+    meta_venda: 1000000,
+    meta_sugerida: { meta_venda: 1200000, total_simulado: 484500, orcamento: 485000 },
+  })
+  job.simulacao!.regra_id = job.regras[0]!.id
+  job.simulacao!.meta_venda = 1000000
+  return job
+}
+
+export function jobMetaAceitaFixture(): Job {
+  const job = jobComMetaFixture()
+  delete job.meta_sugerida
+  const original = structuredClone(job.simulacao!)
+  job.simulacao!.id = 'simulacao-meta-aceita'
+  job.simulacao!.meta_venda = 1200000
+  job.simulacao!.resultado!.totais!.simulado = 484500
+  job.simulacoes = [original, job.simulacao!]
+  return job
+}
+
+export function jobBuscandoMetaFixture(): Job & { busca_meta_em_curso: true } {
+  const job = jobComMetaFixture()
+  delete job.meta_sugerida
+  return { ...job, busca_meta_em_curso: true }
+}
+
+export function jobComTentativasFixture(status: Job['status'] = 'aguardando_decisao_usuario'): Job {
+  const job = jobComSugestaoFixture({ status })
+  const tentativa = job.regras.find((regra) => regra.origem === 'sugestao_adaptacao')!
+  const final = regraFixture(3, 'sugestao_adaptacao')
+  final.representacao.nucleo.percentual = 0.02
+  const simulacaoFinal = structuredClone(job.simulacao!)
+  simulacaoFinal.id = 'simulacao-3'
+  simulacaoFinal.regra_id = final.id
+  simulacaoFinal.resultado!.totais!.simulado = 480500
+  job.simulacao!.veredito = 'inviavel'
+  job.simulacao!.resultado!.totais!.simulado = 490000
+  job.regras = [
+    final,
+    tentativa,
+    job.regras.find((regra) => regra.origem !== 'sugestao_adaptacao')!,
+  ]
+  job.simulacoes!.push(simulacaoFinal)
+  job.simulacao = simulacaoFinal
+  if (status === 'simulacao_inviavel') simulacaoFinal.veredito = 'inviavel'
+  return job
 }

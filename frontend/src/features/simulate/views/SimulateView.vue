@@ -7,6 +7,7 @@ import { useJobSimulacao } from '../composables/useJobSimulacao'
 import { calcularProgresso } from '../composables/progressoSimulacao'
 import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import SugestaoRegra from '../components/SugestaoRegra.vue'
+import MetaSugerida from '../components/MetaSugerida.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
 import { nomesDoEscopo } from '@/services/catalogoRh'
 import { percentuaisDaRegra, vigenciaDoNucleo } from '@/composables/apresentacaoNucleo'
@@ -41,17 +42,18 @@ const {
   podeAceitarSugestao,
   podeCancelar,
   podeFinalizar,
+  processando,
+  buscandoMeta,
+  metaSugerida,
+  podeAceitarMeta,
+  aceitarMeta,
+  acaoProcessando,
+  mensagemErroAcao,
 } = useJobSimulacao(jobId)
 
 const progresso = computed(() => calcularProgresso(job.value?.status ?? null, etapaAtual.value))
 
 const redirecionando = computed(() => status.value === 'liberado' || status.value === 'arquivado')
-
-const processando = computed(
-  () =>
-    carregando.value ||
-    ['aguardando_transcricao', 'gerando_regra', 'simulando'].includes(job.value?.status ?? ''),
-)
 
 const regraExibida = computed(() =>
   simulacao.value?.regra_id
@@ -165,10 +167,7 @@ const totalComissionamento = computed(() => {
 
   if (valor == null) return ''
 
-  return `R$ ${valor.toLocaleString('pt-BR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`
+  return formatarReais(valor)
 })
 
 const regraViavel = computed(() => simulacao.value?.veredito === 'viavel')
@@ -246,7 +245,7 @@ onBeforeUnmount(parar)
           </div>
           <div>
             <div
-              v-if="processando && !erro && !simulacao"
+              v-if="processando && !erro"
               class="flex flex-col items-center justify-center py-16"
             >
               <div
@@ -257,14 +256,18 @@ onBeforeUnmount(parar)
               </div>
 
               <h2 class="mb-2 text-2xl font-bold text-[#2B160D]">
-                {{ progresso.titulo }}
+                {{ buscandoMeta ? 'Buscando uma meta maior' : progresso.titulo }}
               </h2>
 
               <p class="mb-6 max-w-xl text-center text-[#584237]">
-                {{ progresso.detalhe }}
+                {{
+                  buscandoMeta
+                    ? 'Estamos verificando uma meta maior para o seu orçamento. Aguarde o resultado.'
+                    : progresso.detalhe
+                }}
               </p>
 
-              <div class="w-full max-w-md">
+              <div v-if="!buscandoMeta" class="w-full max-w-md">
                 <div class="mb-2 flex items-center justify-between text-sm text-[#584237]">
                   <span>Progresso</span>
                   <span class="font-bold">{{ progresso.percentual }}%</span>
@@ -499,6 +502,9 @@ onBeforeUnmount(parar)
                     class="bg-[#FFE9E1] rounded-lg border-2 border-[#8B7265] text-[#2B160D] px-3.5 py-3 w-full"
                   />
                 </div>
+                <p v-if="simulacao?.meta_venda != null" class="mb-4 text-[#584237]">
+                  A comissão apresentada corresponde à meta de vendas de {{ meta }}.
+                </p>
                 <!-- Aprovada -->
                 <div
                   v-if="regraViavel"
@@ -520,7 +526,14 @@ onBeforeUnmount(parar)
                   </div>
                 </div>
                 <button
-                  v-if="regraViavel && podeFinalizar && !sugestao"
+                  v-if="
+                    podeFinalizar &&
+                    !sugestao &&
+                    simulacao?.status === 'sucesso' &&
+                    (regraViavel ||
+                      (simulacao.veredito == null &&
+                        simulacao.resultado?.totais?.orcamento == null))
+                  "
                   type="button"
                   class="flex items-center justify-center cursor-pointer rounded-lg bg-[#14532D] text-white px-6 py-3 mt-4"
                   @click="seguirParaFinalizacao"
@@ -579,8 +592,26 @@ onBeforeUnmount(parar)
             </div>
           </div>
         </div>
+        <p
+          v-if="mensagemErroAcao"
+          role="alert"
+          class="mx-auto mb-6 max-w-6xl px-4 text-[#950606] sm:px-6 lg:px-10"
+        >
+          {{ mensagemErroAcao }}
+        </p>
+        <MetaSugerida
+          v-if="!erro && metaSugerida"
+          :sugestao="metaSugerida"
+          :processando="acaoProcessando"
+          :pode-aceitar="podeAceitarMeta"
+          @aceitar="aceitarMeta"
+        />
         <SugestaoRegra
-          v-if="!erro && (sugestao || (status === 'simulacao_inviavel' && regraInviavel))"
+          v-if="
+            !erro &&
+            !processando &&
+            (sugestao || (status === 'simulacao_inviavel' && regraInviavel))
+          "
           :regra="sugestao ?? null"
           :simulacao="simulacaoSugestao"
           :status="status ?? null"

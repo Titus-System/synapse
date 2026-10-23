@@ -14,6 +14,7 @@ export const usarStoreJobAtual = defineStore('current-job', () => {
   const etapaAtual = ref<EventoEtapa | null>(null)
   const estadoConexao = ref<'conectando' | 'aberta' | 'reconectando'>('conectando')
   const carregando = ref(false)
+  const reconciliandoSugestao = ref(false)
   const erro = shallowRef<HttpError | null>(null)
 
   let conexao: ReturnType<typeof abrirAcompanhamentoJob> | null = null
@@ -24,6 +25,7 @@ export const usarStoreJobAtual = defineStore('current-job', () => {
     if (atualizado.id !== idJob.value) return
     consulta += 1
     job.value = atualizado
+    reconciliandoSugestao.value = false
     // O motivo da parada pode chegar só pelo evento de estado, e a reconsulta
     // disparada logo em seguida o apagaria se a resposta do job não o trouxer.
     motivoParada.value =
@@ -75,6 +77,7 @@ export const usarStoreJobAtual = defineStore('current-job', () => {
     statusAnterior.value = null
     motivoParada.value = null
     etapaAtual.value = null
+    reconciliandoSugestao.value = false
     erro.value = null
     carregando.value = true
     estadoConexao.value = 'conectando'
@@ -98,7 +101,19 @@ export const usarStoreJobAtual = defineStore('current-job', () => {
       onEtapa(evento) {
         if (!ativo()) return
         etapaAtual.value = evento
-        if (evento.status === 'concluido') void consultarJob()
+        if (
+          evento.etapa === 'sugestao_adaptacao' &&
+          [
+            'buscando_meta',
+            'busca_meta_encerrada',
+            'meta_sugerida',
+            'sem_solucao',
+            'sem_alternativa',
+          ].includes(evento.status)
+        ) {
+          reconciliandoSugestao.value = true
+          void consultarJob()
+        } else if (evento.status === 'concluido') void consultarJob()
       },
       onResultado() {
         if (ativo()) void consultarJob()
@@ -129,6 +144,7 @@ export const usarStoreJobAtual = defineStore('current-job', () => {
     etapaAtual,
     estadoConexao,
     carregando,
+    reconciliandoSugestao,
     erro,
     iniciarAcompanhamento,
     pararAcompanhamento,

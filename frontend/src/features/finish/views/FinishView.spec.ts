@@ -4,7 +4,7 @@ import { createPinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { apiClient } from '@/services/api'
 import { HttpError } from '@/services/http'
-import { jobFixture, regraFixture, respostaPendente } from '@/services/job.fixtures'
+import { jobFixture, jobSemOrcamentoFixture, regraFixture, respostaPendente } from '@/services/job.fixtures'
 import FinishView from './FinishView.vue'
 
 vi.mock('@/services/api', () => ({
@@ -47,6 +47,19 @@ async function montar() {
 }
 
 describe('FinishView', () => {
+  it('salva e libera uma simulação bem-sucedida sem orçamento', async () => {
+    const job = jobSemOrcamentoFixture()
+    vi.mocked(apiClient.consultarJob).mockResolvedValue(job)
+    vi.mocked(apiClient.executarAcao).mockResolvedValue({ ...job, status: 'liberado' })
+    const { wrapper } = await montar()
+    const salvar = wrapper.findAll('button').find((item) => item.text() === 'Salvar')!
+    expect(salvar.attributes('disabled')).toBeUndefined()
+    await salvar.trigger('click')
+    await flushPromises()
+    expect(apiClient.executarAcao).toHaveBeenCalledExactlyOnceWith('job-1', { acao: 'salvar' })
+    expect(wrapper.text()).toContain('Regra salva com sucesso!')
+    wrapper.unmount()
+  })
   it('indica Salvar como etapa atual enquanto aguarda a decisão do usuário', async () => {
     const { wrapper } = await montar()
     expect(wrapper.get('header [aria-current="step"]').text()).toBe('Salvar')
