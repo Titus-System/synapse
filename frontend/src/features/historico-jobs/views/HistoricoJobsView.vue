@@ -5,7 +5,7 @@ import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
 import type { JobResumo, StatusJob } from '@/types/api'
 import { apiClient } from '@/services/api'
-import { regraMaisRecente } from '@/services/job'
+import { destinoDoJob, regraMaisRecente } from '@/services/job'
 import { transformarRegra } from '@/composables/transformarRegra'
 import { listarTodosOsJobs } from '../services/historicoJobs.api'
 import type { TipoDeHistorico } from '../types'
@@ -257,9 +257,13 @@ watch(
               </template>
             </div>
 
-            <a :href="`/jobs/${resumoDoJob.id}`" class="mt-auto pt-6 text-sm font-semibold text-[#b84e08] transition hover:text-[#843600]">
-              Abrir relatório <span aria-hidden="true">→</span>
-            </a>
+            <RouterLink
+              :to="destinoDoJob(resumoDoJob)"
+              class="mt-auto pt-6 text-sm font-semibold text-[#b84e08] transition hover:text-[#843600]"
+            >
+              {{ resumoDoJob.status === 'aguardando_confirmacao_parametros' ? 'Continuar correção' : 'Abrir relatório' }}
+              <span aria-hidden="true">→</span>
+            </RouterLink>
           </article>
         </div>
 

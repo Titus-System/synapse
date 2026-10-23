@@ -207,4 +207,24 @@ describe('HistoricoJobsView', () => {
     expect(conteiner.get('input[type="search"]').attributes('disabled')).toBeDefined()
     expect(conteiner.get('button[title*="filtro"]').attributes('disabled')).toBeDefined()
   })
+
+  it('leva o job que aguarda correção ao chatbot', async () => {
+    listarComResumos([criarResumoDoJob(1, 'aguardando_confirmacao_parametros')])
+
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem())
+    await flushPromises()
+
+    const link = conteiner.get('article a')
+    expect(link.attributes('href')).toBe('/jobs/00000001-1234-4000-8000-000000000000/correcao')
+    expect(link.text()).toContain('Continuar correção')
+  })
+
+  it('mantém Abrir relatório para os demais status', async () => {
+    listarComResumos([criarResumoDoJob(1)])
+
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem())
+    await flushPromises()
+
+    expect(conteiner.get('article a').text()).toContain('Abrir relatório')
+  })
 })
