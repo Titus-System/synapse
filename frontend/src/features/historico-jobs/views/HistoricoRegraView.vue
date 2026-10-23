@@ -12,6 +12,7 @@ import { observarConsulta } from '@/observability/consultasLogging'
 import { consultarDetalhamento } from '@/services/detalhamento'
 import { rotuloDaRegra } from '@/services/job'
 import { listarTodosOsJobs } from '../services/historicoJobs.api'
+import NomeEditavelDaRegra from '../components/NomeEditavelDaRegra.vue'
 import ResumoRegraHistorica from '../components/ResumoRegraHistorica.vue'
 import ResultadoVersaoHistorica from '../components/ResultadoVersaoHistorica.vue'
 import { simulacaoAnterior, simulacoesDoHistorico, versaoDeEncerramento } from '../composables/historicoDoJob'
@@ -69,10 +70,12 @@ function tituloVersao(versao: RegraVersionada) {
   if (versao.id !== encerramento.value?.id) return 'Regra Descartada'
   return job.value?.status === 'liberado' ? 'Regra Final' : 'Versão de encerramento'
 }
-function tituloDoResumo(versao: RegraVersionada) {
-  if (encerramento.value?.id === versao.id && job.value?.status === 'liberado') return 'Regra Final'
-  return `Versão ${versao.versao}`
-}
+const nomeNoResumo = computed(
+  () =>
+    job.value?.status === 'liberado' &&
+    regra.value !== undefined &&
+    regra.value.id === encerramento.value?.id,
+)
 function selecionar(versao: RegraVersionada, id?: string) {
   if (id) selecoes.value[versao.id] = id
   versaoId.value = versao.id
@@ -164,8 +167,11 @@ onBeforeUnmount(() => consulta?.abort())
             <ResumoRegraHistorica
               :regra="regra"
               :simulacao="simulacao"
-              :titulo="tituloDoResumo(regra)"
+              :titulo="`Versão ${regra.versao}`"
             >
+              <template v-if="nomeNoResumo" #titulo>
+                <NomeEditavelDaRegra :resumo="job" cartao id-do-titulo="titulo-regra-historica" />
+              </template>
               <RelatorioSimulacao
                 v-if="simulacao?.status === 'sucesso'"
                 sem-margens

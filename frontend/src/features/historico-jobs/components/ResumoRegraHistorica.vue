@@ -4,7 +4,6 @@ import type { RegraVersionada, Simulacao } from '@/types/api'
 import { transformarRegra } from '@/composables/transformarRegra'
 import { formatarReais } from '@/composables/apresentacaoDetalhamento'
 import { origemDaVersao } from '../composables/historicoDoJob'
-import AceiteMetaHistorica from './AceiteMetaHistorica.vue'
 
 const props = defineProps<{
   regra: RegraVersionada
@@ -34,14 +33,12 @@ const resultado = computed(() =>
     class="min-w-0 rounded-xl border border-[#DFC0B2] bg-white px-5 pt-7 shadow-[0_8px_24px_-20px_rgba(60,30,15,0.3)] outline-none sm:px-8 sm:pt-8"
   >
     <header class="border-b border-[#FFDBCD] pb-4">
-      <h1 id="titulo-regra-historica" class="font-serif text-xl font-bold text-[#2B160D]">
-        {{ titulo }}
-      </h1>
+      <slot name="titulo">
+        <h1 id="titulo-regra-historica" class="font-serif text-xl font-bold text-[#2B160D]">
+          {{ titulo }}
+        </h1>
+      </slot>
       <p class="mt-1 text-xs text-[#9D4400]">{{ origemDaVersao(regra) }} · {{ data }}</p>
-      <AceiteMetaHistorica
-        v-if="simulacao?.meta_sugerida_aceita_em"
-        :aceita-em="simulacao.meta_sugerida_aceita_em"
-      />
     </header>
     <div class="my-5 rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] p-4 text-[#584237]">
       <h2 class="mb-3 font-serif text-xs font-bold tracking-wide text-[#8B7265]">
