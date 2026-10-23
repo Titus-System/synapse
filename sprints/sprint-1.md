@@ -3,7 +3,7 @@
 <br>
 <br>
 
-> Entrega: 27/09/2026 ⏳
+> Entrega: 27/09/2026 ✔️
 
 ## 🏁 O Desafio
 
