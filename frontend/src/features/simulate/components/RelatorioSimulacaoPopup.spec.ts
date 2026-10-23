@@ -203,3 +203,23 @@ it('mantém o ciclo de Tab e Shift+Tab entre os controles visíveis do diálogo'
     retangulos.mockRestore()
   }
 })
+it('mostra a condição adicional recolhida na tabela do popup', async () => {
+  const descricao = 'Bônus fixo de R$ 350,00 para vendas iguais ou superiores a R$ 40.000,00.'
+  const wrapper = await montar()
+  await wrapper.setProps({
+    linhas: { '2025-08': { 'ALPHA-1': { ...linha(), contribuicoes: { 'elem.1': 350 } } } },
+    regra: { ...regra, especificacoes: [{ ref: 'elem.1', construto: 'generico', descricao }] },
+  })
+  await clicar(wrapper, 'Aplicar filtros')
+  const botao = wrapper.get('tbody button')
+  const texto = () => wrapper.get(`[id="${botao.attributes('aria-controls')}"]`)
+
+  expect(wrapper.get('tbody').text()).toContain('Condição adicional · condição 1: R$ 350,00')
+  expect(botao.attributes('aria-expanded')).toBe('false')
+  expect(texto().isVisible()).toBe(false)
+
+  await botao.trigger('click')
+
+  expect(texto().isVisible()).toBe(true)
+  expect(texto().text()).toBe(descricao)
+})

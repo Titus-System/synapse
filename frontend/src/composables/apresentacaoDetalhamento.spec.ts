@@ -26,8 +26,26 @@ it('nomeia as contribuições pela regra sem apresentar referências nem constru
       { ref: 'elem.2', construto: 'futuro' },
     ],
   })
-  expect(rotulos['nucleo.percentual']).toBe('Comissão de 2,5%')
-  expect(rotulos['elem.7']).toBe('Bônus fixo de R$ 10,00 · condição 1')
-  expect(rotulos['elem.2']).toBe('Condição adicional · condição 2')
-  expect(Object.values(rotulos).join(' ')).not.toMatch(/nucleo\.|elem\.|bonus_fixo|futuro/)
+  expect(rotulos['nucleo.percentual']).toEqual({ rotulo: 'Comissão de 2,5%' })
+  expect(rotulos['elem.7']).toEqual({
+    rotulo: 'Bônus fixo de R$ 10,00 · condição 1',
+    descricao: undefined,
+  })
+  expect(rotulos['elem.2']).toEqual({
+    rotulo: 'Condição adicional · condição 2',
+    descricao: undefined,
+  })
+  expect(Object.values(rotulos).map((r) => r.rotulo).join(' ')).not.toMatch(
+    /nucleo\.|elem\.|bonus_fixo|futuro/,
+  )
+})
+
+it('separa do rótulo curto o texto da condição adicional', () => {
+  const descricao = 'Para cada vendedor do cargo 100, bônus de R$ 350,00 acima de R$ 40.000,00.'
+  const rotulos = rotulosContribuicoes({
+    nucleo: {},
+    especificacoes: [{ ref: 'elem.1', construto: 'generico', descricao }],
+  })
+
+  expect(rotulos['elem.1']).toEqual({ rotulo: 'Condição adicional · condição 1', descricao })
 })
