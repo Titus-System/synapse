@@ -52,7 +52,9 @@ class CorsConfigTests {
 						.containsIgnoringCase("Content-Type"));
 	}
 
-		/** A renomeação da regra (PUT /jobs/{id}/nome) é cross-origin como as demais rotas. */
+	/**
+	 * A renomeação da regra (PUT /jobs/{id}/nome) é cross-origin como as demais rotas.
+	 */
 	@Test
 	void allowsThePreflightOfPutForTheRenameRoute() {
 		this.client.options()
