@@ -9,6 +9,7 @@ Como todo `contracts/`, isto é insumo de build e nunca dependência de runtime.
 | [domain/representacao-regra.json](domain/representacao-regra.json) | `domain/representacao-regra.schema.json` | Regra só com o núcleo, que é o alcance da Sprint 1 |
 | [domain/representacao-regra-elementos.json](domain/representacao-regra-elementos.json) | `domain/representacao-regra.schema.json` | Faixa de valor, janela de datas e exclusão, sem alteração do schema |
 | [domain/representacao-regra-generico.json](domain/representacao-regra-generico.json) | `domain/representacao-regra.schema.json` | Elemento que não corresponde a nenhum construto reconhecido |
+| [domain/representacao-regra-taxas-por-cargo.json](domain/representacao-regra-taxas-por-cargo.json) | `domain/representacao-regra.schema.json` | Taxas diferentes por cargo no núcleo, sem percentual uniforme |
 | [domain/conflitos-rodada.json](domain/conflitos-rodada.json) | `domain/conflitos-rodada.schema.json` | Conflitos de uma rodada de correção: um campo ausente e um conflito entre núcleo e exclusão |
 | [domain/conflitos-rodada-parametros.json](domain/conflitos-rodada-parametros.json) | `domain/conflitos-rodada.schema.json` | Conflitos sobre os parâmetros da simulação: orçamento negativo, meta zero e competência sem dados publicados, sem o valor dito no motivo |
 | [domain/parametros-simulacao.json](domain/parametros-simulacao.json) | `domain/parametros-simulacao.schema.json` | Orçamento, meta de venda e período ditos no texto |

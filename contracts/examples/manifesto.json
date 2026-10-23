@@ -8,6 +8,7 @@
     "domain/regra-nucleo.json": "domain/regra-nucleo.schema.json",
     "domain/representacao-regra-elementos.json": "domain/representacao-regra.schema.json",
     "domain/representacao-regra-generico.json": "domain/representacao-regra.schema.json",
+    "domain/representacao-regra-taxas-por-cargo.json": "domain/representacao-regra.schema.json",
     "domain/representacao-regra.json": "domain/representacao-regra.schema.json",
     "domain/resultado-assercoes.json": "domain/resultado-assercoes.schema.json",
     "domain/resultado-decomposicao.json": "domain/resultado-decomposicao.schema.json",
