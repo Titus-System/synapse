@@ -886,6 +886,44 @@ async def test_nucleo_do_modelo_so_chega_ao_artefato_com_lastro(
     }
 
 
+async def test_loja_dita_por_extenso_chega_ao_artefato_sem_rebaixamento_nem_texto_no_log(
+    monkeypatch: pytest.MonkeyPatch, cliente: AsyncClient, logs: list[dict[str, Any]]
+) -> None:
+    texto = "loja sessenta e oito produto preto com dois por cento REGRA_PRIVADA_VOZ"
+    rascunho = {
+        "percentual": {"valor": Decimal("0.02"), "trecho": "dois por cento"},
+        "loja": [{"valor": "68", "trecho": "loja sessenta e oito"}],
+        "marca": [{"valor": "PRETO", "trecho": "produto preto"}],
+    }
+    ambiente = AmbienteExtracao(
+        monkeypatch, [{"nucleo": rascunho, "elementos": [], "parametros": {}}]
+    )
+    payload = ambiente.entrada(origem="voz")
+    ambiente.banco.transcricoes[UUID(payload["submissao_id"])] = texto
+    antes = (await cliente.get("/metrics")).text
+    recebida = mensagem(payload)
+
+    await ambiente.consumer.receber(recebida)
+
+    recebida.ack.assert_awaited_once_with()
+    [artefato] = ambiente.banco.tabela("extracoes_regras")
+    assert simplejson.loads(artefato["representacao"], use_decimal=True) == {
+        "nucleo": {"percentual": Decimal("0.02"), "loja": ["68"], "marca": ["10"]},
+        "especificacoes": [],
+    }
+    assert simplejson.loads(artefato["rebaixamentos"]) == []
+    depois = (await cliente.get("/metrics")).text
+    for motivo in ("valor_sem_lastro", "codigo_fora_do_vocabulario", "termo_ambiguo"):
+        rotulos = {"motivo": motivo}
+        nome = "codegen_extracao_rebaixamentos_total"
+        assert amostra(depois, nome, rotulos) - amostra(antes, nome, rotulos) == 0
+    do_no = [log for log in logs if log.get("no") == "extracao_parametros"]
+    assert [log["message"] for log in do_no] == ["extraction started", "extraction finished"]
+    assert do_no[-1]["extra"]["rebaixamentos_por_motivo"] == {}
+    for privado in ("sessenta", "REGRA_PRIVADA_VOZ", texto):
+        assert privado not in simplejson.dumps(logs)
+
+
 async def test_correlacao_e_restaurada_entre_dois_jobs(
     monkeypatch: pytest.MonkeyPatch, logs: list[dict[str, Any]]
 ) -> None:

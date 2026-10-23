@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from app.extracao.lastro import normalizar, trecho_literal
+from app.extracao.lastro import normalizar, numeros_por_extenso, trecho_literal
 
 type CampoCodigo = Literal["loja", "marca", "cargo"]
 type FalhaCodigo = Literal["codigo_fora_do_vocabulario", "termo_ambiguo", "valor_sem_lastro"]
@@ -44,9 +44,10 @@ def _candidatos(campo: CampoCodigo, termo: str) -> set[str]:
 def _codigos_presentes(campo: CampoCodigo, trecho: str) -> set[str]:
     descricoes: dict[str, list[str]] = carregar_vocabulario()[campo]
     texto = normalizar(trecho)
+    por_extenso = {str(numero) for numero in numeros_por_extenso(trecho)}
     encontrados: set[str] = set()
     for codigo, nomes in descricoes.items():
-        if re.search(rf"(?<!\d){re.escape(codigo)}(?!\d)", trecho):
+        if re.search(rf"(?<!\d){re.escape(codigo)}(?!\d)", trecho) or codigo in por_extenso:
             encontrados.add(codigo)
         if any(re.search(rf"\b{re.escape(normalizar(nome))}\b", texto) for nome in nomes):
             encontrados.add(codigo)

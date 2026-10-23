@@ -134,6 +134,12 @@ def test_define_campos_e_preserva_incoerencias_sem_corrigir(
     [
         (codigos("loja", ("LOJA-15", "LOJA-15")), "só na LOJA-15", "loja", ["15"]),
         (
+            codigos("loja", ("68", "loja sessenta e oito")),
+            "é a loja sessenta e oito",
+            "loja",
+            ["68"],
+        ),
+        (
             codigos("marca", ("AZUL", "marca azul"), ("30", "código 30")),
             "só a marca azul, código 30",
             "marca",

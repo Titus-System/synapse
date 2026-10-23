@@ -61,6 +61,15 @@ async def extrair(modelo: FakeChatModel, texto: str = TEXTO) -> ResultadoExtraca
             },
             {"vigencia": {"inicio": "2025-12", "fim": "2025-08"}, "percentual": Decimal("-0.1")},
         ),
+        (
+            "loja sessenta e oito produto preto com dois por cento",
+            {
+                "percentual": {"valor": Decimal("0.02"), "trecho": "dois por cento"},
+                "loja": [{"valor": "68", "trecho": "loja sessenta e oito"}],
+                "marca": [{"valor": "PRETO", "trecho": "produto preto"}],
+            },
+            {"percentual": Decimal("0.02"), "loja": ["68"], "marca": ["10"]},
+        ),
     ],
 )
 async def test_preserva_apenas_nucleo_com_lastro(
