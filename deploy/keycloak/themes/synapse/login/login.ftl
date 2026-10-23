@@ -7,6 +7,7 @@
   <title>Entrar | Synapse</title>
   <link rel="icon" type="image/x-icon" href="${url.resourcesPath}/img/synapse.ico" />
   <link rel="stylesheet" href="${url.resourcesPath}/css/synapse.css" />
+  <#include "synapse-session.ftl">
 </head>
 <body class="synapse-login-page">
   <header class="synapse-topbar">
@@ -39,7 +40,7 @@
       <p class="synapse-card-description">Ambiente seguro de governança executiva Synapse</p>
 
       <#if message?has_content>
-        <p class="synapse-message synapse-message--${message.type}">${kcSanitize(message.summary)?no_esc}</p>
+        <p role="alert" class="synapse-message synapse-message--${message.type}">${kcSanitize(message.summary)?no_esc}</p>
       </#if>
 
       <form id="kc-form-login" class="synapse-form" action="${url.loginAction}" method="post">
@@ -62,7 +63,9 @@
         <button tabindex="4" class="synapse-submit" name="login" id="kc-login" type="submit">Acessar Plataforma <span aria-hidden="true">→</span></button>
       </form>
 
-      <p class="synapse-onboarding">Precisa de autorização? <a href="#">Solicitar onboarding executivo</a></p>
+      <#if realm.password && realm.registrationAllowed && !registrationDisabled??>
+        <p class="synapse-onboarding">Ainda não tem uma conta? <a id="synapse-register" href="${url.registrationUrl}">Criar conta</a></p>
+      </#if>
     </section>
   </main>
 
