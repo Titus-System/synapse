@@ -43,7 +43,7 @@ O Produto Mínimo Viável (MVP) da primeira sprint foca na recepção inicial da
   * **Então** a interface deve alertar visualmente (ex: em vermelho) que a regra não cabe no orçamento
   * **E** bloquear a liberação direta para produção até que seja ajustada.
 
-### US 07: Como profissional de recursos humanos, quero um relatório após a finalização de cada processo, identificando a regra de negócio finalizada e sua simulação, para gravar meu histórico e facilitar o acesso posterior.
+### US 02: Como profissional de recursos humanos, quero um relatório após a finalização de cada processo, identificando a regra de negócio finalizada e sua simulação, para gravar meu histórico e facilitar o acesso posterior.
 * **Cenário 1: Emissão de relatório e ações (Caminho Feliz)**
   * **Dado** que a simulação terminou com sucesso
   * **Quando** eu solicitar a finalização do processo
