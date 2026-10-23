@@ -1,6 +1,6 @@
 import { HttpError } from '@/services/http'
 
-type OperacaoConsulta = 'consultar_job' | 'consultar_detalhamento'
+type OperacaoConsulta = 'consultar_job' | 'consultar_detalhamento' | 'listar_jobs' | 'aceitar_meta'
 
 export async function observarConsulta<T>(
   operacao: OperacaoConsulta,
@@ -13,7 +13,8 @@ export async function observarConsulta<T>(
     const registro = {
       timestamp: new Date().toISOString(),
       level: resultado === 'falha' ? 'WARN' : 'INFO',
-      message: 'Consulta do job no navegador',
+      message:
+        operacao === 'aceitar_meta' ? 'Ação do job no navegador' : 'Consulta do job no navegador',
       'service.name': 'synapse-frontend',
       job_id: jobId,
       extra: {

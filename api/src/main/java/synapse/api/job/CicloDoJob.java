@@ -1,5 +1,6 @@
 package synapse.api.job;
 
+import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Map;
@@ -7,6 +8,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.jspecify.annotations.Nullable;
+
+import synapse.api.job.JobRepository.ComissaoForaDaRegra;
 
 /**
  * As ações do contrato HTTP ({@code AcaoJob}), no mesmo vocabulário da coluna
@@ -217,10 +220,29 @@ final class MotivoDaParada {
 
 	private static final String PREFIXO_FALHA_NA_ETAPA = "erro_";
 
+	private static final Locale PT_BR = Locale.of("pt", "BR");
+
 	private static final String MOTIVO_DA_TRILHA_PROVEDOR_INDISPONIVEL = PREFIXO_FALHA_NA_ETAPA
 			+ CAUSA_PROVEDOR_INDISPONIVEL;
 
 	private MotivoDaParada() {
+	}
+
+	/**
+	 * A razão do fim das tentativas de taxa nova sem alternativa. Quando as lojas fora da
+	 * regra já custam mais que o orçamento, nenhuma taxa cabe e a razão diz isso, com os
+	 * dois valores; sem esse piso, é a razão genérica.
+	 */
+	static String semAlternativa(@Nullable ComissaoForaDaRegra comissao) {
+		if (comissao == null || comissao.fora().compareTo(comissao.orcamento()) <= 0) {
+			return NENHUMA_TAXA_COUBE;
+		}
+		return "O orçamento de %s é menor que as comissões das lojas fora da regra (%s), que a sugestão não altera. Nenhuma redução de taxa faz a regra caber: aumente o orçamento ou revise o alcance da regra."
+			.formatted(reais(comissao.orcamento()), reais(comissao.fora()));
+	}
+
+	private static String reais(BigDecimal valor) {
+		return String.format(PT_BR, "R$ %,.2f", valor);
 	}
 
 	/** O token de {@code job_transicoes.motivo} de uma falha anterior à simulação. */

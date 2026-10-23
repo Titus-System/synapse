@@ -3,12 +3,10 @@ import { createPinia, setActivePinia } from 'pinia'
 import { apiClient } from '@/services/api'
 import { HttpError } from '@/services/http'
 import type { Job } from '@/types/api'
-import { usarStoreRegrasRecentes } from './regrasRecentes'
 import { usarStoreRenomearRegra } from './renomearRegra'
 
 vi.mock('@/services/api', () => ({
   apiClient: {
-    listarJobs: vi.fn<typeof apiClient.listarJobs>(),
     renomearJob: vi.fn<typeof apiClient.renomearJob>(),
   },
 }))
@@ -17,24 +15,7 @@ function respostaComNome(nome: string | null | undefined): Job {
   return { id: 'job-1', nome, regras: [] } as unknown as Job
 }
 
-async function prepararLista() {
-  vi.mocked(apiClient.listarJobs).mockResolvedValue({
-    itens: [
-      {
-        id: 'job-1',
-        status: 'liberado',
-        competencias: ['2025-09'],
-        criado_em: '2026-09-19T12:00:00Z',
-      },
-    ],
-    pagina: 0,
-    tamanho: 100,
-    total: 1,
-  })
-  const recentes = usarStoreRegrasRecentes()
-  await recentes.carregar()
-  return recentes
-}
+const rotuloPadrao = 'Regra · 19/09/2026'
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -43,7 +24,6 @@ beforeEach(() => {
 
 describe('usarStoreRenomearRegra', () => {
   it('envia o nome, aplica o nome da resposta e encerra a edição', async () => {
-    const recentes = await prepararLista()
     vi.mocked(apiClient.renomearJob).mockResolvedValue(respostaComNome('Comissão de novembro'))
     const store = usarStoreRenomearRegra()
 
@@ -53,12 +33,11 @@ describe('usarStoreRenomearRegra', () => {
 
     expect(ok).toBe(true)
     expect(apiClient.renomearJob).toHaveBeenCalledWith('job-1', { nome: '  Comissão de novembro  ' })
-    expect(recentes.regrasRecentes[0]?.rotulo).toBe('Comissão de novembro')
+    expect(store.rotuloExibido('job-1', rotuloPadrao)).toBe('Comissão de novembro')
     expect(store.idEmEdicao).toBeNull()
   })
 
   it('mostra o nome devolvido pela API, e não o digitado', async () => {
-    const recentes = await prepararLista()
     vi.mocked(apiClient.renomearJob).mockResolvedValue(respostaComNome('Nome aparado'))
     const store = usarStoreRenomearRegra()
 
@@ -66,11 +45,10 @@ describe('usarStoreRenomearRegra', () => {
     store.texto = ' Nome aparado '
     await store.confirmar()
 
-    expect(recentes.regrasRecentes[0]?.rotulo).toBe('Nome aparado')
+    expect(store.rotuloExibido('job-1', rotuloPadrao)).toBe('Nome aparado')
   })
 
   it('mantém o nome e a edição aberta quando a API recusa', async () => {
-    const recentes = await prepararLista()
     vi.mocked(apiClient.renomearJob).mockRejectedValue(
       new HttpError(403, 'Você não tem permissão para realizar esta ação.'),
     )
@@ -84,11 +62,27 @@ describe('usarStoreRenomearRegra', () => {
     expect(store.erro).toBe('Você não tem permissão para realizar esta ação.')
     expect(store.idEmEdicao).toBe('job-1')
     expect(store.enviando).toBe(false)
-    expect(recentes.regrasRecentes[0]?.rotulo).toMatch(/^Regra · /)
+    expect(store.rotuloExibido('job-1', rotuloPadrao)).toBe(rotuloPadrao)
+  })
+
+  it('mostra a mensagem do código quando a API recusa a validação do nome', async () => {
+    vi.mocked(apiClient.renomearJob).mockRejectedValue(
+      new HttpError(400, 'Revise os dados informados e tente novamente.', {
+        code: 'requisicao_invalida',
+      }),
+    )
+    const store = usarStoreRenomearRegra()
+
+    store.iniciar('job-1', 'Regra · 19/09/2026')
+    store.texto = 'Novo nome'
+    await store.confirmar()
+
+    expect(store.erro).toBe(
+      'Não foi possível enviar os dados. Revise as informações e tente novamente.',
+    )
   })
 
   it('cancelar não chama a API e mantém o nome', async () => {
-    const recentes = await prepararLista()
     const store = usarStoreRenomearRegra()
 
     store.iniciar('job-1', 'Regra · 19/09/2026')
@@ -97,11 +91,10 @@ describe('usarStoreRenomearRegra', () => {
 
     expect(apiClient.renomearJob).not.toHaveBeenCalled()
     expect(store.idEmEdicao).toBeNull()
-    expect(recentes.regrasRecentes[0]?.rotulo).toMatch(/^Regra · /)
+    expect(store.rotuloExibido('job-1', rotuloPadrao)).toBe(rotuloPadrao)
   })
 
   it('bloqueia um segundo envio enquanto a requisição está em andamento', async () => {
-    await prepararLista()
     let liberar!: (job: Job) => void
     vi.mocked(apiClient.renomearJob).mockReturnValue(
       new Promise<Job>((resolve) => {

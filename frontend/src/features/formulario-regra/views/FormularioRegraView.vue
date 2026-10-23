@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { onMounted, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
-import { usarStoreRegrasRecentes } from '@/stores/regrasRecentes'
+import { apiClient } from '@/services/api'
+import { rotuloDaRegra } from '@/services/job'
+import type { JobResumo } from '@/types/api'
 import CampoDeMultiSelecao from '../components/CampoDeMultiSelecao.vue'
 import CampoDeSelecao from '../components/CampoDeSelecao.vue'
 import CampoDeTexto from '../components/CampoDeTexto.vue'
@@ -11,7 +13,9 @@ import { useFormularioRegra } from '../composables/useFormularioRegra'
 
 const rota = useRoute()
 const roteador = useRouter()
-const regras = usarStoreRegrasRecentes()
+const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
+const quantidadeArquivadas = ref(0)
+const quantidadeSalvas = ref(0)
 const {
   opcoesDeCargo,
   opcoesDeLoja,
@@ -28,11 +32,45 @@ const {
   preencherComRegraDoJob,
 } = useFormularioRegra()
 
+function atualizarContagensDeRegras(resumosDosJobs: readonly JobResumo[]): void {
+  quantidadeArquivadas.value = resumosDosJobs.filter(
+    (resumoDoJob) => resumoDoJob.status === 'arquivado',
+  ).length
+  quantidadeSalvas.value = resumosDosJobs.length - quantidadeArquivadas.value
+}
+
+async function carregarRegrasRecentes(): Promise<void> {
+  try {
+    const resumosDosJobs: JobResumo[] = []
+    let numeroDaPagina = 0
+    let totalDeJobs = 0
+    let itensDaPagina: JobResumo[] = []
+
+    do {
+      const paginaDeJobs = await apiClient.listarJobs({ pagina: numeroDaPagina, tamanho: 100 })
+      totalDeJobs = paginaDeJobs.total
+      itensDaPagina = paginaDeJobs.itens
+      resumosDosJobs.push(...itensDaPagina)
+      numeroDaPagina += 1
+    } while (resumosDosJobs.length < totalDeJobs && itensDaPagina.length > 0)
+
+    regrasRecentes.value = resumosDosJobs.slice(0, 6).map((resumoDoJob) => ({
+      identificador: resumoDoJob.id,
+      rotulo: rotuloDaRegra(resumoDoJob),
+    }))
+    atualizarContagensDeRegras(resumosDosJobs)
+  } catch {
+    regrasRecentes.value = []
+    quantidadeArquivadas.value = 0
+    quantidadeSalvas.value = 0
+  }
+}
+
 async function submeterFormulario(): Promise<void> {
   const jobCriado = await enviarFormulario()
   if (!jobCriado) return
 
-  await regras.carregar()
+  await carregarRegrasRecentes()
 
   const destino = roteador.resolve(`/jobs/${jobCriado.id}`)
   if (destino.name === 'not-found') {
@@ -44,7 +82,7 @@ async function submeterFormulario(): Promise<void> {
 }
 
 onMounted(() => {
-  void regras.carregar()
+  void carregarRegrasRecentes()
 })
 
 // A tela continua montada ao sair do reprocessamento pelo menu, e um formulário
@@ -69,9 +107,9 @@ watch(
   >
     <TheSidebar
       class="hidden lg:flex"
-      :quantidade-arquivadas="regras.quantidadeArquivadas"
-      :quantidade-salvas="regras.quantidadeSalvas"
-      :regras-recentes="regras.regrasRecentes"
+      :quantidade-arquivadas="quantidadeArquivadas"
+      :quantidade-salvas="quantidadeSalvas"
+      :regras-recentes="regrasRecentes"
     />
 
     <main

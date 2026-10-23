@@ -9,7 +9,13 @@ from pydantic import ConfigDict, TypeAdapter
 
 from app.extracao.construtos.generico import montar_generico
 from app.extracao.escopo import conferir_escopo_universal
-from app.extracao.lastro import conferir_numero, conferir_periodo, numeros_citados, trecho_literal
+from app.extracao.lastro import (
+    conferir_numero,
+    conferir_periodo,
+    numeros_citados,
+    restaurar_trechos_literais,
+    trecho_literal,
+)
 from app.extracao.modelos import FalhaExtracaoError, Rebaixamento
 from app.extracao.montagem import montar_elemento
 from app.extracao.parametros import validar_parametros
@@ -239,7 +245,8 @@ def aplicar_operacoes_correcao(
     if len(refs) != len(set(refs)):
         raise FalhaExtracaoError("Referências da regra atual ambíguas")
     completos = deepcopy(validar_parametros(parametros))
-    envelope = cast(dict[str, Any], operacoes)
+    envelope = deepcopy(cast(dict[str, Any], operacoes))
+    restaurar_trechos_literais(envelope, texto_correcao)
     diagnosticos: list[DiagnosticoCorrecao] = []
     # A montagem da T-203 recupera rascunhos incompletos; o envelope do item segue fechado.
     validador = Draft202012Validator(schema_operacao_correcao(validar_elemento=False))

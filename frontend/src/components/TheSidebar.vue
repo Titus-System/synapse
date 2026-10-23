@@ -29,8 +29,12 @@ const { idEmEdicao, texto, enviando, erro, tamanho, mensagemDeValidacao, podeCon
   storeToRefs(renomear)
 const campo = ref<HTMLInputElement[] | HTMLInputElement | null>(null)
 
+function rotuloDe(regra: RegraRecente): string {
+  return renomear.rotuloExibido(regra.identificador, regra.rotulo)
+}
+
 async function editar(regra: RegraRecente): Promise<void> {
-  renomear.iniciar(regra.identificador, regra.rotulo)
+  renomear.iniciar(regra.identificador, rotuloDe(regra))
   await nextTick()
   const el = Array.isArray(campo.value) ? campo.value[0] : campo.value
   el?.focus()
@@ -73,7 +77,7 @@ function aoSair(): void {
               v-model="texto"
               type="text"
               :disabled="enviando"
-              :aria-label="`Novo nome da regra ${regra.rotulo}`"
+              :aria-label="`Novo nome da regra ${rotuloDe(regra)}`"
               :aria-invalid="mensagemDeValidacao !== '' || erro !== ''"
               class="h-8 w-full rounded-md border border-[#7a5442] bg-[#3b2318] px-2 text-sm text-[#f6eae3] outline-none focus:border-[#f26b0f] disabled:opacity-60"
               @keydown.enter.prevent="confirmar"
@@ -91,14 +95,14 @@ function aoSair(): void {
           <div v-else class="group relative">
             <RouterLink
               :to="`/jobs/${regra.identificador}`"
-              :title="regra.rotulo"
+              :title="rotuloDe(regra)"
               class="flex h-10 min-w-0 items-center rounded-[.625rem] bg-[#4d3125] pr-10 pl-4 text-sm text-[#eaddd5] transition hover:bg-[#5a3b2c]"
             >
-              <span class="min-w-0 flex-1 truncate">{{ regra.rotulo }}</span>
+              <span class="min-w-0 flex-1 truncate">{{ rotuloDe(regra) }}</span>
             </RouterLink>
             <button
               type="button"
-              :aria-label="`Renomear a regra ${regra.rotulo}`"
+              :aria-label="`Renomear a regra ${rotuloDe(regra)}`"
               class="cursor-pointer absolute top-1/2 right-2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-[#d6bdb0] opacity-100 transition hover:bg-[#6b4535] focus-visible:opacity-100 group-focus-within:opacity-100 lg:[@media(hover:hover)]:opacity-0 lg:[@media(hover:hover)]:group-hover:opacity-100 lg:[@media(hover:hover)]:group-focus-within:opacity-100 lg:[@media(hover:hover)]:focus-visible:opacity-100"
               @mousedown.prevent
               @click="editar(regra)"

@@ -143,6 +143,30 @@ def test_meta_igual_ao_total_historico_reapura_o_baseline_congelado(
     assert bases.baseline_na_meta(competencias, meta) == carregar_baselines().total(competencias)
 
 
+@pytest.mark.parametrize("competencias", [["2025-08"], ["2025-11"], ["2025-08", "2025-12"]])
+def test_meta_igual_ao_total_historico_reapura_as_linhas_congeladas(
+    competencias: list[str],
+) -> None:
+    """Fator 1: a reapuração reproduz o congelado linha a linha, com os mesmos códigos e
+    centavos. É o que permite conferir o detalhamento de uma execução na meta contra ela (T-262)."""
+    bases = carregar_bases()
+    meta = float(bases.vendas_historicas(competencias))
+
+    assert bases.linhas_na_meta(competencias, meta) == carregar_baselines().linhas_do_periodo(
+        competencias
+    )
+
+
+def test_o_total_na_meta_e_a_soma_das_linhas_na_meta() -> None:
+    bases = carregar_bases()
+    meta = float(VENDAS_2025_11 * Decimal("1.1"))
+    linhas = bases.linhas_na_meta(["2025-11"], meta)
+
+    assert bases.baseline_na_meta(["2025-11"], meta) == sum(
+        (linha.comissao for linha in linhas["2025-11"].values()), Decimal(0)
+    )
+
+
 def test_meta_acima_do_total_historico_reapura_sobre_as_vendas_escaladas() -> None:
     total = carregar_bases().baseline_na_meta(["2025-11"], float(VENDAS_2025_11 * Decimal("1.1")))
 

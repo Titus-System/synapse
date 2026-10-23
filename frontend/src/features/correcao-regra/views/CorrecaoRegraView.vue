@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
+import { apiClient } from '@/services/api'
+import { rotuloDaRegra } from '@/services/job'
+import type { JobResumo } from '@/types/api'
 import { useRoute, useRouter } from 'vue-router'
 import { useCorrecao } from '../composables/useCorrecao'
-import { storeToRefs } from 'pinia'
-import { usarStoreRegrasRecentes } from '@/stores/regrasRecentes'
 import ConversaRodadas from '../components/ConversaRodadas.vue'
 import EntradaCorrecao from '../components/EntradaCorrecao.vue'
 import TheProcessHeader from '@/components/TheProcessHeader.vue'
@@ -32,25 +33,55 @@ watch(seguirProcessamento, (seguir) => {
   if (seguir) void router.replace(`/jobs/${encodeURIComponent(jobId.value)}`)
 })
 
-const regras = usarStoreRegrasRecentes()
-const { carregando: carregandoHistorico, erro: erroHistorico } = storeToRefs(regras)
+const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
+const quantidadeArquivadas = ref(0)
+const quantidadeSalvas = ref(0)
+const carregandoHistorico = ref(true)
+const erroHistorico = ref(false)
 const controlador = new AbortController()
 
 async function carregarHistorico() {
   if (controlador.signal.aborted) return
+  carregandoHistorico.value = true
+  erroHistorico.value = false
   const inicio = performance.now()
-  await regras.carregar(controlador.signal)
-  if (controlador.signal.aborted) return
-  const resultado = regras.erro ? 'falha' : 'sucesso'
-  const registro = JSON.stringify({
-    timestamp: new Date().toISOString(),
-    level: resultado === 'sucesso' ? 'INFO' : 'ERROR',
-    message: 'Consulta do resumo de regras concluída',
-    'service.name': 'synapse-frontend',
-    extra: { operacao: 'listar_regras', resultado, duracao_ms: performance.now() - inicio },
-  })
-  if (resultado === 'sucesso') console.info(registro)
-  else console.error(registro)
+  let resultado = 'sucesso'
+  try {
+    const jobs: JobResumo[] = []
+    let pagina = 0
+    let total = 0
+    do {
+      const resposta = await apiClient.listarJobs({ pagina, tamanho: 100 }, controlador.signal)
+      if (controlador.signal.aborted) return
+      jobs.push(...resposta.itens)
+      total = resposta.total
+      pagina += 1
+      if (!resposta.itens.length) break
+    } while (jobs.length < total)
+    regrasRecentes.value = jobs.slice(0, 6).map((job) => ({
+      identificador: job.id,
+      rotulo: rotuloDaRegra(job),
+    }))
+    quantidadeArquivadas.value = jobs.filter((job) => job.status === 'arquivado').length
+    quantidadeSalvas.value = jobs.length - quantidadeArquivadas.value
+  } catch {
+    if (controlador.signal.aborted) return
+    resultado = 'falha'
+    erroHistorico.value = true
+  } finally {
+    if (!controlador.signal.aborted) {
+      carregandoHistorico.value = false
+      const registro = JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: resultado === 'sucesso' ? 'INFO' : 'ERROR',
+        message: 'Consulta do resumo de regras concluída',
+        'service.name': 'synapse-frontend',
+        extra: { operacao: 'listar_regras', resultado, duracao_ms: performance.now() - inicio },
+      })
+      if (resultado === 'sucesso') console.info(registro)
+      else console.error(registro)
+    }
+  }
 }
 onMounted(carregarHistorico)
 onBeforeUnmount(() => controlador.abort())
@@ -63,9 +94,9 @@ onBeforeUnmount(() => controlador.abort())
     <TheSidebar
       v-if="!carregandoHistorico && !erroHistorico"
       class="sticky top-0 hidden h-screen lg:flex"
-      :regras-recentes="regras.regrasRecentes"
-      :quantidade-salvas="regras.quantidadeSalvas"
-      :quantidade-arquivadas="regras.quantidadeArquivadas"
+      :regras-recentes="regrasRecentes"
+      :quantidade-salvas="quantidadeSalvas"
+      :quantidade-arquivadas="quantidadeArquivadas"
     />
     <aside
       v-else
@@ -139,4 +170,3 @@ onBeforeUnmount(() => controlador.abort())
     </main>
   </div>
 </template>
-

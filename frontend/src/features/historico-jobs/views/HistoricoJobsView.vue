@@ -7,8 +7,8 @@ import type { JobResumo, StatusJob } from '@/types/api'
 import { apiClient } from '@/services/api'
 import { regraMaisRecente, rotuloDaRegra } from '@/services/job'
 import { transformarRegra } from '@/composables/transformarRegra'
-import { storeToRefs } from 'pinia'
-import { usarStoreRegrasRecentes } from '@/stores/regrasRecentes'
+import { listarTodosOsJobs } from '../services/historicoJobs.api'
+import NomeEditavelDaRegra from '../components/NomeEditavelDaRegra.vue'
 import type { TipoDeHistorico } from '../types'
 
 const tamanhoDaPagina = 6
@@ -17,8 +17,7 @@ const roteador = useRouter()
 const carregando = ref(false)
 const mensagemDeErro = ref('')
 const paginaAtual = ref(0)
-const regras = usarStoreRegrasRecentes()
-const { resumos: resumosDosJobs } = storeToRefs(regras)
+const resumosDosJobs = ref<JobResumo[]>([])
 const regrasFormatadas = ref<Map<string, ReturnType<typeof transformarRegra>>>(
   new Map(),
 )
@@ -37,6 +36,12 @@ const jobsDaPagina = computed(() => {
   const inicio = paginaAtual.value * tamanhoDaPagina
   return jobsDoHistorico.value.slice(inicio, inicio + tamanhoDaPagina)
 })
+const regrasRecentes = computed(() =>
+  resumosDosJobs.value.slice(0, 6).map((resumoDoJob) => ({
+    identificador: resumoDoJob.id,
+    rotulo: rotuloDaRegra(resumoDoJob),
+  })),
+)
 
 function nomearStatus(status: StatusJob): string {
   const nomes: Record<StatusJob, string> = {
@@ -105,14 +110,17 @@ async function carregarHistorico(): Promise<void> {
   paginaAtual.value = 0
   regrasFormatadas.value = new Map()
 
-  await regras.carregar()
-  if (regras.erro) {
+  try {
+    const jobs = await listarTodosOsJobs()
+    resumosDosJobs.value = jobs
+    await carregarRegrasDosJobs(jobs)
+  } catch {
+    resumosDosJobs.value = []
     regrasFormatadas.value = new Map()
     mensagemDeErro.value = 'Não foi possível carregar o histórico agora. Tente novamente em alguns instantes.'
-  } else {
-    await carregarRegrasDosJobs(resumosDosJobs.value)
+  } finally {
+    carregando.value = false
   }
-  carregando.value = false
 }
 
 function obterRegraFormatada(
@@ -137,7 +145,7 @@ watch(
       :secao-ativa="tipoDoHistorico"
       :quantidade-arquivadas="jobsArquivados.length"
       :quantidade-salvas="jobsSalvos.length"
-      :regras-recentes="regras.regrasRecentes"
+      :regras-recentes="regrasRecentes"
     />
 
     <main class="min-w-0 bg-[radial-gradient(circle_at_top,#fffdfb_0%,#fdf7f3_48%,#f8eee8_100%)] lg:min-h-0 lg:overflow-y-auto">
@@ -201,10 +209,7 @@ watch(
         <div v-else class="mt-8 grid gap-5 xl:grid-cols-2">
           <article v-for="resumoDoJob in jobsDaPagina" :key="resumoDoJob.id" class="flex min-h-56 flex-col rounded-2xl border border-[#eadbd2] bg-white p-4 shadow-[0_16px_40px_-26px_rgba(60,30,15,0.5)] sm:p-6">
             <div class="flex items-start justify-between gap-4 border-b border-[#f0e2da] pb-4">
-              <div class="min-w-0">
-                <h2 class="font-serif text-2xl font-semibold break-words">{{ rotuloDaRegra(resumoDoJob) }}</h2>
-                <p class="mt-1 text-sm text-[#9c571e]">Criada em {{ new Date(resumoDoJob.criado_em).toLocaleDateString('pt-BR') }}</p>
-              </div>
+              <NomeEditavelDaRegra :resumo="resumoDoJob" />
               <button
                 v-if="tipoDoHistorico === 'arquivadas'"
                 type="button"

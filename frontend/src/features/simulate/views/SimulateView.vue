@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { apiClient } from '@/services/api'
+import { rotuloDaRegra } from '@/services/job'
+import type { JobResumo } from '@/types/api'
 import { useRoute, useRouter } from 'vue-router'
-import { usarStoreRegrasRecentes } from '@/stores/regrasRecentes'
 import { useJobSimulacao } from '../composables/useJobSimulacao'
 import { calcularProgresso } from '../composables/progressoSimulacao'
 import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import SugestaoRegra from '../components/SugestaoRegra.vue'
+import SugestaoMetaVenda from '../components/SugestaoMetaVenda.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
 import { nomesDoEscopo } from '@/services/catalogoRh'
 import { percentuaisDaRegra, vigenciaDoNucleo } from '@/composables/apresentacaoNucleo'
@@ -17,7 +20,9 @@ import { useDetalhamento } from '@/composables/useDetalhamento'
 const rota = useRoute()
 const roteador = useRouter()
 const jobId = computed(() => String(rota.params.id))
-const regras = usarStoreRegrasRecentes()
+const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
+const quantidadeArquivadas = ref(0)
+const quantidadeSalvas = ref(0)
 
 const {
   job,
@@ -38,6 +43,12 @@ const {
   podeAceitarSugestao,
   podeCancelar,
   podeFinalizar,
+  metaSugerida,
+  buscandoMeta,
+  podeAceitarMeta,
+  acaoProcessando,
+  erroMeta,
+  aceitarMeta,
 } = useJobSimulacao(jobId)
 
 const progresso = computed(() => calcularProgresso(job.value?.status ?? null, etapaAtual.value))
@@ -60,7 +71,9 @@ const nucleo = computed(() => regraExibida.value?.representacao.nucleo)
 const regraDaSimulacao = computed(() =>
   job.value?.regras.find((item) => item.id === simulacao.value?.regra_id),
 )
-const identidadeRelatorio = computed(() => `${jobId.value}/${simulacao.value?.id ?? ''}`)
+const identidadeRelatorio = computed(() =>
+  `${jobId.value}/${simulacao.value?.id ?? ''}/${simulacao.value?.meta_venda ?? ''}`,
+)
 const relatorio = useDetalhamento(identidadeRelatorio, (signal) =>
   consultarDetalhamento(jobId.value, simulacao.value!.id, signal),
 )
@@ -98,6 +111,42 @@ function seguirParaFinalizacao(): void {
 
 async function cancelarFluxo(): Promise<void> {
   if (await cancelar()) await roteador.push('/nova-regra')
+}
+
+async function carregarRegrasRecentes(): Promise<void> {
+  try {
+    const resumosDosJobs: JobResumo[] = []
+    let numeroDaPagina = 0
+    let totalDeJobs = 0
+    let itensDaPagina: JobResumo[] = []
+
+    do {
+      const paginaDeJobs = await apiClient.listarJobs({
+        pagina: numeroDaPagina,
+        tamanho: 100,
+      })
+
+      totalDeJobs = paginaDeJobs.total
+      itensDaPagina = paginaDeJobs.itens
+      resumosDosJobs.push(...itensDaPagina)
+      numeroDaPagina += 1
+    } while (resumosDosJobs.length < totalDeJobs && itensDaPagina.length > 0)
+
+    regrasRecentes.value = resumosDosJobs.slice(0, 6).map((resumoDoJob) => ({
+      identificador: resumoDoJob.id,
+      rotulo: rotuloDaRegra(resumoDoJob),
+    }))
+
+    quantidadeArquivadas.value = resumosDosJobs.filter(
+      (resumoDoJob) => resumoDoJob.status === 'arquivado',
+    ).length
+
+    quantidadeSalvas.value = resumosDosJobs.length - quantidadeArquivadas.value
+  } catch {
+    regrasRecentes.value = []
+    quantidadeArquivadas.value = 0
+    quantidadeSalvas.value = 0
+  }
 }
 
 const vigencia = computed(() => vigenciaDoNucleo(nucleo.value, job.value?.competencias))
@@ -141,7 +190,7 @@ watch(
   { immediate: true },
 )
 onMounted(() => {
-  void regras.carregar()
+  void carregarRegrasRecentes()
 })
 
 onBeforeUnmount(parar)
@@ -154,9 +203,9 @@ onBeforeUnmount(parar)
     >
       <TheSidebar
         class="sticky top-0 hidden h-screen lg:flex"
-        :quantidade-arquivadas="regras.quantidadeArquivadas"
-        :quantidade-salvas="regras.quantidadeSalvas"
-        :regras-recentes="regras.regrasRecentes"
+        :quantidade-arquivadas="quantidadeArquivadas"
+        :quantidade-salvas="quantidadeSalvas"
+        :regras-recentes="regrasRecentes"
       />
       <main v-if="!redirecionando" class="min-w-0 lg:min-h-0 lg:overflow-y-auto">
         <TheProcessHeader
@@ -535,6 +584,15 @@ onBeforeUnmount(parar)
             </div>
           </div>
         </div>
+        <SugestaoMetaVenda
+          v-if="!erro && (metaSugerida || buscandoMeta || erroMeta)"
+          :sugestao="metaSugerida"
+          :buscando="buscandoMeta"
+          :pode-aceitar="podeAceitarMeta"
+          :processando="acaoProcessando"
+          :erro="erroMeta"
+          @aceitar="aceitarMeta"
+        />
         <SugestaoRegra
           v-if="!erro && (sugestao || (status === 'simulacao_inviavel' && regraInviavel))"
           :regra="sugestao ?? null"
@@ -552,6 +610,7 @@ onBeforeUnmount(parar)
           :competencias="job?.competencias"
           :pode-aceitar="podeAceitarSugestao"
           :pode-cancelar="podeCancelar"
+          :motivo="motivoParada"
           @aceitar="seguirParaFinalizacao"
           @cancelar="cancelarFluxo"
         />

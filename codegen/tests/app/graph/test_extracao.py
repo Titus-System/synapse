@@ -496,6 +496,49 @@ async def test_janela_sem_lastro_persiste_rebaixamento_e_emite_logs_e_metricas(
     assert no_ctx.get() is None
 
 
+async def test_faixas_de_valor_extraidas_contam_o_construto_por_elemento(
+    monkeypatch: pytest.MonkeyPatch,
+    cliente: AsyncClient,
+) -> None:
+    texto = "40000 até 50000, R$ 3500; acima de 50001, R$ 4000"
+
+    def faixa(trecho: str, inferior: str, bonus: str, superior: str | None) -> dict[str, Any]:
+        elemento: dict[str, Any] = {
+            "construto_pretendido": "faixa_valor",
+            "descricao": trecho,
+            "trecho": trecho,
+            "limite_inferior": {"valor": Decimal(inferior), "trecho": inferior},
+            "faixa_aberta": superior is None,
+            "efeito": {
+                "tipo": "bonus_fixo",
+                "valor": {"valor": Decimal(bonus), "trecho": f"R$ {bonus}"},
+            },
+        }
+        if superior is not None:
+            elemento["limite_superior"] = {"valor": Decimal(superior), "trecho": superior}
+        return elemento
+
+    elementos = [
+        faixa("40000 até 50000, R$ 3500", "40000", "3500", "50000"),
+        faixa("acima de 50001, R$ 4000", "50001", "4000", None),
+    ]
+    ambiente = AmbienteExtracao(
+        monkeypatch, [{"nucleo": {}, "elementos": elementos, "parametros": {}}]
+    )
+    payload = ambiente.entrada()
+    ambiente.banco.transcricoes[UUID(payload["submissao_id"])] = texto
+    rotulos = {"construto": "faixa_valor"}
+    antes = (await cliente.get("/metrics")).text
+
+    recebida = mensagem(payload)
+    await ambiente.consumer.receber(recebida)
+
+    recebida.ack.assert_awaited_once_with()
+    depois = (await cliente.get("/metrics")).text
+    nome = "codegen_extracao_elementos_total"
+    assert amostra(depois, nome, rotulos) - amostra(antes, nome, rotulos) == 2
+
+
 async def test_nao_descarta_elemento_generico(monkeypatch: pytest.MonkeyPatch) -> None:
     elemento = {
         "construto_pretendido": "forma_privada",
@@ -1169,9 +1212,16 @@ async def test_meses_enumerados_e_bonus_condicionado_preservam_regra_e_telemetri
 ) -> None:
     periodo = "agosto, outubro e dezembro de 2025"
     bonus = "Bônus de R$ 400,00 para o cargo 100 quando vender pelo menos R$ 45.000,00 no mês"
-    texto = f"Simule {periodo}. {bonus}. CENARIO_RESERVADO"
+    taxa = "Gerente, cargo 150: 6% sobre as vendas da loja"
+    texto = f"Simule {periodo}. {taxa}. {bonus}. CENARIO_RESERVADO".replace(
+        "sobre as", "sobre\n  as"
+    ).replace("quando vender", "quando\n  vender")
     rascunho = {
-        "nucleo": {},
+        "nucleo": {
+            "taxas_por_cargo": [
+                {"valor": {"cargo": "150", "percentual": Decimal("0.06")}, "trecho": taxa}
+            ]
+        },
         "parametros": {
             "competencias": {"valor": ["2025-08", "2025-10", "2025-12"], "trecho": periodo}
         },
@@ -1197,8 +1247,16 @@ async def test_meses_enumerados_e_bonus_condicionado_preservam_regra_e_telemetri
     recebida.ack.assert_awaited_once_with()
     [salva] = ambiente.banco.tabela("extracoes_regras")
     assert simplejson.loads(salva["representacao"])["especificacoes"] == [
-        {"ref": "elem.1", "construto": "generico", "descricao": bonus}
+        {
+            "ref": "elem.1",
+            "construto": "generico",
+            "descricao": bonus.replace("quando vender", "quando\n  vender"),
+        }
     ]
+    assert simplejson.loads(salva["representacao"], use_decimal=True)["nucleo"] == {
+        "cargo": ["150"],
+        "taxas_por_cargo": [{"cargo": "150", "percentual": Decimal("0.06")}],
+    }
     assert simplejson.loads(salva["parametros"]) == {
         "competencias": ["2025-08", "2025-10", "2025-12"]
     }

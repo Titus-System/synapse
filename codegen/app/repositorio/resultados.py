@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.falhas import FalhaDoJobError
-from app.sugestao_adaptacao import LIMITE_DE_TENTATIVAS, TaxaSimulada
+from app.sugestao_adaptacao import LIMITE_DE_TENTATIVAS, TaxaSimulada, taxa_de_referencia
 
 
 class ResultadoDesconhecidoError(Exception):
@@ -94,26 +94,29 @@ async def buscar_totais(
 async def buscar_taxas_simuladas(
     sessoes: async_sessionmaker[AsyncSession], job_id: UUID, regra_id: UUID
 ) -> list[TaxaSimulada]:
-    """Load the rate and simulated commission of `regra_id` and of the versions it adapts.
+    """Load the reference rate and simulated commission of `regra_id` and of the versions it adapts.
 
     A cadeia sobe por `regra_origem_id` enquanto a versão é uma sugestão e para na regra que
-    a primeira sugestão adaptou: cada proposta muda só o percentual da versão de origem, então
-    os pares diferem só na taxa. Uma versão de fora da cadeia pode ter outro escopo, e a
-    execução candidata da busca da meta não é a simulação do job; nenhuma das duas vira par.
-    Raises `ResultadoIndisponivelError` when a simulated version lacks percentual or simulado.
+    a primeira sugestão adaptou: cada proposta reduz todas as taxas da versão de origem na mesma
+    proporção, então os pares diferem só nessa proporção, que a taxa de referência representa.
+    Uma versão de fora da cadeia pode ter outro escopo, e a execução candidata da busca da meta
+    não é a simulação do job; nenhuma das duas vira par.
+    Raises `ResultadoIndisponivelError` when a simulated version lacks a rate or simulado.
     """
     # `::text` pelo mesmo motivo de `buscar_totais`. A profundidade só limita a recursão.
     consulta = text(
         "WITH RECURSIVE cadeia AS ("
-        "  SELECT id, regra_origem_id, origem, nucleo, 1 AS profundidade FROM regras"
-        "  WHERE id = :regra_id AND job_id = :job_id"
+        "  SELECT id, regra_origem_id, origem, nucleo, especificacoes, 1 AS profundidade"
+        "  FROM regras WHERE id = :regra_id AND job_id = :job_id"
         "  UNION ALL"
-        "  SELECT r.id, r.regra_origem_id, r.origem, r.nucleo, c.profundidade + 1"
+        "  SELECT r.id, r.regra_origem_id, r.origem, r.nucleo, r.especificacoes,"
+        "  c.profundidade + 1"
         "  FROM regras r JOIN cadeia c ON r.id = c.regra_origem_id"
         "  WHERE c.origem = 'sugestao_adaptacao' AND r.job_id = :job_id"
         "  AND c.profundidade <= :limite"
         ")"
-        " SELECT c.nucleo::text AS nucleo, rs.totais::text AS totais FROM cadeia c"
+        " SELECT c.nucleo::text AS nucleo, c.especificacoes::text AS especificacoes,"
+        " rs.totais::text AS totais FROM cadeia c"
         " JOIN codigos_gerados cg ON cg.regra_id = c.id AND cg.job_id = :job_id"
         " JOIN resultados_simulacao rs ON rs.codigo_gerado_id = cg.id AND rs.job_id = :job_id"
         " WHERE rs.status = 'sucesso' AND rs.proposito = 'simulacao'"
@@ -127,12 +130,17 @@ async def buscar_taxas_simuladas(
     taxas: list[TaxaSimulada] = []
     for linha in linhas:
         nucleo = _objeto(linha["nucleo"])
+        especificacoes = _objeto(linha["especificacoes"])
         totais = _objeto(linha["totais"])
-        percentual = _decimal(nucleo.get("percentual")) if isinstance(nucleo, dict) else None
+        referencia = (
+            taxa_de_referencia({"nucleo": nucleo, "especificacoes": especificacoes})
+            if isinstance(nucleo, dict) and isinstance(especificacoes, list)
+            else None
+        )
         simulado = _decimal(totais.get("simulado")) if isinstance(totais, dict) else None
-        if percentual is None or simulado is None:
-            raise ResultadoIndisponivelError("Simulated version is missing percentual/simulado")
-        taxas.append(TaxaSimulada(percentual, simulado))
+        if referencia is None or simulado is None:
+            raise ResultadoIndisponivelError("Simulated version is missing a rate or simulado")
+        taxas.append(TaxaSimulada(referencia, simulado))
     return taxas
 
 

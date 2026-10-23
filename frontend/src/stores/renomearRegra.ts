@@ -1,9 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { apiClient } from '@/services/api'
-import { HttpError } from '@/services/http'
-import { usarStoreRegrasRecentes } from '@/stores/regrasRecentes'
-import { usarStoreJobAtual } from '@/stores/currentJob'
+import { HttpError, mensagemDoCodigo } from '@/services/http'
 
 export const limiteDoNome = 100
 
@@ -17,6 +15,7 @@ export const usarStoreRenomearRegra = defineStore('renomear-regra', () => {
   const texto = ref('')
   const enviando = ref(false)
   const erro = ref('')
+  const nomes = ref<Record<string, string>>({})
 
   const textoAparado = computed(() => texto.value.trim())
   const tamanho = computed(() => contarCaracteres(textoAparado.value))
@@ -33,6 +32,11 @@ export const usarStoreRenomearRegra = defineStore('renomear-regra', () => {
       mensagemDeValidacao.value === '' &&
       textoAparado.value !== nomeInicial.value.trim(),
   )
+
+  // As listas já carregadas guardam o nome antigo; o nome devolvido pela api vale sobre elas.
+  function rotuloExibido(id: string, rotulo: string): string {
+    return nomes.value[id] ?? rotulo
+  }
 
   function iniciar(id: string, rotuloAtual: string): void {
     if (enviando.value) return
@@ -55,15 +59,14 @@ export const usarStoreRenomearRegra = defineStore('renomear-regra', () => {
     erro.value = ''
     try {
       const atualizado = await apiClient.renomearJob(id, { nome: texto.value })
-      usarStoreRegrasRecentes().aplicarNome(id, atualizado.nome)
-      const atual = usarStoreJobAtual()
-      if (atual.job?.id === id) atual.aplicarJob({ ...atual.job, nome: atualizado.nome })
+      if (atualizado.nome) nomes.value = { ...nomes.value, [id]: atualizado.nome }
       idEmEdicao.value = null
       return true
     } catch (falha) {
       erro.value =
         falha instanceof HttpError
-          ? falha.message
+          ? (falha.fieldErrors.length === 0 ? mensagemDoCodigo(falha.code) : undefined) ??
+            falha.message
           : 'Não foi possível renomear a regra. Tente novamente.'
       return false
     } finally {
@@ -72,8 +75,8 @@ export const usarStoreRenomearRegra = defineStore('renomear-regra', () => {
   }
 
   return {
-    idEmEdicao, texto, enviando, erro, tamanho,
+    idEmEdicao, texto, enviando, erro, tamanho, nomes,
     mensagemDeValidacao, podeConfirmar,
-    iniciar, cancelar, confirmar,
+    rotuloExibido, iniciar, cancelar, confirmar,
   }
 })

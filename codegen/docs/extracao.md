@@ -1,4 +1,4 @@
-# Extração de regra — T-203, T-278, T-206, T-207, T-205
+# Extração de regra — T-203, T-278, T-206, T-207, T-205, T-208
 
 O motor em `app/extracao/motor.py` recebe texto, competências e o modelo configurado, e retorna a representação da T-004, os diagnósticos de rebaixamento, os parâmetros da simulação (T-278) e a chamada original para auditoria. O repositório em `app/repositorio/extracoes.py` persiste esse resultado no PostgreSQL. Não há publicação nem ligação ao grafo nesta entrega; essas entradas pertencem à T-204 e o consumo pela API pertence à T-202.
 
@@ -9,6 +9,17 @@ O motor em `app/extracao/motor.py` recebe texto, competências e o modelo config
 A chamada pede JSON nativo com `response_json_schema`, sem ferramentas. O rascunho fechado contém `nucleo`, `parametros` e `elementos`, nessa ordem; cada elemento traz `construto_pretendido`, `descricao` e `trecho`. O modelo não fornece referências: o motor atribui `elem.1`, `elem.2`, etc. na ordem dos elementos, solicitada no prompt como a ordem do texto.
 
 O núcleo aceita vigência, loja, marca, cargo, percentual uniforme e `taxas_por_cargo` (pares cargo/percentual). Campos não mencionados permanecem ausentes. Códigos são strings; números são lidos como `Decimal` e permanecem números JSON, inclusive no banco. Percentual negativo e intervalo invertido não são corrigidos nesta etapa. Texto sem regra pode resultar em núcleo vazio e nenhuma especificação. A declaração universal usa lista vazia com evidência literal por dimensão; silêncio mantém o campo ausente. Cada par cargo/taxa exige trecho que comprove a associação e todos os pares precisam ser resolvidos, preservando os demais na correção. Antes de nova simulação, a validação exige meta positiva, orçamento não negativo, escopos explícitos e taxa uniforme ou taxas por cargo suficientes. Apenas a vigência admite o período do job como padrão. Cargos sem taxa proposta conservam o baseline.
+
+Antes da conferência literal, a montagem recupera a citação original quando o modelo
+alterou apenas espaços, indentação, tabs ou quebras de linha. O trecho usado na conferência
+passa a ser a sequência exata encontrada na fonte. Palavras, pontuação, sinais e números
+continuam exigindo correspondência exata; não há busca aproximada nem paráfrase como lastro.
+O texto enviado e a resposta bruta auditada permanecem intactos.
+
+Os prompts explicitam que a taxa do cargo 150 sobre as vendas mensais da própria loja
+cabe no núcleo, conforme a base de cálculo já usada pela geração. Um bônus condicionado
+permanece em um genérico completo, incluindo frases posteriores sobre frequência e limite
+de um pagamento por colaborador e competência.
 
 `parametros` traz orçamento, meta de venda e período da simulação (`orcamento`, `meta_venda`, `competencias`), nunca parte da regra (T-277): cada um, quando o texto o diz, é `{valor, trecho}` no rascunho do modelo. O motor descarta o trecho e guarda só o valor, validado contra `parametros-simulacao.schema.json` (`app/extracao/parametros.py`); o trecho não verificado continua recuperável na resposta bruta auditada em `respostas_modelo`, para a conferência de lastro da T-210. Um parâmetro não dito no texto fica fora de `parametros`; nada dito deixa `parametros` vazio (`{}`). O valor entra como o modelo o devolveu, sem faixa nem correção — orçamento negativo ou competência fora das publicadas são apontados pela validação de domínio (T-280), não aqui. Uma condição de atingimento de meta dentro da regra não é `meta_venda`: permanece em elemento.
 
@@ -22,7 +33,7 @@ O período da simulação só existe quando o texto manda simular um período ou
 
 `validar_parametros` roda no motor, ao gravar e ao ler a extração. Um valor fora do contrato vira `ValueError` sem o valor, nem na mensagem nem na cadeia da exceção: fora do motor não há supressão, e a exceção do `jsonschema` traz o valor reprovado, que é o que o texto do usuário disse.
 
-O registro explícito de construtos tipados (`app/extracao/registro.py`) habilita hoje `bonus_fixo`, `condicao_limiar`, `janela_datas` e `exclusao`. Não há importação de módulos a partir da resposta da LLM. Para habilitar um construto, seu módulo em `app/extracao/construtos/` fornece schema, instruções e conversor por `Construto` (`app/extracao/construto.py`), e uma linha no registro o habilita; o resultado ainda precisa passar pelo contrato compartilhado. O conversor recebe o rascunho e um `ContextoExtracao` (texto e competências do job) e pode recusar o elemento com `ElementoRebaixadoError(motivo)`, cujo motivo vira o do rebaixamento; qualquer outro `ValueError` é `campo_obrigatorio_ausente`.
+O registro explícito de construtos tipados (`app/extracao/registro.py`) habilita hoje `bonus_fixo`, `condicao_limiar`, `janela_datas`, `exclusao` e `faixa_valor`. Não há importação de módulos a partir da resposta da LLM. Para habilitar um construto, seu módulo em `app/extracao/construtos/` fornece schema, instruções e conversor por `Construto` (`app/extracao/construto.py`), e uma linha no registro o habilita; o resultado ainda precisa passar pelo contrato compartilhado. O conversor recebe o rascunho e um `ContextoExtracao` (texto e competências do job) e pode recusar o elemento com `ElementoRebaixadoError(motivo)`, cujo motivo vira o do rebaixamento; qualquer outro `ValueError` é `campo_obrigatorio_ausente`.
 
 Habilitar o primeiro construto transforma `elementos.items` em um `anyOf`, e com isso o modelo `gemini-3.1-flash-lite` passou a copiar as competências publicadas para `nucleo.vigencia`, a pôr o período a simular na vigência e a descartar o que o núcleo não comporta, em vez de criar o genérico. As descrições do schema de `vigencia`, `competencias` e da variante genérica corrigem isso, e os casos do corpus que cobrem esses comportamentos ficam como a prova. Ao habilitar o próximo construto, rode o corpus inteiro contra o modelo real.
 
@@ -112,3 +123,13 @@ O rascunho traz `data_inicial`, `data_final` e `efeito`. As datas saem de `resol
 Sem algarismos, o efeito percentual exige um número por extenso ligado a `%` ou "por cento", como "dois e meio por cento". Uma frase vaga como "uma fração da comissão" não informa proporção e rebaixa com `valor_sem_lastro`. A unidade monetária é conferida na fonte ao redor do número, inclusive quando o recorte do valor omite `R$`, "real", "reais" ou "centavos". A conferência é por ocorrência: um valor monetário separado no mesmo trecho não invalida uma fração com lastro próprio.
 
 `bonus_fixo` sai em reais e rejeita um trecho com percentual. `acrescimo_base` não está no vocabulário do rascunho, então um efeito que só caberia nele rebaixa o elemento (`campo_obrigatorio_ausente`). `bonus_fixo` usa o mesmo `valor_monetario`.
+
+### `faixa_valor` (T-208)
+
+Cada faixa é um elemento, na ordem do texto, com `limite_inferior`, `limite_superior` e `efeito` (o normalizador de `efeito.py`). Os limites saem como ditos: a lacuna entre 50.000 e 50.001 não é preenchida. `limite_inferior` e `limite_superior` têm lastro numérico como qualquer número de construto.
+
+A faixa aberta ("acima de R$ 60.001") é declarada com `faixa_aberta`, sem `limite_superior`, e o conversor usa `LIMITE_SUPERIOR_ABERTO` (R$ 1 bilhão, acima de qualquer total do dataset; o maior mês vende R$ 18,68 milhões). Uma faixa aberta exige no trecho uma palavra de abertura ("acima", "a partir de", "mais de"); sem ela, rebaixa com `campo_obrigatorio_ausente`. Um limiar único com efeito próprio ("acima de R$ 40 mil, bônus de R$ 3.500") é uma faixa aberta; a condição sem efeito próprio fica para `condicao_limiar`.
+
+Uma condição além do total vendido (`desde que`, `condicionado`, meta, cota, atingimento, ticket, quantidade) ou uma exceção (`exceto`, `salvo`) no trecho da faixa rebaixa o elemento com `termo_ambiguo`: o genérico guarda o trecho completo, para que a faixa não vire um pagamento incondicional (mesma regra do `bonus_fixo`). `se`, `caso` e `quando` não rebaixam, porque introduzem a própria faixa ("caso venda acima de R$ 40 mil"). A guarda lê só o trecho do elemento: uma condição que o modelo deixou fora dele depende da instrução do construto, que manda manter condição e faixa juntas.
+
+"Venda individual" é o total mensal do colaborador. O contrato não tem escopo de agregação em `faixa_valor`, então uma faixa sobre a venda total de loja ou de marca, ou sobre outra métrica, é `generico`. Para não perder o escopo e os limites, o elemento genérico aceita `campos` (pares livres, já previstos no contrato): `campos_com_lastro` mantém só o par cuja chave é um identificador simples e cujo valor aparece no trecho do elemento. Sem lastro no trecho, o genérico fica só com a descrição. Os `campos` que um conversor devolve ao rebaixar (como a `dimensao` e os `valores` da `exclusao`) já foram resolvidos e têm prioridade: os pares livres do modelo só entram quando o conversor não trouxe nenhum.

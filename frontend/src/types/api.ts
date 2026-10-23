@@ -158,6 +158,15 @@ export interface RegraVersionada {
   criada_em: string
 }
 
+export interface SimulacaoAnterior {
+  resultado_id: string
+  criado_em: string
+  status: StatusResultado
+  veredito?: Veredito
+  meta_venda?: number
+  resultado: ResultadoSimulacao
+}
+
 export interface Simulacao {
   id: string
   regra_id?: string
@@ -166,6 +175,8 @@ export interface Simulacao {
   flag_baixa_rastreabilidade: boolean
   veredito?: Veredito | null
   meta_venda?: number
+  meta_sugerida_aceita_em?: string
+  anterior_a_meta_sugerida?: SimulacaoAnterior
   resultado?: ResultadoSimulacao | null
 }
 

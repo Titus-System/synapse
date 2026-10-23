@@ -18,6 +18,10 @@ const mensagensPorCodigo: Record<CodigoErro, string> = {
   audio_muito_grande: 'A gravação ficou grande demais. Grave um áudio mais curto.',
 }
 
+export function mensagemDoCodigo(codigo: CodigoErro | undefined): string | undefined {
+  return codigo === undefined ? undefined : mensagensPorCodigo[codigo]
+}
+
 const nomesDeCampo: Record<string, string> = {
   'nucleo.vigencia': 'Vigência',
   'nucleo.vigencia.inicio': 'Início da vigência',
@@ -99,12 +103,7 @@ async function criarErro(response: Response): Promise<HttpError> {
   const fieldErrors = apiError?.elementos?.map(nomearCampo) ?? []
 
   if (response.status === 400 || response.status === 422) {
-    const mensagem =
-      fieldErrors.length === 0 && apiError
-        ? (mensagensPorCodigo[apiError.codigo] ?? mensagemValidacao(fieldErrors))
-        : mensagemValidacao(fieldErrors)
-
-    return new HttpError(response.status, mensagem, {
+    return new HttpError(response.status, mensagemValidacao(fieldErrors), {
       code: apiError?.codigo,
       fieldErrors,
     })

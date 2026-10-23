@@ -102,6 +102,14 @@ O valor que não confere não é aplicado: o campo fica como estava, e a operaç
 
 Cada operação passa antes pela validação de `trecho_literal(texto_correcao, operacao["trecho"])`. Trecho inexistente, vazio ou não presente no texto corrente produz `DiagnosticoOperacao(indice, "operacao_sem_trecho")`, sem aplicar qualquer mutação. Isso abrange todas as seis operações, inclusive remoções e filtros vazios. O trecho é necessário, mas não substitui a conferência individual dos valores.
 
+Antes dessa validação, uma cópia do envelope recupera citações cujas únicas diferenças
+sejam espaços, tabs, indentação ou quebras de linha, usando o trecho exato do texto corrente.
+Nenhuma palavra, pontuação ou número é corrigido. O envelope recebido e a resposta bruta
+continuam intactos. A mesma recuperação se aplica à extração inicial e à reexecução de uma
+resposta gravada. O prompt orienta taxas por cargo para `definir_taxa_cargo`, inclusive na
+pendência `percentual ausente`; genéricos integralmente repetidos e transferidos para o núcleo
+são removidos para evitar comissão duplicada, preservando os demais elementos e condições.
+
 Na substituição, os números da descrição podem vir do trecho literal da correção **ou da descrição do próprio elemento atual**. Assim, corrigir apenas o bônus de R$ 500 para R$ 600 não exige repetir a condição de venda acima de R$ 10.000. A descrição candidata deve representar o elemento inteiro após a mudança. A comparação de números da paráfrase mantém o mecanismo lexical da T-210 (`numeros_citados`), sem conversão nova de números por extenso.
 
 Campos numéricos de um construto habilitado podem conservar o valor do mesmo campo no mesmo construto do elemento atual. Qualquer alteração desse valor exige `conferir_numero` contra o trecho na correção corrente. Não se concatenam histórico, outros elementos ou a regra inteira ao texto usado para conferir citações. O trecho da operação e o trecho do elemento continuam exigindo presença literal no texto corrente.

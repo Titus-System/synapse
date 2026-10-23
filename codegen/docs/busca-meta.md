@@ -4,7 +4,7 @@
 
 ## Elegibilidade e algoritmo
 
-O `decision` abre uma busca por versão quando a flag está ligada, a simulação normal terminou com sucesso e veredito viável, a representação não tem especificações e a comissão persistida é estritamente menor que o orçamento do job. A checagem confirma código, regra, propósito e orçamento do resultado. Sem meta, usa `vendas_historicas`; resultados legados sem esse total não abrem uma busca sem ponto de partida. Alternativas de taxa têm o mesmo direito à busca que as versões originais. A candidata aceita não volta ao `decision`, nem começa outro ciclo.
+O `decision` abre uma busca por versão quando a flag está ligada, a simulação normal terminou com sucesso e veredito viável e a comissão persistida é estritamente menor que o orçamento do job, qualquer que seja a estrutura da regra. Cada candidata executa o mesmo código, com todos os elementos da regra. A checagem confirma código, regra, propósito e orçamento do resultado. Sem meta, usa `vendas_historicas`; resultados legados sem esse total não abrem uma busca sem ponto de partida. Alternativas de taxa têm o mesmo direito à busca que as versões originais. A candidata aceita não volta ao `decision`, nem começa outro ciclo.
 
 `LIMITE_CANDIDATOS = 12` usa o teto de 60 segundos do sandbox como referência: até 720 segundos de execução de candidatas, além de baseline, fila, gravação e transporte. O caso de referência documentado pelo worker executa em cerca de 1,2 segundo; o teto limita trabalho, não promete latência. O consumidor assenta cada mensagem quando o grafo pausa: não espera as doze execuções dentro de uma única entrega RabbitMQ.
 

@@ -47,7 +47,11 @@ export const apiClient = {
   },
 
   executarAcao(id: string, requisicao: ExecutarAcaoRequisicao, signal?: AbortSignal) {
-    return http.post<Job, ExecutarAcaoRequisicao>(`${jobPath(id)}/actions`, requisicao, signal)
+    const executar = () =>
+      http.post<Job, ExecutarAcaoRequisicao>(`${jobPath(id)}/actions`, requisicao, signal)
+    return requisicao.acao === 'aceitar_meta'
+      ? observarConsulta('aceitar_meta', id, executar, signal)
+      : executar()
   },
 
   renomearJob(id: string, requisicao: RenomearJobRequisicao, signal?: AbortSignal) {

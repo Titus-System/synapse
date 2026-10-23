@@ -1157,6 +1157,7 @@ async def test_a_falha_de_cobertura_vai_ao_log_com_o_job_e_as_referencias_sem_co
         "desfecho": "erro_codigo",
         "com_meta_venda": False,
         "proposito": "simulacao",
+        "conferencia": "coerente",
         "codigo_saida": 0,
         "elementos_ausentes": ["elem.2"],
         "quantidade_fora_da_regra": 1,
@@ -1442,6 +1443,7 @@ async def test_comando_sem_orcamento_vai_ao_log_e_a_metrica_como_execucao_normal
         "desfecho": "sem_orcamento",
         "com_meta_venda": False,
         "proposito": "simulacao",
+        "conferencia": "coerente",
         "codigo_saida": 0,
     }
     mensagens_registradas = [linha["message"] for linha in linhas]
@@ -1525,9 +1527,9 @@ class BasesQueRegistram:
     def __init__(self) -> None:
         self._bases = carregar_bases()
 
-    def baseline_na_meta(self, competencias: list[str], meta_venda: float) -> Any:
+    def linhas_na_meta(self, competencias: list[str], meta_venda: float) -> Any:
         DIARIO.append("reapurar")
-        return self._bases.baseline_na_meta(competencias, meta_venda)
+        return self._bases.linhas_na_meta(competencias, meta_venda)
 
     def vendas_historicas(self, competencias: list[str]) -> Any:
         return self._bases.vendas_historicas(competencias)
@@ -1824,16 +1826,27 @@ async def test_envelope_medido_no_consumidor_e_exposto_em_metrics(
     assert all(erros_do_log(r) == [] for r in registros)
     gravacao = next(r for r in registros if r["message"] == "resultado gravado")
     assert gravacao["job_id"] == json.loads(mensagem.body)["job_id"]
-    assert gravacao["extra"]["status"] == status
-    assert gravacao["extra"]["competencias_detalhadas"] == (1 if status == "sucesso" else 0)
-    assert gravacao["extra"]["linhas_detalhadas"] == (1 if status == "sucesso" else 0)
-    assert "MATRIC-1" not in json.dumps(registros)
     linhas = json.loads(respostas[0].stdout)["linhas"]
+    assert gravacao["extra"]["status"] == status
+    assert gravacao["extra"]["competencias_detalhadas"] == len(linhas or {})
+    assert gravacao["extra"]["linhas_detalhadas"] == sum(
+        len(mes) for mes in (linhas or {}).values()
+    )
+    assert "MATRIC-1" not in json.dumps(registros)
+    gravadas = banco.gravados[0]["linhas"]
     if status == "sucesso":
+        assert gravacao["extra"]["linhas_detalhadas"] > 1
         # O worker acrescenta o total vendido das próprias bases (T-282): no dataset canônico,
-        # MATRIC-1 vendeu R$ 20.970,00 em 2025-08.
-        linhas["2025-08"]["MATRIC-1"]["vendas"] = 20970.0
-    assert banco.gravados[0]["linhas"] == linhas
+        # MATRIC-1 vendeu R$ 20.970,00 em 2025-08. O resto de cada linha é o do container.
+        assert gravadas["2025-08"]["MATRIC-1"]["vendas"] == 20970.0
+        gravadas = {
+            competencia: {
+                matricula: {campo: valor for campo, valor in linha.items() if campo != "vendas"}
+                for matricula, linha in mes.items()
+            }
+            for competencia, mes in gravadas.items()
+        }
+    assert gravadas == linhas
     assert "linhas" not in json.loads(broker.exchange.publicadas[0].body)
 
     # A republicação não executa o sandbox e não observa novamente o envelope.
@@ -1984,3 +1997,109 @@ async def test_a_classificacao_do_envelope_nao_bloqueia_o_event_loop(
     julgada = next(r for r in registros if r["message"] == "execução julgada")
     assert julgada["job_id"] == json.loads(mensagem.body)["job_id"]
     assert all(erros_do_log(r) == [] for r in registros)
+
+
+# ---- a conferência do detalhamento e das quebras (T-262), pelo caminho do consumidor ----
+
+METRICA_CONFERENCIA = "job_resultado_conferencia_total"
+
+
+def _com_linha_do_baseline_adulterada(payload: PayloadContainer) -> SaidaBruta:
+    """Um centavo a mais no baseline de uma linha: o total do baseline continua o do worker."""
+    linhas = linhas_para(payload.competencias)
+    mes = linhas[payload.competencias[0]]
+    linha = mes[next(iter(mes))]
+    linha["comissao_baseline"] = float(Decimal(str(linha["comissao_baseline"])) + Decimal("0.01"))
+    return saida_para(payload, linhas=linhas)
+
+
+def _com_quebra_adulterada(payload: PayloadContainer) -> SaidaBruta:
+    resultado = resultado_para(payload.competencias)
+    loja = resultado["decomposicao"]["loja"]
+    chave = next(iter(loja))
+    loja[chave] = float(Decimal(str(loja[chave])) + Decimal("0.01"))
+    return saida_para(payload, resultado=resultado)
+
+
+@pytest.mark.parametrize(
+    ("resposta", "motivo", "verificacao"),
+    [
+        (_com_linha_do_baseline_adulterada, "baseline_divergente", "baseline"),
+        (_com_quebra_adulterada, "resultado_incoerente", "quebras"),
+    ],
+    ids=["baseline_divergente", "resultado_incoerente"],
+)
+async def test_resultado_recusado_na_conferencia_grava_a_causa_e_o_log_leva_a_verificacao(
+    resposta: Callable[[PayloadContainer], SaidaBruta],
+    motivo: str,
+    verificacao: str,
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    """A recusa é gravada como `erro_codigo`, sem linhas e sem veredito, com a causa no
+    diagnóstico. O log leva o motivo e a verificação, com o job, e nenhuma matrícula."""
+    sandbox.resposta = resposta
+    job_id = uuid4()
+    corpo = _corpo_comando(job_id=str(job_id))
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=corpo)], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    (linha,) = banco.gravados
+    assert (linha["status"], linha["veredito"], linha["linhas"]) == ("erro_codigo", None, None)
+    assert linha["diagnostico"] == {"causa": motivo}
+    assert erros_do_dominio("resultado-diagnostico", linha["diagnostico"]) == []
+    registros = linhas_de_log()
+    (julgada,) = [r for r in registros if r["message"] == "execução julgada"]
+    assert erros_do_log(julgada) == []
+    assert julgada["job_id"] == str(job_id)
+    extra = julgada["extra"]
+    assert (extra["motivo"], extra["conferencia"], extra["verificacao"]) == (
+        motivo,
+        motivo,
+        verificacao,
+    )
+    assert "MATRIC-" not in json.dumps(registros)
+
+
+async def test_a_conferencia_conta_cada_desfecho_em_metrics_e_a_reentrega_nao_conta(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    client: AsyncClient,
+) -> None:
+    """Um resultado aceito e um recusado de cada motivo contam uma vez cada. A reentrega que
+    encontra o resultado gravado só republica, e o desfecho que não é sucesso não é conferido."""
+    resultados = ("coerente", "baseline_divergente", "resultado_incoerente")
+    texto = (await client.get("/metrics")).text
+    antes = {r: _amostra_em_metrics(texto, METRICA_CONFERENCIA, resultado=r) for r in resultados}
+
+    for resposta in (saida_para, _com_linha_do_baseline_adulterada, _com_quebra_adulterada):
+        sandbox.resposta = resposta
+        broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=_corpo_comando())], _codigo())
+        await consumir_fila_execucao(broker)
+    sandbox.resposta = lambda p: saida_para(p, "erro_codigo")
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=_corpo_comando())], _codigo())
+    await consumir_fila_execucao(broker)
+    # Se a reentrega executasse, este sucesso seria conferido e contaria como coerente.
+    sandbox.resposta = saida_para
+    executadas = len(sandbox.payloads)
+    banco.existente = banco.retornados[0]
+    reentrega = MensagemFalsa(body=_corpo_comando())
+    broker, _ = _preparar(monkeypatch, [reentrega], _codigo())
+    await consumir_fila_execucao(broker)
+
+    assert len(sandbox.payloads) == executadas
+    resposta_metrics = await client.get("/metrics")
+    assert resposta_metrics.status_code == 200
+    depois = {
+        r: _amostra_em_metrics(resposta_metrics.text, METRICA_CONFERENCIA, resultado=r)
+        for r in resultados
+    }
+    assert {r: depois[r] - antes[r] for r in resultados} == {
+        "coerente": 1,
+        "baseline_divergente": 1,
+        "resultado_incoerente": 1,
+    }

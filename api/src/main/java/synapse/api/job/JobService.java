@@ -134,17 +134,26 @@ class JobService {
 	 */
 	@Transactional(readOnly = true)
 	DetalhamentoSimulacaoDto detalharSimulacao(UUID jobId, UUID simulacaoId) {
+		return detalharSimulacao(jobId, simulacaoId, null);
+	}
+
+	@Transactional(readOnly = true)
+	DetalhamentoSimulacaoDto detalharSimulacao(UUID jobId, UUID simulacaoId, @Nullable UUID resultadoAnteriorId) {
 		try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
-			List<DetalhamentoSimulacaoDto> encontrados = this.repository.buscarDetalhamento(jobId, simulacaoId);
+			List<DetalhamentoSimulacaoDto> encontrados = resultadoAnteriorId == null
+					? this.repository.buscarDetalhamento(jobId, simulacaoId)
+					: this.repository.buscarDetalhamentoAnterior(jobId, simulacaoId, resultadoAnteriorId);
 			if (encontrados.isEmpty()) {
 				log.atWarn()
 					.addKeyValue("simulacao_id", simulacaoId)
+					.addKeyValue("resultado_anterior", resultadoAnteriorId != null)
 					.log("detalhamento recusado: simulação não encontrada no job");
 				throw new SimulacaoNaoEncontradaException(simulacaoId);
 			}
 			DetalhamentoSimulacaoDto detalhamento = encontrados.getFirst();
 			log.atDebug()
 				.addKeyValue("simulacao_id", simulacaoId)
+				.addKeyValue("resultado_anterior", resultadoAnteriorId != null)
 				.addKeyValue("com_detalhamento", detalhamento.linhas() != null)
 				.log("detalhamento da simulação consultado");
 			return detalhamento;
@@ -180,6 +189,9 @@ class JobService {
 	 */
 	private @Nullable String motivo(UUID jobId, JobStatus status, @Nullable String motivoDaTrilha) {
 		String razao = MotivoDaParada.razaoLocalizada(status, motivoDaTrilha);
+		if (status == JobStatus.SIMULACAO_INVIAVEL && MotivoDaParada.SEM_ALTERNATIVA.equals(motivoDaTrilha)) {
+			razao = MotivoDaParada.semAlternativa(this.repository.buscarComissaoDasLojasForaDaRegra(jobId));
+		}
 		if (razao == null && (status == JobStatus.ERRO || status == JobStatus.SIMULACAO_INVIAVEL)) {
 			try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
 				log.atWarn()

@@ -6,15 +6,18 @@ import { jobFixture, regraFixture } from '@/services/job.fixtures'
 import type { JobResumo } from '@/types/api'
 import HistoricoJobsView from './HistoricoJobsView.vue'
 
-const { rota, roteador } = vi.hoisted(() => ({
+const { listarTodosOsJobs, rota, roteador } = vi.hoisted(() => ({
+  listarTodosOsJobs: vi.fn<() => Promise<JobResumo[]>>(),
   rota: { name: 'regras-salvas' },
   roteador: { push: vi.fn<(destino: unknown) => Promise<void>>() },
 }))
 
+vi.mock('../services/historicoJobs.api', () => ({ listarTodosOsJobs }))
+
 vi.mock('@/services/api', () => ({
   apiClient: {
     consultarJob: vi.fn<typeof apiClient.consultarJob>(),
-    listarJobs: vi.fn<typeof apiClient.listarJobs>(),
+    renomearJob: vi.fn<typeof apiClient.renomearJob>(),
   },
 }))
 
@@ -25,6 +28,7 @@ vi.mock('vue-router', () => ({
 
 beforeEach(() => {
   vi.resetAllMocks()
+  opcoesDeMontagem = criarOpcoesDeMontagem()
   rota.name = 'regras-salvas'
   vi.mocked(apiClient.consultarJob).mockImplementation(async (id) => jobFixture({ id }))
 })
@@ -35,14 +39,10 @@ function botaoDeReprocessamento(conteiner: VueWrapper) {
     .find((botao) => botao.text() === 'Reprocessar regra com novo orçamento')
 }
 
-function criarResumoDoJob(
-  numero: number,
-  status: JobResumo['status'] = 'liberado',
-  nome: string | undefined = `Regra de teste ${numero}`,
-): JobResumo {
+function criarResumoDoJob(numero: number, status: JobResumo['status'] = 'liberado'): JobResumo {
   return {
     id: `0000000${numero}-1234-4000-8000-000000000000`,
-    nome,
+    nome: `Regra de teste ${numero}`,
     status,
     competencias: ['2025-09'],
     orcamento: 485000,
@@ -51,16 +51,7 @@ function criarResumoDoJob(
   }
 }
 
-function listarComResumos(resumos: JobResumo[]) {
-  vi.mocked(apiClient.listarJobs).mockResolvedValue({
-    itens: resumos,
-    pagina: 0,
-    tamanho: 100,
-    total: resumos.length,
-  })
-}
-
-function opcoesDeMontagem() {
+function criarOpcoesDeMontagem() {
   return {
     global: {
       plugins: [createPinia()],
@@ -73,14 +64,15 @@ function opcoesDeMontagem() {
     },
   }
 }
+let opcoesDeMontagem = criarOpcoesDeMontagem()
 
 describe('HistoricoJobsView', () => {
   it('abre o formulário com a regra do job ao reprocessar com novo orçamento', async () => {
     rota.name = 'regras-arquivadas'
     const resumo = criarResumoDoJob(1, 'arquivado')
-    listarComResumos([resumo])
+    listarTodosOsJobs.mockResolvedValue([resumo])
 
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem())
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
     await flushPromises()
 
     await botaoDeReprocessamento(conteiner)?.trigger('click')
@@ -94,9 +86,9 @@ describe('HistoricoJobsView', () => {
 
   it('troca o selo de status pelo botão nas arquivadas', async () => {
     rota.name = 'regras-arquivadas'
-    listarComResumos([criarResumoDoJob(1, 'arquivado')])
+    listarTodosOsJobs.mockResolvedValue([criarResumoDoJob(1, 'arquivado')])
 
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem())
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
     await flushPromises()
 
     const cartao = conteiner.get('article')
@@ -105,10 +97,51 @@ describe('HistoricoJobsView', () => {
     conteiner.unmount()
   })
 
-  it('não oferece o reprocessamento nas regras salvas', async () => {
-    listarComResumos([criarResumoDoJob(1)])
+  it.each([
+    ['regras-salvas', 'liberado'],
+    ['regras-arquivadas', 'arquivado'],
+  ] as const)('oferece o botão Editar no cartão em %s', async (nomeDaRota, status) => {
+    rota.name = nomeDaRota
+    listarTodosOsJobs.mockResolvedValue([criarResumoDoJob(1, status)])
 
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem())
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
+    await flushPromises()
+
+    const botao = conteiner.get('article button[aria-label^="Editar o nome da regra"]')
+    expect(botao.text()).toBe('Editar')
+    conteiner.unmount()
+  })
+
+  it('renomeia pelo cartão e atualiza o cartão e a barra lateral sem recarregar a lista', async () => {
+    const resumo = criarResumoDoJob(1)
+    listarTodosOsJobs.mockResolvedValue([resumo])
+    vi.mocked(apiClient.renomearJob).mockResolvedValue({
+      ...jobFixture({ id: resumo.id }),
+      nome: 'Comissão de dezembro',
+    })
+
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
+    await flushPromises()
+    await conteiner.get('article button[aria-label^="Editar o nome da regra"]').trigger('click')
+    const campo = conteiner.get('article input')
+    await campo.setValue('  Comissão de dezembro ')
+    await campo.trigger('keydown.enter')
+    await flushPromises()
+
+    expect(apiClient.renomearJob).toHaveBeenCalledWith(resumo.id, {
+      nome: '  Comissão de dezembro ',
+    })
+    expect(listarTodosOsJobs).toHaveBeenCalledTimes(1)
+    expect(conteiner.get('article h2').text()).toBe('Comissão de dezembro')
+    expect(conteiner.get('aside').text()).toContain('Comissão de dezembro')
+    expect(conteiner.get('aside').text()).not.toContain('Regra de teste 1')
+    conteiner.unmount()
+  })
+
+  it('não oferece o reprocessamento nas regras salvas', async () => {
+    listarTodosOsJobs.mockResolvedValue([criarResumoDoJob(1)])
+
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
     await flushPromises()
 
     expect(conteiner.get('article').text()).toContain('Regra de teste 1')
@@ -117,31 +150,7 @@ describe('HistoricoJobsView', () => {
     conteiner.unmount()
   })
 
-  it('mostra o nome no cartão e na barra lateral quando o job tem nome', async () => {
-    listarComResumos([criarResumoDoJob(1, 'liberado', 'Comissão de novembro')])
-
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem())
-    await flushPromises()
-
-    expect(conteiner.get('article h2').text()).toBe('Comissão de novembro')
-    expect(conteiner.get('aside').text()).toContain('Comissão de novembro')
-    conteiner.unmount()
-  })
-
-  it('mostra o rótulo com a data no cartão e na barra lateral quando o job não tem nome', async () => {
-    const resumo = { ...criarResumoDoJob(1), nome: undefined }
-    listarComResumos([resumo])
-    const rotulo = `Regra · ${new Date(resumo.criado_em).toLocaleDateString('pt-BR')}`
-
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem())
-    await flushPromises()
-
-    expect(conteiner.get('article h2').text()).toBe(rotulo)
-    expect(conteiner.get('aside').text()).toContain(rotulo)
-    conteiner.unmount()
-  })
-
-    it.each([
+  it.each([
     ['regras-salvas', 'liberado'],
     ['regras-arquivadas', 'arquivado'],
   ] as const)(
@@ -161,12 +170,12 @@ describe('HistoricoJobsView', () => {
           valor: 250,
         },
       ]
-      listarComResumos([resumo])
+      listarTodosOsJobs.mockResolvedValue([resumo])
       vi.mocked(apiClient.consultarJob).mockResolvedValue(
         jobFixture({ ...resumo, regras: [anterior, recente] }),
       )
 
-      const conteiner = mount(HistoricoJobsView, opcoesDeMontagem())
+      const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
       await flushPromises()
 
       const cartao = conteiner.get('article')
@@ -185,10 +194,10 @@ describe('HistoricoJobsView', () => {
 
   it('mantém o cartão e o acesso ao relatório quando o job ainda não possui regras', async () => {
     const resumo = criarResumoDoJob(1)
-    listarComResumos([resumo])
+    listarTodosOsJobs.mockResolvedValue([resumo])
     vi.mocked(apiClient.consultarJob).mockResolvedValue(jobFixture({ ...resumo, regras: [] }))
 
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem())
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
     await flushPromises()
 
     const cartao = conteiner.get('article')
@@ -199,18 +208,18 @@ describe('HistoricoJobsView', () => {
   })
 
   it('exibe apenas as regras salvas, com os contadores reais da sidebar', async () => {
-    listarComResumos([
+    listarTodosOsJobs.mockResolvedValue([
       criarResumoDoJob(1),
       criarResumoDoJob(2),
       criarResumoDoJob(3, 'arquivado'),
     ])
 
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem())
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
 
     await vi.waitFor(() => {
       expect(conteiner.get('.tela-de-negocio').classes()).toContain('tela-de-negocio')
       expect(conteiner.text()).toContain('Salvas')
-      expect(conteiner.text()).toContain('Regra de teste 1')
+      expect(conteiner.get('main').text()).toContain('Regra de teste 1')
       expect(conteiner.get('main').text()).not.toContain('Regra de teste 3')
       expect(conteiner.text()).toContain('Salvas2')
       expect(conteiner.text()).toContain('Arquivadas1')
@@ -218,12 +227,14 @@ describe('HistoricoJobsView', () => {
   })
 
   it('pagina a lista quando há mais de seis regras', async () => {
-    listarComResumos(Array.from({ length: 7 }, (_, indice) => criarResumoDoJob(indice + 1)))
+    listarTodosOsJobs.mockResolvedValue(
+      Array.from({ length: 7 }, (_, indice) => criarResumoDoJob(indice + 1)),
+    )
 
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem())
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
 
     await vi.waitFor(() => expect(conteiner.text()).toContain('Página 1 de 2'))
-    expect(conteiner.get('main').text()).not.toContain('Regra de teste 7')
+    expect(conteiner.text()).not.toContain('Regra de teste 7')
 
     const botaoProxima = conteiner.findAll('button').find((botao) => botao.text() === 'Próxima')
     expect(botaoProxima).toBeDefined()
@@ -234,9 +245,9 @@ describe('HistoricoJobsView', () => {
   })
 
   it('mantém a busca e o filtro desabilitados enquanto a API não os suporta', async () => {
-    listarComResumos([])
+    listarTodosOsJobs.mockResolvedValue([])
 
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem())
+    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
 
     await vi.waitFor(() => expect(conteiner.find('input[type="search"]').exists()).toBe(true))
 

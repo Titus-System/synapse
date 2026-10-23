@@ -58,6 +58,22 @@ def trecho_literal(texto: str, trecho: object) -> bool:
     return isinstance(trecho, str) and bool(trecho.strip()) and trecho in texto
 
 
+def restaurar_trechos_literais(valor: object, texto: str) -> None:
+    """Recupera a citação original quando só seus espaços foram alterados pelo modelo."""
+    if isinstance(valor, dict):
+        trecho = valor.get("trecho")
+        if isinstance(trecho, str) and trecho.split() and not trecho_literal(texto, trecho):
+            padrao = r"\s+".join(re.escape(parte) for parte in trecho.split())
+            encontrado = re.search(padrao, texto)
+            if encontrado is not None:
+                valor["trecho"] = encontrado.group()
+        for item in valor.values():
+            restaurar_trechos_literais(item, texto)
+    elif isinstance(valor, list):
+        for item in valor:
+            restaurar_trechos_literais(item, texto)
+
+
 def numeros_citados(texto: str) -> set[str]:
     return {ocorrencia.group() for ocorrencia in _NUMERO.finditer(texto)}
 
@@ -260,3 +276,28 @@ def conferir_data(
     if datas is None:
         return False, False
     return len(datas) == 1 and valor == datas[0], True
+
+
+_CHAVE_DE_CAMPO = re.compile(r"[a-z][a-z0-9_]{0,39}")
+
+
+def campos_com_lastro(campos: object, trecho: str) -> dict[str, str | int | Decimal]:
+    """Mantém só os pares de `campos` cujo valor aparece no trecho do elemento."""
+    if not isinstance(campos, dict):
+        return {}
+    aprovados: dict[str, str | int | Decimal] = {}
+    for chave, valor in campos.items():
+        if not isinstance(chave, str) or not _CHAVE_DE_CAMPO.fullmatch(chave):
+            continue
+        if isinstance(valor, str):
+            confere = bool(normalizar(valor)) and normalizar(valor) in normalizar(trecho)
+        elif isinstance(valor, int | Decimal) and not isinstance(valor, bool):
+            confere = any(
+                conferir_numero(trecho, trecho, valor, percentual=percentual)
+                for percentual in (False, True)
+            )
+        else:
+            confere = False
+        if confere:
+            aprovados[chave] = valor
+    return aprovados

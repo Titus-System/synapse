@@ -702,6 +702,7 @@ class SimulacaoConcluidaConsumidorTests {
 			publicar(jobId, vigente, "sucesso", "viavel");
 			cliente.aguardarBloco("event:resultado", Duration.ofSeconds(10));
 			JsonNode original = ClienteDoJob.consultar(porta, jobId);
+			assertThat(original.path("simulacao").has("meta_sugerida_aceita_em")).isFalse();
 			assertThat(original.path("simulacao").has("meta_venda")).isEqualTo(comMetaVenda);
 			if (comMetaVenda) {
 				assertThat(original.path("simulacao").path("meta_venda").asInt()).isEqualTo(1000);
@@ -737,6 +738,7 @@ class SimulacaoConcluidaConsumidorTests {
 			assertThat(resultadoIdDaSimulacao(simulacao.id())).isEqualTo(vigente);
 			assertThat(acoesRegistradas(jobId)).isEmpty();
 			assertThat(ClienteDoJob.consultar(porta, jobId).has("meta_sugerida")).isTrue();
+			assertThat(ClienteDoJob.consultar(porta, jobId).path("simulacao").has("meta_sugerida_aceita_em")).isFalse();
 			var primeira = java.util.concurrent.CompletableFuture.supplyAsync(() -> aceitarMetaConcorrentemente(jobId));
 			var segunda = java.util.concurrent.CompletableFuture.supplyAsync(() -> aceitarMetaConcorrentemente(jobId));
 			List<HttpResponse<String>> respostas = List.of(primeira.join(), segunda.join());
@@ -753,6 +755,15 @@ class SimulacaoConcluidaConsumidorTests {
 			assertThat(aceito.path("simulacoes").size()).isEqualTo(1);
 			assertThat(aceito.path("simulacao").path("id").asString()).isEqualTo(simulacao.id().toString());
 			assertThat(aceito.path("simulacao").path("meta_venda").asInt()).isEqualTo(2000);
+			JsonNode anterior = aceito.path("simulacao").path("anterior_a_meta_sugerida");
+			assertThat(anterior.path("resultado_id").asString()).isEqualTo(vigente.toString());
+			assertThat(anterior.has("meta_venda")).isEqualTo(comMetaVenda);
+			if (comMetaVenda)
+				assertThat(anterior.path("meta_venda").asInt()).isEqualTo(1000);
+			assertThat(anterior.path("resultado").path("totais").path("simulado").asInt()).isEqualTo(20);
+			String aceitaEm = aceito.path("simulacao").path("meta_sugerida_aceita_em").asString();
+			assertThat(java.time.Instant.parse(aceitaEm)).isNotNull();
+			assertThat(aceito.path("simulacoes").get(0).path("meta_sugerida_aceita_em").asString()).isEqualTo(aceitaEm);
 			assertThat(aceito.path("simulacao").path("resultado").path("totais").path("simulado").asInt())
 				.isEqualTo(40);
 			assertThat(aceito.has("meta_venda")).isEqualTo(comMetaVenda);
@@ -774,6 +785,14 @@ class SimulacaoConcluidaConsumidorTests {
 			assertThat(ClienteDoJob.consultar(porta, jobId).has("meta_sugerida")).isFalse();
 			assertThat(registro.get("meta.venda.sugerida.consumo").tag("resultado", "registrada").counter().count())
 				.isEqualTo(registradasAntes + 1);
+			HttpResponse<String> finalizada = executarAcao(jobId, "salvar");
+			assertThat(finalizada.statusCode()).as(finalizada.body()).isEqualTo(200);
+			JsonNode historico = ClienteDoJob.consultar(porta, jobId);
+			assertThat(historico.path("status").asString()).isEqualTo("liberado");
+			assertThat(historico.path("regras")).hasSize(1);
+			assertThat(historico.path("simulacao").path("meta_sugerida_aceita_em").asString()).isEqualTo(aceitaEm);
+			assertThat(historico.path("simulacao").path("meta_venda").asInt()).isEqualTo(2000);
+			assertThat(historico.path("simulacao").path("anterior_a_meta_sugerida")).isEqualTo(anterior);
 			for (ILoggingEvent log : captura.eventos()) {
 				String linha = CapturaDeLog.emJson(log);
 				ContratoDeEvento.validarLog(linha);
@@ -807,7 +826,6 @@ class SimulacaoConcluidaConsumidorTests {
 			.mapToDouble(linha -> Double.parseDouble(linha.substring(linha.lastIndexOf(' ') + 1)))
 			.sum();
 		assertThat(duracoesExpostas).isEqualTo(duracoesAntes + 3);
-		assertThat(executarAcao(jobId, "salvar").statusCode()).isEqualTo(200);
 	}
 
 	@ParameterizedTest

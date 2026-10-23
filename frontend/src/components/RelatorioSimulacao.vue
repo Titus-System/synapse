@@ -11,13 +11,14 @@ const props = defineProps<{
   linhas?: ResultadoLinhas
   regra?: RepresentacaoRegra
   decomposicao?: ResultadoSimulacao['decomposicao']
+  semMargens?: boolean
 }>()
 defineEmits<{ alternar: []; tentarNovamente: [] }>()
 const linhasOrdenadas = computed(() => organizarLinhas(props.linhas ?? {}))
 </script>
 
 <template>
-  <section class="mx-4 mb-8 min-w-0 text-[#584237] sm:mx-8" aria-label="Relatório da simulação">
+  <section class="mb-8 min-w-0 text-[#584237]" :class="semMargens ? '' : 'mx-4 sm:mx-8'" aria-label="Relatório da simulação">
     <button
       type="button"
       class="flex cursor-pointer items-center gap-2 text-sm text-[#9D4400] hover:underline focus-visible:outline-2 focus-visible:outline-offset-4"

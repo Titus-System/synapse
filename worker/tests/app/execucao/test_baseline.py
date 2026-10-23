@@ -23,6 +23,7 @@ from app.execucao import baseline
 from app.execucao.baseline import (
     BaselineIndisponivelError,
     CompetenciaSemBaselineError,
+    LinhaDoBaseline,
     carregar_baselines,
     ler_baselines,
     localizar,
@@ -52,6 +53,37 @@ def test_o_total_do_periodo_e_a_soma_das_competencias() -> None:
 def test_competencia_sem_baseline_e_recusada() -> None:
     with pytest.raises(CompetenciaSemBaselineError, match="2026-01"):
         carregar_baselines().total(["2025-11", "2026-01"])
+
+
+# ---- as linhas, que conferem o detalhamento do resultado (T-262) ----
+
+
+def test_as_linhas_sao_as_do_manifesto_e_somam_o_total_de_cada_competencia() -> None:
+    manifesto = json.loads((localizar() / "manifesto.json").read_text(encoding="utf-8"))
+    baselines = carregar_baselines()
+
+    for competencia, total in TOTAIS.items():
+        linhas = baselines.linhas[competencia]
+        assert len(linhas) == manifesto["baselines"][competencia]["matriculas"]
+        assert sum((linha.comissao for linha in linhas.values()), Decimal(0)) == total
+
+
+def test_a_linha_tem_os_codigos_como_texto_como_o_harness_os_le() -> None:
+    """O arquivo traz inteiro, e o detalhamento traz o código como texto (``_codigo_de``)."""
+    assert carregar_baselines().linhas["2025-08"]["MATRIC-1"] == LinhaDoBaseline(
+        cod_loja="75", cod_marca="20", cod_cargo="200", comissao=Decimal("524.25")
+    )
+
+
+def test_as_linhas_do_periodo_sao_as_das_competencias_do_job() -> None:
+    linhas = carregar_baselines().linhas_do_periodo(["2025-08", "2025-11"])
+
+    assert list(linhas) == ["2025-08", "2025-11"]
+
+
+def test_linhas_de_competencia_sem_baseline_sao_recusadas() -> None:
+    with pytest.raises(CompetenciaSemBaselineError, match="2026-01"):
+        carregar_baselines().linhas_do_periodo(["2025-11", "2026-01"])
 
 
 # ---- adulteração: cada uma derruba a carga ----
@@ -267,3 +299,15 @@ async def test_a_subida_do_worker_carrega_os_baselines_antes_de_ligar_o_consumid
             pytest.fail("o worker não pode subir sem os baselines")
 
     conectar.assert_not_awaited()
+
+
+@pytest.mark.parametrize("codigo", [True, "", 1.5, None], ids=["booleano", "vazio", "real", "nulo"])
+def test_codigo_que_nao_e_inteiro_nem_texto_derruba_a_carga(copia: Path, codigo: Any) -> None:
+    def alterar(linhas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        _primeira_matricula(linhas)["cod_loja"] = codigo
+        return linhas
+
+    _reescrever(copia, "2025-11", alterar)
+
+    with pytest.raises(BaselineIndisponivelError, match="cod_loja"):
+        ler_baselines(copia)

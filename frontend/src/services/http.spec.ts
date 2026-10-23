@@ -111,7 +111,7 @@ describe('http', () => {
     expect(init).not.toHaveProperty('body')
   })
 
-    it('usa a mensagem do código em uma 400 sem elementos', async () => {
+  it('mantém a mensagem de validação genérica em uma 400 sem elementos', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({ codigo: 'requisicao_invalida', mensagem: 'O campo nome é obrigatório.' }),
@@ -122,7 +122,7 @@ describe('http', () => {
     await expect(http.put('/jobs/job-1/nome', { nome: '' })).rejects.toMatchObject({
       status: 400,
       code: 'requisicao_invalida',
-      message: 'Não foi possível enviar os dados. Revise as informações e tente novamente.',
+      message: 'Revise os dados informados e tente novamente.',
     })
   })
   it('envia PUT com corpo JSON', async () => {

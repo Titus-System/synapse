@@ -1,18 +1,20 @@
 """Julgamento do resultado contra o baseline, a cobertura e o orçamento, fora do container
-(T-066, T-241, T-270, T-281, T-282).
+(T-066, T-241, T-262, T-270, T-281, T-282).
 
 O container produz números crus. O processo do worker, que o código gerado não alcança:
 
 1. confere o ``totais.baseline`` devolvido contra o baseline que o worker mantém, e que os
    totais fecham entre si: o congelado numa execução sobre as vendas históricas, e o que o
    próprio worker reapurou sobre as vendas escaladas numa execução na meta de venda;
-2. com isso, a diferença absoluta e a percentual do container passam a ser as do baseline do
+2. confere o detalhamento contra o mesmo baseline, linha a linha, e a coerência entre o
+   detalhamento, os totais e as quebras da decomposição (``app/execucao/conferencia.py``);
+3. com isso, a diferença absoluta e a percentual do container passam a ser as do baseline do
    worker, e seguem como vieram, sem recomposição;
-3. quando o comando trouxe ``elementos_exigidos``, confere a cobertura: todo elemento exigido
+4. quando o comando trouxe ``elementos_exigidos``, confere a cobertura: todo elemento exigido
    está declarado pelo código, e toda contribuição da decomposição é de um elemento exigido;
-4. aplica o orçamento e emite o veredito, quando o comando trouxe orçamento.
+5. aplica o orçamento e emite o veredito, quando o comando trouxe orçamento.
 
-Sem orçamento, as conferências 1 a 3 são as mesmas, e só a 4 não acontece: o resultado conferido
+Sem orçamento, as conferências 1 a 4 são as mesmas, e só a 5 não acontece: o resultado conferido
 segue sem ``totais.orcamento`` e sem veredito, porque não há critério que o julgue (T-281).
 
 Todo sucesso conferido leva ``totais.vendas_historicas``, o total de vendas das competências
@@ -37,7 +39,12 @@ from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal, NotRequired, TypedDict
 
-from app.execucao.baseline import BaselinesCongelados, CompetenciaSemBaselineError
+from app.execucao.baseline import (
+    BaselinesCongelados,
+    CompetenciaSemBaselineError,
+    LinhasDoBaseline,
+    total_das_linhas,
+)
 from app.execucao.bases import BasesDoWorker
 from app.execucao.coleta import (
     Classe,
@@ -45,11 +52,20 @@ from app.execucao.coleta import (
     Motivo,
     classificar_falha_de_infra,
 )
+from app.execucao.conferencia import (
+    Divergencia,
+    MotivoDaRecusa,
+    Verificacao,
+    conferir_detalhamento,
+)
 from app.sandbox.assercoes import Desfecho
 from app.sandbox.regras_base import CENTAVO
 from app.sandbox.resultado import Decomposicao, LinhaDetalhada, LinhasResultado, Totais
 
 type Veredito = Literal["viavel", "inviavel", "indeterminado"]
+# O que a conferência do resultado decidiu (T-066, T-262): aceito, ou recusado por um dos dois
+# motivos. Rótulo de conjunto fechado da métrica de conferências.
+type ResultadoDaConferencia = Literal["coerente", MotivoDaRecusa]
 
 
 class TotaisJulgados(TypedDict):
@@ -113,6 +129,10 @@ class Julgamento:
     linhas: LinhasJulgadas | None = field(default=None, repr=False)
     # Só quando o motivo é cobertura_incompleta.
     cobertura: CoberturaIncompleta | None = None
+    # Só quando o desfecho era sucesso e o resultado passou pela conferência: o que ela decidiu,
+    # e a verificação que falhou quando recusou.
+    conferencia: ResultadoDaConferencia | None = None
+    verificacao: Verificacao | None = None
 
     @property
     def totais(self) -> TotaisJulgados | None:
@@ -174,7 +194,7 @@ def julgar(
     *,
     elementos_exigidos: Sequence[str] | None,
     bases: BasesDoWorker,
-    baseline_na_meta: Decimal | None = None,
+    baseline_na_meta: LinhasDoBaseline | None = None,
     meta_venda: float | None = None,
 ) -> Julgamento:
     """``elementos_exigidos`` é o do comando, e None quando ele não o trouxe: aí a cobertura não
@@ -183,9 +203,10 @@ def julgar(
     ``orcamento`` None é o job sem orçamento: o sucesso sai sem veredito e sem
     ``totais.orcamento``, depois das mesmas conferências.
 
-    ``baseline_na_meta`` é o total que o worker reapurou sobre as vendas escaladas, numa
-    execução na meta de venda, e é contra ele que o baseline do container é conferido. None é a
-    execução sobre as vendas históricas, conferida contra o congelado como sempre foi.
+    ``baseline_na_meta`` é o baseline que o worker reapurou sobre as vendas escaladas, linha a
+    linha, numa execução na meta de venda, e é contra ele que o baseline do container e o
+    detalhamento são conferidos. None é a execução sobre as vendas históricas, conferida contra o
+    congelado.
 
     ``meta_venda`` é a do comando, e vem junto com ``baseline_na_meta``: com ela, o total vendido
     de cada linha é o das vendas escaladas até a meta."""
@@ -196,19 +217,24 @@ def julgar(
 
     totais = desfecho.resultado["totais"]
     if baseline_na_meta is not None:
-        esperado = baseline_na_meta
+        baseline = baseline_na_meta
+        esperado = total_das_linhas(baseline_na_meta)
     else:
         try:
+            baseline = baselines.linhas_do_periodo(competencias)
             esperado = baselines.total(competencias)
         # O harness não produz sucesso para uma competência sem baseline na imagem: se produziu,
         # a imagem tem um baseline que o worker não tem, e o número não tem com o que ser
         # conferido.
         except CompetenciaSemBaselineError:
-            return Julgamento(
-                "erro_codigo", "baseline_divergente", "indeterminado", desfecho=desfecho
-            )
+            return _recusado(desfecho, Divergencia("baseline_divergente", "baseline"))
     if not _totais_conferem(totais, esperado):
-        return Julgamento("erro_codigo", "baseline_divergente", "indeterminado", desfecho=desfecho)
+        return _recusado(desfecho, Divergencia("baseline_divergente", "baseline"))
+    # A coleta recusa o sucesso sem detalhamento (T-259); sem ele, nada confere com o baseline.
+    detalhamento = desfecho.linhas if desfecho.linhas is not None else {}
+    divergencia = conferir_detalhamento(desfecho.resultado, detalhamento, baseline)
+    if divergencia is not None:
+        return _recusado(desfecho, divergencia)
     if elementos_exigidos is not None:
         # As chaves de decomposicao.elemento são os elemento_ref de contribuicoes: o harness
         # cria uma para cada elemento a que o código atribuiu contribuição, mesmo que somem zero.
@@ -224,6 +250,7 @@ def julgar(
                 "indeterminado",
                 desfecho=desfecho,
                 cobertura=cobertura,
+                conferencia="coerente",
             )
 
     totais_julgados = TotaisJulgados(
@@ -247,7 +274,25 @@ def julgar(
     if desfecho.linhas is not None:
         linhas = _com_vendas(desfecho.linhas, bases.vendas_por_linha(competencias, meta_venda))
     return Julgamento(
-        "sucesso", "ok", veredito, resultado=resultado, desfecho=desfecho, linhas=linhas
+        "sucesso",
+        "ok",
+        veredito,
+        resultado=resultado,
+        desfecho=desfecho,
+        linhas=linhas,
+        conferencia="coerente",
+    )
+
+
+def _recusado(desfecho: DesfechoClassificado, divergencia: Divergencia) -> Julgamento:
+    """O resultado não se sustenta: ``erro_codigo``, sem veredito e sem linhas a gravar."""
+    return Julgamento(
+        "erro_codigo",
+        divergencia.motivo,
+        "indeterminado",
+        desfecho=desfecho,
+        conferencia=divergencia.motivo,
+        verificacao=divergencia.verificacao,
     )
 
 

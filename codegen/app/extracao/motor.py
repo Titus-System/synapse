@@ -17,6 +17,7 @@ from app.extracao.lastro import (
     conferir_numero,
     conferir_periodo,
     normalizar,
+    restaurar_trechos_literais,
     trecho_literal,
 )
 from app.extracao.modelos import (
@@ -45,6 +46,7 @@ def _montar(
         conteudo, use_decimal=True, allow_nan=False, object_pairs_hook=objeto_sem_duplicatas
     )
     Draft202012Validator(schema_envelope()).validate(rascunho)
+    restaurar_trechos_literais(rascunho, texto)
     elementos: list[dict[str, ValorRegra]] = []
     rebaixamentos: list[Rebaixamento] = []
     for indice, elemento in enumerate(rascunho["elementos"], 1):

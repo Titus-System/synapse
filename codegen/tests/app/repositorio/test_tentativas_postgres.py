@@ -47,23 +47,33 @@ class Historico:
         job: UUID,
         versao: int,
         origem: str,
-        percentual: str,
+        percentual: str | None,
         *,
         regra_origem: UUID | None = None,
         loja: str = "13",
+        taxas_por_cargo: dict[str, str] | None = None,
+        especificacoes: list[Any] | None = None,
     ) -> UUID:
         regra = uuid4()
-        nucleo = {"loja": [loja], "percentual": Decimal(percentual)}
+        nucleo: dict[str, Any] = {"loja": [loja]}
+        if percentual is not None:
+            nucleo["percentual"] = Decimal(percentual)
+        if taxas_por_cargo is not None:
+            nucleo["taxas_por_cargo"] = [
+                {"cargo": cargo, "percentual": Decimal(taxa)}
+                for cargo, taxa in taxas_por_cargo.items()
+            ]
         await self._dono.execute(
             "INSERT INTO regras(id, job_id, versao, origem, regra_origem_id, nucleo,"
             " especificacoes, hash, criada_em)"
-            " VALUES($1, $2, $3, $4, $5, $6::jsonb, '[]'::jsonb, $7, now())",
+            " VALUES($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, now())",
             regra,
             job,
             versao,
             origem,
             regra_origem,
             simplejson.dumps(nucleo, use_decimal=True),
+            simplejson.dumps(especificacoes or [], use_decimal=True),
             uuid4().hex * 2,
         )
         return regra
@@ -206,3 +216,43 @@ async def test_os_pares_nao_atravessam_para_outro_job(
     outro_job = await historico.job()
 
     assert await buscar_taxas_simuladas(sessoes, outro_job, segunda) == []
+
+
+async def test_os_pares_de_uma_regra_com_taxas_por_cargo_usam_a_taxa_de_referencia(
+    banco: tuple[async_sessionmaker[AsyncSession], Historico],
+) -> None:
+    """A primeira taxa positiva situa cada versão: o cargo sem comissão e o bônus ficam de fora."""
+    sessoes, historico = banco
+    job = await historico.job()
+    bonus = [
+        {
+            "ref": "elem.1",
+            "construto": "bonus_fixo",
+            "alvo": {"tipo": "filtro", "valor": {"cargo": "100"}},
+            "valor": 350,
+        }
+    ]
+    original = await historico.versao(
+        job,
+        1,
+        "extracao",
+        None,
+        taxas_por_cargo={"200": "0", "100": "0.03", "150": "0.05"},
+        especificacoes=bonus,
+    )
+    await historico.resultado(job, original, "3000")
+    sugerida = await historico.versao(
+        job,
+        2,
+        "sugestao_adaptacao",
+        None,
+        regra_origem=original,
+        taxas_por_cargo={"200": "0", "100": "0.0243", "150": "0.0405"},
+        especificacoes=bonus,
+    )
+    await historico.resultado(job, sugerida, "2600")
+
+    assert await buscar_taxas_simuladas(sessoes, job, sugerida) == [
+        TaxaSimulada(Decimal("0.0243"), Decimal("2600")),
+        TaxaSimulada(Decimal("0.03"), Decimal("3000")),
+    ]

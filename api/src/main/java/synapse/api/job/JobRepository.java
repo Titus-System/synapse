@@ -200,9 +200,18 @@ class JobRepository {
 	List<SimulacaoDto> listarSimulacoes(UUID jobId) {
 		return this.jdbc.query("""
 				SELECT s.id, s.regra_id, s.criado_em, s.flag_baixa_rastreabilidade,
-				       r.status, r.veredito, r.totais, r.assercoes, r.decomposicao, r.meta_venda
+				       r.status, r.veredito, r.totais, r.assercoes, r.decomposicao, r.meta_venda,
+				       m.aceita_em AS meta_sugerida_aceita_em,
+				       a.id AS anterior_id, a.criado_em AS anterior_criado_em, a.status AS anterior_status,
+				       a.veredito AS anterior_veredito, a.meta_venda AS anterior_meta_venda,
+				       a.totais AS anterior_totais, a.assercoes AS anterior_assercoes,
+				       a.decomposicao AS anterior_decomposicao
 				FROM simulacoes s
 				JOIN resultados_simulacao r ON r.id = s.resultado_id
+				LEFT JOIN sugestoes_meta_venda m ON m.job_id = s.job_id AND m.regra_id = s.regra_id
+				    AND m.resultado_id = s.resultado_id AND m.aceita_em IS NOT NULL
+				LEFT JOIN resultados_simulacao a ON a.id = m.resultado_anterior_id
+				    AND a.job_id = s.job_id AND a.codigo_gerado_id = s.codigo_gerado_id
 				WHERE s.job_id = ? ORDER BY s.criado_em, s.id
 				""", (rs, numero) -> simulacao(rs), jobId);
 	}
@@ -210,26 +219,32 @@ class JobRepository {
 	private SimulacaoDto simulacao(ResultSet rs) throws SQLException {
 		String status = Objects.requireNonNull(rs.getString("status"));
 		boolean sucesso = "sucesso".equals(status);
+		Timestamp aceitaEm = rs.getTimestamp("meta_sugerida_aceita_em");
+		UUID anteriorId = rs.getObject("anterior_id", UUID.class);
+		SimulacaoAnteriorDto anterior = anteriorId == null ? null
+				: new SimulacaoAnteriorDto(anteriorId, rs.getTimestamp("anterior_criado_em").toInstant(),
+						rs.getString("anterior_status"), rs.getString("anterior_veredito"),
+						rs.getBigDecimal("anterior_meta_venda"), resultado(rs, "anterior_"));
 		return new SimulacaoDto(rs.getObject("id", UUID.class), rs.getObject("regra_id", UUID.class),
 				rs.getTimestamp("criado_em").toInstant(), status, sucesso ? rs.getString("veredito") : null,
-				rs.getBoolean("flag_baixa_rastreabilidade"), sucesso ? resultado(rs) : null,
-				rs.getBigDecimal("meta_venda"));
+				rs.getBoolean("flag_baixa_rastreabilidade"), sucesso ? resultado(rs, "") : null,
+				rs.getBigDecimal("meta_venda"), aceitaEm == null ? null : aceitaEm.toInstant(), anterior);
 	}
 
-	private ResultadoSimulacaoDto resultado(ResultSet rs) throws SQLException {
-		TotaisSimulacaoDto totais = rs.getString("totais") == null ? null
-				: this.json.readValue(rs.getString("totais"), TotaisSimulacaoDto.class);
-		List<ResultadoAssercaoDto> assercoes = this.json.readValue(rs.getString("assercoes"),
+	private ResultadoSimulacaoDto resultado(ResultSet rs, String prefixo) throws SQLException {
+		TotaisSimulacaoDto totais = rs.getString(prefixo + "totais") == null ? null
+				: this.json.readValue(rs.getString(prefixo + "totais"), TotaisSimulacaoDto.class);
+		List<ResultadoAssercaoDto> assercoes = this.json.readValue(rs.getString(prefixo + "assercoes"),
 				new TypeReference<List<ResultadoAssercaoDto>>() {
 				});
-		DecomposicaoResultadoDto decomposicao = rs.getString("decomposicao") == null ? null
-				: this.json.readValue(rs.getString("decomposicao"), DecomposicaoResultadoDto.class);
+		DecomposicaoResultadoDto decomposicao = rs.getString(prefixo + "decomposicao") == null ? null
+				: this.json.readValue(rs.getString(prefixo + "decomposicao"), DecomposicaoResultadoDto.class);
 		return new ResultadoSimulacaoDto(totais, assercoes, decomposicao);
 	}
 
 	/**
-	 * Única leitura de {@code resultados_simulacao.linhas}. O {@code LEFT JOIN} mantém a
-	 * simulação ainda sem resultado, que existe e não tem detalhamento.
+	 * O {@code LEFT JOIN} mantém a simulação ainda sem resultado, que existe e não tem
+	 * detalhamento.
 	 */
 	List<DetalhamentoSimulacaoDto> buscarDetalhamento(UUID jobId, UUID simulacaoId) {
 		return this.jdbc.query("""
@@ -241,6 +256,21 @@ class JobRepository {
 				(rs, numero) -> new DetalhamentoSimulacaoDto(Objects.requireNonNull(rs.getObject("id", UUID.class)),
 						rs.getString("linhas")),
 				simulacaoId, jobId);
+	}
+
+	List<DetalhamentoSimulacaoDto> buscarDetalhamentoAnterior(UUID jobId, UUID simulacaoId, UUID resultadoId) {
+		return this.jdbc.query("""
+				SELECT s.id, r.linhas
+				FROM simulacoes s
+				JOIN sugestoes_meta_venda m ON m.job_id = s.job_id AND m.regra_id = s.regra_id
+				    AND m.resultado_id = s.resultado_id AND m.aceita_em IS NOT NULL
+				JOIN resultados_simulacao r ON r.id = m.resultado_anterior_id
+				    AND r.job_id = s.job_id AND r.codigo_gerado_id = s.codigo_gerado_id
+				WHERE s.id = ? AND s.job_id = ? AND r.id = ?
+				""",
+				(rs, numero) -> new DetalhamentoSimulacaoDto(Objects.requireNonNull(rs.getObject("id", UUID.class)),
+						rs.getString("linhas")),
+				simulacaoId, jobId, resultadoId);
 	}
 
 	List<RegraCriadaDto> mapearRegras(String regrasJson) {
@@ -697,6 +727,14 @@ class JobRepository {
 	}
 
 	boolean aceitarMetaSugerida(UUID jobId) {
+		this.jdbc.update("""
+				UPDATE sugestoes_meta_venda m SET resultado_anterior_id = s.resultado_id
+				FROM simulacoes s
+				WHERE m.job_id = ? AND m.aceita_em IS NULL AND m.resultado_id IS NOT NULL
+				  AND s.job_id = m.job_id AND s.regra_id = m.regra_id AND s.resultado_id IS NOT NULL
+				  AND s.id = (SELECT vigente.id FROM simulacoes vigente WHERE vigente.job_id = s.job_id
+				      ORDER BY vigente.criado_em DESC, vigente.id DESC LIMIT 1)
+				""", jobId);
 		int atualizadas = this.jdbc.update("""
 				UPDATE simulacoes s SET resultado_id = m.resultado_id
 				FROM sugestoes_meta_venda m, resultados_simulacao rs, regras r
@@ -737,12 +775,12 @@ class JobRepository {
 
 	/**
 	 * A proposta parte da versão atual do job - a regra original ou a alternativa
-	 * anterior - e do resultado inviável dela, muda só o percentual, para menos, e não
-	 * repete uma versão do job. A reentrega encontra a versão que a primeira entrega
-	 * criou e é recusada aqui. A api não conta tentativas: o limite é do codegen.
+	 * anterior - e do resultado inviável dela, e não repete uma versão do job. A
+	 * reentrega encontra a versão que a primeira entrega criou e é recusada aqui. O
+	 * conteúdo da proposta é conferido por {@link ReducaoDasTaxas}. A api não conta
+	 * tentativas: o limite é do codegen.
 	 */
-	@Nullable Boolean sugestaoElegivel(UUID jobId, UUID regraOrigemId, UUID resultadoId, String hash, BigDecimal percentual,
-			RepresentacaoRegraDto representacao) {
+	@Nullable Boolean sugestaoElegivel(UUID jobId, UUID regraOrigemId, UUID resultadoId, String hash) {
 		return this.jdbc.queryForObject("""
 				SELECT EXISTS (
 				    SELECT 1 FROM regras r
@@ -752,18 +790,46 @@ class JobRepository {
 				      AND rs.status = 'sucesso' AND rs.veredito = 'inviavel' AND rs.proposito = 'simulacao'
 				      AND NOT EXISTS (SELECT 1 FROM regras outra WHERE outra.job_id = r.job_id
 				          AND (outra.versao > r.versao OR outra.hash = ?))
-				      AND (r.nucleo->>'percentual')::numeric > ?
-				      AND r.nucleo - 'percentual' = ?::jsonb - 'percentual'
-				      AND r.especificacoes = ?::jsonb
 				)
-				""", Boolean.class, regraOrigemId, jobId, resultadoId, hash, percentual,
-				this.jsonPadrao.writeValueAsString(representacao.nucleo()),
-				this.jsonPadrao.writeValueAsString(representacao.especificacoes()));
+				""", Boolean.class, regraOrigemId, jobId, resultadoId, hash);
 	}
 
 	List<UUID> buscarSimulacaoPorResultado(UUID jobId, UUID resultadoId) {
 		return this.jdbc.query("SELECT id FROM simulacoes WHERE job_id = ? AND resultado_id = ?",
 				(rs, numero) -> rs.getObject("id", UUID.class), jobId, resultadoId);
+	}
+
+	/**
+	 * A comissão das lojas que o núcleo da regra não alcança, na última simulação do job,
+	 * e o orçamento com que ela rodou. Essas lojas ficam no baseline qualquer que seja a
+	 * taxa da regra, então a soma é um piso do total simulado. Vazio quando a regra vale
+	 * para todas as lojas ou quando o resultado não traz a quebra absoluta por loja.
+	 */
+	@Nullable ComissaoForaDaRegra buscarComissaoDasLojasForaDaRegra(UUID jobId) {
+		List<ComissaoForaDaRegra> encontradas = this.jdbc.query("""
+				SELECT sum(l.valor::numeric) AS fora, (ultima.totais ->> 'orcamento')::numeric AS orcamento
+				FROM (
+				    SELECT rs.id, rs.totais, rs.decomposicao, r.nucleo
+				    FROM simulacoes s
+				    JOIN resultados_simulacao rs ON rs.id = s.resultado_id AND rs.job_id = s.job_id
+				    JOIN regras r ON r.id = s.regra_id AND r.job_id = s.job_id
+				    WHERE s.job_id = ? AND rs.status = 'sucesso' AND rs.proposito = 'simulacao'
+				    ORDER BY s.criado_em DESC, s.id DESC LIMIT 1
+				) ultima
+				CROSS JOIN LATERAL jsonb_each_text(
+				    CASE WHEN jsonb_typeof(ultima.decomposicao -> 'loja_absoluto') = 'object'
+				         THEN ultima.decomposicao -> 'loja_absoluto' ELSE '{}'::jsonb END) AS l(chave, valor)
+				WHERE jsonb_typeof(ultima.nucleo -> 'loja') = 'array'
+				  AND jsonb_array_length(ultima.nucleo -> 'loja') > 0
+				  AND NOT jsonb_exists(ultima.nucleo -> 'loja', l.chave)
+				  AND ultima.totais ->> 'orcamento' IS NOT NULL
+				GROUP BY ultima.id, ultima.totais
+				""", (rs, numero) -> new ComissaoForaDaRegra(Objects.requireNonNull(rs.getBigDecimal("fora")),
+				Objects.requireNonNull(rs.getBigDecimal("orcamento"))), jobId);
+		return encontradas.isEmpty() ? null : encontradas.getFirst();
+	}
+
+	record ComissaoForaDaRegra(BigDecimal fora, BigDecimal orcamento) {
 	}
 
 	record DadosConsulta(UUID id, String status, String origem, List<String> competencias,
