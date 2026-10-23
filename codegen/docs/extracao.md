@@ -10,6 +10,17 @@ A chamada pede JSON nativo com `response_json_schema`, sem ferramentas. O rascun
 
 O núcleo aceita vigência, loja, marca, cargo, percentual uniforme e `taxas_por_cargo` (pares cargo/percentual). Campos não mencionados permanecem ausentes. Códigos são strings; números são lidos como `Decimal` e permanecem números JSON, inclusive no banco. Percentual negativo e intervalo invertido não são corrigidos nesta etapa. Texto sem regra pode resultar em núcleo vazio e nenhuma especificação. A declaração universal usa lista vazia com evidência literal por dimensão; silêncio mantém o campo ausente. Cada par cargo/taxa exige trecho que comprove a associação e todos os pares precisam ser resolvidos, preservando os demais na correção. Antes de nova simulação, a validação exige meta positiva, orçamento não negativo, escopos explícitos e taxa uniforme ou taxas por cargo suficientes. Apenas a vigência admite o período do job como padrão. Cargos sem taxa proposta conservam o baseline.
 
+Antes da conferência literal, a montagem recupera a citação original quando o modelo
+alterou apenas espaços, indentação, tabs ou quebras de linha. O trecho usado na conferência
+passa a ser a sequência exata encontrada na fonte. Palavras, pontuação, sinais e números
+continuam exigindo correspondência exata; não há busca aproximada nem paráfrase como lastro.
+O texto enviado e a resposta bruta auditada permanecem intactos.
+
+Os prompts explicitam que a taxa do cargo 150 sobre as vendas mensais da própria loja
+cabe no núcleo, conforme a base de cálculo já usada pela geração. Um bônus condicionado
+permanece em um genérico completo, incluindo frases posteriores sobre frequência e limite
+de um pagamento por colaborador e competência.
+
 `parametros` traz orçamento, meta de venda e período da simulação (`orcamento`, `meta_venda`, `competencias`), nunca parte da regra (T-277): cada um, quando o texto o diz, é `{valor, trecho}` no rascunho do modelo. O motor descarta o trecho e guarda só o valor, validado contra `parametros-simulacao.schema.json` (`app/extracao/parametros.py`); o trecho não verificado continua recuperável na resposta bruta auditada em `respostas_modelo`, para a conferência de lastro da T-210. Um parâmetro não dito no texto fica fora de `parametros`; nada dito deixa `parametros` vazio (`{}`). O valor entra como o modelo o devolveu, sem faixa nem correção — orçamento negativo ou competência fora das publicadas são apontados pela validação de domínio (T-280), não aqui. Uma condição de atingimento de meta dentro da regra não é `meta_venda`: permanece em elemento.
 
 Enumerações de competências preservam somente os meses citados, inclusive listas não

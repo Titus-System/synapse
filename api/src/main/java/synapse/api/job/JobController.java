@@ -74,8 +74,10 @@ class JobController {
 
 	@AutorizarJob(OperacaoJob.CONSULTAR)
 	@GetMapping(path = "/jobs/{id}/simulacoes/{simulacaoId}/linhas", produces = "application/json")
-	DetalhamentoSimulacaoDto detalharSimulacao(@PathVariable UUID id, @PathVariable UUID simulacaoId) {
-		return this.service.detalharSimulacao(id, simulacaoId);
+	DetalhamentoSimulacaoDto detalharSimulacao(@PathVariable UUID id, @PathVariable UUID simulacaoId,
+			@RequestParam(required = false) @Nullable UUID resultado_anterior_id) {
+		return resultado_anterior_id == null ? this.service.detalharSimulacao(id, simulacaoId)
+				: this.service.detalharSimulacao(id, simulacaoId, resultado_anterior_id);
 	}
 
 	@AutorizarJob(OperacaoJob.ACOMPANHAR)

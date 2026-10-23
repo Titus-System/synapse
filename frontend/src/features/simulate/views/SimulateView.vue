@@ -7,6 +7,7 @@ import { useJobSimulacao } from '../composables/useJobSimulacao'
 import { calcularProgresso } from '../composables/progressoSimulacao'
 import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import SugestaoRegra from '../components/SugestaoRegra.vue'
+import SugestaoMetaVenda from '../components/SugestaoMetaVenda.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
 import { nomesDoEscopo } from '@/services/catalogoRh'
 import { percentuaisDaRegra, vigenciaDoNucleo } from '@/composables/apresentacaoNucleo'
@@ -41,6 +42,12 @@ const {
   podeAceitarSugestao,
   podeCancelar,
   podeFinalizar,
+  metaSugerida,
+  buscandoMeta,
+  podeAceitarMeta,
+  acaoProcessando,
+  erroMeta,
+  aceitarMeta,
 } = useJobSimulacao(jobId)
 
 const progresso = computed(() => calcularProgresso(job.value?.status ?? null, etapaAtual.value))
@@ -63,7 +70,9 @@ const nucleo = computed(() => regraExibida.value?.representacao.nucleo)
 const regraDaSimulacao = computed(() =>
   job.value?.regras.find((item) => item.id === simulacao.value?.regra_id),
 )
-const identidadeRelatorio = computed(() => `${jobId.value}/${simulacao.value?.id ?? ''}`)
+const identidadeRelatorio = computed(() =>
+  `${jobId.value}/${simulacao.value?.id ?? ''}/${simulacao.value?.meta_venda ?? ''}`,
+)
 const relatorio = useDetalhamento(identidadeRelatorio, (signal) =>
   consultarDetalhamento(jobId.value, simulacao.value!.id, signal),
 )
@@ -579,6 +588,15 @@ onBeforeUnmount(parar)
             </div>
           </div>
         </div>
+        <SugestaoMetaVenda
+          v-if="!erro && (metaSugerida || buscandoMeta || erroMeta)"
+          :sugestao="metaSugerida"
+          :buscando="buscandoMeta"
+          :pode-aceitar="podeAceitarMeta"
+          :processando="acaoProcessando"
+          :erro="erroMeta"
+          @aceitar="aceitarMeta"
+        />
         <SugestaoRegra
           v-if="!erro && (sugestao || (status === 'simulacao_inviavel' && regraInviavel))"
           :regra="sugestao ?? null"
@@ -596,6 +614,7 @@ onBeforeUnmount(parar)
           :competencias="job?.competencias"
           :pode-aceitar="podeAceitarSugestao"
           :pode-cancelar="podeCancelar"
+          :motivo="motivoParada"
           @aceitar="seguirParaFinalizacao"
           @cancelar="cancelarFluxo"
         />

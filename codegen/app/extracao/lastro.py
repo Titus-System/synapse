@@ -58,6 +58,22 @@ def trecho_literal(texto: str, trecho: object) -> bool:
     return isinstance(trecho, str) and bool(trecho.strip()) and trecho in texto
 
 
+def restaurar_trechos_literais(valor: object, texto: str) -> None:
+    """Recupera a citação original quando só seus espaços foram alterados pelo modelo."""
+    if isinstance(valor, dict):
+        trecho = valor.get("trecho")
+        if isinstance(trecho, str) and trecho.split() and not trecho_literal(texto, trecho):
+            padrao = r"\s+".join(re.escape(parte) for parte in trecho.split())
+            encontrado = re.search(padrao, texto)
+            if encontrado is not None:
+                valor["trecho"] = encontrado.group()
+        for item in valor.values():
+            restaurar_trechos_literais(item, texto)
+    elif isinstance(valor, list):
+        for item in valor:
+            restaurar_trechos_literais(item, texto)
+
+
 def numeros_citados(texto: str) -> set[str]:
     return {ocorrencia.group() for ocorrencia in _NUMERO.finditer(texto)}
 

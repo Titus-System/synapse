@@ -54,8 +54,9 @@ class DecisaoSemResultadoError(FalhaDoJobError):
 async def decision(state: AgentState, config: RunnableConfig) -> AgentState:
     """Publish where the flow goes, and record it in the audit trail.
 
-    A regra inviável só de núcleo vai à sugestão em toda tentativa, e é a sugestão que aplica
-    o limite delas: assim só ela anuncia que a iteração terminou sem alternativa (T-271).
+    A regra inviável vai à sugestão em toda tentativa, qualquer que seja sua estrutura, e é a
+    sugestão que aplica o limite delas e decide se há taxa a reduzir: assim só ela anuncia que
+    a iteração terminou sem alternativa (T-271).
     """
     resultado_id = state.get("resultado_id")
     if resultado_id is None:
@@ -72,9 +73,7 @@ async def decision(state: AgentState, config: RunnableConfig) -> AgentState:
     )
     encaminhamento = (
         ENCAMINHAMENTO_SUGESTAO
-        if tentativas is not None
-        and veredito == Veredito.INVIAVEL
-        and not state["representacao_regra"].get("especificacoes")
+        if tentativas is not None and veredito == Veredito.INVIAVEL
         else ENCAMINHAMENTO_FIM
     )
     if (
@@ -83,7 +82,6 @@ async def decision(state: AgentState, config: RunnableConfig) -> AgentState:
         and state.get("status_simulacao") == "sucesso"
         and veredito == Veredito.VIAVEL
         and state.get("orcamento") is not None
-        and not state["representacao_regra"].get("especificacoes")
     ):
         execucao = await buscar_execucao_da_meta(
             config["configurable"]["sessoes"], job_id, UUID(resultado_id)

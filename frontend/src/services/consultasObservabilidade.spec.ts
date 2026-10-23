@@ -34,11 +34,17 @@ function logs() {
     expect(schema.properties.level.enum).toContain(registro.level)
     expect(schema.properties['service.name'].enum).toContain(registro['service.name'])
     expect(registro['service.name']).toBe('synapse-frontend')
-    expect(registro.message).toBe('Consulta do job no navegador')
+    expect(registro.message).toBe(
+      registro.extra.operacao === 'aceitar_meta'
+        ? 'Ação do job no navegador'
+        : 'Consulta do job no navegador',
+    )
     expect(new Date(registro.timestamp).toISOString()).toBe(registro.timestamp)
     expect(registro.job_id).toEqual(expect.any(String))
     expect(registro.job_id.length).toBeGreaterThanOrEqual(schema.properties.job_id.minLength)
-    expect(['consultar_job', 'consultar_detalhamento']).toContain(registro.extra.operacao)
+    expect(['consultar_job', 'consultar_detalhamento', 'aceitar_meta']).toContain(
+      registro.extra.operacao,
+    )
     expect(['iniciada', 'sucesso', 'falha', 'cancelada']).toContain(registro.extra.resultado)
     expect(registro.extra.duracao_ms ?? 0).toBeGreaterThanOrEqual(0)
     expect(
@@ -111,4 +117,35 @@ it('registra cancelamento com o job original, sem atribuí-lo à consulta seguin
   expect(registros.find((registro) => registro.extra.resultado === 'sucesso')?.job_id).toBe(
     'job-novo',
   )
+})
+
+it('registra sucesso e recusa da aceitação real de meta sem resposta, token ou detalhes internos', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ ...jobFixture(), motivo: 'proposta-confidencial' })),
+    )
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ codigo: 'estado_invalido', mensagem: 'segredo-interno' }), {
+        status: 409,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+  await apiClient.executarAcao('job-1', { acao: 'aceitar_meta' })
+  await expect(apiClient.executarAcao('job-2', { acao: 'aceitar_meta' })).rejects.toBeInstanceOf(
+    Error,
+  )
+  const registros = logs()
+  expect(
+    registros.map((registro) => [
+      registro.job_id,
+      registro.extra.operacao,
+      registro.extra.resultado,
+    ]),
+  ).toEqual([
+    ['job-1', 'aceitar_meta', 'iniciada'],
+    ['job-1', 'aceitar_meta', 'sucesso'],
+    ['job-2', 'aceitar_meta', 'iniciada'],
+    ['job-2', 'aceitar_meta', 'falha'],
+  ])
+  expect(registros[registros.length - 1].extra.status_http).toBe(409)
 })

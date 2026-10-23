@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.JsonNode;
@@ -223,6 +224,47 @@ class BuscarJobPersistenciaTests {
 		assertThat(simulacao.path("resultado").path("assercoes").get(0).has("detalhe")).isTrue();
 		assertThat(simulacao.path("resultado").path("assercoes").get(0).path("detalhe").isNull()).isTrue();
 		assertThat(resposta.path("simulacoes")).hasSize(1);
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = { true, false })
+	void aceiteDaMetaPertenceAoResultadoExatoENaoAsOutrasExecucoes(boolean aceita) throws Exception {
+		UUID jobId = criarJobEmProcessamento();
+		UUID regra = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
+		UUID codigo = criarExecucaoPendente(jobId, regra);
+		UUID resultado = criarResultado(jobId, codigo, "sucesso", "viavel", true);
+		dono.update("UPDATE resultados_simulacao SET proposito = 'busca_meta', meta_venda = 2000 WHERE id = ?",
+				resultado);
+		jdbc.update("UPDATE simulacoes SET resultado_id = ? WHERE codigo_gerado_id = ?", resultado, codigo);
+		UUID simulacaoAceita = Objects.requireNonNull(
+				jdbc.queryForObject("SELECT id FROM simulacoes WHERE codigo_gerado_id = ?", UUID.class, codigo));
+		UUID codigoDaOutraExecucao = criarExecucaoPendente(jobId, regra);
+		UUID outroResultado = criarResultado(jobId, codigoDaOutraExecucao, "sucesso", "viavel", true);
+		jdbc.update("UPDATE simulacoes SET resultado_id = ? WHERE codigo_gerado_id = ?", outroResultado,
+				codigoDaOutraExecucao);
+		UUID outraRegra = criarRegra(jobId, 2, "0.03", "hash-v2", "2026-01-01T10:02:00Z");
+		UUID codigoDaOutraRegra = criarExecucaoPendente(jobId, outraRegra);
+		UUID resultadoDaOutraRegra = criarResultado(jobId, codigoDaOutraRegra, "sucesso", "viavel", true);
+		jdbc.update("UPDATE simulacoes SET resultado_id = ? WHERE codigo_gerado_id = ?", resultadoDaOutraRegra,
+				codigoDaOutraRegra);
+		Instant aceitaEm = Instant.parse("2026-01-01T10:03:00Z");
+		jdbc.update("""
+				INSERT INTO sugestoes_meta_venda (job_id, regra_id, resultado_id, aceita_em)
+				VALUES (?, ?, ?, ?)
+				""", jobId, regra, resultado, aceita ? Timestamp.from(aceitaEm) : null);
+
+		JsonNode resposta = consultar(jobId);
+
+		assertThat(resposta.path("simulacoes")).hasSize(3);
+		for (JsonNode simulacao : resposta.path("simulacoes")) {
+			boolean corresponde = simulacao.path("id").asString().equals(simulacaoAceita.toString());
+			assertThat(simulacao.has("meta_sugerida_aceita_em")).isEqualTo(aceita && corresponde);
+			if (aceita && corresponde) {
+				assertThat(Instant.parse(simulacao.path("meta_sugerida_aceita_em").asString())).isEqualTo(aceitaEm);
+				assertThat(simulacao.path("meta_venda").asInt()).isEqualTo(2000);
+			}
+		}
+		assertThat(resposta.path("simulacao").has("meta_sugerida_aceita_em")).isFalse();
 	}
 
 	@Test

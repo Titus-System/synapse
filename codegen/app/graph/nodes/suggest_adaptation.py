@@ -44,8 +44,8 @@ logger = get_logger("app.graph.nodes.suggest_adaptation")
 ETAPA: NoGrafo = "sugestao_adaptacao"
 
 RESUMO_PROPOSTA = (
-    "Alternativa proposta com o percentual do núcleo ajustado ao orçamento do período; "
-    "a versão nova é gravada pela api e simulada antes de ser exibida."
+    "Alternativa proposta com as taxas da regra reduzidas na mesma proporção para o orçamento "
+    "do período; a versão nova é gravada pela api e simulada antes de ser exibida."
 )
 #: O que a trilha registra de cada motivo, sem o conteúdo da proposta nem número algum.
 RESUMOS = {
@@ -54,9 +54,7 @@ RESUMOS = {
         "Nenhuma taxa nova a propor: não há como estimar uma taxa menor que caiba no orçamento."
     ),
     MOTIVO_INCOERENTE: "Nenhuma taxa nova a propor: a taxa estimada deixaria a regra incoerente.",
-    MOTIVO_NAO_SUPORTADA: (
-        "Nenhuma taxa nova a propor: a adaptação só ajusta a taxa de regras sem especificações."
-    ),
+    MOTIVO_NAO_SUPORTADA: "Nenhuma taxa nova a propor: a regra não tem taxa positiva a reduzir.",
     MOTIVO_LIMITE: (
         "Nenhuma taxa nova a propor: as três tentativas simuladas não couberam no orçamento."
     ),
@@ -104,7 +102,12 @@ async def suggest_adaptation(state: AgentState, config: RunnableConfig) -> Agent
         )
         logger.info(
             "adaptation proposal published",
-            extra={"no": ETAPA, "tentativa": tentativa, "metodo": alternativa.metodo},
+            extra={
+                "no": ETAPA,
+                "tentativa": tentativa,
+                "metodo": alternativa.metodo,
+                "taxas_ajustadas": alternativa.taxas_ajustadas,
+            },
         )
     else:
         # Estrutural como a proposta: é o que encerra a iteração na `api`, que não espera outra

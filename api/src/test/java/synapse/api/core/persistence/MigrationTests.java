@@ -49,7 +49,7 @@ class MigrationTests {
 			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras",
 			"rodadas_correcao", "trabalhos_transcricao", "sugestoes_meta_venda");
 
-	private static final int CHANGESETS = 32;
+	private static final int CHANGESETS = 33;
 
 	private static final int CHANGESETS_ANTES_DA_TENTATIVA = 26;
 
@@ -564,6 +564,48 @@ class MigrationTests {
 		assertThat(nulidadeDasColunas("trabalhos_transcricao")).doesNotContainKey("resposta_invalida");
 		atualizar();
 		assertThat(coluna("trabalhos_transcricao", "resposta_invalida")).containsExactly("boolean", "NO", "false");
+	}
+
+	@ParameterizedTest
+	@ValueSource(ints = { 0, 1, 2 })
+	void recuperaOriginalDoAceiteLegadoSomenteSemAmbiguidadeEPreservaNoRollback(int originais) throws Exception {
+		atualizar(CHANGESETS - 1);
+		String original = "";
+		try (Connection connection = abrir(); Statement sql = connection.createStatement()) {
+			semearCodigoGerado(sql);
+			for (int i = 0; i < originais; i++)
+				original = inserirComoOWorker(sql);
+			String candidata = inserirComoOWorker(sql);
+			sql.execute(
+					"UPDATE resultados_simulacao SET proposito = 'busca_meta' WHERE id = '%s'".formatted(candidata));
+			sql.execute("""
+					INSERT INTO simulacoes (criado_em, job_id, regra_id, codigo_gerado_id, resultado_id)
+					VALUES (now(), '%s', '%s', '%s', '%s')
+					""".formatted(JOB_ID, REGRA_ID, CODIGO_ID, candidata));
+			sql.execute("""
+					INSERT INTO sugestoes_meta_venda (job_id, regra_id, resultado_id, aceita_em)
+					VALUES ('%s', '%s', '%s', now())
+					""".formatted(JOB_ID, REGRA_ID, candidata));
+		}
+		atualizar();
+		try (Connection connection = abrir();
+				Statement sql = connection.createStatement();
+				ResultSet rs = sql.executeQuery("SELECT resultado_anterior_id::text FROM sugestoes_meta_venda")) {
+			assertThat(rs.next()).isTrue();
+			assertThat(rs.getString(1)).isEqualTo(originais == 1 ? original : null);
+		}
+		assertThat(coluna("sugestoes_meta_venda", "resultado_anterior_id")).containsExactly("uuid", "YES", null);
+		reverter(1);
+		assertThat(nulidadeDasColunas("sugestoes_meta_venda")).doesNotContainKey("resultado_anterior_id");
+		try (Connection connection = abrir();
+				Statement sql = connection.createStatement();
+				ResultSet rs = sql.executeQuery("SELECT count(*) FROM resultados_simulacao")) {
+			assertThat(rs.next()).isTrue();
+			assertThat(rs.getInt(1)).isEqualTo(originais + 1);
+		}
+		atualizar();
+		atualizar();
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS);
 	}
 
 	@Test

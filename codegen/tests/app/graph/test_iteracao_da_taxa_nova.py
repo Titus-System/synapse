@@ -136,6 +136,13 @@ def percentual(proposta: dict[str, Any]) -> Decimal:
     return valor
 
 
+def taxas_por_cargo(proposta: dict[str, Any]) -> dict[str, Decimal]:
+    return {
+        par["cargo"]: par["percentual"]
+        for par in proposta["representacao"]["nucleo"]["taxas_por_cargo"]
+    }
+
+
 async def test_tres_taxas_que_nao_cabem_encerram_a_iteracao_sem_alternativa(
     monkeypatch: pytest.MonkeyPatch, cliente: AsyncClient, logs: list[dict[str, Any]]
 ) -> None:
@@ -229,20 +236,45 @@ async def test_regra_nova_no_job_depois_de_uma_iteracao_comeca_pela_estimativa_d
     assert job.etapas("sem_alternativa") == []
 
 
-async def test_regra_com_especificacoes_nao_recebe_proposta(
+async def test_regra_com_taxas_por_cargo_e_elemento_generico_e_adaptada_e_refinada(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """As taxas caem na mesma proporção que a do cargo 100, a referência, que segue a reta das
+    outras iterações: 0,0175 pela estimativa e 0,0143 pelo refinamento. O elemento genérico
+    segue como estava."""
     job = Job(monkeypatch)
-    representacao = simplejson.loads(
+    generico = simplejson.loads(
         (CONTRATOS / "examples/domain/representacao-regra-generico.json").read_bytes(),
         use_decimal=True,
+    )["especificacoes"]
+    nucleo = {chave: valor for chave, valor in NUCLEO.items() if chave != "percentual"}
+    regra = job.historico.gravar_versao(
+        {
+            "nucleo": {
+                **nucleo,
+                "cargo": ["100", "150"],
+                "taxas_por_cargo": [
+                    {"cargo": "100", "percentual": Decimal("0.03")},
+                    {"cargo": "150", "percentual": Decimal("0.05")},
+                ],
+            },
+            "especificacoes": generico,
+        },
+        "extracao",
     )
-    regra = job.historico.gravar_versao(representacao, "extracao")
     await job.abrir_ciclo(regra)
 
     await job.simular(regra, Decimal("2200"))
+    alternativa = await job.alternativa(job.propostas()[0])
+    await job.simular(alternativa, Decimal("1800"))
 
-    assert job.propostas() == []
+    primeira, segunda = job.propostas()
+    assert [p["tentativa"] for p in (primeira, segunda)] == [1, 2]
+    assert taxas_por_cargo(primeira) == {"100": Decimal("0.0175"), "150": Decimal("0.0291")}
+    assert taxas_por_cargo(segunda) == {"100": Decimal("0.0143"), "150": Decimal("0.0237")}
+    assert segunda["regra_origem_id"] == str(alternativa)
+    assert primeira["representacao"]["especificacoes"] == generico
+    assert segunda["representacao"]["especificacoes"] == generico
     assert job.etapas("sem_alternativa") == []
     assert job.etapas("erro") == []
 
