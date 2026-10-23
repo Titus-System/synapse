@@ -276,3 +276,28 @@ def conferir_data(
     if datas is None:
         return False, False
     return len(datas) == 1 and valor == datas[0], True
+
+
+_CHAVE_DE_CAMPO = re.compile(r"[a-z][a-z0-9_]{0,39}")
+
+
+def campos_com_lastro(campos: object, trecho: str) -> dict[str, str | int | Decimal]:
+    """Mantém só os pares de `campos` cujo valor aparece no trecho do elemento."""
+    if not isinstance(campos, dict):
+        return {}
+    aprovados: dict[str, str | int | Decimal] = {}
+    for chave, valor in campos.items():
+        if not isinstance(chave, str) or not _CHAVE_DE_CAMPO.fullmatch(chave):
+            continue
+        if isinstance(valor, str):
+            confere = bool(normalizar(valor)) and normalizar(valor) in normalizar(trecho)
+        elif isinstance(valor, int | Decimal) and not isinstance(valor, bool):
+            confere = any(
+                conferir_numero(trecho, trecho, valor, percentual=percentual)
+                for percentual in (False, True)
+            )
+        else:
+            confere = False
+        if confere:
+            aprovados[chave] = valor
+    return aprovados

@@ -5,7 +5,12 @@ from jsonschema import Draft202012Validator
 
 from app.extracao.construto import ContextoExtracao
 from app.extracao.construtos.generico import montar_generico
-from app.extracao.lastro import conferir_numero, numeros_citados, trecho_literal
+from app.extracao.lastro import (
+    campos_com_lastro,
+    conferir_numero,
+    numeros_citados,
+    trecho_literal,
+)
 from app.extracao.modelos import ElementoRebaixadoError, MotivoRebaixamento, Rebaixamento
 from app.extracao.registro import CONSTRUTOS_HABILITADOS
 from app.extracao.schema import schema_elemento
@@ -115,10 +120,11 @@ def montar_elemento(
             if trecho is not None and trecho_literal(texto, trecho)
             else "Elemento sem lastro verificável"
         )
-    generico = montar_generico(ref, descricao)
-    if campos is not None:
-        generico["campos"] = campos
-    return generico, Rebaixamento(
+    # Os campos do conversor já foram resolvidos; os pares livres do modelo só acompanham um
+    # trecho verificado, e sem lastro fica só a descrição.
+    if campos is None and motivo_lastro is None and trecho is not None:
+        campos = dict(campos_com_lastro(elemento.get("campos"), trecho)) or None
+    return montar_generico(ref, descricao, campos), Rebaixamento(
         ref=ref,
         construto_pretendido=pretendido,
         motivo=motivo_lastro
