@@ -47,15 +47,15 @@ const regrasRecentes = computed(() =>
 function nomearStatus(status: StatusJob): string {
   const nomes: Record<StatusJob, string> = {
     aguardando_transcricao: 'Aguardando transcrição',
-    aguardando_confirmacao_parametros: 'Aguardando confirmação',
+    aguardando_confirmacao_parametros: 'Aguardando sua correção',
     gerando_regra: 'Gerando regra',
     simulando: 'Em simulação',
     simulacao_inviavel: 'Simulação inviável',
     aguardando_decisao_usuario: 'Aguardando decisão',
-    liberado: 'Liberado',
-    cancelado: 'Cancelado',
-    arquivado: 'Arquivado',
-    erro: 'Processamento com erro',
+    liberado: 'Salva',
+    cancelado: 'Cancelada',
+    arquivado: 'Arquivada',
+    erro: 'Um erro atrapalhou o processamento',
   }
   return nomes[status]
 }

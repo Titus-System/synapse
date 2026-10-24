@@ -93,7 +93,7 @@ describe('HistoricoJobsView', () => {
 
     const cartao = conteiner.get('article')
     expect(cartao.text()).toContain('Reprocessar regra com novo orçamento')
-    expect(cartao.text()).not.toContain('Arquivado')
+    expect(cartao.text()).not.toContain('Arquivada')
     conteiner.unmount()
   })
 
@@ -145,7 +145,7 @@ describe('HistoricoJobsView', () => {
     await flushPromises()
 
     expect(conteiner.get('article').text()).toContain('Regra de teste 1')
-    expect(conteiner.get('article').text()).toContain('Liberado')
+    expect(conteiner.get('article').text()).toContain('Salva')
     expect(botaoDeReprocessamento(conteiner)).toBeUndefined()
     conteiner.unmount()
   })
