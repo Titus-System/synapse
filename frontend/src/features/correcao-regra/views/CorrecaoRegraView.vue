@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
+import { onMounted, onBeforeUnmount, ref, computed, watch, nextTick } from 'vue'
 import { apiClient } from '@/services/api'
 import { destinoDoJob, rotuloDaRegra } from '@/services/job'
 import type { JobResumo } from '@/types/api'
@@ -31,6 +31,25 @@ const {
 } = useCorrecao(jobId)
 watch(seguirProcessamento, (seguir) => {
   if (seguir) void router.replace(`/jobs/${encodeURIComponent(jobId.value)}`)
+})
+
+const areaDaConversa = ref<HTMLElement | null>(null)
+const fimDaConversa = ref<HTMLElement | null>(null)
+
+let pertoDoFim = true
+function medirPosicao() {
+  const area = areaDaConversa.value
+  if (!area) return
+  pertoDoFim = area.scrollHeight - area.scrollTop - area.clientHeight < 120
+}
+const assinatura = computed(
+  () => `${rodadas.value.length}:${rodadas.value[rodadas.value.length - 1]?.estado ?? ''}`,
+)
+watch(assinatura, async (atual, anterior) => {
+  if (!rodadas.value.length) return
+  if (anterior !== undefined && anterior !== '0:' && !pertoDoFim) return
+  await nextTick()
+  fimDaConversa.value?.scrollIntoView?.({ block: 'end' })
 })
 
 const regrasRecentes = ref<{ identificador: string; rotulo: string; destino: string }[]>([])
@@ -119,7 +138,7 @@ onBeforeUnmount(() => controlador.abort())
     </aside>
     <main class="flex h-full min-h-0 min-w-0 flex-col">
       <TheProcessHeader etapa-da-rota="conversa" class="sticky top-0 z-10 shrink-0" />
-      <div class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-7 sm:px-8 lg:px-10">
+      <div ref="areaDaConversa" class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-7 sm:px-8 lg:px-10" @scroll.passive="medirPosicao">
         <section class="mx-auto mt-10 max-w-2xl text-center sm:mt-16">
           <h1 class="font-serif text-3xl text-[#321f16]">Refine sua Regra</h1>
           <p class="mt-4 text-base leading-relaxed text-[#7b6559]">
@@ -148,6 +167,7 @@ onBeforeUnmount(() => controlador.abort())
           />
           <p v-if="encerrado" role="status">Esta conversa está disponível apenas para consulta.</p>
           <p v-if="semCorrecao" role="status">Esta regra não tem pontos para corrigir.</p>
+          <div ref="fimDaConversa" aria-hidden="true"></div>
         </section>
       </div>
       <footer class="mx-auto w-full max-w-3xl shrink-0 bg-[#fffaf7] px-4 py-4 sm:px-8">

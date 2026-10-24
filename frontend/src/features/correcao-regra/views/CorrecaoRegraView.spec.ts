@@ -4,7 +4,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { listarRodadas } from '../services/correcao.api'
-import { pendente, jobCorrecao } from '../services/correcao.fixtures'
+import { pendente, jobCorrecao, corrigida } from '../services/correcao.fixtures'
 vi.mock('@/services/jobEvents', () => ({
   abrirAcompanhamentoJob: vi.fn<() => { fechar: () => void }>(() => ({
     fechar: vi.fn<() => void>(),
@@ -117,5 +117,48 @@ describe('visual do chatbot', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('Nenhuma regra criada ainda')
     wrapper.unmount()
+  })
+  it('mostra a conversa sem entrada de texto num job encerrado', async () => {
+    vi.mocked(listarRodadas).mockResolvedValue([corrigida])
+    vi.spyOn(apiClient, 'consultarJob').mockResolvedValue({ ...jobCorrecao, status: 'cancelado' })
+    vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    vi.spyOn(apiClient, 'listarJobs').mockResolvedValue({ itens: [], total: 0, pagina: 0, tamanho: 100 })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/jobs/:id/correcao', component: CorrecaoRegraView }],
+    })
+    await router.push('/jobs/exemplo/correcao')
+    const wrapper = mount(CorrecaoRegraView, { global: { plugins: [createPinia(), router] } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('o percentual é 5%')
+    expect(wrapper.text()).toContain('apenas para consulta')
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('desce até a mensagem mais recente ao abrir a conversa', async () => {
+    const original = Element.prototype.scrollIntoView
+    const rolar = vi.fn<() => void>()
+    Element.prototype.scrollIntoView = rolar
+    try {
+      vi.spyOn(console, 'info').mockImplementation(() => undefined)
+      vi.spyOn(apiClient, 'listarJobs').mockResolvedValue({
+        itens: [],
+        total: 0,
+        pagina: 0,
+        tamanho: 100,
+      })
+      const router = createRouter({
+        history: createMemoryHistory(),
+        routes: [{ path: '/jobs/:id/correcao', component: CorrecaoRegraView }],
+      })
+      await router.push('/jobs/exemplo/correcao')
+      const wrapper = mount(CorrecaoRegraView, { global: { plugins: [createPinia(), router] } })
+      await flushPromises()
+      expect(rolar).toHaveBeenCalled()
+      wrapper.unmount()
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
   })
 })
