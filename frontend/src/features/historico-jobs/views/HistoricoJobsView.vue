@@ -40,6 +40,7 @@ const regrasRecentes = computed(() =>
   resumosDosJobs.value.slice(0, 6).map((resumoDoJob) => ({
     identificador: resumoDoJob.id,
     rotulo: rotuloDaRegra(resumoDoJob),
+    destino: destinoDoJob(resumoDoJob),
   })),
 )
 
