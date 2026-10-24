@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
 import { apiClient } from '@/services/api'
-import { rotuloDaRegra } from '@/services/job'
+import { destinoDoJob, rotuloDaRegra } from '@/services/job'
 import type { JobResumo } from '@/types/api'
 import { useRoute, useRouter } from 'vue-router'
 import { useCorrecao } from '../composables/useCorrecao'
@@ -33,7 +33,7 @@ watch(seguirProcessamento, (seguir) => {
   if (seguir) void router.replace(`/jobs/${encodeURIComponent(jobId.value)}`)
 })
 
-const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
+const regrasRecentes = ref<{ identificador: string; rotulo: string; destino: string }[]>([])
 const quantidadeArquivadas = ref(0)
 const quantidadeSalvas = ref(0)
 const carregandoHistorico = ref(true)
@@ -61,6 +61,7 @@ async function carregarHistorico() {
     regrasRecentes.value = jobs.slice(0, 6).map((job) => ({
       identificador: job.id,
       rotulo: rotuloDaRegra(job),
+      destino: destinoDoJob(job),
     }))
     quantidadeArquivadas.value = jobs.filter((job) => job.status === 'arquivado').length
     quantidadeSalvas.value = jobs.length - quantidadeArquivadas.value

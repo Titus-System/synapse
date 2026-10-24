@@ -67,6 +67,28 @@ describe('TheSidebar', () => {
     expect(conteiner.text()).toContain('Nenhuma regra criada ainda.')
   })
 
+  it('leva o atalho ao destino informado', () => {
+    const conteiner = mount(TheSidebar, {
+      ...opcoesDeMontagem(),
+      props: {
+        regrasRecentes: [
+          { identificador: 'job-1', rotulo: 'Pendente', destino: '/jobs/job-1/correcao' },
+        ],
+      },
+    })
+
+    expect(conteiner.get('li a').attributes('href')).toBe('/jobs/job-1/correcao')
+  })
+
+  it('mantém o destino padrão quando o atalho não informa um', () => {
+    const conteiner = mount(TheSidebar, {
+      ...opcoesDeMontagem(),
+      props: { regrasRecentes: [{ identificador: 'job-1', rotulo: 'Regra' }] },
+    })
+
+    expect(conteiner.get('li a').attributes('href')).toBe('/jobs/job-1')
+  })
+
   it('leva às listas do histórico', () => {
     const conteiner = mount(TheSidebar, {
       ...opcoesDeMontagem(),

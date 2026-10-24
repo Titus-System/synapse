@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
 import { apiClient } from '@/services/api'
-import { rotuloDaRegra } from '@/services/job'
+import { destinoDoJob, rotuloDaRegra } from '@/services/job'
 import type { JobResumo } from '@/types/api'
 import CampoDeMultiSelecao from '../components/CampoDeMultiSelecao.vue'
 import CampoDeSelecao from '../components/CampoDeSelecao.vue'
@@ -13,7 +13,7 @@ import { useFormularioRegra } from '../composables/useFormularioRegra'
 
 const rota = useRoute()
 const roteador = useRouter()
-const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
+const regrasRecentes = ref<{ identificador: string; rotulo: string; destino: string }[]>([])
 const quantidadeArquivadas = ref(0)
 const quantidadeSalvas = ref(0)
 const {
@@ -57,6 +57,7 @@ async function carregarRegrasRecentes(): Promise<void> {
     regrasRecentes.value = resumosDosJobs.slice(0, 6).map((resumoDoJob) => ({
       identificador: resumoDoJob.id,
       rotulo: rotuloDaRegra(resumoDoJob),
+      destino: destinoDoJob(resumoDoJob),
     }))
     atualizarContagensDeRegras(resumosDosJobs)
   } catch {
