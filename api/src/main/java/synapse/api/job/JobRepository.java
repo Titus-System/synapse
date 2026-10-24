@@ -598,6 +598,45 @@ class JobRepository {
 				""", UUID.class, jobId);
 	}
 
+	/**
+	 * A posição, a partir de 1, do código que produziu o resultado entre os gerados para
+	 * a mesma versão da regra, pela ordem de criação. O codegen conta do mesmo jeito para
+	 * decidir se corrige o código ({@link CorrecaoDoCodigo}); zero quando o resultado não
+	 * é do job.
+	 */
+	int posicaoDoCodigoDoResultado(UUID jobId, UUID resultadoId) {
+		Integer posicao = this.jdbc.queryForObject("""
+				SELECT count(*) FROM resultados_simulacao rs
+				JOIN codigos_gerados alvo ON alvo.id = rs.codigo_gerado_id AND alvo.job_id = rs.job_id
+				JOIN codigos_gerados c ON c.regra_id = alvo.regra_id AND c.job_id = alvo.job_id
+				WHERE rs.id = ? AND rs.job_id = ? AND (c.criado_em, c.id) <= (alvo.criado_em, alvo.id)
+				""", Integer.class, resultadoId, jobId);
+		return (posicao != null) ? posicao : 0;
+	}
+
+	/**
+	 * O resultado mais recente da versão atual quando ele é uma falha do código que ainda
+	 * cabe corrigir: vazio fora disso. É o estado do job enquanto o codegen gera o código
+	 * corrigido, mesmo antes de esta api consumir o resultado.
+	 */
+	List<UUID> buscarResultadoEmCorrecao(UUID jobId) {
+		return this.jdbc.queryForList("""
+				WITH ultimo AS (
+				  SELECT rs.id, rs.status, alvo.id AS codigo_id, alvo.regra_id, alvo.criado_em
+				  FROM resultados_simulacao rs
+				  JOIN codigos_gerados alvo ON alvo.id = rs.codigo_gerado_id AND alvo.job_id = rs.job_id
+				  JOIN regras r ON r.id = alvo.regra_id AND r.job_id = rs.job_id
+				  WHERE rs.job_id = ? AND rs.proposito = 'simulacao'
+				    AND NOT EXISTS (SELECT 1 FROM regras nova WHERE nova.job_id = r.job_id
+				        AND nova.versao > r.versao)
+				  ORDER BY rs.criado_em DESC, rs.id DESC LIMIT 1)
+				SELECT u.id FROM ultimo u
+				WHERE u.status IN ('erro_codigo', 'assercao_violada')
+				  AND (SELECT count(*) FROM codigos_gerados c WHERE c.regra_id = u.regra_id AND c.job_id = ?
+				      AND (c.criado_em, c.id) <= (u.criado_em, u.codigo_id)) < ?
+				""", UUID.class, jobId, jobId, CorrecaoDoCodigo.LIMITE_DE_CODIGOS_POR_VERSAO);
+	}
+
 	List<UUID> vincularResultado(UUID jobId, UUID resultadoId) {
 		return this.jdbc.query("""
 				UPDATE simulacoes s SET resultado_id = r.id

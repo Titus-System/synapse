@@ -53,7 +53,11 @@ class ChamadaExtracao:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ResultadoExtracao:
+    """`elementos_redundantes` conta os genéricos descartados por só repetirem o núcleo. Não é
+    gravado: o contrato de rebaixamentos descreve o que ficou na representação."""
+
     representacao: RepresentacaoRegra
     rebaixamentos: list[Rebaixamento]
     parametros: dict[str, ValorRegra]
     chamada: ChamadaExtracao
+    elementos_redundantes: int = 0

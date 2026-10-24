@@ -47,7 +47,8 @@ async def test_par_sem_lastro_ou_associacao_ambigua_nao_vira_proposta_parcial(
     )
     regra = resultado.representacao.para_contrato()
     assert "taxas_por_cargo" not in regra["nucleo"]  # type: ignore[operator]
-    assert len(resultado.rebaixamentos) == 2
+    assert regra["especificacoes"] == []
+    assert [r.ref for r in resultado.rebaixamentos] == ["nucleo.taxas_por_cargo"]
     assert not verificar(regra).liberado
 
 

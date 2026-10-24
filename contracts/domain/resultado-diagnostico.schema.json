@@ -20,9 +20,10 @@
         "resultado_fora_do_schema",
         "baseline_divergente",
         "resultado_incoerente",
-        "cobertura_incompleta"
+        "cobertura_incompleta",
+        "fora_do_escopo"
       ],
-      "description": "Por que a execução foi classificada como erro_codigo, no vocabulário de classificação do worker. excecao: o envelope do sandbox declara erro_codigo com a falha estruturada, seja uma exceção da regra, seja uma saída que o harness recusou ao agregar. timeout: a execução estourou o prazo e foi encerrada. memoria: o container foi encerrado por exceder o limite de memória. saida_truncada: o stdout passou do teto e foi cortado. sem_envelope: o container terminou sem escrever nada no stdout. envelope_invalido: o stdout não é um envelope de uma linha com a forma e a coerência que o harness produz. envelope_de_outra_execucao: o envelope traz job, código ou competências diferentes dos enviados. codigo_de_saida_divergente: o código de saída do processo contradiz o status do envelope. resultado_fora_do_schema: o envelope diz sucesso, mas o resultado não valida contra resultado-simulacao. baseline_divergente: o total do baseline devolvido não é o que o worker mantém congelado, ou os totais não fecham entre si. resultado_incoerente: a conferência fora do container recusou o detalhamento porque suas linhas não fecham com os totais ou com as quebras da decomposição; distinta de baseline_divergente, que continua identificando divergências do baseline congelado e a conferência de totais já existente. cobertura_incompleta: o comando executar-codigo trouxe elementos_exigidos, e um deles não está em elementos_implementados, a lista que o código gerado declara no retorno de aplicar_regra, ou contribuicoes atribui valor a um elemento fora de elementos_exigidos; elementos_ausentes e elementos_fora_da_regra dizem quais. Só excecao tem falha estruturada: as demais causas são decididas fora do código gerado, a partir do que o worker observou do processo e da saída. Acrescentar uma causa é mudança aditiva e exige atualizar produtor e leitores na mesma alteração."
+      "description": "Por que a execução foi classificada como erro_codigo, no vocabulário de classificação do worker. excecao: o envelope do sandbox declara erro_codigo com a falha estruturada, seja uma exceção da regra, seja uma saída que o harness recusou ao agregar. timeout: a execução estourou o prazo e foi encerrada. memoria: o container foi encerrado por exceder o limite de memória. saida_truncada: o stdout passou do teto e foi cortado. sem_envelope: o container terminou sem escrever nada no stdout. envelope_invalido: o stdout não é um envelope de uma linha com a forma e a coerência que o harness produz. envelope_de_outra_execucao: o envelope traz job, código ou competências diferentes dos enviados. codigo_de_saida_divergente: o código de saída do processo contradiz o status do envelope. resultado_fora_do_schema: o envelope diz sucesso, mas o resultado não valida contra resultado-simulacao. baseline_divergente: o total do baseline devolvido não é o que o worker mantém congelado, ou os totais não fecham entre si. resultado_incoerente: a conferência fora do container recusou o detalhamento porque suas linhas não fecham com os totais ou com as quebras da decomposição; distinta de baseline_divergente, que continua identificando divergências do baseline congelado e a conferência de totais já existente. cobertura_incompleta: o comando executar-codigo trouxe elementos_exigidos, e um deles não está em elementos_implementados, a lista que o código gerado declara no retorno de aplicar_regra, ou contribuicoes atribui valor a um elemento fora de elementos_exigidos; elementos_ausentes e elementos_fora_da_regra dizem quais. fora_do_escopo: o comando executar-codigo trouxe alcance, e a comissão simulada de alguma linha fora dele difere da do baseline por mais de um centavo; linhas_fora_do_escopo diz quantas e quais. Só excecao tem falha estruturada: as demais causas são decididas fora do código gerado, a partir do que o worker observou do processo e da saída. Acrescentar uma causa é mudança aditiva e exige atualizar produtor e leitores na mesma alteração."
     },
     "falha": {
       "type": "object",
@@ -82,6 +83,36 @@
       "items": { "$ref": "comum.schema.json#/$defs/elemento_ref" },
       "description": "Identificadores a que o código gerado atribuiu valor em contribuicoes e que não estão em elementos_exigidos: valor atribuído a um elemento que a regra não tem. Existe somente quando a causa é cobertura_incompleta e houve atribuição assim; nunca vazia. Os identificadores vêm do código gerado, mas só chegam aqui depois de validados contra elemento_ref, e por isso não carregam texto livre.",
       "examples": [["elem.9"]]
+    },
+    "linhas_fora_do_escopo": {
+      "type": "object",
+      "required": ["total", "exemplos"],
+      "description": "As linhas do detalhamento fora do alcance da regra cuja comissão simulada difere da do baseline. Existe somente quando a causa é fora_do_escopo. É o que diz ao codegen onde o código mudou o que a regra não alcança.",
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Quantas linhas, matrícula e competência, ficaram fora do baseline."
+        },
+        "exemplos": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "description": "As primeiras linhas, na ordem do detalhamento, com a diferença entre a comissão simulada e a do baseline.",
+          "items": {
+            "type": "object",
+            "required": ["competencia", "matricula", "cod_loja", "cod_marca", "cod_cargo", "diferenca"],
+            "properties": {
+              "competencia": { "$ref": "comum.schema.json#/$defs/competencia" },
+              "matricula": { "$ref": "comum.schema.json#/$defs/matricula" },
+              "cod_loja": { "$ref": "comum.schema.json#/$defs/codigo" },
+              "cod_marca": { "$ref": "comum.schema.json#/$defs/codigo" },
+              "cod_cargo": { "$ref": "comum.schema.json#/$defs/codigo" },
+              "diferenca": { "$ref": "comum.schema.json#/$defs/brl" }
+            }
+          }
+        }
+      }
     }
   },
   "allOf": [
@@ -113,6 +144,14 @@
           "anyOf": [{ "required": ["elementos_ausentes"] }, { "required": ["elementos_fora_da_regra"] }]
         }
       }
+    },
+    {
+      "if": {
+        "required": ["causa"],
+        "properties": { "causa": { "const": "fora_do_escopo" } }
+      },
+      "then": { "required": ["linhas_fora_do_escopo"] },
+      "else": { "not": { "required": ["linhas_fora_do_escopo"] } }
     }
   ],
   "examples": [
@@ -130,6 +169,22 @@
       "causa": "cobertura_incompleta",
       "elementos_ausentes": ["elem.1"],
       "elementos_fora_da_regra": ["elem.9"]
+    },
+    {
+      "causa": "fora_do_escopo",
+      "linhas_fora_do_escopo": {
+        "total": 111,
+        "exemplos": [
+          {
+            "competencia": "2025-08",
+            "matricula": "MATRIC-371",
+            "cod_loja": "33",
+            "cod_marca": "10",
+            "cod_cargo": "100",
+            "diferenca": 350.0
+          }
+        ]
+      }
     },
     {
       "causa": "resultado_fora_do_schema",

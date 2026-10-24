@@ -99,7 +99,7 @@ class SugestaoAdaptacaoConsumidorTests {
 		UUID simulacaoId = UUID.randomUUID();
 		given(this.servico.aplicarSugestaoAdaptacao(any(), any(), any(), any(), any()))
 			.willReturn(new SugestaoAplicada(JobStatus.SIMULACAO_INVIAVEL, versao,
-					new DesfechoAplicado(JobStatus.SIMULANDO, simulacaoId, false, false)));
+					new DesfechoAplicado(JobStatus.SIMULANDO, simulacaoId, false, false, false)));
 		List<EventoSse> eventos = emitidos();
 
 		this.consumidor.receber(evento(representacao(), 1));

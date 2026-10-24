@@ -19,7 +19,7 @@ from app.contratos.serializacao import serializar
 from app.graph.core.engine import build_graph
 from app.mensageria.consumers import Consumer
 from app.mensageria.roteamento import GraphRouter, thread_do_ciclo
-from app.repositorio.regras import TentativasDeTaxa
+from app.repositorio.regras import Procedencia, TentativasDeTaxa
 from app.representacao_regra import RepresentacaoRegra
 from tests.app.banco_falso import BancoFalso
 from tests.app.graph.conftest import FakeChatModel
@@ -57,10 +57,19 @@ class ConfirmacaoFalsa:
 
         monkeypatch.setattr("app.graph.entrypoint.get_checkpointer", checkpointer)
         monkeypatch.setattr("app.graph.nodes.load_rule.buscar_regra", self.buscar_regra)
+        # Uma versão que não é alternativa de taxa segue para a geração pelo modelo.
+        monkeypatch.setattr(
+            "app.graph.nodes.derive_code.buscar_procedencia",
+            AsyncMock(return_value=Procedencia("extracao", None)),
+        )
         # A versão não nasceu da extração, ou nasceu sem parâmetro descartado.
         self.sem_lastro = AsyncMock(return_value=frozenset())
         monkeypatch.setattr(
             "app.graph.nodes.validate_domain.parametros_sem_lastro", self.sem_lastro
+        )
+        self.nucleo_sem_lastro = AsyncMock(return_value=frozenset())
+        monkeypatch.setattr(
+            "app.graph.nodes.validate_domain.nucleo_sem_lastro", self.nucleo_sem_lastro
         )
         self.contar_tentativas = AsyncMock(
             return_value=TentativasDeTaxa(feitas=0, regra_e_tentativa=False)

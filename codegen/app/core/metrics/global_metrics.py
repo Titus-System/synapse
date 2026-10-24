@@ -1,5 +1,6 @@
 from prometheus_client import Histogram
 
+from app.correcao_codigo import CAUSAS_DE_CORRECAO
 from app.nos.codigos_conflito import CodigoConflito
 
 from .prometheus import prometheus
@@ -144,6 +145,12 @@ parametros_extracao = prometheus.register_counter(
     "Extrações concluídas por parâmetro da simulação e se o texto o trouxe",
     ["parametro", "resultado"],
 )
+# Conta só a montagem feita na chamada ao modelo: a extração reaproveitada não a refaz, e o número
+# não é gravado com o artefato.
+elementos_redundantes_extracao = prometheus.register_counter(
+    "codegen_extracao_elementos_redundantes_total",
+    "Elementos genéricos descartados na extração por só repetirem o núcleo",
+)
 for _construto in CONSTRUTOS_DA_EXTRACAO:
     elementos_extraidos.labels(construto=_construto)
 for _motivo in MOTIVOS_DE_REBAIXAMENTO:
@@ -175,6 +182,45 @@ tentativas_de_taxa = prometheus.register_counter(
 for _tentativa in TENTATIVAS_DE_TAXA:
     for _desfecho in DESFECHOS_DA_TENTATIVA:
         tentativas_de_taxa.labels(tentativa=_tentativa, desfecho=_desfecho)
+
+# A `tentativa` é a posição do código corrigido na versão da regra, `2` ou `3`: o primeiro
+# código nunca é correção. Os pedidos são contados pela decisão que encaminha à correção, e o
+# desfecho pela decisão sobre a execução do código corrigido. Contam execuções do nó, como as
+# tentativas de taxa.
+TENTATIVAS_DE_CORRECAO = ("2", "3")
+correcoes_codigo = prometheus.register_counter(
+    "codegen_correcoes_codigo_total",
+    "Correções do código gerado pedidas ao modelo depois de uma execução com falha",
+    ["tentativa", "causa"],
+)
+desfechos_correcao_codigo = prometheus.register_counter(
+    "codegen_correcao_codigo_desfechos_total",
+    "Desfecho da execução de um código corrigido",
+    ["tentativa", "desfecho"],
+)
+for _tentativa in TENTATIVAS_DE_CORRECAO:
+    for _causa in CAUSAS_DE_CORRECAO:
+        correcoes_codigo.labels(tentativa=_tentativa, causa=_causa)
+    for _desfecho in ("sucesso", "erro"):
+        desfechos_correcao_codigo.labels(tentativa=_tentativa, desfecho=_desfecho)
+
+# Uma por ciclo de alternativa de taxa que chega à derivação do código: `derivado` quando o código
+# da versão de origem recebeu as taxas novas sem chamar o modelo, e o motivo quando o código foi
+# gerado pelo modelo. Conta execuções do nó: a reexecução de um ciclo interrompido no meio do nó
+# conta de novo. A versão que não é alternativa não conta.
+DESFECHOS_DA_DERIVACAO = (
+    "derivado",
+    "sem_codigo_simulado",
+    "regra_alterada",
+    "taxas_nao_localizadas",
+)
+derivacoes_codigo = prometheus.register_counter(
+    "codegen_derivacao_codigo_total",
+    "Códigos de alternativa de taxa derivados do código da versão de origem, por desfecho",
+    ["desfecho"],
+)
+for _desfecho in DESFECHOS_DA_DERIVACAO:
+    derivacoes_codigo.labels(desfecho=_desfecho)
 
 # Uma tentativa por job encerrado que ainda tinha checkpoints a remover. `adiada` é a tentativa
 # que esbarrou num processamento em andamento ou num ciclo à espera do resultado e será refeita

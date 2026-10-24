@@ -60,6 +60,8 @@ O espaço é único porque as mesmas listas citam os dois lado a lado: a declara
 
 Os parâmetros da simulação (orçamento, meta de venda e período) não fazem parte da regra nem desse espaço. Um conflito ou um rebaixamento que os cita usa `parametros.orcamento`, `parametros.meta_venda` ou `parametros.competencias`. Essas referências são aceitas só em `conflitos-rodada.schema.json` e em `rebaixamentos-extracao.schema.json`, para que a cobertura declarada pelo código gerado e a quebra por elemento continuem restritas às partes da regra.
 
+Um rebaixamento também cita `nucleo.vigencia`, `nucleo.loja`, `nucleo.marca`, `nucleo.cargo` ou `nucleo.taxas_por_cargo` quando o texto disse esse critério e a extração não o reconheceu. O critério fica fora da representação, sem virar elemento genérico, e a validação pede a correção dele. Um elemento genérico que repete um critério não reconhecido não pode ser implementado pelo código gerado e interromperia a simulação na conferência de cobertura.
+
 ## Estado existente e evolução planejada
 
 Os schemas descrevem formatos compartilhados; sua existência não comprova que a extração ou a geração de todos os construtos já esteja implementada.

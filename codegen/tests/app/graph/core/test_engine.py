@@ -17,7 +17,7 @@ from app.config import get_settings
 from app.graph.core.engine import build_graph
 from app.graph.core.state import AgentState
 from app.prompts.geracao_codigo import montar_prompt_geracao
-from app.repositorio.regras import TentativasDeTaxa
+from app.repositorio.regras import Procedencia, TentativasDeTaxa
 from app.repositorio.resultados import TotaisDaSimulacao
 from app.representacao_regra import RepresentacaoRegra
 from app.sugestao_adaptacao import TaxaSimulada
@@ -51,6 +51,7 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
         "reextract_rule",
         "validate_domain",
         "report_conflicts",
+        "derive_code",
         "code_generation",
         "persist_response",
         "extract_code",
@@ -70,8 +71,10 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
         ("extract_rule", "__end__"),
         ("reextract_rule", "__end__"),
         ("load_rule", "validate_domain"),
-        ("validate_domain", "code_generation"),
+        ("validate_domain", "derive_code"),
         ("validate_domain", "report_conflicts"),
+        ("derive_code", "code_generation"),
+        ("derive_code", "dispatch_execution"),
         ("report_conflicts", "__end__"),
         ("code_generation", "persist_response"),
         ("persist_response", "extract_code"),
@@ -82,6 +85,7 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
         ("decision", "__end__"),
         ("suggest_adaptation", "__end__"),
         ("decision", "search_sales_target"),
+        ("decision", "code_generation"),
         ("search_sales_target", "dispatch_execution"),
         ("search_sales_target", "publish_sales_target"),
         ("publish_sales_target", "__end__"),
@@ -112,11 +116,20 @@ class _Execucao:
         regra: RepresentacaoRegra = _REGRA,
     ) -> None:
         monkeypatch.setattr("app.graph.nodes.load_rule.buscar_regra", AsyncMock(return_value=regra))
+        # Uma versão que não é alternativa de taxa segue para a geração pelo modelo.
+        monkeypatch.setattr(
+            "app.graph.nodes.derive_code.buscar_procedencia",
+            AsyncMock(return_value=Procedencia("extracao", None)),
+        )
         # O banco falso não responde às consultas da busca da meta maior, que tem testes
         # próprios (`tests/app/graph/test_busca_meta.py`).
         monkeypatch.setattr(get_settings(), "BUSCA_META_ENABLED", False)
         monkeypatch.setattr(
             "app.graph.nodes.validate_domain.parametros_sem_lastro",
+            AsyncMock(return_value=frozenset()),
+        )
+        monkeypatch.setattr(
+            "app.graph.nodes.validate_domain.nucleo_sem_lastro",
             AsyncMock(return_value=frozenset()),
         )
         monkeypatch.setattr(
@@ -236,9 +249,7 @@ async def test_an_unaffordable_result_routes_to_the_adaptation_and_proposes_one(
     monkeypatch.setattr(
         "app.graph.nodes.suggest_adaptation.buscar_totais",
         AsyncMock(
-            return_value=TotaisDaSimulacao(
-                Decimal("492100"), Decimal("485000"), baseline=Decimal("480312")
-            )
+            return_value=TotaisDaSimulacao(Decimal("492100"), Decimal("485000"), linhas=None)
         ),
     )
     # A regra ainda não foi adaptada: a cadeia dela tem só a taxa que acabou de ser simulada.
@@ -253,7 +264,8 @@ async def test_an_unaffordable_result_routes_to_the_adaptation_and_proposes_one(
     await execucao.retomar(RETOMADA_INVIAVEL)
 
     [proposta] = execucao.producers.sugestao_adaptacao_proposta.await_args.args
-    assert proposta.representacao.para_contrato()["nucleo"]["percentual"] == Decimal("0.0099")
+    # A regra vale para todas as lojas, marcas e cargos: toda a comissão acompanha a taxa.
+    assert proposta.representacao.para_contrato()["nucleo"]["percentual"] == Decimal("0.0246")
     assert (await execucao.graph.aget_state(execucao.config)).next == ()
 
 

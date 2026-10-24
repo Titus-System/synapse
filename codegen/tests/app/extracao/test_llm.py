@@ -57,6 +57,20 @@ async def test_modelo_real_extrai_nucleo_sem_duplicar_como_elemento() -> None:
 
 @pytest.mark.llm
 @pytest.mark.skipif(not get_settings().GOOGLE_API_KEY, reason="requer GOOGLE_API_KEY")
+async def test_modelo_real_resolve_a_loja_dita_por_extenso_na_transcricao() -> None:
+    # A transcrição de voz escreve os números por extenso (ADR-007).
+    resultado = await _extrair(
+        "loja sessenta e oito marca preto para todos os cargos com comissão de dois por cento"
+    )
+
+    nucleo = resultado.representacao.para_contrato()["nucleo"]
+    assert nucleo["loja"] == ["68"]  # type: ignore[index]
+    assert nucleo["marca"] == ["10"]  # type: ignore[index]
+    assert resultado.rebaixamentos == []
+
+
+@pytest.mark.llm
+@pytest.mark.skipif(not get_settings().GOOGLE_API_KEY, reason="requer GOOGLE_API_KEY")
 async def test_modelo_real_extrai_orcamento_meta_e_periodo_da_simulacao() -> None:
     resultado = await _extrair(
         "Comissão de 2,5% para os vendedores da marca 10, com orçamento de R$ 500 mil e "
