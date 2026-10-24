@@ -29,3 +29,23 @@ export const vozCriada: CorrecaoCriada = {
   job: { id: jobCorrecao.id, status: jobCorrecao.status },
   rodada: rodadaVoz,
 }
+export const corrigida: Rodada = {
+  ...pendente,
+  id: 'a1b2c3d4-0000-4000-8000-000000000001',
+  estado: 'corrigida',
+  correcao: { texto: 'o percentual é 5%', enviada_em: '2025-11-24T14:03:05Z' },
+  regra_resultante_id: '9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e70',
+}
+export const falhou: Rodada = {
+  ...pendente,
+  id: 'a1b2c3d4-0000-4000-8000-000000000002',
+  rodada_anterior_id: corrigida.id,
+  estado: 'reextracao_falhou',
+  correcao: { texto: 'valor', enviada_em: '2025-11-24T14:04:05Z' },
+}
+export const abandonada: Rodada = {
+  ...pendente,
+  id: 'a1b2c3d4-0000-4000-8000-000000000003',
+  rodada_anterior_id: falhou.id,
+  estado: 'abandonada',
+}

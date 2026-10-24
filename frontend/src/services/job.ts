@@ -1,4 +1,4 @@
-import type { Job, JobResumo, RegraVersionada } from '@/types/api'
+import type { Job, RegraVersionada, JobResumo } from '@/types/api'
 
 export function regraMaisRecente(regras: readonly RegraVersionada[]): RegraVersionada | undefined {
   return regras.reduce<RegraVersionada | undefined>(
@@ -26,4 +26,9 @@ export function simulacaoVisivel(job: Job | null) {
     return null
   }
   return job.simulacao ?? null
+}
+
+export function destinoDoJob(job: Pick<JobResumo, 'id' | 'status'>): string {
+  const base = `/jobs/${encodeURIComponent(job.id)}`
+  return job.status === 'aguardando_confirmacao_parametros' ? `${base}/correcao` : base
 }

@@ -5,7 +5,7 @@ import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
 import type { JobResumo, StatusJob } from '@/types/api'
 import { apiClient } from '@/services/api'
-import { regraMaisRecente, rotuloDaRegra } from '@/services/job'
+import { destinoDoJob, regraMaisRecente, rotuloDaRegra } from '@/services/job'
 import { transformarRegra } from '@/composables/transformarRegra'
 import { listarTodosOsJobs } from '../services/historicoJobs.api'
 import NomeEditavelDaRegra from '../components/NomeEditavelDaRegra.vue'
@@ -40,21 +40,22 @@ const regrasRecentes = computed(() =>
   resumosDosJobs.value.slice(0, 6).map((resumoDoJob) => ({
     identificador: resumoDoJob.id,
     rotulo: rotuloDaRegra(resumoDoJob),
+    destino: destinoDoJob(resumoDoJob),
   })),
 )
 
 function nomearStatus(status: StatusJob): string {
   const nomes: Record<StatusJob, string> = {
     aguardando_transcricao: 'Aguardando transcrição',
-    aguardando_confirmacao_parametros: 'Aguardando confirmação',
+    aguardando_confirmacao_parametros: 'Aguardando sua correção',
     gerando_regra: 'Gerando regra',
     simulando: 'Em simulação',
     simulacao_inviavel: 'Simulação inviável',
     aguardando_decisao_usuario: 'Aguardando decisão',
-    liberado: 'Liberado',
-    cancelado: 'Cancelado',
-    arquivado: 'Arquivado',
-    erro: 'Processamento com erro',
+    liberado: 'Salva',
+    cancelado: 'Cancelada',
+    arquivado: 'Arquivada',
+    erro: 'Um erro atrapalhou o processamento',
   }
   return nomes[status]
 }
@@ -250,9 +251,13 @@ watch(
               </template>
             </div>
 
-            <a :href="`/jobs/${resumoDoJob.id}`" class="mt-auto pt-6 text-sm font-semibold text-[#b84e08] transition hover:text-[#843600]">
-              Abrir relatório <span aria-hidden="true">→</span>
-            </a>
+            <RouterLink
+              :to="destinoDoJob(resumoDoJob)"
+              class="mt-auto pt-6 text-sm font-semibold text-[#b84e08] transition hover:text-[#843600]"
+            >
+              {{ resumoDoJob.status === 'aguardando_confirmacao_parametros' ? 'Continuar correção' : 'Abrir relatório' }}
+              <span aria-hidden="true">→</span>
+            </RouterLink>
           </article>
         </div>
 

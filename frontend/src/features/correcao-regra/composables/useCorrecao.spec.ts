@@ -234,3 +234,39 @@ it('volta ao progresso quando a correção leva o job adiante', async () => {
   expect(fluxo.seguirProcessamento.value).toBe(true)
   expect(fluxo.semCorrecao.value).toBe(false)
 })
+it('não registra o texto da correção enviada por texto, em sucesso ou falha', async () => {
+  const { fluxo } = await montar()
+  vi.mocked(api.enviarCorrecaoTexto).mockRejectedValueOnce(
+    new HttpError(500, 'excecao privada'),
+  )
+  fluxo.texto.value = 'texto privado da correcao'
+  await fluxo.enviar()
+  vi.mocked(api.enviarCorrecaoTexto).mockResolvedValueOnce({
+    ...vozCriada,
+    tipo: 'texto',
+    rodada: { ...rodadaVoz, estado: 'em_reextracao', correcao: { texto: 'texto privado da correcao', enviada_em: rodadaVoz.criada_em } },
+  })
+  fluxo.texto.value = 'texto privado da correcao'
+  await fluxo.enviar()
+  const todos = JSON.stringify([
+    ...vi.mocked(console.info).mock.calls,
+    ...vi.mocked(console.error).mock.calls,
+  ])
+  expect(todos).not.toContain('texto privado da correcao')
+  expect(todos).not.toContain('excecao privada')
+})
+it('abrir e sair da conversa não envia nada ao servidor', async () => {
+  vi.mocked(api.listarRodadas).mockResolvedValue([pendente])
+  await montar()
+  wrappers[0]!.unmount()
+  await flushPromises()
+  expect(api.enviarCorrecaoTexto).not.toHaveBeenCalled()
+  expect(api.enviarCorrecaoVoz).not.toHaveBeenCalled()
+})
+it.each(['cancelado', 'arquivado'] as const)('marca %s como somente leitura', async (status) => {
+  vi.mocked(apiClient.consultarJob).mockResolvedValue({ ...structuredClone(jobCorrecao), status })
+  vi.mocked(api.listarRodadas).mockResolvedValue([{ ...pendente, estado: 'abandonada' }])
+  const { fluxo } = await montar()
+  expect(fluxo.encerrado.value).toBe(true)
+  expect(fluxo.habilitada.value).toBe(false)
+})

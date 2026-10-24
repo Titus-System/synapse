@@ -5,7 +5,7 @@ import { HttpError } from '@/services/http'
 import { enviarTexto, enviarAudio } from '../services/submissoes.api'
 import { registrarEntrada } from '../services/observabilidade'
 import { apiClient } from '@/services/api'
-import { rotuloDaRegra } from '@/services/job'
+import { destinoDoJob, rotuloDaRegra } from '@/services/job'
 import type { JobResumo } from '@/types/api'
 import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
@@ -50,7 +50,7 @@ async function enviar(audio?: Blob) {
 }
 const modo = ref<'voz' | 'texto'>('voz')
 const descricao = ref('')
-const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
+const regrasRecentes = ref<{ identificador: string; rotulo: string; destino: string }[]>([])
 const quantidadeArquivadas = ref(0)
 const quantidadeSalvas = ref(0)
 const carregandoHistorico = ref(true)
@@ -78,6 +78,7 @@ async function carregarHistorico() {
     regrasRecentes.value = jobs.slice(0, 6).map((job) => ({
       identificador: job.id,
       rotulo: rotuloDaRegra(job),
+      destino: destinoDoJob(job),
     }))
     quantidadeArquivadas.value = jobs.filter((job) => job.status === 'arquivado').length
     quantidadeSalvas.value = jobs.length - quantidadeArquivadas.value

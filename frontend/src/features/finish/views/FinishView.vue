@@ -5,7 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import { apiClient } from "@/services/api";
 import type { JobResumo } from "@/types/api";
 import { HttpError } from "@/services/http";
-import { regraMaisRecente, rotuloDaRegra, simulacaoVisivel } from "@/services/job";
+import { destinoDoJob, regraMaisRecente, rotuloDaRegra, simulacaoVisivel } from "@/services/job";
 import { usarStoreJobAtual } from "@/stores/currentJob";
 import TheProcessHeader from "@/components/TheProcessHeader.vue";
 import TheSidebar from "@/components/TheSidebar.vue";
@@ -19,7 +19,7 @@ const roteador = useRouter();
 const store = usarStoreJobAtual();
 const { job, carregando } = storeToRefs(store);
 const jobId = computed(() => String(rota.params.id));
-const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([]);
+const regrasRecentes = ref<{ identificador: string; rotulo: string; destino: string }[]>([])
 const quantidadeArquivadas = ref(0);
 const quantidadeSalvas = ref(0);
 const regra = computed(() =>
@@ -88,6 +88,7 @@ async function carregarRegrasRecentes(): Promise<void> {
     regrasRecentes.value = resumosDosJobs.slice(0, 6).map((resumoDoJob) => ({
       identificador: resumoDoJob.id,
       rotulo: rotuloDaRegra(resumoDoJob),
+      destino: destinoDoJob(resumoDoJob),
     }));
 
     quantidadeArquivadas.value = resumosDosJobs.filter(

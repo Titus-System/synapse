@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { apiClient } from '@/services/api'
-import { rotuloDaRegra } from '@/services/job'
+import { destinoDoJob, rotuloDaRegra } from '@/services/job'
 import type { JobResumo } from '@/types/api'
 import { useRoute, useRouter } from 'vue-router'
 import { useJobSimulacao } from '../composables/useJobSimulacao'
@@ -20,7 +20,7 @@ import { useDetalhamento } from '@/composables/useDetalhamento'
 const rota = useRoute()
 const roteador = useRouter()
 const jobId = computed(() => String(rota.params.id))
-const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
+const regrasRecentes = ref<{ identificador: string; rotulo: string; destino: string }[]>([])
 const quantidadeArquivadas = ref(0)
 const quantidadeSalvas = ref(0)
 
@@ -135,6 +135,7 @@ async function carregarRegrasRecentes(): Promise<void> {
     regrasRecentes.value = resumosDosJobs.slice(0, 6).map((resumoDoJob) => ({
       identificador: resumoDoJob.id,
       rotulo: rotuloDaRegra(resumoDoJob),
+      destino: destinoDoJob(resumoDoJob),
     }))
 
     quantidadeArquivadas.value = resumosDosJobs.filter(

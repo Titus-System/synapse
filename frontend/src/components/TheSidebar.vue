@@ -7,6 +7,7 @@ import { usarStoreRenomearRegra, limiteDoNome } from '@/stores/renomearRegra'
 interface RegraRecente {
   identificador: string
   rotulo: string
+  destino?: string
 }
 
 withDefaults(
@@ -94,7 +95,7 @@ function aoSair(): void {
           </div>
           <div v-else class="group relative">
             <RouterLink
-              :to="`/jobs/${regra.identificador}`"
+              :to="regra.destino ?? `/jobs/${regra.identificador}`"
               :title="rotuloDe(regra)"
               class="flex h-10 min-w-0 items-center rounded-[.625rem] bg-[#4d3125] pr-10 pl-4 text-sm text-[#eaddd5] transition hover:bg-[#5a3b2c]"
             >

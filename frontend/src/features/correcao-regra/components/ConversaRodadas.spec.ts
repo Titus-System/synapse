@@ -1,7 +1,11 @@
 import { mount } from '@vue/test-utils'
 import { expect, it } from 'vitest'
 import ConversaRodadas from './ConversaRodadas.vue'
-import { rodadaVoz, pendente } from '../services/correcao.fixtures'
+import { rodadaVoz, pendente, falhou, corrigida, abandonada } from '../services/correcao.fixtures'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import type { Conflito } from '@/types/api'
+
 it('substitui espera por transcrição escapada, preserva indicação de voz e não duplica na reconciliação', async () => {
   const wrapper = mount(ConversaRodadas, { props: { rodadas: [rodadaVoz] } })
   expect(wrapper.text()).toContain('Seu áudio está sendo transcrito')
@@ -142,4 +146,86 @@ it('usa as competências conhecidas do job ao apresentar a vigência padrão', (
   expect(resumo).toContain('Validade: 08/2025, 10/2025, 12/2025')
   expect(resumo).toContain('Comissionamento: 3%, 2,5%')
   expect(resumo).not.toContain('competências não disponíveis')
+})
+it('mostra três rodadas em ordem, com conflito, correção e desfecho', () => {
+  const aberta = { ...pendente, id: 'aberta', rodada_anterior_id: falhou.id }
+  const wrapper = mount(ConversaRodadas, { props: { rodadas: [corrigida, falhou, aberta] } })
+  const blocos = wrapper.findAll('[data-rodada]').map((b) => b.attributes('data-rodada'))
+  expect(blocos).toEqual([corrigida.id, falhou.id, 'aberta'])
+  const texto = wrapper.text()
+  expect(texto.indexOf('o percentual é 5%')).toBeLessThan(texto.indexOf('A regra foi atualizada'))
+  expect(texto.indexOf('A regra foi atualizada')).toBeLessThan(
+    texto.indexOf('Não foi possível aplicar esta correção'),
+  )
+  expect(texto.split('percentual ausente')).toHaveLength(4)
+})
+
+it('mostra a rodada abandonada como encerrada, sem termos técnicos', () => {
+  const wrapper = mount(ConversaRodadas, { props: { rodadas: [abandonada] } })
+  const texto = wrapper.text().toLowerCase()
+  for (const termo of ['job', 'veredito', 'liberado', 'versão', 'nucleo.']) {
+    expect(texto).not.toContain(termo)
+  }
+  expect(wrapper.text()).toContain('Esta correção foi encerrada')
+})
+it('mostra os conflitos reais do contrato em termos do usuário, sem os identificadores internos', () => {
+  const conflitos = JSON.parse(
+    readFileSync(
+      resolve(__dirname, '../../../../../contracts/examples/domain/conflitos-rodada.json'),
+      'utf8',
+    ),
+  ) as Conflito[]
+  const wrapper = mount(ConversaRodadas, { props: { rodadas: [{ ...pendente, conflitos }] } })
+  const texto = wrapper.text()
+  for (const conflito of conflitos) expect(texto).toContain(conflito.motivo)
+  expect(wrapper.findAll('li')).toHaveLength(conflitos.length)
+  expect(texto).not.toContain('nucleo.')
+  expect(texto).not.toContain('elem.2')
+})
+it.each([
+  ['corrigida', 'A regra foi atualizada', 'sucesso'],
+  ['reextracao_falhou', 'Não foi possível aplicar esta correção', 'erro'],
+  ['abandonada', 'Esta correção foi encerrada', 'neutro'],
+  ['em_reextracao', 'Sua correção está sendo interpretada', 'andamento'],
+] as const)('destaca o desfecho %s com ícone e tom próprio', (estado, texto, tom) => {
+  const wrapper = mount(ConversaRodadas, {
+    props: {
+      rodadas: [{ ...pendente, estado, correcao: { texto: 'x', enviada_em: pendente.criada_em } }],
+    },
+  })
+  const balao = wrapper.get(`[data-tom="${tom}"]`)
+  expect(balao.text()).toContain(texto)
+  expect(balao.get('svg').attributes('aria-hidden')).toBe('true')
+})
+it('não mostra termos internos em nenhum estado da rodada', () => {
+  const regra = {
+    id: pendente.regra_analisada_id,
+    versao: 7,
+    origem: 'extracao' as const,
+    criada_em: '2025-11-24T14:00:00Z',
+    representacao: {
+      nucleo: { vigencia: { inicio: '2025-08', fim: '2025-12' }, percentual: 0.05 },
+      especificacoes: [],
+    },
+  }
+  const estados = [
+    pendente,
+    rodadaVoz,
+    { ...pendente, id: 'reextracao', estado: 'em_reextracao' as const, correcao: corrigida.correcao },
+    corrigida,
+    falhou,
+    abandonada,
+  ]
+  const wrapper = mount(ConversaRodadas, {
+    props: { rodadas: estados, regras: [regra], metaVenda: 200000 },
+  })
+  const texto = wrapper.text().toLowerCase()
+  for (const termo of ['job', 'veredito', 'liberado', 'versão', 'versao', 'nucleo.', 'elem.']) {
+    expect(texto, `termo proibido: ${termo}`).not.toContain(termo)
+  }
+  const padraoDeUuid = new RegExp('[0-9a-f]{8}-[0-9a-f]{4}-')
+  expect(padraoDeUuid.test(texto)).toBe(false)
+  for (const estado of ['pendente', 'em_reextracao', 'reextracao_falhou', 'corrigida', 'abandonada']) {
+    expect(texto).not.toContain(estado)
+  }
 })
