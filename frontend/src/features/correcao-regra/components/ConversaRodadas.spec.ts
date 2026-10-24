@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { expect, it } from 'vitest'
 import ConversaRodadas from './ConversaRodadas.vue'
-import { rodadaVoz, pendente } from '../services/correcao.fixtures'
+import { rodadaVoz, pendente, falhou, corrigida, abandonada } from '../services/correcao.fixtures'
 it('substitui espera por transcrição escapada, preserva indicação de voz e não duplica na reconciliação', async () => {
   const wrapper = mount(ConversaRodadas, { props: { rodadas: [rodadaVoz] } })
   expect(wrapper.text()).toContain('Seu áudio está sendo transcrito')
@@ -142,4 +142,25 @@ it('usa as competências conhecidas do job ao apresentar a vigência padrão', (
   expect(resumo).toContain('Validade: 08/2025, 10/2025, 12/2025')
   expect(resumo).toContain('Comissionamento: 3%, 2,5%')
   expect(resumo).not.toContain('competências não disponíveis')
+})
+it('mostra três rodadas em ordem, com conflito, correção e desfecho', () => {
+  const aberta = { ...pendente, id: 'aberta', rodada_anterior_id: falhou.id }
+  const wrapper = mount(ConversaRodadas, { props: { rodadas: [corrigida, falhou, aberta] } })
+  const blocos = wrapper.findAll('[data-rodada]').map((b) => b.attributes('data-rodada'))
+  expect(blocos).toEqual([corrigida.id, falhou.id, 'aberta'])
+  const texto = wrapper.text()
+  expect(texto.indexOf('o percentual é 5%')).toBeLessThan(texto.indexOf('A regra foi atualizada'))
+  expect(texto.indexOf('A regra foi atualizada')).toBeLessThan(
+    texto.indexOf('Não foi possível aplicar esta correção'),
+  )
+  expect(texto.split('percentual ausente')).toHaveLength(4)
+})
+
+it('mostra a rodada abandonada como encerrada, sem termos técnicos', () => {
+  const wrapper = mount(ConversaRodadas, { props: { rodadas: [abandonada] } })
+  const texto = wrapper.text().toLowerCase()
+  for (const termo of ['job', 'veredito', 'liberado', 'versão', 'nucleo.']) {
+    expect(texto).not.toContain(termo)
+  }
+  expect(wrapper.text()).toContain('Esta correção foi encerrada')
 })
