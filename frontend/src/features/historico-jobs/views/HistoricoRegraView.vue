@@ -10,7 +10,7 @@ import RelatorioSimulacao from '@/components/RelatorioSimulacao.vue'
 import { useDetalhamento } from '@/composables/useDetalhamento'
 import { observarConsulta } from '@/observability/consultasLogging'
 import { consultarDetalhamento } from '@/services/detalhamento'
-import { rotuloDaRegra } from '@/services/job'
+import { destinoDoJob, rotuloDaRegra } from '@/services/job'
 import { listarTodosOsJobs } from '../services/historicoJobs.api'
 import ResumoRegraHistorica from '../components/ResumoRegraHistorica.vue'
 import ResultadoVersaoHistorica from '../components/ResultadoVersaoHistorica.vue'
@@ -35,6 +35,7 @@ const regrasRecentes = computed(() =>
   resumosDosJobs.value.slice(0, 6).map((item) => ({
     identificador: item.id,
     rotulo: rotuloDaRegra(item),
+    destino: destinoDoJob(item),
   })),
 )
 const encerramento = computed(() => (job.value ? versaoDeEncerramento(job.value) : undefined))

@@ -182,3 +182,18 @@ it('mostra os conflitos reais do contrato em termos do usuário, sem os identifi
   expect(texto).not.toContain('nucleo.')
   expect(texto).not.toContain('elem.2')
 })
+it.each([
+  ['corrigida', 'A regra foi atualizada', 'sucesso'],
+  ['reextracao_falhou', 'Não foi possível aplicar esta correção', 'erro'],
+  ['abandonada', 'Esta correção foi encerrada', 'neutro'],
+  ['em_reextracao', 'Sua correção está sendo interpretada', 'andamento'],
+] as const)('destaca o desfecho %s com ícone e tom próprio', (estado, texto, tom) => {
+  const wrapper = mount(ConversaRodadas, {
+    props: {
+      rodadas: [{ ...pendente, estado, correcao: { texto: 'x', enviada_em: pendente.criada_em } }],
+    },
+  })
+  const balao = wrapper.get(`[data-tom="${tom}"]`)
+  expect(balao.text()).toContain(texto)
+  expect(balao.get('svg').attributes('aria-hidden')).toBe('true')
+})

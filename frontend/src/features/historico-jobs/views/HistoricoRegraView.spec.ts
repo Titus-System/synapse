@@ -323,7 +323,7 @@ it('exibe na barra lateral o nome da regra e, sem nome, o rótulo com a data', a
   const job = encerrado()
   const comNome = await montar(job, 'Comissão de novembro')
   expect(comNome.wrapper.findComponent(TheSidebar).props('regrasRecentes')).toEqual([
-    { identificador: 'job-1', rotulo: 'Comissão de novembro' },
+    { identificador: 'job-1', rotulo: 'Comissão de novembro', destino: '/jobs/job-1' },
   ])
   vi.resetAllMocks()
   const semNome = await montar(encerrado())
@@ -331,6 +331,7 @@ it('exibe na barra lateral o nome da regra e, sem nome, o rótulo com a data', a
     {
       identificador: 'job-1',
       rotulo: `Regra · ${new Date(job.criado_em).toLocaleDateString('pt-BR')}`,
+      destino: '/jobs/job-1'
     },
   ])
 })

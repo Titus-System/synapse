@@ -1,17 +1,25 @@
 <script setup lang="ts">
 import simbolo from '@/assets/imagens/synapse-simbolo.png'
-withDefaults(defineProps<{ usuario?: boolean }>(), { usuario: false })
+withDefaults(defineProps<{ usuario?: boolean, tom?: 'padrao' | 'sucesso' | 'erro' | 'neutro' | 'andamento' }>(), { usuario: false, tom: 'padrao' })
+const tons = {
+  padrao: 'border border-[#ffdbcd] bg-[#fff1ec] text-[#584237]',
+  sucesso: 'border-2 border-[#14532D]/40 bg-[#F0FDF4] text-[#14532D]',
+  erro: 'border-2 border-[#950606]/40 bg-[#FEF2F2] text-[#950606]',
+  neutro: 'border border-[#DFC0B2] bg-[#F4ECE6] text-[#584237]',
+  andamento: 'border-2 border-[#B45309]/40 bg-[#FFFBEB] text-[#92400E]',
+} as const
 </script>
 
 <template>
   <div class="flex items-end gap-3 sm:gap-4" :class="usuario ? 'justify-end' : 'justify-start'">
     <img v-if="!usuario" :src="simbolo" alt="Assistente" class="mb-1 size-7 shrink-0 sm:size-9" />
     <div
+      :data-tom="usuario ? undefined : tom"
       class="max-w-[85%] break-words px-4 py-4 text-base leading-relaxed shadow-sm sm:px-5 sm:text-lg"
       :class="
         usuario
           ? 'rounded-t-2xl rounded-bl-2xl bg-[#e7dfda] text-[#79736e]'
-          : 'rounded-t-2xl rounded-br-2xl border border-[#ffdbcd] bg-[#fff1ec] text-[#584237]'
+          : ['rounded-t-2xl rounded-br-2xl', tons[tom]]
       "
     >
       <slot />
