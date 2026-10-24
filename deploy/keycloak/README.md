@@ -294,6 +294,56 @@ O script o rejeita se `KEYCLOAK_PUBLIC_URL` não for loopback. Em staging use TL
 credenciais válidas e entrega real. O teste SMTP local não comprova SPF, DKIM,
 DMARC, reputação ou entrega na caixa de entrada externa.
 
+### Resend no staging
+
+Para enviar os e-mails de verificação e recuperação como
+`Synapse <acesso@synnapse.pro>`, confirme que `synnapse.pro` está **Verified** no
+Resend e crie uma API key com permissão de envio para esse domínio. Se a
+verificação estiver pendente, publique os registros DNS apresentados pelo
+Resend e conclua a verificação antes de testar o envio.
+
+No realm `synapse`, abra **Realm settings → Email** e configure:
+
+| Campo | Valor |
+| --- | --- |
+| From | `acesso@synnapse.pro` |
+| From display name | `Synapse` |
+| Host | `smtp.resend.com` |
+| Port | `465` |
+| SSL | Habilitado |
+| StartTLS | Desabilitado |
+| Authentication | Habilitada |
+| Username | `resend` |
+| Password | API key do Resend |
+
+Salvar essa tela altera o SMTP do realm. O Keycloak continua gerando as
+mensagens e os links. A porta `465` usa TLS implícito e precisa estar liberada
+para saída do servidor/container. Os parâmetros seguem a
+[documentação SMTP do Resend](https://resend.com/docs/send-with-smtp); os
+pré-requisitos de DNS estão em
+[domínios verificados](https://resend.com/docs/dashboard/domains/introduction).
+
+Para preservar essa configuração ao reaplicar o procedimento E11, mantenha os
+mesmos valores no `deploy/.env` do servidor, conforme `deploy/.env.example`.
+Preencha `KEYCLOAK_SMTP_PASSWORD` com a chave real diretamente nesse arquivo,
+ou use `KEYCLOAK_SMTP_PASSWORD_FILE`. Confira também as URLs de staging:
+`KEYCLOAK_PUBLIC_URL=https://auth.synnapse.pro` e
+`SYNAPSE_FRONTEND_URL=https://app.synnapse.pro`.
+
+O comando `python3 deploy/keycloak/configurar.py --env-file deploy/.env` aplica
+SMTP junto com toda a configuração E11 descrita acima, incluindo cadastro,
+recuperação, perfil, grupo, URLs e eventos. Para trocar somente o provedor de
+e-mail em um realm já configurado, use a tela **Email**. Alterar o `.env` ou
+recriar o container pelo CD, isoladamente, não atualiza o SMTP persistido.
+
+Use **Test connection** com uma conta administrativa que tenha e-mail
+configurado. Depois solicite uma recuperação pelo frontend de staging usando
+uma conta de teste existente e uma caixa de e-mail acessível. Confirme a
+entrega, o link em `https://auth.synnapse.pro`, a redefinição e o login com a
+nova senha. Consulte o painel **Emails** do Resend para acompanhar o envio e
+os eventos do Keycloak para diagnosticar falhas. A resposta genérica de
+recuperação não confirma a entrega.
+
 ### URLs por ambiente
 
 | Variável | Desenvolvimento | Staging |
