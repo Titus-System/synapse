@@ -1,0 +1,31 @@
+services:
+  mailpit:
+    image: axllent/mailpit:v1.27.4
+    ports:
+      - '127.0.0.1:8026:8025'
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.4
+    command: start-dev --hostname=http://localhost:8180 --metrics-enabled=true --event-metrics-user-enabled=true
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: e11-local-tests-only
+      KC_HEALTH_ENABLED: 'true'
+    ports:
+      - '127.0.0.1:8180:8080'
+      - '127.0.0.1:9000:9000'
+    depends_on:
+      mailpit:
+        condition: service_healthy
+    volumes:
+      - ../themes:/opt/keycloak/themes:ro
+    healthcheck:
+      test: ['CMD', 'bash', '-ec', "{ printf 'HEAD /health/ready HTTP/1.0\r\n\r\n' >&0; grep -q 'HTTP/1.0 200'; } 0<>/dev/tcp/localhost/9000"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 30s
