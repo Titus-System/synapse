@@ -16,6 +16,32 @@ class MensagemBase(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+Codigos = Annotated[list[Annotated[str, Field(min_length=1)]], Field(min_length=1)]
+Competencia = Annotated[str, Field(pattern=r"^[0-9]{4}-(0[1-9]|1[0-2])$")]
+
+
+class VigenciaDoAlcance(MensagemBase):
+    inicio: Competencia
+    fim: Competencia
+
+
+class ExcluidosDoAlcance(MensagemBase):
+    loja: Codigos | None = None
+    marca: Codigos | None = None
+    cargo: Codigos | None = None
+
+
+class AlcanceDaRegra(MensagemBase):
+    """As linhas a que a regra dá efeito, calculadas pelo codegen; cada campo ausente não
+    restringe a dimensão. Fora delas, a comissão simulada tem de ser a do baseline."""
+
+    vigencia: VigenciaDoAlcance | None = None
+    loja: Codigos | None = None
+    marca: Codigos | None = None
+    cargo: Codigos | None = None
+    excluidos: ExcluidosDoAlcance | None = None
+
+
 class ExecutarCodigo(MensagemBase):
     """Comando recebido pelo worker para executar uma regra gerada."""
 
@@ -35,14 +61,17 @@ class ExecutarCodigo(MensagemBase):
     # Ausente num comando publicado antes da conferência de cobertura (T-241): o worker então
     # não a faz, e a execução segue como antes do campo existir.
     elementos_exigidos: list[ReferenciaDeElemento] | None = Field(default=None, min_length=1)
+    # Ausente num comando publicado antes da conferência de escopo: o worker então não a faz.
+    alcance: AlcanceDaRegra | None = None
 
-    @field_validator("orcamento", "meta_venda", mode="before")
+    @field_validator("orcamento", "meta_venda", "alcance", mode="before")
     @classmethod
     def _nulo_nao_e_ausencia(cls, valor: object, info: ValidationInfo) -> object:
-        """O schema declara `orcamento` e `meta_venda` números, e `null` não é número. Lido como
-        ausência, um produtor com defeito faria o worker pular em silêncio a verificação de
-        orçamento, ou simular nas vendas históricas uma execução pedida na meta; o validador só
-        roda quando o campo vem no corpo, então a ausência segue valendo."""
+        """O schema declara `orcamento` e `meta_venda` números e `alcance` objeto, e `null` não é
+        nenhum dos dois. Lido como ausência, um produtor com defeito faria o worker pular em
+        silêncio a verificação de orçamento ou a de escopo, ou simular nas vendas históricas uma
+        execução pedida na meta; o validador só roda quando o campo vem no corpo, então a ausência
+        segue valendo."""
         if valor is None:
             raise ValueError(
                 f"{info.field_name} presente não pode ser nulo; para não usá-lo, omita-o"

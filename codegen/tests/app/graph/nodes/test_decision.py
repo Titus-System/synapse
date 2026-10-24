@@ -5,10 +5,12 @@ from uuid import UUID, uuid4
 
 import pytest
 import simplejson
+from prometheus_client import REGISTRY
 
 from app.config import get_settings
 from app.contratos.mensagens import EtapaAlterada
 from app.contratos.serializacao import serializar
+from app.correcao_codigo import LIMITE_DE_CODIGOS_POR_VERSAO, FalhaDaExecucao
 from app.graph.core.state import AgentState
 from app.graph.nodes import decision as modulo
 from app.repositorio.regras import TentativasDeTaxa
@@ -23,10 +25,36 @@ REGRA_ID = str(uuid4())
 RESULTADO_ID = str(uuid4())
 
 
+CODIGO_ID = str(uuid4())
+
+
 @pytest.fixture(autouse=True)
 def consulta_tentativas(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     consulta = AsyncMock(return_value=TentativasDeTaxa(feitas=0, regra_e_tentativa=False))
     monkeypatch.setattr(modulo, "contar_tentativas", consulta)
+    return consulta
+
+
+@pytest.fixture(autouse=True)
+def consulta_posicao(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    """O último código da versão, salvo quando o teste diz outra posição."""
+    consulta = AsyncMock(return_value=LIMITE_DE_CODIGOS_POR_VERSAO)
+    monkeypatch.setattr(modulo, "posicao_do_codigo", consulta)
+    return consulta
+
+
+@pytest.fixture(autouse=True)
+def consulta_falha(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    consulta = AsyncMock(
+        return_value=FalhaDaExecucao(
+            status="erro_codigo",
+            diagnostico={
+                "causa": "excecao",
+                "falha": {"tipo": "TypeError", "mensagem": "MENSAGEM_PRIVADA", "traceback": "TB"},
+            },
+        )
+    )
+    monkeypatch.setattr(modulo, "buscar_falha_da_execucao", consulta)
     return consulta
 
 
@@ -43,6 +71,7 @@ def _estado(**sobrescritas: Any) -> AgentState:
         "job_id": JOB_ID,
         "regra_id": REGRA_ID,
         "resultado_id": RESULTADO_ID,
+        "codigo_gerado_id": CODIGO_ID,
         "status_simulacao": "sucesso",
         "veredito": "inviavel",
         "representacao_regra": {
@@ -262,3 +291,133 @@ async def test_registra_a_conta_das_tentativas(
     [publicado] = [r for r in caplog.records if r.getMessage() == "node conclusion published"]
     assert publicado.tentativas_de_taxa == 1
     assert publicado.encaminhamento == "sugestao_adaptacao"
+
+
+def _amostras(familia: str, rotulos: tuple[str, str]) -> dict[tuple[str, str], float]:
+    return {
+        (amostra.labels[rotulos[0]], amostra.labels[rotulos[1]]): amostra.value
+        for coletada in REGISTRY.collect()
+        if coletada.name == familia
+        for amostra in coletada.samples
+        if amostra.name.endswith("_total")
+    }
+
+
+def _variacao(familia: str, rotulos: tuple[str, str], antes: dict[tuple[str, str], float]) -> dict:
+    depois = _amostras(familia, rotulos)
+    return {k: depois[k] - antes.get(k, 0.0) for k in depois if depois[k] != antes.get(k, 0.0)}
+
+
+PEDIDOS = ("codegen_correcoes_codigo", ("tentativa", "causa"))
+DESFECHOS = ("codegen_correcao_codigo_desfechos", ("tentativa", "desfecho"))
+
+
+@pytest.mark.parametrize("status", ["erro_codigo", "assercao_violada"])
+@pytest.mark.parametrize("posicao", [1, 2])
+async def test_falha_do_codigo_antes_do_limite_volta_a_geracao_para_a_correcao(
+    status: str, posicao: int, consulta_posicao: AsyncMock, consulta_falha: AsyncMock
+) -> None:
+    consulta_posicao.return_value = posicao
+    producers = _producers()
+
+    update = await modulo.decision(
+        _estado(status_simulacao=status, veredito=None), _config(producers)
+    )
+
+    assert update == {"encaminhamento": "correcao_codigo", "correcao_pendente": posicao + 1}
+    [conclusao] = producers.no_concluido.await_args.args
+    assert conclusao.conclusao.encaminhamento == "correcao_codigo"
+    assert conclusao.conclusao.resumo == "Fluxo encaminhado para a correção do código gerado."
+    consulta_posicao.assert_awaited_once_with(None, UUID(JOB_ID), UUID(CODIGO_ID))
+    consulta_falha.assert_awaited_once_with(None, UUID(JOB_ID), UUID(RESULTADO_ID))
+
+
+async def test_falha_do_ultimo_codigo_da_versao_encerra_o_fluxo(
+    consulta_posicao: AsyncMock, consulta_falha: AsyncMock
+) -> None:
+    """A `api` conta a mesma posição e leva o job a `erro` nesse resultado."""
+    consulta_posicao.return_value = LIMITE_DE_CODIGOS_POR_VERSAO
+    antes = _amostras(*PEDIDOS)
+
+    update = await modulo.decision(
+        _estado(status_simulacao="erro_codigo", veredito=None), _config(_producers())
+    )
+
+    assert update == {"encaminhamento": "fim"}
+    consulta_falha.assert_not_awaited()
+    assert _variacao(*PEDIDOS, antes) == {}
+
+
+async def test_erro_de_infraestrutura_nao_volta_ao_modelo(consulta_posicao: AsyncMock) -> None:
+    """Outro código não resolve uma falha do ambiente."""
+    consulta_posicao.return_value = 1
+
+    update = await modulo.decision(
+        _estado(status_simulacao="erro_infra", veredito=None), _config(_producers())
+    )
+
+    assert update == {"encaminhamento": "fim"}
+    consulta_posicao.assert_not_awaited()
+
+
+async def test_codigo_que_nao_esta_entre_os_gerados_falha_o_job(
+    consulta_posicao: AsyncMock,
+) -> None:
+    consulta_posicao.return_value = 0
+    producers = _producers()
+
+    with pytest.raises(modulo.CodigoDesconhecidoError):
+        await modulo.decision(
+            _estado(status_simulacao="erro_codigo", veredito=None), _config(producers)
+        )
+
+    producers.no_concluido.assert_not_awaited()
+
+
+async def test_conta_o_pedido_de_correcao_pela_causa_e_registra_sem_a_mensagem(
+    consulta_posicao: AsyncMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    consulta_posicao.return_value = 1
+    antes = _amostras(*PEDIDOS)
+
+    with caplog.at_level("INFO", logger="app.graph.nodes.decision"):
+        await modulo.decision(
+            _estado(status_simulacao="erro_codigo", veredito=None), _config(_producers())
+        )
+
+    assert _variacao(*PEDIDOS, antes) == {("2", "excecao"): 1.0}
+    [publicado] = [r for r in caplog.records if r.getMessage() == "node conclusion published"]
+    assert publicado.encaminhamento == "correcao_codigo"
+    assert publicado.causa == "excecao"
+    assert publicado.posicao_do_codigo == 1
+    assert "MENSAGEM_PRIVADA" not in repr([record.__dict__ for record in caplog.records])
+
+
+@pytest.mark.parametrize(("status", "desfecho"), [("sucesso", "sucesso"), ("erro_infra", "erro")])
+async def test_conta_o_desfecho_do_codigo_corrigido_e_limpa_a_pendencia(
+    status: str, desfecho: str
+) -> None:
+    antes = _amostras(*DESFECHOS)
+
+    update = await modulo.decision(
+        _estado(status_simulacao=status, veredito="viavel", correcao_pendente=2),
+        _config(_producers()),
+    )
+
+    assert _variacao(*DESFECHOS, antes) == {("2", desfecho): 1.0}
+    assert update["correcao_pendente"] is None
+
+
+async def test_codigo_corrigido_que_falha_de_novo_pede_a_proxima_correcao(
+    consulta_posicao: AsyncMock,
+) -> None:
+    consulta_posicao.return_value = 2
+    antes = _amostras(*DESFECHOS)
+
+    update = await modulo.decision(
+        _estado(status_simulacao="assercao_violada", veredito=None, correcao_pendente=2),
+        _config(_producers()),
+    )
+
+    assert _variacao(*DESFECHOS, antes) == {("2", "erro"): 1.0}
+    assert update == {"encaminhamento": "correcao_codigo", "correcao_pendente": 3}

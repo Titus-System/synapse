@@ -12,7 +12,7 @@ import simplejson
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.repositorio.regras import TentativasDeTaxa, contar_tentativas
-from app.repositorio.resultados import buscar_taxas_simuladas
+from app.repositorio.resultados import buscar_taxas_simuladas, buscar_totais
 from app.sugestao_adaptacao import TaxaSimulada
 
 pytestmark = [
@@ -86,7 +86,36 @@ class Historico:
         *,
         status: str = "sucesso",
         proposito: str = "simulacao",
-    ) -> None:
+        orcamento: str | None = None,
+        linhas: dict[str, Any] | None = None,
+        codigo: UUID | None = None,
+        diagnostico: dict[str, Any] | None = None,
+        assercoes: list[Any] | None = None,
+    ) -> UUID:
+        if codigo is None:
+            codigo = await self.codigo(job, regra)
+        valores: dict[str, Decimal] = {}
+        if simulado is not None:
+            valores["simulado"] = Decimal(simulado)
+        if orcamento is not None:
+            valores["orcamento"] = Decimal(orcamento)
+        totais = simplejson.dumps(valores) if valores else None
+        resultado: UUID = await self._dono.fetchval(
+            "INSERT INTO resultados_simulacao(job_id, codigo_gerado_id, status, totais,"
+            " assercoes, proposito, linhas, diagnostico, criado_em) VALUES($1, $2, $3,"
+            " $4::jsonb, $5::jsonb, $6, $7::jsonb, $8::jsonb, now()) RETURNING id",
+            job,
+            codigo,
+            status,
+            totais,
+            simplejson.dumps(assercoes or []),
+            proposito,
+            None if linhas is None else simplejson.dumps(linhas, use_decimal=True),
+            None if diagnostico is None else simplejson.dumps(diagnostico),
+        )
+        return resultado
+
+    async def codigo(self, job: UUID, regra: UUID) -> UUID:
         prompt, codigo = uuid4(), uuid4()
         await self._dono.execute(
             "INSERT INTO prompts(id, job_id, no, conteudo, modelo, criado_em)"
@@ -102,17 +131,7 @@ class Historico:
             regra,
             prompt,
         )
-        totais = None if simulado is None else simplejson.dumps({"simulado": Decimal(simulado)})
-        await self._dono.execute(
-            "INSERT INTO resultados_simulacao(job_id, codigo_gerado_id, status, totais,"
-            " assercoes, proposito, criado_em) VALUES($1, $2, $3, $4::jsonb, '[]'::jsonb, $5,"
-            " now())",
-            job,
-            codigo,
-            status,
-            totais,
-            proposito,
-        )
+        return codigo
 
 
 @pytest_asyncio.fixture(loop_scope="module")
@@ -256,3 +275,44 @@ async def test_os_pares_de_uma_regra_com_taxas_por_cargo_usam_a_taxa_de_referenc
         TaxaSimulada(Decimal("0.0243"), Decimal("2600")),
         TaxaSimulada(Decimal("0.03"), Decimal("3000")),
     ]
+
+
+async def test_os_totais_trazem_o_detalhamento_com_as_comissoes_exatas(
+    banco: tuple[async_sessionmaker[AsyncSession], Historico],
+) -> None:
+    """A parte fixa da estimativa soma as comissões das linhas: em float, viriam aproximadas."""
+    sessoes, historico = banco
+    job = await historico.job()
+    regra = await historico.versao(job, 1, "extracao", "0.03")
+    linhas = {
+        "2025-11": {
+            "MATRIC-1": {
+                "cod_loja": "14",
+                "cod_marca": "10",
+                "cod_cargo": "100",
+                "comissao_baseline": Decimal("1000.10"),
+                "comissao_simulada": Decimal("1000.10"),
+                "diferenca": Decimal("0"),
+                "contribuicoes": {},
+            }
+        }
+    }
+    resultado = await historico.resultado(job, regra, "2200", orcamento="2000", linhas=linhas)
+
+    totais = await buscar_totais(sessoes, job, resultado)
+
+    assert (totais.simulado, totais.orcamento) == (Decimal("2200"), Decimal("2000"))
+    assert totais.linhas == linhas
+
+
+async def test_os_totais_de_um_resultado_sem_detalhamento_vem_sem_linhas(
+    banco: tuple[async_sessionmaker[AsyncSession], Historico],
+) -> None:
+    sessoes, historico = banco
+    job = await historico.job()
+    regra = await historico.versao(job, 1, "extracao", "0.03")
+    resultado = await historico.resultado(job, regra, "2200", orcamento="2000")
+
+    totais = await buscar_totais(sessoes, job, resultado)
+
+    assert totais.linhas is None

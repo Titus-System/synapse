@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref, computed, watch } from 'vue'
 import { apiClient } from '@/services/api'
-import { rotuloDaRegra } from '@/services/job'
 import type { JobResumo } from '@/types/api'
 import { useRoute, useRouter } from 'vue-router'
 import { useCorrecao } from '../composables/useCorrecao'
@@ -33,7 +32,6 @@ watch(seguirProcessamento, (seguir) => {
   if (seguir) void router.replace(`/jobs/${encodeURIComponent(jobId.value)}`)
 })
 
-const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
 const quantidadeArquivadas = ref(0)
 const quantidadeSalvas = ref(0)
 const carregandoHistorico = ref(true)
@@ -58,10 +56,6 @@ async function carregarHistorico() {
       pagina += 1
       if (!resposta.itens.length) break
     } while (jobs.length < total)
-    regrasRecentes.value = jobs.slice(0, 6).map((job) => ({
-      identificador: job.id,
-      rotulo: rotuloDaRegra(job),
-    }))
     quantidadeArquivadas.value = jobs.filter((job) => job.status === 'arquivado').length
     quantidadeSalvas.value = jobs.length - quantidadeArquivadas.value
   } catch {
@@ -94,7 +88,6 @@ onBeforeUnmount(() => controlador.abort())
     <TheSidebar
       v-if="!carregandoHistorico && !erroHistorico"
       class="sticky top-0 hidden h-screen lg:flex"
-      :regras-recentes="regrasRecentes"
       :quantidade-salvas="quantidadeSalvas"
       :quantidade-arquivadas="quantidadeArquivadas"
     />

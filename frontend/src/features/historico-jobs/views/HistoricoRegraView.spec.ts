@@ -113,9 +113,6 @@ it('identifica a versão salva pelo resultado vigente mesmo havendo versão maio
   )
   expect(wrapper.findComponent(TheSidebar).props('secaoAtiva')).toBe('salvas')
   expect(wrapper.findComponent(TheSidebar).props('quantidadeSalvas')).toBe(1)
-  expect(wrapper.findComponent(TheSidebar).props('regrasRecentes')).toMatchObject([
-    { identificador: 'job-1' },
-  ])
   expect(wrapper.text()).not.toMatch(/9\.000\.000|888\.888/)
   const acoes = wrapper.findAll('button').map((b) => b.text())
   expect(acoes.filter((acao) => acao === 'Editar')).toHaveLength(1)
@@ -329,21 +326,6 @@ it('cancela a consulta anterior e não mistura respostas de jobs diferentes', as
   await flushPromises()
   expect(wrapper.text()).toContain('Regra arquivada.')
   expect(wrapper.text()).not.toContain('Versão final salva')
-})
-it('exibe na barra lateral o nome da regra e, sem nome, o rótulo com a data', async () => {
-  const job = encerrado()
-  const comNome = await montar(job, 'Comissão de novembro')
-  expect(comNome.wrapper.findComponent(TheSidebar).props('regrasRecentes')).toEqual([
-    { identificador: 'job-1', rotulo: 'Comissão de novembro' },
-  ])
-  vi.resetAllMocks()
-  const semNome = await montar(encerrado())
-  expect(semNome.wrapper.findComponent(TheSidebar).props('regrasRecentes')).toEqual([
-    {
-      identificador: 'job-1',
-      rotulo: `Regra · ${new Date(job.criado_em).toLocaleDateString('pt-BR')}`,
-    },
-  ])
 })
 it('mostra no cartão da regra final o nome definido pelo usuário', async () => {
   const job = encerrado()

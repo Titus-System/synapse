@@ -1,6 +1,6 @@
 """Alternativa determinística para uma regra que não coube no orçamento (US03, cenário 1).
 
-O candidato sai de aritmética sobre os totais que o worker apurou, nunca de um modelo: a
+O candidato sai de aritmética sobre o resultado que o worker apurou, nunca de um modelo: a
 LLM não produz número exibido nem veredito (AGENTS.md - Security). A simulação da
 alternativa é que diz se ela cabe; aqui só se escolhe o que tentar.
 
@@ -9,13 +9,13 @@ taxas por cargo e o efeito percentual de faixas e janelas de datas - e mantém o
 está: valores em reais, limiares, exclusões e o texto dos elementos genéricos. A primeira taxa
 positiva é a referência: ela é estimada como se fosse a única taxa da regra, e as outras a
 acompanham. Com a estrutura fixa, a comissão é uma parte que não depende das taxas mais um
-múltiplo da referência, e é nessa reta que a estimativa, a sondagem e o refinamento andam.
+múltiplo da referência, e é nessa reta que a estimativa e o refinamento andam.
 
 São até `LIMITE_DE_TENTATIVAS` alternativas por job, cada uma simulada antes da seguinte: a
-primeira de cada regra sai dos totais da simulação que não coube, e as outras refinam a
-estimativa com as taxas já simuladas. Quando o orçamento não fica acima do baseline, os totais
-não dão uma estimativa, e a primeira alternativa é uma sondagem que só serve para dar ao
-refinamento o segundo ponto (T-283).
+primeira de cada regra sai da simulação que não coube, com a comissão das linhas que a regra não
+alcança como parte fixa, e as outras refinam a estimativa com as taxas já simuladas. A parte
+fixa nunca é maior que a verdadeira, então a primeira taxa nunca fica abaixo da que cabe: uma
+alternativa que cabe encerra a iteração, e uma estimativa baixa demais seria a sugestão final.
 """
 
 from collections.abc import Iterator, Mapping, Sequence
@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from decimal import ROUND_DOWN, Decimal
 from typing import Final
 
+from app.alcance_regra import AlcanceDaRegra
 from app.nos.validacao_dominio import verificar
 from app.tipos_estado import ValorRegra
 
@@ -76,20 +77,21 @@ class TaxaSimulada:
 
 
 def percentual_que_cabe(
-    percentual: Decimal, simulado: Decimal, orcamento: Decimal, *, baseline: Decimal
+    percentual: Decimal, simulado: Decimal, orcamento: Decimal, *, parte_fixa: Decimal
 ) -> Decimal | None:
-    """Estima uma taxa conservadora como se ela fosse a única taxa da regra.
+    """A taxa em que a reta da comissão cruza o orçamento, como se fosse a única taxa da regra.
 
-    O incremento sobre o baseline limita a parcela reduzível por proporcionalidade.
-    A estimativa pode reduzir mais que o necessário quando já havia comissão no escopo, e menos
-    quando a regra tem uma parte que não acompanha a taxa, como um bônus em reais; a simulação
-    da candidata continua sendo a única confirmação de viabilidade.
-    Fora de baseline < orçamento < simulado não estimamos: isso não prova que inexiste solução.
+    A regra substitui a taxa no seu escopo, então a comissão é uma parte que nenhuma taxa move
+    mais a taxa vezes as vendas que ela alcança. A reta passa pela taxa simulada e, na taxa zero,
+    pela `parte_fixa`. Uma parte fixa menor que a verdadeira, como a que deixa de fora um bônus em
+    reais dentro do escopo, inclina a reta e põe a taxa acima da que cabe, nunca abaixo, salvo o
+    truncamento: a simulação da candidata confirma, e o refinamento corrige a seguinte. Com a parte
+    fixa no orçamento ou acima dele, nenhuma redução de taxa cabe.
     """
-    if percentual <= 0 or baseline < 0 or not baseline < orcamento < simulado:
+    if percentual <= 0 or parte_fixa < 0 or not parte_fixa < orcamento < simulado:
         return None
 
-    candidato = (percentual * (orcamento - baseline) / (simulado - baseline)).quantize(
+    candidato = (percentual * (orcamento - parte_fixa) / (simulado - parte_fixa)).quantize(
         QUANTUM, rounding=ROUND_DOWN
     )
     if candidato <= 0 or candidato >= percentual:
@@ -97,25 +99,31 @@ def percentual_que_cabe(
     return candidato
 
 
-def percentual_de_sondagem(
-    percentual: Decimal, simulado: Decimal, orcamento: Decimal
+def comissao_fora_da_regra(
+    representacao: Mapping[str, ValorRegra], linhas: Mapping[str, object] | None
 ) -> Decimal | None:
-    """A primeira taxa quando o orçamento não fica acima do baseline.
+    """A comissão simulada das linhas que a regra não alcança, ou None sem o detalhamento.
 
-    `percentual_que_cabe` supõe que a regra só soma às comissões de hoje, e aí nenhuma taxa
-    caberia. Mas a regra substitui a taxa no seu escopo: a comissão é uma parte fixa, entre zero
-    e o baseline, mais a taxa vezes as vendas no escopo. Com a parte fixa nesse intervalo, a taxa
-    proporcional ao orçamento fica no máximo um `QUANTUM` abaixo da que cabe, pelo truncamento,
-    então a sondagem não corta mais que o necessário. Simulada, ela é o segundo ponto da reta de
-    `percentual_refinado`.
+    Só conta a linha sem contribuição de elemento algum: uma que mudou depende da regra, e tomá-la
+    por fixa poria a estimativa abaixo da taxa que cabe. A linha que a regra alcança fica de fora
+    mesmo sem contribuição, porque a taxa atual dela pode ser a mesma da regra.
     """
-    if percentual <= 0 or not 0 < orcamento < simulado:
+    if linhas is None:
         return None
-
-    candidato = (percentual * orcamento / simulado).quantize(QUANTUM, rounding=ROUND_DOWN)
-    if candidato <= 0 or candidato >= percentual:
-        return None
-    return candidato
+    alcance = AlcanceDaRegra.da(representacao)
+    fixa = Decimal(0)
+    for competencia, da_competencia in linhas.items():
+        if not isinstance(da_competencia, Mapping):
+            return None
+        for linha in da_competencia.values():
+            if not isinstance(linha, Mapping):
+                return None
+            comissao = _numero(linha.get("comissao_simulada"))
+            if comissao is None:
+                return None
+            if not linha.get("contribuicoes") and not alcance.alcanca(competencia, linha):
+                fixa += comissao
+    return fixa
 
 
 def percentual_refinado(anteriores: Sequence[TaxaSimulada], orcamento: Decimal) -> Decimal | None:
@@ -171,17 +179,18 @@ def propor_alternativa(
     simulado: Decimal,
     orcamento: Decimal,
     *,
-    baseline: Decimal,
+    parte_fixa: Decimal | None,
     anteriores: Sequence[TaxaSimulada] = (),
 ) -> Alternativa:
     """Monta a regra alternativa reduzindo todas as taxas na mesma proporção.
 
     `anteriores` são as taxas de referência já simuladas da regra e das versões que ela adapta.
-    Com duas ou mais distintas, a referência é refinada por elas; com menos, ainda não há reta,
-    e ela sai dos totais, como na primeira tentativa, ou da sondagem, quando o orçamento não
-    fica acima do baseline e os totais não estimam. A representação proposta passa pela mesma
-    verificação de coerência que barra uma regra na entrada: propor algo que já nasce inválido
-    custaria um ciclo inteiro de simulação para terminar no mesmo lugar.
+    Com duas ou mais distintas, a referência é refinada por elas; com menos, ainda não há reta, e
+    ela sai da simulação que não coube e da `parte_fixa`, a comissão das linhas que a regra não
+    alcança (`comissao_fora_da_regra`). Sem ela, a parte fixa é zero, e a primeira taxa é a
+    sondagem, proporcional ao orçamento. A representação proposta passa pela mesma verificação
+    de coerência que barra uma regra na entrada: propor algo que já nasce inválido custaria um
+    ciclo inteiro de simulação para terminar no mesmo lugar.
     """
     referencia = taxa_de_referencia(representacao)
     if referencia is None:
@@ -191,11 +200,18 @@ def propor_alternativa(
         metodo = METODO_REFINAMENTO
         candidato = percentual_refinado(anteriores, orcamento)
     else:
-        metodo = METODO_ESTIMATIVA
-        candidato = percentual_que_cabe(referencia, simulado, orcamento, baseline=baseline)
-        if candidato is None and orcamento <= baseline:
-            metodo = METODO_SONDAGEM
-            candidato = percentual_de_sondagem(referencia, simulado, orcamento)
+        # Com a parte fixa acima do orçamento, nenhuma taxa cabe. A primeira alternativa ainda é
+        # simulada, pela sondagem, para o usuário ver a regra reduzida e o motivo de ela não
+        # caber; a reta do refinamento cruza o orçamento abaixo de zero e encerra a iteração na
+        # tentativa seguinte.
+        estimada = parte_fixa is not None and parte_fixa < orcamento
+        metodo = METODO_ESTIMATIVA if estimada else METODO_SONDAGEM
+        candidato = percentual_que_cabe(
+            referencia,
+            simulado,
+            orcamento,
+            parte_fixa=parte_fixa if parte_fixa is not None and estimada else Decimal(0),
+        )
     # A api só aceita a proposta abaixo das taxas da versão de origem, que é a regra simulada.
     if candidato is None or candidato >= referencia:
         return Alternativa(MOTIVO_SEM_MARGEM)

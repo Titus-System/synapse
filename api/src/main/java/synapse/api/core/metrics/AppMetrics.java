@@ -194,11 +194,12 @@ public class AppMetrics {
 	 * {@code viavel}, {@code inviavel}, {@code indeterminado}, {@code sem_orcamento},
 	 * {@code assercao_violada}, {@code erro_codigo}, {@code erro_infra} ou
 	 * {@code desconhecido}; {@code resultado} é {@code aplicada}, {@code intermediaria},
-	 * {@code estado_incompativel}, {@code versao_anterior} ou {@code invalida}.
-	 * {@code intermediaria} é o resultado inviável de uma alternativa enquanto o codegen
-	 * pode tentar outra taxa: não move o job, e por isso a reentrega dele também sai
-	 * assim. As tentativas propriamente ditas estão em
-	 * {@link #sugestaoAdaptacaoConsumida} e {@link #fimDaIteracaoDaTaxa}.
+	 * {@code correcao}, {@code estado_incompativel}, {@code versao_anterior} ou
+	 * {@code invalida}. {@code intermediaria} é o resultado inviável de uma alternativa
+	 * enquanto o codegen pode tentar outra taxa: não move o job, e por isso a reentrega
+	 * dele também sai assim. {@code correcao} é a falha do código que o codegen ainda
+	 * corrige, que pelo mesmo motivo também conta a reentrega. As tentativas propriamente
+	 * ditas estão em {@link #sugestaoAdaptacaoConsumida} e {@link #fimDaIteracaoDaTaxa}.
 	 */
 	public Counter simulacaoConcluidaConsumida(String desfecho, String resultado) {
 		return Counter.builder("simulacao.concluida.consumo")

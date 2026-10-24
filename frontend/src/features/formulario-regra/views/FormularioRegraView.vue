@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router'
 import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
 import { apiClient } from '@/services/api'
-import { rotuloDaRegra } from '@/services/job'
 import type { JobResumo } from '@/types/api'
 import CampoDeMultiSelecao from '../components/CampoDeMultiSelecao.vue'
 import CampoDeSelecao from '../components/CampoDeSelecao.vue'
@@ -13,7 +12,6 @@ import { useFormularioRegra } from '../composables/useFormularioRegra'
 
 const rota = useRoute()
 const roteador = useRouter()
-const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
 const quantidadeArquivadas = ref(0)
 const quantidadeSalvas = ref(0)
 const {
@@ -39,7 +37,7 @@ function atualizarContagensDeRegras(resumosDosJobs: readonly JobResumo[]): void 
   quantidadeSalvas.value = resumosDosJobs.length - quantidadeArquivadas.value
 }
 
-async function carregarRegrasRecentes(): Promise<void> {
+async function carregarContagensDeRegras(): Promise<void> {
   try {
     const resumosDosJobs: JobResumo[] = []
     let numeroDaPagina = 0
@@ -54,13 +52,8 @@ async function carregarRegrasRecentes(): Promise<void> {
       numeroDaPagina += 1
     } while (resumosDosJobs.length < totalDeJobs && itensDaPagina.length > 0)
 
-    regrasRecentes.value = resumosDosJobs.slice(0, 6).map((resumoDoJob) => ({
-      identificador: resumoDoJob.id,
-      rotulo: rotuloDaRegra(resumoDoJob),
-    }))
     atualizarContagensDeRegras(resumosDosJobs)
   } catch {
-    regrasRecentes.value = []
     quantidadeArquivadas.value = 0
     quantidadeSalvas.value = 0
   }
@@ -70,7 +63,7 @@ async function submeterFormulario(): Promise<void> {
   const jobCriado = await enviarFormulario()
   if (!jobCriado) return
 
-  await carregarRegrasRecentes()
+  await carregarContagensDeRegras()
 
   const destino = roteador.resolve(`/jobs/${jobCriado.id}`)
   if (destino.name === 'not-found') {
@@ -82,7 +75,7 @@ async function submeterFormulario(): Promise<void> {
 }
 
 onMounted(() => {
-  void carregarRegrasRecentes()
+  void carregarContagensDeRegras()
 })
 
 // A tela continua montada ao sair do reprocessamento pelo menu, e um formulário
@@ -109,7 +102,6 @@ watch(
       class="hidden lg:flex"
       :quantidade-arquivadas="quantidadeArquivadas"
       :quantidade-salvas="quantidadeSalvas"
-      :regras-recentes="regrasRecentes"
     />
 
     <main

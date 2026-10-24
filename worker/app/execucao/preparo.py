@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from app.mensageria.contracts import ExecutarCodigo
+from app.mensageria.contracts import AlcanceDaRegra, ExecutarCodigo
 from app.repositorio.codigos_gerados import CodigoGerado
 
 
@@ -23,9 +23,9 @@ class PayloadContainer:
 
 @dataclass(frozen=True)
 class ExecucaoPreparada:
-    """`orcamento` e `elementos_exigidos` ficam fora de `payload`: o veredito e a conferência
-    de cobertura são decididos pelo processo do worker, nunca dentro do container que roda o
-    código não confiável."""
+    """`orcamento`, `elementos_exigidos` e `alcance` ficam fora de `payload`: o veredito e as
+    conferências de cobertura e de escopo são decididos pelo processo do worker, nunca dentro do
+    container que roda o código não confiável."""
 
     payload: PayloadContainer
     # None quando o job não tem orçamento: o resultado sai sem veredito (T-281).
@@ -34,6 +34,8 @@ class ExecucaoPreparada:
     elementos_exigidos: list[str] | None
     # Não muda a execução nem entra no container: só vai para a linha e o evento (T-270).
     proposito: str = "simulacao"
+    # None quando o comando não o trouxe: a conferência de escopo não roda.
+    alcance: AlcanceDaRegra | None = None
 
 
 def preparar_execucao(comando: ExecutarCodigo, codigo: CodigoGerado) -> ExecucaoPreparada:
@@ -50,4 +52,5 @@ def preparar_execucao(comando: ExecutarCodigo, codigo: CodigoGerado) -> Execucao
         orcamento=comando.orcamento,
         elementos_exigidos=comando.elementos_exigidos,
         proposito=comando.proposito,
+        alcance=comando.alcance,
     )

@@ -10,7 +10,6 @@ import RelatorioSimulacao from '@/components/RelatorioSimulacao.vue'
 import { useDetalhamento } from '@/composables/useDetalhamento'
 import { observarConsulta } from '@/observability/consultasLogging'
 import { consultarDetalhamento } from '@/services/detalhamento'
-import { rotuloDaRegra } from '@/services/job'
 import { listarTodosOsJobs } from '../services/historicoJobs.api'
 import NomeEditavelDaRegra from '../components/NomeEditavelDaRegra.vue'
 import ResumoRegraHistorica from '../components/ResumoRegraHistorica.vue'
@@ -32,12 +31,6 @@ let consulta: AbortController | undefined
 const versoes = computed(() => [...(job.value?.regras ?? [])].sort((a, b) => b.versao - a.versao))
 const jobsArquivados = computed(() => resumosDosJobs.value.filter((item) => item.status === 'arquivado'))
 const jobsSalvos = computed(() => resumosDosJobs.value.filter((item) => item.status !== 'arquivado'))
-const regrasRecentes = computed(() =>
-  resumosDosJobs.value.slice(0, 6).map((item) => ({
-    identificador: item.id,
-    rotulo: rotuloDaRegra(item),
-  })),
-)
 const encerramento = computed(() => (job.value ? versaoDeEncerramento(job.value) : undefined))
 const ordenadas = computed(() => [
   ...(encerramento.value ? [encerramento.value] : []),
@@ -142,7 +135,6 @@ onBeforeUnmount(() => consulta?.abort())
       :secao-ativa="job?.status === 'arquivado' ? 'arquivadas' : 'salvas'"
       :quantidade-arquivadas="jobsArquivados.length"
       :quantidade-salvas="jobsSalvos.length"
-      :regras-recentes="regrasRecentes"
     />
     <main class="min-w-0 bg-[radial-gradient(circle_at_top,#fffdfb_0%,#fdf7f3_48%,#f8eee8_100%)] lg:min-h-0 lg:overflow-y-auto">
       <TheProcessHeader :etapa-da-rota="null" historico />

@@ -358,6 +358,11 @@ class IteracaoDaTaxaNovaFimAFimTests {
 			.isEqualTo(resultadoPrimeira);
 	}
 
+	/**
+	 * O código da alternativa que falha é corrigido como o de qualquer versão, sem que o
+	 * usuário veja a falha; a do último código da versão encerra o job sem esperar outra
+	 * taxa.
+	 */
 	@ParameterizedTest
 	@ValueSource(strings = { "erro_codigo", "assercao_violada" })
 	void erroNaAlternativaEncerraSemEsperarOutraTaxa(String statusResultado) throws Exception {
@@ -369,16 +374,36 @@ class IteracaoDaTaxaNovaFimAFimTests {
 		conferirRegraSubmetida(jobId, alternativa);
 		StreamCliente stream = conectar(jobId);
 		stream.aguardarBloco("event:estado", Duration.ofSeconds(5));
-		UUID resultado = gravarResultado(jobId, alternativa, "inviavel", "490000");
-		dono.update("UPDATE resultados_simulacao SET status = ?, veredito = NULL WHERE id = ?", statusResultado,
-				resultado);
-		publicar(RabbitTopologyConfig.SIMULACAO_CONCLUIDA_API, "simulacao-concluida", """
-				{"job_id":"%s","resultado_id":"%s","status":"%s"}
-				""".formatted(jobId, resultado, statusResultado));
+		Map<String, Double> antes = metricas();
+		String emCorrecao = "desfecho=\"%s\",resultado=\"correcao\"".formatted(statusResultado);
+
+		for (int codigo = 1; codigo <= CorrecaoDoCodigo.LIMITE_DE_CODIGOS_POR_VERSAO; codigo++) {
+			UUID resultado = gravarResultado(jobId, alternativa, "inviavel", "490000");
+			dono.update("UPDATE resultados_simulacao SET status = ?, veredito = NULL WHERE id = ?", statusResultado,
+					resultado);
+			publicar(RabbitTopologyConfig.SIMULACAO_CONCLUIDA_API, "simulacao-concluida", """
+					{"job_id":"%s","resultado_id":"%s","status":"%s"}
+					""".formatted(jobId, resultado, statusResultado));
+			if (codigo < CorrecaoDoCodigo.LIMITE_DE_CODIGOS_POR_VERSAO) {
+				double esperadas = codigo;
+				await().atMost(Duration.ofSeconds(15))
+					.untilAsserted(() -> assertThat(
+							variacao(antes, metricas(), "simulacao_concluida_consumo_total", emCorrecao))
+						.isEqualTo(esperadas));
+				aguardarStatus(jobId, "simulando");
+			}
+		}
+
 		aguardarStatus(jobId, "erro");
 		stream.aguardarFimDoStream(Duration.ofSeconds(10));
 		assertThat(stream.conteudo()).contains("\"status\":\"erro\"");
-		assertThat(transicoes(jobId)).last().isEqualTo("simulando>erro:" + statusResultado);
+		assertThat(stream.contarOcorrencias("event:resultado")).isEqualTo(1);
+		// As duas primeiras são da proposta, que chegou antes do resultado da original;
+		// as
+		// falhas corrigidas não acrescentam transição.
+		assertThat(transicoes(jobId)).containsExactly("simulando>simulacao_inviavel:inviavel",
+				"simulacao_inviavel>gerando_regra:sugestao_adaptacao_proposta",
+				"gerando_regra>simulando:simulacao_concluida_antecipada", "simulando>erro:" + statusResultado);
 	}
 
 	@Test

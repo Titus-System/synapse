@@ -190,7 +190,7 @@ async def test_proposta_da_adaptacao_passa_pela_mesma_validacao(
         },
         Decimal("492100"),
         Decimal("485000"),
-        baseline=Decimal("480312"),
+        parte_fixa=Decimal("480312"),
     )
     assert alternativa.representacao is not None
     ambiente.buscar_regra.return_value = RepresentacaoRegra.model_validate(

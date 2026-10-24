@@ -20,12 +20,22 @@ from app.contratos.mensagens import (
     Veredito,
 )
 from app.core.logger import get_logger
-from app.core.metrics.global_metrics import TENTATIVAS_DE_TAXA, tentativas_de_taxa
+from app.core.metrics.global_metrics import (
+    TENTATIVAS_DE_TAXA,
+    correcoes_codigo,
+    desfechos_correcao_codigo,
+    tentativas_de_taxa,
+)
+from app.correcao_codigo import ENCAMINHAMENTO_CORRECAO, STATUS_CORRIGIVEIS, corrige
 from app.falhas import FalhaDoJobError
 from app.graph.core.state import AgentState
 from app.repositorio.artefatos import id_do_evento_de_trilha
 from app.repositorio.regras import contar_tentativas
-from app.repositorio.resultados import buscar_execucao_da_meta
+from app.repositorio.resultados import (
+    buscar_execucao_da_meta,
+    buscar_falha_da_execucao,
+    posicao_do_codigo,
+)
 
 logger = get_logger("app.graph.nodes.decision")
 
@@ -40,12 +50,23 @@ ENCAMINHAMENTO_META = "busca_meta"
 # trilha registra o que o nó concluiu, não o que a linha vizinha já alcança.
 RESUMO_SUGESTAO = "Fluxo encaminhado para a sugestão de adaptação da regra."
 RESUMO_FIM = "Fluxo encerrado no codegen: não há adaptação a propor para este desfecho."
+RESUMO_CORRECAO = "Fluxo encaminhado para a correção do código gerado."
 
 
 class DecisaoSemResultadoError(FalhaDoJobError):
     """A retomada não trouxe o resultado, então não há desfecho para encaminhar.
 
     Uma reentrega não inventa a referência que faltou, então a falha é permanente.
+    """
+
+    etapa = ETAPA
+
+
+class CodigoDesconhecidoError(FalhaDoJobError):
+    """O código executado não está entre os gerados para o job, e não há posição a contar.
+
+    Sem a posição, a correção poderia passar do limite que a `api` aplica; a reentrega não
+    faz o código aparecer, então a falha é permanente.
     """
 
     etapa = ETAPA
@@ -101,6 +122,18 @@ async def decision(state: AgentState, config: RunnableConfig) -> AgentState:
             and base > 0
         ):
             encaminhamento = ENCAMINHAMENTO_META
+    # A posição só é lida quando a falha é corrigível: é ela que diz se ainda cabe uma correção
+    # nesta versão, pela mesma conta que a `api` faz para decidir se o job termina.
+    posicao: int | None = None
+    causa: str | None = None
+    if state.get("status_simulacao") in STATUS_CORRIGIVEIS:
+        sessoes = config["configurable"]["sessoes"]
+        posicao = await posicao_do_codigo(sessoes, job_id, UUID(state["codigo_gerado_id"]))
+        if posicao == 0:
+            raise CodigoDesconhecidoError("executed code is not among the job's generated code")
+        if corrige(state.get("status_simulacao"), posicao):
+            causa = (await buscar_falha_da_execucao(sessoes, job_id, UUID(resultado_id))).causa()
+            encaminhamento = ENCAMINHAMENTO_CORRECAO
     producers = config["configurable"]["producers"]
 
     await producers.etapa_alterada(EtapaAlterada(job_id=job_id, etapa=ETAPA, status="iniciada"))
@@ -115,6 +148,7 @@ async def decision(state: AgentState, config: RunnableConfig) -> AgentState:
                     {
                         ENCAMINHAMENTO_SUGESTAO: RESUMO_SUGESTAO,
                         ENCAMINHAMENTO_META: "Fluxo encaminhado para a busca de uma meta maior.",
+                        ENCAMINHAMENTO_CORRECAO: RESUMO_CORRECAO,
                     }.get(encaminhamento, RESUMO_FIM)
                 ),
                 encaminhamento=encaminhamento,
@@ -129,6 +163,13 @@ async def decision(state: AgentState, config: RunnableConfig) -> AgentState:
     ):
         # O desfecho da alternativa que esta simulação testou.
         tentativas_de_taxa.labels(tentativa=str(tentativas.feitas), desfecho=veredito).inc()
+    pendente = state.get("correcao_pendente")
+    if pendente is not None:
+        # O desfecho da execução do código corrigido que a decisão anterior pediu.
+        desfechos_correcao_codigo.labels(
+            tentativa=str(pendente),
+            desfecho="sucesso" if state.get("status_simulacao") == "sucesso" else "erro",
+        ).inc()
     # A presença dos parâmetros, nunca o valor que o usuário disse. A do orçamento explica o
     # encaminhamento: sem ele não há veredito e o fluxo termina (T-281).
     contexto: dict[str, object] = {
@@ -138,8 +179,17 @@ async def decision(state: AgentState, config: RunnableConfig) -> AgentState:
         "com_meta_venda": state.get("meta_venda") is not None,
     }
     atualizacao: AgentState = {"encaminhamento": encaminhamento}
+    if pendente is not None:
+        atualizacao["correcao_pendente"] = None
     if tentativas is not None:
         contexto["tentativas_de_taxa"] = tentativas.feitas
         atualizacao["tentativas_de_taxa"] = tentativas.feitas
+    if posicao is not None:
+        contexto["posicao_do_codigo"] = posicao
+    if causa is not None and posicao is not None:
+        # A causa do conjunto fechado, nunca a mensagem ou o traceback, que vêm do código gerado.
+        contexto["causa"] = causa
+        correcoes_codigo.labels(tentativa=str(posicao + 1), causa=causa).inc()
+        atualizacao["correcao_pendente"] = posicao + 1
     logger.info("node conclusion published", extra=contexto)
     return atualizacao

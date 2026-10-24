@@ -1,9 +1,9 @@
 """O banco de um job que itera a taxa nova, gravado como a api e o worker o gravariam (T-271).
 
 Os nós leem daqui o que leriam do Postgres: a versão de cada ciclo, a conta das tentativas, os
-totais e as taxas já simuladas. O teste faz o papel da api, que grava a versão de cada proposta
-e reabre o ciclo, e o do worker, que grava o resultado e o publica. As consultas reais estão em
-`tests/app/repositorio/test_tentativas_postgres.py`.
+totais com o detalhamento e as taxas já simuladas. O teste faz o papel da api, que grava a versão
+de cada proposta e reabre o ciclo, e o do worker, que grava o resultado e o publica. As consultas
+reais estão em `tests/app/repositorio/test_tentativas_postgres.py`.
 """
 
 from dataclasses import dataclass, field
@@ -14,10 +14,12 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from app.repositorio.regras import TentativasDeTaxa
+from app.repositorio.regras import Procedencia, TentativasDeTaxa
 from app.repositorio.resultados import TotaisDaSimulacao
 from app.representacao_regra import RepresentacaoRegra
 from app.sugestao_adaptacao import TaxaSimulada, taxa_de_referencia
+
+LOJA_FORA_DA_REGRA = "99"
 
 NUCLEO = {
     "vigencia": {"inicio": "2025-09", "fim": "2025-11"},
@@ -46,7 +48,8 @@ class Versao:
 class HistoricoFalso:
     job_id: UUID
     orcamento: Decimal
-    baseline: Decimal
+    # A comissão das linhas que a regra não alcança, que nenhuma taxa move.
+    parte_fixa: Decimal
     versoes: dict[UUID, Versao] = field(default_factory=dict)
     # resultado_id -> (versão simulada, comissão apurada)
     resultados: dict[UUID, tuple[UUID, Decimal]] = field(default_factory=dict)
@@ -65,6 +68,15 @@ class HistoricoFalso:
             "app.mensageria.roteamento.buscar_regra_do_resultado", self.buscar_regra_do_resultado
         )
         monkeypatch.setattr("app.graph.nodes.decision.contar_tentativas", self.contar_tentativas)
+        monkeypatch.setattr(
+            "app.graph.nodes.derive_code.buscar_procedencia", self.buscar_procedencia
+        )
+        monkeypatch.setattr("app.graph.nodes.derive_code.buscar_regra", self.buscar_regra)
+        # O código falso dos testes de iteração não escreve taxa: cada alternativa é gerada pelo
+        # modelo, e a derivação tem testes próprios (`tests/app/graph/test_derivacao_do_codigo.py`).
+        monkeypatch.setattr(
+            "app.graph.nodes.derive_code.buscar_codigo_simulado", AsyncMock(return_value=None)
+        )
         monkeypatch.setattr("app.graph.nodes.suggest_adaptation.buscar_totais", self.buscar_totais)
         monkeypatch.setattr(
             "app.graph.nodes.suggest_adaptation.buscar_taxas_simuladas",
@@ -97,6 +109,11 @@ class HistoricoFalso:
         assert job_id == self.job_id
         return RepresentacaoRegra.model_validate(self.versoes[regra_id].representacao)
 
+    async def buscar_procedencia(self, sessoes: Any, job_id: UUID, regra_id: UUID) -> Procedencia:
+        assert job_id == self.job_id
+        versao = self.versoes[regra_id]
+        return Procedencia(versao.origem, versao.regra_origem_id)
+
     async def buscar_regra_do_resultado(
         self, sessoes: Any, job_id: UUID, resultado_id: UUID
     ) -> UUID:
@@ -117,8 +134,37 @@ class HistoricoFalso:
     async def buscar_totais(
         self, sessoes: Any, job_id: UUID, resultado_id: UUID
     ) -> TotaisDaSimulacao:
-        _, simulado = self.resultados[resultado_id]
-        return TotaisDaSimulacao(simulado, self.orcamento, baseline=self.baseline)
+        regra_id, simulado = self.resultados[resultado_id]
+        return TotaisDaSimulacao(
+            simulado, self.orcamento, linhas=self.detalhamento(regra_id, simulado)
+        )
+
+    def detalhamento(self, regra_id: UUID, simulado: Decimal) -> dict[str, Any]:
+        """Uma linha de uma loja fora da regra, com a parte fixa, e uma que ela alcança, com o
+        resto da comissão, no primeiro mês da vigência e no cargo e na marca da regra."""
+        nucleo = self.versoes[regra_id].representacao["nucleo"]
+        alcancada = simulado - self.parte_fixa
+        elemento = "nucleo.percentual" if "percentual" in nucleo else "nucleo.taxas_por_cargo"
+
+        def linha(
+            loja: str, comissao: Decimal, contribuicoes: dict[str, Decimal]
+        ) -> dict[str, Any]:
+            return {
+                "cod_loja": loja,
+                "cod_marca": nucleo["marca"][0],
+                "cod_cargo": nucleo["cargo"][0],
+                "comissao_baseline": comissao - sum(contribuicoes.values(), Decimal(0)),
+                "comissao_simulada": comissao,
+                "diferenca": sum(contribuicoes.values(), Decimal(0)),
+                "contribuicoes": contribuicoes,
+            }
+
+        return {
+            nucleo["vigencia"]["inicio"]: {
+                "MATRIC-FORA": linha(LOJA_FORA_DA_REGRA, self.parte_fixa, {}),
+                "MATRIC-DENTRO": linha(nucleo["loja"][0], alcancada, {elemento: alcancada}),
+            }
+        }
 
     async def buscar_taxas_simuladas(
         self, sessoes: Any, job_id: UUID, regra_id: UUID

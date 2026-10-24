@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { apiClient } from '@/services/api'
-import { rotuloDaRegra } from '@/services/job'
 import type { JobResumo } from '@/types/api'
 import { useRoute, useRouter } from 'vue-router'
 import { useJobSimulacao } from '../composables/useJobSimulacao'
@@ -20,7 +19,6 @@ import { useDetalhamento } from '@/composables/useDetalhamento'
 const rota = useRoute()
 const roteador = useRouter()
 const jobId = computed(() => String(rota.params.id))
-const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
 const quantidadeArquivadas = ref(0)
 const quantidadeSalvas = ref(0)
 
@@ -113,7 +111,7 @@ async function cancelarFluxo(): Promise<void> {
   if (await cancelar()) await roteador.push('/nova-regra')
 }
 
-async function carregarRegrasRecentes(): Promise<void> {
+async function carregarContagensDeRegras(): Promise<void> {
   try {
     const resumosDosJobs: JobResumo[] = []
     let numeroDaPagina = 0
@@ -132,18 +130,12 @@ async function carregarRegrasRecentes(): Promise<void> {
       numeroDaPagina += 1
     } while (resumosDosJobs.length < totalDeJobs && itensDaPagina.length > 0)
 
-    regrasRecentes.value = resumosDosJobs.slice(0, 6).map((resumoDoJob) => ({
-      identificador: resumoDoJob.id,
-      rotulo: rotuloDaRegra(resumoDoJob),
-    }))
-
     quantidadeArquivadas.value = resumosDosJobs.filter(
       (resumoDoJob) => resumoDoJob.status === 'arquivado',
     ).length
 
     quantidadeSalvas.value = resumosDosJobs.length - quantidadeArquivadas.value
   } catch {
-    regrasRecentes.value = []
     quantidadeArquivadas.value = 0
     quantidadeSalvas.value = 0
   }
@@ -190,7 +182,7 @@ watch(
   { immediate: true },
 )
 onMounted(() => {
-  void carregarRegrasRecentes()
+  void carregarContagensDeRegras()
 })
 
 onBeforeUnmount(parar)
@@ -205,7 +197,6 @@ onBeforeUnmount(parar)
         class="sticky top-0 hidden h-screen lg:flex"
         :quantidade-arquivadas="quantidadeArquivadas"
         :quantidade-salvas="quantidadeSalvas"
-        :regras-recentes="regrasRecentes"
       />
       <main v-if="!redirecionando" class="min-w-0 lg:min-h-0 lg:overflow-y-auto">
         <TheProcessHeader

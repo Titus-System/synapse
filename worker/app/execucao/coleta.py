@@ -59,6 +59,9 @@ type Motivo = Literal[
     # Atribuído no julgamento (T-241): o comando exigiu um elemento que o código não declarou,
     # ou o código atribuiu contribuição a um elemento que o comando não exige.
     "cobertura_incompleta",
+    # Atribuído no julgamento: o código mudou a comissão de uma linha fora do alcance da regra
+    # que o comando trouxe.
+    "fora_do_escopo",
     "infra",
 ]
 

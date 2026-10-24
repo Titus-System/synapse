@@ -366,8 +366,80 @@ class TestarDiagnostico(unittest.TestCase):
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn("campo $.elementos_ausentes[0]", resultado.stderr)
 
+    def test_rejeita_fora_do_escopo_sem_as_linhas(self) -> None:
+        def alterar(diagnostico: Any) -> None:
+            del diagnostico["linhas_fora_do_escopo"]
+
+        resultado = validar_com_alteracao(
+            "domain/resultado-diagnostico-fora-do-escopo.json", alterar
+        )
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("domain/resultado-diagnostico-fora-do-escopo.json", resultado.stderr)
+
+    def test_rejeita_linhas_fora_do_escopo_em_outra_causa(self) -> None:
+        def alterar(diagnostico: Any) -> None:
+            diagnostico["linhas_fora_do_escopo"] = {
+                "total": 1,
+                "exemplos": [
+                    {
+                        "competencia": "2025-08",
+                        "matricula": "MATRIC-1",
+                        "cod_loja": "33",
+                        "cod_marca": "10",
+                        "cod_cargo": "100",
+                        "diferenca": 350.0,
+                    }
+                ],
+            }
+
+        resultado = validar_com_alteracao("domain/resultado-diagnostico-timeout.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("domain/resultado-diagnostico-timeout.json: campo $:", resultado.stderr)
+
+    def test_rejeita_mais_de_cinco_exemplos_fora_do_escopo(self) -> None:
+        def alterar(diagnostico: Any) -> None:
+            exemplo = diagnostico["linhas_fora_do_escopo"]["exemplos"][0]
+            diagnostico["linhas_fora_do_escopo"]["exemplos"] = [exemplo] * 6
+
+        resultado = validar_com_alteracao(
+            "domain/resultado-diagnostico-fora-do-escopo.json", alterar
+        )
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.linhas_fora_do_escopo.exemplos", resultado.stderr)
+
 
 class TestarExecutarCodigo(unittest.TestCase):
+    def test_aceita_comando_sem_alcance(self) -> None:
+        # O campo é aditivo: sem ele o Worker não confere o escopo.
+        def alterar(comando: Any) -> None:
+            del comando["alcance"]
+
+        resultado = validar_com_alteracao("events/executar-codigo-alcance.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_alcance_com_lista_vazia(self) -> None:
+        # Filtro que não restringe fica ausente; uma lista vazia seria ambígua.
+        def alterar(comando: Any) -> None:
+            comando["alcance"]["loja"] = []
+
+        resultado = validar_com_alteracao("events/executar-codigo-alcance.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.alcance.loja", resultado.stderr)
+
+    def test_rejeita_vigencia_do_alcance_fora_do_formato(self) -> None:
+        def alterar(comando: Any) -> None:
+            comando["alcance"]["vigencia"] = {"inicio": "08/2025", "fim": "2025-11"}
+
+        resultado = validar_com_alteracao("events/executar-codigo-alcance.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.alcance.vigencia", resultado.stderr)
+
     def test_aceita_comando_sem_elementos_exigidos(self) -> None:
         # O campo é aditivo: um comando publicado antes dele continua válido.
         def alterar(comando: Any) -> None:

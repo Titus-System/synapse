@@ -1,26 +1,20 @@
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import simboloSynapse from '@/assets/imagens/synapse-simbolo.png'
 import { usarStoreRenomearRegra, limiteDoNome } from '@/stores/renomearRegra'
-
-interface RegraRecente {
-  identificador: string
-  rotulo: string
-}
+import { usarStoreRegrasRecentes, type RegraRecente } from '@/stores/regrasRecentes'
 
 withDefaults(
   defineProps<{
     secaoAtiva?: 'salvas' | 'arquivadas'
     quantidadeArquivadas?: number
     quantidadeSalvas?: number
-    regrasRecentes?: readonly RegraRecente[]
   }>(),
   {
     secaoAtiva: undefined,
     quantidadeArquivadas: 0,
     quantidadeSalvas: 0,
-    regrasRecentes: () => [],
   },
 )
 
@@ -28,6 +22,40 @@ const renomear = usarStoreRenomearRegra()
 const { idEmEdicao, texto, enviando, erro, tamanho, mensagemDeValidacao, podeConfirmar } =
   storeToRefs(renomear)
 const campo = ref<HTMLInputElement[] | HTMLInputElement | null>(null)
+
+const regrasRecentes = usarStoreRegrasRecentes()
+const { regras, total, falhou, carregando, todasCarregadas } = storeToRefs(regrasRecentes)
+const lista = ref<HTMLUListElement | null>(null)
+const fimDaLista = ref<HTMLLIElement | null>(null)
+let observador: IntersectionObserver | null = null
+
+function observarFimDaLista(): void {
+  observador?.disconnect()
+  if (fimDaLista.value) observador?.observe(fimDaLista.value)
+}
+
+onMounted(() => {
+  observador = new IntersectionObserver(
+    (entradas) => {
+      if (entradas.some((entrada) => entrada.isIntersecting)) void regrasRecentes.carregarMais()
+    },
+    { root: lista.value, rootMargin: '0px 0px 80px 0px' },
+  )
+  observarFimDaLista()
+  void regrasRecentes.atualizar()
+})
+
+// O observador só avisa quando o fim da lista entra ou sai da área visível. Se ele continua
+// visível depois de uma página carregada, observar de novo dispara a checagem que pede a próxima.
+watch(
+  [fimDaLista, carregando],
+  () => {
+    if (!carregando.value) observarFimDaLista()
+  },
+  { flush: 'post' },
+)
+
+onBeforeUnmount(() => observador?.disconnect())
 
 function rotuloDe(regra: RegraRecente): string {
   return renomear.rotuloExibido(regra.identificador, regra.rotulo)
@@ -67,10 +95,15 @@ function aoSair(): void {
       Nova Regra
     </RouterLink>
 
-    <section class="mt-4" aria-labelledby="titulo-recentes">
+    <section class="mt-4 flex min-h-0 flex-1 flex-col" aria-labelledby="titulo-recentes">
       <h2 id="titulo-recentes" class="text-sm font-normal text-[#c7afa3]">Recentes</h2>
-      <ul class="mt-3 space-y-2">
-        <li v-for="regra in regrasRecentes" :key="regra.identificador">
+      <!-- O Chrome ignora ::-webkit-scrollbar quando scrollbar-width/scrollbar-color estão
+           definidos e volta a desenhar as setas; por isso as propriedades padrão ficam só para o Firefox. -->
+      <ul
+        ref="lista"
+        class="mt-3 -mr-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1.5 [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#6b4535] hover:[&::-webkit-scrollbar-thumb]:bg-[#7a5442] supports-[-moz-appearance:none]:[scrollbar-width:thin] supports-[-moz-appearance:none]:[scrollbar-color:#6b4535_transparent]"
+      >
+        <li v-for="regra in regras" :key="regra.identificador">
           <div v-if="idEmEdicao === regra.identificador" class="rounded-[.625rem] bg-[#4d3125] p-2">
             <input
               ref="campo"
@@ -113,8 +146,26 @@ function aoSair(): void {
             </button>
           </div>
         </li>
-        <li v-if="regrasRecentes.length === 0" class="px-1 py-2 text-sm text-[#c7afa3]">
+        <li v-if="total === 0" class="px-1 py-2 text-sm text-[#c7afa3]">
           Nenhuma regra criada ainda.
+        </li>
+        <li v-if="falhou" role="alert" class="px-1 py-2 text-sm text-[#c7afa3]">
+          <p>Não foi possível carregar as regras.</p>
+          <button
+            type="button"
+            class="mt-1 cursor-pointer underline"
+            @click="regrasRecentes.atualizar()"
+          >
+            Tentar novamente
+          </button>
+        </li>
+        <li
+          v-else-if="!todasCarregadas"
+          ref="fimDaLista"
+          role="status"
+          class="px-1 py-2 text-sm text-[#c7afa3]"
+        >
+          Carregando regras…
         </li>
       </ul>
     </section>

@@ -157,6 +157,27 @@ class CorrecaoProposta(ModeloContrato):
     parametros: ParametrosSimulacao | None = None
 
 
+class VigenciaDoAlcance(ModeloContrato):
+    inicio: str
+    fim: str
+
+
+class ExcluidosDoAlcance(ModeloContrato):
+    loja: list[str] | None = Field(default=None, min_length=1)
+    marca: list[str] | None = Field(default=None, min_length=1)
+    cargo: list[str] | None = Field(default=None, min_length=1)
+
+
+class AlcanceDaExecucao(ModeloContrato):
+    """As linhas a que a regra dá efeito; cada campo ausente não restringe a dimensão."""
+
+    vigencia: VigenciaDoAlcance | None = None
+    loja: list[str] | None = Field(default=None, min_length=1)
+    marca: list[str] | None = Field(default=None, min_length=1)
+    cargo: list[str] | None = Field(default=None, min_length=1)
+    excluidos: ExcluidosDoAlcance | None = None
+
+
 class ExecutarCodigo(ModeloContrato):
     job_id: UUID
     codigo_gerado_id: UUID
@@ -165,6 +186,7 @@ class ExecutarCodigo(ModeloContrato):
     meta_venda: Decimal | None = Field(default=None, gt=0)
     proposito: Literal["simulacao", "busca_meta"] | None = None
     elementos_exigidos: list[ReferenciaDeElemento] | None = Field(default=None, min_length=1)
+    alcance: AlcanceDaExecucao | None = None
 
 
 class ConflitoDaRodada(ModeloContrato):

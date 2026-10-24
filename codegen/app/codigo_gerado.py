@@ -37,6 +37,13 @@ def extrair_codigo(resposta: str) -> str:
         raise CodigoInvalidoError(f"Expected exactly one python block, found {len(blocos)}")
 
     fonte: str = blocos[0]
+    validar_fonte(fonte)
+    return fonte
+
+
+def validar_fonte(fonte: str) -> None:
+    """Raise `CodigoInvalidoError` when `fonte` is not valid Python or does not define
+    `aplicar_regra(bases, apuracao_base, competencias)` at module level."""
     try:
         modulo = ast.parse(fonte)
     except SyntaxError:
@@ -46,7 +53,6 @@ def extrair_codigo(resposta: str) -> str:
         raise CodigoInvalidoError(
             "Generated code does not define aplicar_regra(bases, apuracao_base, competencias)"
         )
-    return fonte
 
 
 def _define_aplicar_regra(modulo: ast.Module) -> bool:

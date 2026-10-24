@@ -14,6 +14,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.execucao.coleta import DesfechoClassificado, Motivo
+from app.execucao.escopo import ForaDoEscopo, LinhaForaDoEscopo
 from app.execucao.registro import (
     DiagnosticoForaDoContratoError,
     diagnostico_do_julgamento,
@@ -247,6 +248,49 @@ def test_cobertura_incompleta_guarda_os_elementos_que_a_reprovaram(
 
     assert linha.diagnostico == diagnostico
     assert erros_do_dominio("resultado-diagnostico", linha.diagnostico) == []
+
+
+def fora_do_escopo(total: int, exemplos: int) -> Julgamento:
+    """Como `julgar` o devolve: o desfecho do container era `sucesso`, e a causa é do julgamento."""
+    return Julgamento(
+        "erro_codigo",
+        "fora_do_escopo",
+        "indeterminado",
+        desfecho=DesfechoClassificado("sucesso", "ok", [ASSERCAO_OK]),
+        fora_do_escopo=ForaDoEscopo(
+            total=total,
+            exemplos=tuple(
+                LinhaForaDoEscopo(
+                    competencia="2025-11",
+                    matricula=f"MATRIC-{n}",
+                    cod_loja="33",
+                    cod_marca="10",
+                    cod_cargo="100",
+                    diferenca=350.0,
+                )
+                for n in range(1, exemplos + 1)
+            ),
+        ),
+        conferencia="coerente",
+    )
+
+
+def test_fora_do_escopo_guarda_o_total_e_as_linhas_de_exemplo() -> None:
+    linha = linha_do_julgamento(fora_do_escopo(total=8, exemplos=5))
+
+    assert linha.diagnostico is not None
+    assert linha.diagnostico["causa"] == "fora_do_escopo"
+    assert linha.diagnostico["linhas_fora_do_escopo"]["total"] == 8
+    assert [e["matricula"] for e in linha.diagnostico["linhas_fora_do_escopo"]["exemplos"]] == [
+        f"MATRIC-{n}" for n in range(1, 6)
+    ]
+    assert erros_do_dominio("resultado-diagnostico", linha.diagnostico) == []
+
+
+def test_fora_do_escopo_sem_linha_e_erro_do_worker_e_nao_e_gravado() -> None:
+    """O contrato exige ao menos um exemplo: sem linha, não há o que o modelo corrigir."""
+    with pytest.raises(DiagnosticoForaDoContratoError):
+        linha_do_julgamento(fora_do_escopo(total=0, exemplos=0))
 
 
 @pytest.mark.parametrize(

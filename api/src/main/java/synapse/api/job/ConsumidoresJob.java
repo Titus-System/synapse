@@ -400,6 +400,20 @@ class SimulacaoConcluidaConsumidor {
 					.log("resultado inviável de alternativa registrado; job aguarda a próxima tentativa ou o fim da iteração");
 				return;
 			}
+			if (aplicado.emCorrecao()) {
+				// O resultado com erro não vai ao stream: o usuário acompanha a correção
+				// pelas etapas do codegen e vê o desfecho do código corrigido.
+				if (aplicado.avancouDeGerandoRegra()) {
+					this.emissores.emitir(jobId, EventoSse.de("estado",
+							EventoEstadoDto.transicao(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO, null)));
+				}
+				contar(desfecho, "correcao");
+				log.atInfo()
+					.addKeyValue("resultado_id", resultadoId)
+					.addKeyValue("desfecho", desfecho.paraMetrica())
+					.log("resultado com erro de código registrado; job aguarda o código corrigido");
+				return;
+			}
 			if (aplicado.avancouDeGerandoRegra()) {
 				this.emissores.emitir(jobId, EventoSse.de("estado",
 						EventoEstadoDto.transicao(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO, null)));
