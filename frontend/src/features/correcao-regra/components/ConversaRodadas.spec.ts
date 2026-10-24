@@ -2,6 +2,10 @@ import { mount } from '@vue/test-utils'
 import { expect, it } from 'vitest'
 import ConversaRodadas from './ConversaRodadas.vue'
 import { rodadaVoz, pendente, falhou, corrigida, abandonada } from '../services/correcao.fixtures'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import type { Conflito } from '@/types/api'
+
 it('substitui espera por transcrição escapada, preserva indicação de voz e não duplica na reconciliação', async () => {
   const wrapper = mount(ConversaRodadas, { props: { rodadas: [rodadaVoz] } })
   expect(wrapper.text()).toContain('Seu áudio está sendo transcrito')
@@ -163,4 +167,18 @@ it('mostra a rodada abandonada como encerrada, sem termos técnicos', () => {
     expect(texto).not.toContain(termo)
   }
   expect(wrapper.text()).toContain('Esta correção foi encerrada')
+})
+it('mostra os conflitos reais do contrato em termos do usuário, sem os identificadores internos', () => {
+  const conflitos = JSON.parse(
+    readFileSync(
+      resolve(__dirname, '../../../../../contracts/examples/domain/conflitos-rodada.json'),
+      'utf8',
+    ),
+  ) as Conflito[]
+  const wrapper = mount(ConversaRodadas, { props: { rodadas: [{ ...pendente, conflitos }] } })
+  const texto = wrapper.text()
+  for (const conflito of conflitos) expect(texto).toContain(conflito.motivo)
+  expect(wrapper.findAll('li')).toHaveLength(conflitos.length)
+  expect(texto).not.toContain('nucleo.')
+  expect(texto).not.toContain('elem.2')
 })
