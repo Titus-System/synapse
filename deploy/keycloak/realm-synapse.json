@@ -4,11 +4,17 @@
   "displayName": "Synapse",
   "loginTheme": "synapse",
   "defaultLocale": "pt-BR",
-  "supportedLocales": ["pt-BR"],
+  "supportedLocales": [
+    "pt-BR"
+  ],
   "roles": {
     "realm": [
-      { "name": "profissional-rh" },
-      { "name": "auditor" }
+      {
+        "name": "profissional-rh"
+      },
+      {
+        "name": "auditor"
+      }
     ]
   },
   "clients": [
@@ -19,11 +25,165 @@
       "publicClient": true,
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
-      "redirectUris": ["http://localhost:5173/*", "https://app.synnapse.pro/*"],
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "https://app.synnapse.pro/*"
+      ],
       "attributes": {
-        "post.logout.redirect.uris": "http://localhost:5173/*##https://app.synnapse.pro/*"
+        "post.logout.redirect.uris": "http://localhost:5173/*##https://app.synnapse.pro/*",
+        "pkce.code.challenge.method": "S256"
       },
-      "webOrigins": ["http://localhost:5173", "https://app.synnapse.pro"]
+      "webOrigins": [
+        "http://localhost:5173",
+        "https://app.synnapse.pro"
+      ]
     }
-  ]
+  ],
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "editUsernameAllowed": false,
+  "resetPasswordAllowed": true,
+  "verifyEmail": true,
+  "internationalizationEnabled": true,
+  "passwordPolicy": "length(12) and notUsername(undefined) and notEmail(undefined)",
+  "actionTokenGeneratedByUserLifespan": 900,
+  "attributes": {
+    "actionTokenGeneratedByUserLifespan.reset-credentials": "900",
+    "actionTokenGeneratedByUserLifespan.verify-email": "1800"
+  },
+  "groups": [
+    {
+      "name": "synapse-autocadastro",
+      "realmRoles": [
+        "profissional-rh"
+      ]
+    }
+  ],
+  "defaultGroups": [
+    "/synapse-autocadastro"
+  ],
+  "registrationFlow": "synapse-registration",
+  "resetCredentialsFlow": "synapse-reset-credentials",
+  "authenticatorConfig": [
+    {
+      "alias": "synapse-registration-password",
+      "config": {
+        "always_set_password_on_register_form": "true"
+      }
+    },
+    {
+      "alias": "synapse-reset-email",
+      "config": {
+        "force-login": "true"
+      }
+    }
+  ],
+  "authenticationFlows": [
+    {
+      "alias": "synapse-registration",
+      "description": "Cadastro nativo Synapse",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "registration-page-form",
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "autheticatorFlow": true,
+          "userSetupAllowed": false,
+          "flowAlias": "synapse-registration-form"
+        }
+      ]
+    },
+    {
+      "alias": "synapse-registration-form",
+      "providerId": "form-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "registration-user-creation",
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "registration-password-action",
+          "requirement": "REQUIRED",
+          "priority": 50,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "synapse-registration-password"
+        }
+      ]
+    },
+    {
+      "alias": "synapse-reset-credentials",
+      "description": "Recuperacao nativa com retorno ao login",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "reset-credentials-choose-user",
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "reset-credential-email",
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "synapse-reset-email"
+        },
+        {
+          "authenticator": "reset-password",
+          "requirement": "REQUIRED",
+          "priority": 30,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        }
+      ]
+    }
+  ],
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"firstName\", \"displayName\": \"${synapseFullName}\", \"validations\": {\"length\": {\"min\": 1, \"max\": 255}, \"person-name-prohibited-characters\": {}, \"pattern\": {\"pattern\": \".*\\\\S.*\", \"error-message\": \"missingFirstNameMessage\"}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"annotations\": {\"autocomplete\": \"name\"}, \"multivalued\": false}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"annotations\": {\"autocomplete\": \"email\"}, \"multivalued\": false}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\"], \"edit\": [\"admin\"]}, \"multivalued\": false}], \"unmanagedAttributePolicy\": null}"
+          ]
+        }
+      }
+    ]
+  },
+  "eventsEnabled": true,
+  "eventsExpiration": 604800,
+  "enabledEventTypes": [
+    "REGISTER",
+    "REGISTER_ERROR",
+    "SEND_VERIFY_EMAIL",
+    "SEND_VERIFY_EMAIL_ERROR",
+    "VERIFY_EMAIL",
+    "VERIFY_EMAIL_ERROR",
+    "SEND_RESET_PASSWORD",
+    "SEND_RESET_PASSWORD_ERROR",
+    "RESET_PASSWORD",
+    "RESET_PASSWORD_ERROR",
+    "UPDATE_PASSWORD",
+    "UPDATE_PASSWORD_ERROR",
+    "LOGIN",
+    "LOGIN_ERROR",
+    "LOGOUT",
+    "LOGOUT_ERROR"
+  ],
+  "adminEventsDetailsEnabled": false
 }
