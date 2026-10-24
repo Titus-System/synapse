@@ -99,3 +99,31 @@ body.synapse-login-page {
 @media (max-width: 1050px) { .synapse-layout { grid-template-columns: minmax(0, 1fr) minmax(23rem, 30rem); } }
 @media (min-width: 821px) { .synapse-layout { gap: clamp(3rem, 4vw, 5rem); } .synapse-hero h1 { max-width: none; } .synapse-hero h1 em { white-space: nowrap; } }
 @media (max-width: 820px) { body.synapse-login-page { display: block; height: auto; min-height: 100dvh; overflow-y: auto; } .synapse-topbar, .synapse-layout, .synapse-footer { width: min(100% - 2.5rem, 32rem); } .synapse-topbar { height: auto; min-height: 5.8rem; padding-top: 1.25rem; } .synapse-layout { grid-template-columns: 1fr; min-height: auto; height: auto; padding: 1rem 0 2rem; } .synapse-hero { max-width: none; } .synapse-card { width: 100%; max-width: none; height: auto; min-height: 0; } .synapse-footer { align-items: flex-start; flex-direction: column; } .synapse-metrics { flex-direction: column; } }
+
+/* Os fluxos nativos compartilham o tema e precisam crescer com as mensagens. */
+body.synapse-login-page { height: auto; min-height: 100dvh; overflow-y: auto; }
+.synapse-layout { height: auto; }
+.synapse-card { width: 100%; max-width: 480px; height: auto; min-height: 600px; }
+.synapse-account-page .synapse-card { min-height: 0; padding-top: 2rem; }
+.synapse-account-page .synapse-form { gap: 1rem; margin-top: 1.5rem; }
+.synapse-native-field { display: grid; gap: .45rem; }
+.synapse-native-field label { font-size: .82rem; font-weight: 600; }
+.synapse-native-field input:not([type="checkbox"]):not([type="submit"]) { width: 100%; min-width: 0; height: 2.7rem; padding: .65rem .8rem; border: 1px solid #e4cfc2; border-radius: .4rem; background: #fff; color: #2e1a10; font: inherit; }
+.synapse-account-page .pf-v5-c-input-group { display: flex; gap: .4rem; }
+.synapse-account-page .pf-m-fill { flex: 1; min-width: 0; }
+.synapse-account-page .pf-v5-c-form-control { display: block; }
+.synapse-account-page .pf-v5-c-button.pf-m-control { min-height: 2.7rem; min-width: 2.7rem; border: 1px solid #e4cfc2; border-radius: .4rem; background: #fff4ed; color: #a9490d; cursor: pointer; }
+.synapse-account-page .fa-eye::before { content: '◉'; }
+.synapse-account-page .fa-eye-slash::before { content: '○'; }
+.synapse-actions { display: grid; gap: 1rem; }
+.synapse-account-page a { color: #a9490d; }
+.synapse-account-page a.synapse-submit { color: #fff; text-decoration: none; }
+.synapse-account-page .synapse-brand { color: inherit; }
+.synapse-account-page .pf-m-error, .synapse-message--error { color: #a1261b; }
+.synapse-message--success { color: #17613a; background: #ebf7ee; }
+.synapse-help, .synapse-account-page .instruction, .synapse-account-page .pf-v5-c-helper-text { font-size: .85rem; line-height: 1.5; }
+.synapse-help { color: #786156; margin: 1rem 0; }
+.synapse-native-field input[aria-invalid="true"] { border-color: #a1261b; }
+.synapse-card :focus-visible { outline: 2px solid #a9490d; outline-offset: 3px; }
+@media (max-width: 820px) { .synapse-card { min-height: 0; } }
+@media (max-width: 820px) { .synapse-account-page .synapse-hero { display: none; } }
