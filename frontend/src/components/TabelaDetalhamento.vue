@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, useId, watch } from 'vue'
 import type { RepresentacaoRegra } from '@/types/api'
 import {
   formatarReais,
@@ -12,6 +12,8 @@ const props = defineProps<{
   regra?: RepresentacaoRegra
 }>()
 const pagina = ref(0)
+const prefixo = useId()
+const abertas = ref(new Set<string>())
 const visiveis = computed(() => props.linhas.slice(pagina.value * 25, (pagina.value + 1) * 25))
 const rotulos = computed(() => rotulosContribuicoes(props.regra))
 watch(
@@ -22,6 +24,18 @@ watch(
 )
 function competencia(valor: string) {
   return valor.split('-').reverse().join('/')
+}
+type LinhaDaTabela = { competencia: string; matricula: string }
+function chave(linha: LinhaDaTabela, referencia: string) {
+  return `${linha.competencia}/${linha.matricula}/${referencia}`
+}
+function idDescricao(linha: LinhaDaTabela, referencia: string) {
+  return `${prefixo}-${chave(linha, referencia)}`
+}
+function alternar(linha: LinhaDaTabela, referencia: string) {
+  const alvo = chave(linha, referencia)
+  if (abertas.value.has(alvo)) abertas.value.delete(alvo)
+  else abertas.value.add(alvo)
 }
 </script>
 <template>
@@ -49,18 +63,8 @@ function competencia(valor: string) {
           </caption>
           <thead class="sticky top-0 z-10 bg-white text-[#2e1a10]">
             <tr>
-              <th
-                scope="col"
-                class="sticky left-2 w-28 min-w-28 bg-white shadow-[0_0_0_0.5rem_white]"
-              >
-                Competência
-              </th>
-              <th
-                scope="col"
-                class="sticky left-32 w-32 min-w-32 bg-white shadow-[0_0_0_0.5rem_white]"
-              >
-                Matrícula
-              </th>
+              <th scope="col" class="w-28 min-w-28">Competência</th>
+              <th scope="col" class="w-32 min-w-32">Matrícula</th>
               <th scope="col">Marca</th>
               <th scope="col">Loja</th>
               <th scope="col">Venda</th>
@@ -73,14 +77,10 @@ function competencia(valor: string) {
           </thead>
           <tbody>
             <tr v-for="linha in visiveis" :key="`${linha.competencia}/${linha.matricula}`">
-              <td
-                class="sticky left-2 z-[1] w-28 min-w-28 rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] px-3 py-2 shadow-[0_0_0_0.5rem_white]"
-              >
+              <td class="w-28 min-w-28 rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] px-3 py-2">
                 {{ competencia(linha.competencia) }}
               </td>
-              <td
-                class="sticky left-32 z-[1] w-32 min-w-32 rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] px-3 py-2 shadow-[0_0_0_0.5rem_white]"
-              >
+              <td class="w-32 min-w-32 rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] px-3 py-2">
                 {{ linha.matricula }}
               </td>
               <td class="rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] px-3 py-2">
@@ -115,8 +115,28 @@ function competencia(valor: string) {
               <td class="min-w-64 rounded-lg border border-[#FFDBCD] bg-[#FFF1EC] px-3 py-2">
                 <ul v-if="Object.keys(linha.contribuicoes).length" class="space-y-1">
                   <li v-for="(valor, referencia) in linha.contribuicoes" :key="referencia">
-                    {{ rotulos[referencia] ?? 'Condição adicional da regra' }}:
+                    {{ rotulos[referencia]?.rotulo ?? 'Condição adicional da regra' }}:
                     {{ formatarReais(valor) }}
+                    <template v-if="rotulos[referencia]?.descricao">
+                      <button
+                        type="button"
+                        class="block cursor-pointer text-xs font-semibold text-[#9D4400] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
+                        :aria-expanded="abertas.has(chave(linha, referencia))"
+                        :aria-controls="idDescricao(linha, referencia)"
+                        @click="alternar(linha, referencia)"
+                      >
+                        {{
+                          abertas.has(chave(linha, referencia)) ? 'Ocultar descrição' : 'Ver descrição'
+                        }}
+                      </button>
+                      <p
+                        v-show="abertas.has(chave(linha, referencia))"
+                        :id="idDescricao(linha, referencia)"
+                        class="mt-1 text-xs whitespace-pre-wrap"
+                      >
+                        {{ rotulos[referencia]?.descricao }}
+                      </p>
+                    </template>
                   </li>
                 </ul>
                 <span v-else>Sem alteração</span>

@@ -1,7 +1,7 @@
 import logging
 from decimal import Decimal
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import simplejson
@@ -10,6 +10,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from prometheus_client.parser import text_string_to_metric_families
 
 from app.core.logger import FormatadorJson, ManipuladorFilaContexto
+from app.extracao.construtos.generico import DESCRICAO_SEM_LASTRO
 from app.nos.codigos_conflito import CodigoConflito
 from app.repositorio.regras import RegraInvalidaError, buscar_regra
 from app.representacao_regra import RepresentacaoRegra
@@ -107,6 +108,14 @@ _ALCANCAVEIS: list[tuple[CodigoConflito, RepresentacaoRegra]] = [
                     "data_final": "2025-11-20",
                     "efeito": {"tipo": "acrescimo_pct", "valor": Decimal("0.01")},
                 }
+            ]
+        ),
+    ),
+    (
+        CodigoConflito.ELEMENTO_SEM_LASTRO,
+        _regra(
+            especificacoes=[
+                {"ref": "elem.1", "construto": "generico", "descricao": DESCRICAO_SEM_LASTRO}
             ]
         ),
     ),
@@ -208,6 +217,41 @@ async def test_log_da_regra_barrada_traz_codigos_e_referencias_sem_motivo(
     serializados = simplejson.dumps(logs)
     for privado in ("limite inferior", "percentual negativo", "50000", "40000"):
         assert privado not in serializados
+
+
+async def test_criterio_sem_lastro_da_versao_extraida_pausa_conta_o_codigo_e_loga_sem_motivo(
+    ambiente: ConfirmacaoFalsa, cliente: AsyncClient, logs: list[dict[str, Any]]
+) -> None:
+    regra = RepresentacaoRegra.model_validate(
+        {"nucleo": {"marca": [], "cargo": [], "percentual": Decimal("0.01")}, "especificacoes": []}
+    )
+    ambiente.nucleo_sem_lastro.return_value = frozenset({"loja"})
+    antes = _contagens((await cliente.get("/metrics")).text)
+
+    payload = await _processar(ambiente, regra)
+
+    ambiente.nucleo_sem_lastro.assert_awaited_once_with(
+        ambiente.banco, UUID(payload["job_id"]), UUID(payload["regra_id"])
+    )
+    motivo = (
+        "escopo de loja citado sem código reconhecido; indique os destinatários ou declare todos"
+    )
+    assert ambiente.publicacoes[-1][1]["conflitos"] == [
+        {"elementos": ["nucleo.loja"], "motivo": motivo}
+    ]
+    assert "executar-codigo" not in [nome for nome, _ in ambiente.publicacoes]
+    depois = _contagens((await cliente.get("/metrics")).text)
+    assert {k: depois[k] - antes[k] for k in depois} == {
+        c.value: 1.0 if c is CodigoConflito.NUCLEO_SEM_LASTRO else 0.0 for c in CodigoConflito
+    }
+    (final,) = [
+        log
+        for log in logs
+        if log.get("no") == "validacao_dominio" and log["message"] == "domain validation finished"
+    ]
+    assert final["extra"]["codigos"] == ["nucleo_sem_lastro"]
+    assert final["extra"]["elementos"] == ["nucleo.loja"]
+    assert "citado sem código" not in simplejson.dumps(logs)
 
 
 async def test_estado_do_grafo_mantem_so_elementos_e_motivo(

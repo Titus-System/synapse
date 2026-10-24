@@ -430,6 +430,23 @@ Um elemento que o código não consegue implementar não chega à conferência: 
 
 A declaração impede que um elemento seja esquecido em silêncio, mas não prova que ele foi implementado, nem que está certo: um código que declara um elemento e põe um efeito fixo em zero no lugar da lógica dele passa na conferência. A implementação e a correção do resultado são provadas pelos casos com resultado esperado (T-243, T-245).
 
+## Conferência de escopo
+
+A regra só muda a comissão das linhas que ela alcança. Fora delas, a comissão simulada de cada matrícula e competência é a do baseline. O código gerado pode rodar, passar nas asserções e na cobertura e ainda assim pagar um bônus em toda loja quando a regra o limita a algumas. O worker confere isso fora do container, como a cobertura, porque o código gerado não julga a si mesmo.
+
+Entradas:
+
+- `alcance`, do comando [`executar-codigo`](../events/executar-codigo.schema.json), que o codegen calcula a partir da representação da regra. `vigencia` traz a primeira e a última competência, inclusive. `loja`, `marca` e `cargo` trazem os códigos do filtro do núcleo. `excluidos` traz, por dimensão, os códigos das exclusões da regra. Quando o núcleo só tem taxas por cargo, sem taxa uniforme, `cargo` traz só os cargos com taxa própria, porque o núcleo manda conservar o baseline dos demais.
+- O detalhamento por matrícula e competência que sai do container, com `cod_loja`, `cod_marca`, `cod_cargo`, `comissao_baseline` e `comissao_simulada`.
+
+Uma linha está no alcance quando a competência está na vigência, cada código da linha está no filtro da sua dimensão e nenhum deles está entre os excluídos. Uma chave ausente não restringe a dimensão. Toda linha fora do alcance precisa ter a comissão simulada igual à do baseline, com tolerância de um centavo, a mesma da conciliação das contribuições, porque o código que reapura a linha do baseline pode arredondar de outro jeito sem ter mudado a regra.
+
+A conferência roda num `sucesso`, depois da conferência do baseline e da cobertura. Quando uma delas já reprovou, o motivo é o dela. Uma linha fora do alcance com a comissão mudada é falha do código gerado: o resultado sai com `status = erro_codigo` e `causa = fora_do_escopo` no diagnóstico ([`resultado-diagnostico`](../domain/resultado-diagnostico.schema.json)), sem veredito nem totais. `linhas_fora_do_escopo` traz quantas linhas mudaram e até cinco delas, na ordem do detalhamento, com competência, matrícula, loja, marca, cargo e a diferença. O codegen devolve esse diagnóstico ao modelo para corrigir o código, dentro do limite de códigos por versão.
+
+O alcance, como o orçamento, nunca entra no container. Sem `alcance` no comando, o worker não faz a conferência, e a execução segue como antes de o campo existir. Hoje o codegen não envia o campo, e a conferência fica desligada. Quando enviar, deixará o campo de fora quando a regra não restringe linha alguma, e também quando nenhum cargo do filtro tem taxa própria, caso em que a lista de cargos seria vazia e o contrato não a admite.
+
+A conferência só olha quem a regra não alcança. Ela não prova que a regra foi aplicada certo nas linhas que alcança: isso é dos casos com resultado esperado.
+
 ## Bibliotecas permitidas no sandbox
 
 A lista é curta porque cada biblioteca é superfície de ataque num container feito para

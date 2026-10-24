@@ -11,11 +11,13 @@ from langchain_core.runnables import RunnableConfig
 
 from app.contratos.mensagens import EtapaAlterada, NoGrafo
 from app.core.logger import get_logger, no_ctx
+from app.correcao_codigo import ENCAMINHAMENTO_CORRECAO
 from app.falhas import FalhaDoJobError, ProvedorIndisponivelError
 from app.graph.core.llm.disponibilidade import chamar_com_espera_do_provedor, ganchos_da_espera
 from app.graph.core.llm.registry import get_model, get_model_metadata
 from app.graph.core.state import AgentState
-from app.prompts.geracao_codigo import montar_prompt_geracao
+from app.prompts.geracao_codigo import montar_prompt_correcao, montar_prompt_geracao
+from app.repositorio.resultados import buscar_falha_da_execucao
 from app.representacao_regra import RepresentacaoRegra
 from app.resposta_modelo import extrair_resposta
 
@@ -55,11 +57,20 @@ async def code_generation(state: AgentState, config: RunnableConfig) -> AgentSta
     `ProvedorIndisponivelGeracaoError` when the provider stays unavailable for the whole retry
     window. Any other provider error propagates as-is. No case leaves partial state (AGENTS.md).
     """
+    job_id = UUID(state["job_id"])
     await config["configurable"]["producers"].etapa_alterada(
-        EtapaAlterada(job_id=UUID(state["job_id"]), etapa=NO_GERACAO_CODIGO, status="iniciada")
+        EtapaAlterada(job_id=job_id, etapa=NO_GERACAO_CODIGO, status="iniciada")
     )
     rule = RepresentacaoRegra.model_validate(state["representacao_regra"])
-    prompt = montar_prompt_geracao(rule)
+    if state.get("encaminhamento") == ENCAMINHAMENTO_CORRECAO:
+        # A falha é lida do resultado que o worker gravou, e não do estado, que só guarda
+        # referências; o código anterior é o da execução que falhou.
+        falha = await buscar_falha_da_execucao(
+            config["configurable"]["sessoes"], job_id, UUID(state["resultado_id"])
+        )
+        prompt = montar_prompt_correcao(rule, state["codigo_fonte"], falha.para_prompt())
+    else:
+        prompt = montar_prompt_geracao(rule)
 
     token = no_ctx.set(NO_GERACAO_CODIGO)
     try:

@@ -12,9 +12,11 @@ O container produz números crus. O processo do worker, que o código gerado nã
    worker, e seguem como vieram, sem recomposição;
 4. quando o comando trouxe ``elementos_exigidos``, confere a cobertura: todo elemento exigido
    está declarado pelo código, e toda contribuição da decomposição é de um elemento exigido;
-5. aplica o orçamento e emite o veredito, quando o comando trouxe orçamento.
+5. quando o comando trouxe ``alcance``, confere o escopo: toda linha fora do alcance da regra
+   conserva a comissão do baseline (``app/execucao/escopo.py``);
+6. aplica o orçamento e emite o veredito, quando o comando trouxe orçamento.
 
-Sem orçamento, as conferências 1 a 4 são as mesmas, e só a 5 não acontece: o resultado conferido
+Sem orçamento, as conferências 1 a 5 são as mesmas, e só a 6 não acontece: o resultado conferido
 segue sem ``totais.orcamento`` e sem veredito, porque não há critério que o julgue (T-281).
 
 Todo sucesso conferido leva ``totais.vendas_historicas``, o total de vendas das competências
@@ -58,6 +60,8 @@ from app.execucao.conferencia import (
     Verificacao,
     conferir_detalhamento,
 )
+from app.execucao.escopo import ForaDoEscopo, conferir_escopo
+from app.mensageria.contracts import AlcanceDaRegra
 from app.sandbox.assercoes import Desfecho
 from app.sandbox.regras_base import CENTAVO
 from app.sandbox.resultado import Decomposicao, LinhaDetalhada, LinhasResultado, Totais
@@ -129,6 +133,8 @@ class Julgamento:
     linhas: LinhasJulgadas | None = field(default=None, repr=False)
     # Só quando o motivo é cobertura_incompleta.
     cobertura: CoberturaIncompleta | None = None
+    # Só quando o motivo é fora_do_escopo.
+    fora_do_escopo: ForaDoEscopo | None = None
     # Só quando o desfecho era sucesso e o resultado passou pela conferência: o que ela decidiu,
     # e a verificação que falhou quando recusou.
     conferencia: ResultadoDaConferencia | None = None
@@ -196,9 +202,11 @@ def julgar(
     bases: BasesDoWorker,
     baseline_na_meta: LinhasDoBaseline | None = None,
     meta_venda: float | None = None,
+    alcance: AlcanceDaRegra | None = None,
 ) -> Julgamento:
     """``elementos_exigidos`` é o do comando, e None quando ele não o trouxe: aí a cobertura não
-    é conferida, e um comando publicado antes da T-241 segue julgado como antes.
+    é conferida, e um comando publicado antes da T-241 segue julgado como antes. ``alcance``
+    também é o do comando, e sem ele o escopo não é conferido.
 
     ``orcamento`` None é o job sem orçamento: o sucesso sai sem veredito e sem
     ``totais.orcamento``, depois das mesmas conferências.
@@ -250,6 +258,17 @@ def julgar(
                 "indeterminado",
                 desfecho=desfecho,
                 cobertura=cobertura,
+                conferencia="coerente",
+            )
+    if alcance is not None:
+        fora_do_escopo = conferir_escopo(alcance, detalhamento)
+        if fora_do_escopo is not None:
+            return Julgamento(
+                "erro_codigo",
+                "fora_do_escopo",
+                "indeterminado",
+                desfecho=desfecho,
+                fora_do_escopo=fora_do_escopo,
                 conferencia="coerente",
             )
 

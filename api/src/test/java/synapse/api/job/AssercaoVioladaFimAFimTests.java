@@ -334,9 +334,25 @@ class AssercaoVioladaFimAFimTests {
 
 	// --- No lugar do codegen --------------------------------------------------------
 
+	/**
+	 * O código escrito à mão é o último que a versão admite, depois dos que as correções
+	 * teriam gerado: a falha dele é o desfecho do job, e não um pedido de correção
+	 * ({@link CorrecaoDoCodigo}). Os anteriores não chegam ao worker.
+	 */
 	private static void gravarArtefatosDoCodegen(UUID jobId, UUID regraId, UUID promptId, UUID codigoGeradoId)
 			throws SQLException {
 		try (Connection conexao = comoDono(); Statement comando = conexao.createStatement()) {
+			for (int anterior = CorrecaoDoCodigo.LIMITE_DE_CODIGOS_POR_VERSAO - 1; anterior >= 1; anterior--) {
+				UUID promptAnterior = UUID.randomUUID();
+				comando.execute("""
+						INSERT INTO prompts (id, job_id, no, conteudo, modelo, criado_em)
+						VALUES ('%s', '%s', 'geracao_codigo', 'prompt anterior', '{}'::jsonb, now())
+						""".formatted(promptAnterior, jobId));
+				comando.execute("""
+						INSERT INTO codigos_gerados (id, job_id, regra_id, linguagem, fonte, prompt_id, criado_em)
+						VALUES ('%s', '%s', '%s', 'python', 'x', '%s', now() - interval '%d minutes')
+						""".formatted(UUID.randomUUID(), jobId, regraId, promptAnterior, anterior));
+			}
 			comando.execute("""
 					INSERT INTO prompts (id, job_id, no, conteudo, modelo, criado_em)
 					VALUES ('%s', '%s', 'geracao_codigo', 'prompt do teste',

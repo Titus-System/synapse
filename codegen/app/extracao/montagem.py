@@ -4,7 +4,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from app.extracao.construto import ContextoExtracao
-from app.extracao.construtos.generico import montar_generico
+from app.extracao.construtos.generico import DESCRICAO_SEM_LASTRO, montar_generico
 from app.extracao.lastro import (
     campos_com_lastro,
     conferir_numero,
@@ -116,9 +116,7 @@ def montar_elemento(
 
     if motivo_lastro is not None:
         descricao = (
-            trecho
-            if trecho is not None and trecho_literal(texto, trecho)
-            else "Elemento sem lastro verificável"
+            trecho if trecho is not None and trecho_literal(texto, trecho) else DESCRICAO_SEM_LASTRO
         )
     # Os campos do conversor já foram resolvidos; os pares livres do modelo só acompanham um
     # trecho verificado, e sem lastro fica só a descrição.

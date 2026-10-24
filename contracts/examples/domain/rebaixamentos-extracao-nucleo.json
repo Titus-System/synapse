@@ -1,0 +1,6 @@
+[
+  {"ref": "elem.1", "construto_pretendido": "bonus_fixo", "motivo": "construto_nao_habilitado"},
+  {"ref": "nucleo.loja", "motivo": "valor_sem_lastro"},
+  {"ref": "nucleo.cargo", "motivo": "termo_ambiguo"},
+  {"ref": "nucleo.vigencia", "motivo": "periodo_nao_resolvido"}
+]

@@ -158,6 +158,15 @@ enum DesfechoDaSimulacao {
 	}
 
 	/**
+	 * A falha do código gerado, que o codegen corrige enquanto a versão não chega ao
+	 * limite de {@link CorrecaoDoCodigo}. A de infraestrutura fica de fora: outro código
+	 * não a resolve.
+	 */
+	boolean corrigivel() {
+		return this == ERRO_CODIGO || this == ASSERCAO_VIOLADA;
+	}
+
+	/**
 	 * {@code null} quando o par recebido não descreve um desfecho conhecido - status fora
 	 * do vocabulário, ou {@code sucesso} com veredito fora do vocabulário. A ausência é o
 	 * próprio sinal para quem chama: não há exceção aqui, porque lançar dentro de um
@@ -187,6 +196,23 @@ enum DesfechoDaSimulacao {
 			case "indeterminado" -> INDETERMINADO;
 			default -> null;
 		};
+	}
+
+}
+
+/**
+ * A correção do código gerado cuja execução falhou: a falha volta ao modelo com o código,
+ * e o código corrigido é executado de novo. Cada versão da regra tem no máximo
+ * {@link #LIMITE_DE_CODIGOS_POR_VERSAO} códigos, contados pela ordem de criação em
+ * {@code codigos_gerados}. O codegen aplica o mesmo limite pela mesma conta
+ * ({@code codegen/app/correcao_codigo.py}), e por isso os dois chegam à mesma decisão em
+ * qualquer ordem de consumo de {@code simulacao-concluida}.
+ */
+final class CorrecaoDoCodigo {
+
+	static final int LIMITE_DE_CODIGOS_POR_VERSAO = 3;
+
+	private CorrecaoDoCodigo() {
 	}
 
 }

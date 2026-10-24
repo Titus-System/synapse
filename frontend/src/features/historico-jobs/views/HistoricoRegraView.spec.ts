@@ -1,9 +1,11 @@
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { createPinia, setActivePinia } from 'pinia'
 import { apiClient } from '@/services/api'
 import { consultarDetalhamento } from '@/services/detalhamento'
 import { HttpError } from '@/services/http'
+import { usarStoreRenomearRegra } from '@/stores/renomearRegra'
 import TheSidebar from '@/components/TheSidebar.vue'
 import { jobFixture, regraFixture, respostaPendente } from '@/services/job.fixtures'
 import type { DetalhamentoSimulacao, Job } from '@/types/api'
@@ -12,12 +14,17 @@ vi.mock('@/services/api', () => ({
   apiClient: {
     consultarJob: vi.fn<typeof apiClient.consultarJob>(),
     listarJobs: vi.fn<typeof apiClient.listarJobs>(),
+    renomearJob: vi.fn<typeof apiClient.renomearJob>(),
   },
 }))
 vi.mock('@/services/detalhamento', () => ({
   consultarDetalhamento: vi.fn<typeof consultarDetalhamento>(),
 }))
 const wrappers: ReturnType<typeof mount>[] = []
+const rotuloComData = `Regra · ${new Date('2025-11-24T14:02:00Z').toLocaleDateString('pt-BR')}`
+beforeEach(() => {
+  setActivePinia(createPinia())
+})
 afterEach(() => {
   for (const wrapper of wrappers.splice(0)) wrapper.unmount()
   vi.resetAllMocks()
@@ -63,6 +70,7 @@ async function montar(job = encerrado(), nome?: string) {
   })
   await router.push('/jobs/job-1/historico')
   const wrapper = mount(HistoricoRegraView, {
+    attachTo: document.body,
     global: { plugins: [router], stubs: { TheSidebar: true, TheProcessHeader: true } },
   })
   wrappers.push(wrapper)
@@ -80,7 +88,7 @@ function camposDaVersao(wrapper: ReturnType<typeof mount>, versao: number) {
 }
 it('identifica a versão salva pelo resultado vigente mesmo havendo versão maior', async () => {
   const { wrapper } = await montar()
-  expect(wrapper.get('h1').text()).toBe('Regra Final')
+  expect(wrapper.get('h1').text()).toBe(rotuloComData)
   expect(wrapper.get('#resumo-regra-historica header').text()).not.toContain('Versão')
   expect(wrapper.text()).toContain('PRETO')
   const alternar = wrapper.get('[aria-controls="simulacoes-do-historico"]')
@@ -105,12 +113,10 @@ it('identifica a versão salva pelo resultado vigente mesmo havendo versão maio
   )
   expect(wrapper.findComponent(TheSidebar).props('secaoAtiva')).toBe('salvas')
   expect(wrapper.findComponent(TheSidebar).props('quantidadeSalvas')).toBe(1)
-  expect(wrapper.findComponent(TheSidebar).props('regrasRecentes')).toMatchObject([
-    { identificador: 'job-1' },
-  ])
   expect(wrapper.text()).not.toMatch(/9\.000\.000|888\.888/)
-  for (const acao of ['Editar', 'Salvar'])
-    expect(wrapper.findAll('button').map((b) => b.text())).not.toContain(acao)
+  const acoes = wrapper.findAll('button').map((b) => b.text())
+  expect(acoes.filter((acao) => acao === 'Editar')).toHaveLength(1)
+  expect(acoes).not.toContain('Salvar')
   await expandir(wrapper)
   expect(wrapper.find('#simulacoes-do-historico').exists()).toBe(false)
   expect(apiClient.consultarJob).toHaveBeenCalledTimes(1)
@@ -119,6 +125,7 @@ it('identifica a versão salva pelo resultado vigente mesmo havendo versão maio
 it('mostra encerramento arquivado sem atribuir a ele uma execução anterior', async () => {
   const { wrapper } = await montar(encerrado('arquivado'))
   expect(wrapper.get('h1').text()).toBe('Versão 3')
+  expect(wrapper.findAll('button').map((b) => b.text())).not.toContain('Editar')
   expect(wrapper.text()).toContain('arquivada')
   expect(wrapper.text()).toContain('Sem simulação disponível')
   expect(wrapper.find('[aria-controls="relatorio-simulacao"]').exists()).toBe(false)
@@ -151,7 +158,7 @@ it('permite selecionar execuções da mesma versão e destaca somente a vigente'
   await execucoes.setValue('segunda-execucao')
   expect(execucoes.element).toHaveProperty('value', 'segunda-execucao')
 })
-it('mostra o aceite da meta na regra final e somente na execução correspondente', async () => {
+it('mostra o aceite da meta só nos dados da simulação da execução correspondente', async () => {
   const job = encerrado()
   const aceitaEm = '2026-10-22T21:42:50Z'
   job.simulacao!.meta_sugerida_aceita_em = aceitaEm
@@ -161,18 +168,18 @@ it('mostra o aceite da meta na regra final e somente na execução correspondent
   job.simulacoes!.push({ ...original, id: 'antes-do-aceite', meta_venda: 30000000 })
   const { wrapper } = await montar(job)
   const resumo = () => wrapper.get('#resumo-regra-historica')
-  expect(resumo().text()).toContain('Meta de vendas sugerida aceita')
+  expect(resumo().text()).not.toContain('Meta de vendas sugerida aceita')
+  expect(resumo().find('time').exists()).toBe(false)
   expect(resumo().text()).toContain('R$ 61.688.188,97')
-  expect(resumo().get('time').attributes('datetime')).toBe(aceitaEm)
-  expect(resumo().get('time').text()).toBe(
-    new Date(aceitaEm).toLocaleString('pt-BR', {
-      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
-    }),
-  )
   await expandir(wrapper)
   const resultado = () => wrapper.get('[aria-label="Resultado histórico da versão 2"]')
   expect(resultado().text()).toContain('Meta de vendas sugerida aceita')
   expect(resultado().get('time').attributes('datetime')).toBe(aceitaEm)
+  expect(resultado().get('time').text()).toBe(
+    new Date(aceitaEm).toLocaleString('pt-BR', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    }),
+  )
   expect(wrapper.get('[aria-label="Resultado histórico da versão 1"]').text()).not.toContain(
     'Meta de vendas sugerida aceita',
   )
@@ -181,7 +188,8 @@ it('mostra o aceite da meta na regra final e somente na execução correspondent
   expect(resultado().text()).not.toContain('Meta de vendas sugerida aceita')
   expect(resumo().text()).toContain('R$ 30.000.000,00')
   await wrapper.get('select').setValue('simulacao-1')
-  expect(resumo().text()).toContain('Meta de vendas sugerida aceita')
+  expect(resultado().text()).toContain('Meta de vendas sugerida aceita')
+  expect(resumo().text()).not.toContain('Meta de vendas sugerida aceita')
 })
 it('não atribui aceite a um histórico sem esse registro mesmo com metas diferentes', async () => {
   const { wrapper } = await montar()
@@ -215,7 +223,7 @@ it('exibe a regra final e a descartada pelo aceite da meta com os valores própr
   expect(secaoAnterior.get('h2').text()).toBe('Regra Descartada')
   expect(secaoAnterior.text()).toContain('R$ 30.000.000,00')
   expect(wrapper.get('#simulacoes-do-historico').text()).not.toMatch(/Versão|Ver lógica|não escolhido/)
-  expect(wrapper.get('h1').text()).toBe('Regra Final')
+  expect(wrapper.get('h1').text()).toBe(rotuloComData)
   expect(wrapper.get('#resumo-regra-historica').text()).toContain('R$ 61.688.188,97')
   await wrapper.get('[aria-controls="relatorio-simulacao"]').trigger('click')
   await flushPromises()
@@ -319,18 +327,58 @@ it('cancela a consulta anterior e não mistura respostas de jobs diferentes', as
   expect(wrapper.text()).toContain('Regra arquivada.')
   expect(wrapper.text()).not.toContain('Versão final salva')
 })
-it('exibe na barra lateral o nome da regra e, sem nome, o rótulo com a data', async () => {
+it('mostra no cartão da regra final o nome definido pelo usuário', async () => {
   const job = encerrado()
-  const comNome = await montar(job, 'Comissão de novembro')
-  expect(comNome.wrapper.findComponent(TheSidebar).props('regrasRecentes')).toEqual([
-    { identificador: 'job-1', rotulo: 'Comissão de novembro' },
-  ])
-  vi.resetAllMocks()
-  const semNome = await montar(encerrado())
-  expect(semNome.wrapper.findComponent(TheSidebar).props('regrasRecentes')).toEqual([
-    {
-      identificador: 'job-1',
-      rotulo: `Regra · ${new Date(job.criado_em).toLocaleDateString('pt-BR')}`,
-    },
-  ])
+  job.nome = 'Comissão de novembro'
+  const { wrapper } = await montar(job, 'Comissão de novembro')
+
+  const titulo = wrapper.get('#resumo-regra-historica h1')
+
+  expect(titulo.text()).toBe('Comissão de novembro')
+  expect(titulo.attributes('id')).toBe('titulo-regra-historica')
+  expect(wrapper.get('#resumo-regra-historica').attributes('aria-labelledby')).toBe(
+    'titulo-regra-historica',
+  )
+  expect(wrapper.get('#resumo-regra-historica').text()).not.toContain('Criada em')
+})
+it('renomeia pelo cartão e entrega o nome da api à barra lateral', async () => {
+  vi.mocked(apiClient.renomearJob).mockResolvedValue({ ...encerrado(), nome: 'Comissão' })
+  const { wrapper } = await montar()
+
+  const editar = wrapper.findAll('#resumo-regra-historica button').find((b) => b.text() === 'Editar')
+  await editar!.trigger('click')
+  await flushPromises()
+  const campo = wrapper.get('#resumo-regra-historica input')
+  expect((campo.element as HTMLInputElement).value).toBe(rotuloComData)
+  expect(wrapper.get('#titulo-regra-historica').text()).toBe(rotuloComData)
+  await campo.setValue('Comissão')
+  await campo.trigger('keydown.enter')
+  await flushPromises()
+
+  expect(apiClient.renomearJob).toHaveBeenCalledWith('job-1', { nome: 'Comissão' })
+  expect(wrapper.get('#resumo-regra-historica h1').text()).toBe('Comissão')
+  expect(wrapper.find('#resumo-regra-historica input').exists()).toBe(false)
+  expect(usarStoreRenomearRegra().rotuloExibido('job-1', rotuloComData)).toBe('Comissão')
+})
+it('mostra no cartão o nome alterado na barra lateral', async () => {
+  const { wrapper } = await montar()
+
+  usarStoreRenomearRegra().nomes = { 'job-1': 'Nome da barra lateral' }
+  await flushPromises()
+
+  expect(wrapper.get('#resumo-regra-historica h1').text()).toBe('Nome da barra lateral')
+})
+it('mostra versão não final no cartão sem o nome nem o botão Editar', async () => {
+  const job = encerrado()
+  job.simulacoes!.push({ ...job.simulacoes![0]!, id: 'outra-execucao-da-versao-1' })
+  const { wrapper } = await montar(job)
+  await expandir(wrapper)
+
+  await wrapper
+    .get('[aria-labelledby="titulo-versao-regra-1"] select')
+    .setValue('outra-execucao-da-versao-1')
+
+  const cartao = wrapper.get('#resumo-regra-historica')
+  expect(cartao.get('h1').text()).toBe('Versão 1')
+  expect(cartao.findAll('button').map((b) => b.text())).not.toContain('Editar')
 })

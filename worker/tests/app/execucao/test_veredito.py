@@ -25,6 +25,7 @@ from app.execucao.veredito import (
     julgamento_de_infra,
     julgar,
 )
+from app.mensageria.contracts import AlcanceDaRegra
 from tests.app.esquemas import erros_do_dominio
 from tests.app.execucao.envelopes import (
     ASSERCAO_OK,
@@ -84,6 +85,7 @@ def julgar_2025_11(
     orcamento: float | None = 600000.0,
     *,
     elementos_exigidos: Sequence[str] | None = None,
+    alcance: AlcanceDaRegra | None = None,
 ) -> Any:
     return julgar(
         desfecho,
@@ -92,6 +94,7 @@ def julgar_2025_11(
         carregar_baselines(),
         elementos_exigidos=elementos_exigidos,
         bases=carregar_bases(),
+        alcance=alcance,
     )
 
 
@@ -454,6 +457,60 @@ def test_desfecho_que_nao_e_sucesso_nao_passa_pela_cobertura() -> None:
 
 
 # ---- pela cadeia inteira: o que a T-065 entrega é o que a T-066 julga ----
+
+
+# ---- a conferência de escopo ----
+
+
+def _alteradas(desfecho: DesfechoClassificado) -> int:
+    """Quantas linhas do detalhamento o código mudou além de um centavo."""
+    assert desfecho.linhas is not None
+    return sum(
+        1
+        for colaboradores in desfecho.linhas.values()
+        for linha in colaboradores.values()
+        if abs(Decimal(str(linha["comissao_simulada"])) - Decimal(str(linha["comissao_baseline"])))
+        > Decimal("0.01")
+    )
+
+
+def test_resultado_que_muda_linha_fora_do_alcance_e_erro_codigo_fora_do_escopo() -> None:
+    """Nenhuma loja do dataset está no alcance: toda linha que o código mudou está fora dele."""
+    desfecho = sucesso(BASELINE_2025_11, "520000.00")
+
+    julgamento = julgar_2025_11(desfecho, alcance=AlcanceDaRegra(loja=["9999"]))
+
+    assert (julgamento.classe, julgamento.motivo, julgamento.veredito) == (
+        "erro_codigo",
+        "fora_do_escopo",
+        "indeterminado",
+    )
+    assert julgamento.resultado is None
+    assert julgamento.fora_do_escopo is not None
+    assert julgamento.fora_do_escopo.total == _alteradas(desfecho) > 0
+
+
+def test_alcance_que_cobre_as_linhas_mudadas_julga_como_sem_conferencia() -> None:
+    desfecho = sucesso(BASELINE_2025_11, "520000.00")
+    vigencia = {"inicio": "2025-08", "fim": "2025-12"}
+
+    conferido = julgar_2025_11(
+        desfecho, alcance=AlcanceDaRegra.model_validate({"vigencia": vigencia})
+    )
+
+    assert conferido == julgar_2025_11(desfecho)
+    assert conferido.fora_do_escopo is None
+
+
+def test_a_cobertura_e_conferida_antes_do_escopo() -> None:
+    desfecho = declarando(sucesso(BASELINE_2025_11, "520000.00"), ("nucleo.percentual",))
+
+    julgamento = julgar_2025_11(
+        desfecho, elementos_exigidos=EXIGIDOS_DO_RESULTADO, alcance=AlcanceDaRegra(loja=["9999"])
+    )
+
+    assert julgamento.motivo == "cobertura_incompleta"
+    assert julgamento.fora_do_escopo is None
 
 
 def _por_classificar(baseline: str, simulado: str) -> DesfechoClassificado:

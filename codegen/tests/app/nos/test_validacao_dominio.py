@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from app.extracao.construtos.generico import DESCRICAO_SEM_LASTRO
 from app.nos import validacao_dominio
 from app.nos.codigos_conflito import CodigoConflito
 from app.nos.validacao_dominio import verificar
@@ -264,6 +265,10 @@ def _limiar_sem_escopo() -> dict[str, object]:
     }
 
 
+def _generico_sem_lastro(ref: str) -> dict[str, object]:
+    return {"ref": ref, "construto": "generico", "descricao": DESCRICAO_SEM_LASTRO}
+
+
 _REGRAS_COM_UM_CONFLITO: list[tuple[CodigoConflito, dict[str, object]]] = [
     (
         CodigoConflito.TAXA_CARGO_CONTRADITORIA,
@@ -332,6 +337,10 @@ _REGRAS_COM_UM_CONFLITO: list[tuple[CodigoConflito, dict[str, object]]] = [
         CodigoConflito.LIMIAR_SEM_ESCOPO,
         _representacao(especificacoes=[_limiar_sem_escopo()]),
     ),
+    (
+        CodigoConflito.ELEMENTO_SEM_LASTRO,
+        _representacao(especificacoes=[_generico_sem_lastro("elem.1")]),
+    ),
 ]
 
 
@@ -354,6 +363,8 @@ def test_conjunto_fechado_de_codigos_e_o_das_verificacoes_existentes() -> None:
         "meta_venda_nao_positiva",
         "competencia_nao_publicada",
         "parametro_sem_lastro",
+        "nucleo_sem_lastro",
+        "elemento_sem_lastro",
     }
 
 
@@ -398,6 +409,7 @@ def test_toda_verificacao_do_modulo_produz_conflito_com_codigo_do_conjunto() -> 
     cobertos = {codigo for codigo, _ in _REGRAS_COM_UM_CONFLITO}
     cobertos |= {codigo for codigo, _, _ in _PARAMETROS_COM_UM_CONFLITO}
     cobertos.add(CodigoConflito.ESCOPO_AUSENTE)
+    cobertos.add(CodigoConflito.NUCLEO_SEM_LASTRO)
 
     assert cobertos == set(CodigoConflito)
     for _, regra in _REGRAS_COM_UM_CONFLITO:
@@ -519,6 +531,89 @@ def test_generico_e_construto_desconhecido_sao_ignorados_sem_falhar() -> None:
     )
 
     assert verificar(regra).liberado
+
+
+def test_generico_sem_trecho_verificavel_e_bloqueado_no_proprio_ref() -> None:
+    regra = _representacao(
+        especificacoes=[
+            {"ref": "elem.1", "construto": "generico", "descricao": "Bônus de R$ 350 por vendedor"},
+            _generico_sem_lastro("elem.2"),
+        ]
+    )
+
+    resultado = verificar(regra)
+
+    assert [(c.elementos, c.codigo) for c in resultado.conflitos] == [
+        (("elem.2",), CodigoConflito.ELEMENTO_SEM_LASTRO)
+    ]
+    assert resultado.conflitos[0].motivo == (
+        "condição citada sem trecho reconhecido; descreva a condição novamente"
+    )
+
+
+def test_criterios_do_nucleo_sem_lastro_saem_na_ordem_do_nucleo_com_a_referencia_de_cada_um() -> (
+    None
+):
+    resultado = verificar(
+        _representacao(),
+        nucleo_sem_lastro=frozenset({"taxas_por_cargo", "cargo", "marca", "loja", "vigencia"}),
+    )
+
+    assert [(c.elementos, c.codigo, c.motivo) for c in resultado.conflitos] == [
+        (
+            ("nucleo.vigencia",),
+            CodigoConflito.NUCLEO_SEM_LASTRO,
+            "vigência citada sem período reconhecido",
+        ),
+        (
+            ("nucleo.loja",),
+            CodigoConflito.NUCLEO_SEM_LASTRO,
+            "escopo de loja citado sem código reconhecido; indique os destinatários ou declare "
+            "todos",
+        ),
+        (
+            ("nucleo.marca",),
+            CodigoConflito.NUCLEO_SEM_LASTRO,
+            "escopo de marca citado sem código reconhecido; indique os destinatários ou declare "
+            "todos",
+        ),
+        (
+            ("nucleo.cargo",),
+            CodigoConflito.NUCLEO_SEM_LASTRO,
+            "escopo de cargo citado sem código reconhecido; indique os destinatários ou declare "
+            "todos",
+        ),
+        (
+            ("nucleo.taxas_por_cargo",),
+            CodigoConflito.NUCLEO_SEM_LASTRO,
+            "taxa por cargo citada sem cargo ou percentual reconhecido",
+        ),
+    ]
+
+
+def test_escopo_citado_sem_codigo_substitui_o_conflito_de_escopo_nao_informado() -> None:
+    regra = {"nucleo": {"marca": [], "cargo": [], "percentual": Decimal("0.03")}}
+
+    resultado = verificar(
+        {**regra, "especificacoes": []},
+        {"orcamento": Decimal("500000"), "meta_venda": Decimal("12000000")},
+        competencias_publicadas=PUBLICADAS,
+        nucleo_sem_lastro=frozenset({"loja"}),
+    )
+
+    assert [(c.elementos, c.codigo) for c in resultado.conflitos] == [
+        (("nucleo.loja",), CodigoConflito.NUCLEO_SEM_LASTRO)
+    ]
+
+
+def test_taxas_citadas_sem_lastro_substituem_o_conflito_de_percentual_ausente() -> None:
+    regra = {"nucleo": {"loja": [], "marca": [], "cargo": []}, "especificacoes": []}
+
+    resultado = verificar(regra, nucleo_sem_lastro=frozenset({"taxas_por_cargo"}))
+
+    assert [(c.elementos, c.codigo) for c in resultado.conflitos] == [
+        (("nucleo.taxas_por_cargo",), CodigoConflito.NUCLEO_SEM_LASTRO)
+    ]
 
 
 def test_conflito_nao_carrega_o_valor_da_regra_no_codigo() -> None:

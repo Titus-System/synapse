@@ -36,6 +36,7 @@ from app.sugestao_adaptacao import (
     MOTIVO_PROPOSTA,
     MOTIVO_SEM_MARGEM,
     Alternativa,
+    comissao_fora_da_regra,
     propor_alternativa,
 )
 
@@ -86,7 +87,7 @@ async def suggest_adaptation(state: AgentState, config: RunnableConfig) -> Agent
             state["representacao_regra"],
             totais.simulado,
             totais.orcamento,
-            baseline=totais.baseline,
+            parte_fixa=comissao_fora_da_regra(state["representacao_regra"], totais.linhas),
             anteriores=anteriores,
         )
 

@@ -166,7 +166,11 @@ it.each(['liberado', 'arquivado'] as const)(
     })
     await flushPromises()
     await vi.waitFor(() => expect(roteador.currentRoute.value.path).toBe('/jobs/job-1/historico'))
-    expect(wrapper.get('h1').text()).toBe(status === 'liberado' ? 'Regra Final' : 'Versão 1')
+    expect(wrapper.get('h1').text()).toBe(
+      status === 'liberado'
+        ? `Regra · ${new Date('2025-11-24T14:02:00Z').toLocaleDateString('pt-BR')}`
+        : 'Versão 1',
+    )
     expect(wrapper.get('[aria-controls="simulacoes-do-historico"]').attributes('aria-expanded')).toBe('false')
     expect(wrapper.text()).not.toContain('Seguir para Finalização')
     expect(fechar).toHaveBeenCalledOnce()

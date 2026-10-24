@@ -1,7 +1,7 @@
 # T-066: conferência contra o baseline e veredito de orçamento
 
 Depois de o container devolver o resultado e a T-065 o classificar, o processo do `worker`,
-fora do container, faz cinco coisas, nesta ordem:
+fora do container, faz seis coisas, nesta ordem:
 
 1. **confere** o `totais.baseline` que saiu do container contra o baseline congelado (T-032)
    que o worker lê por conta própria, e que os totais fecham entre si;
@@ -11,13 +11,15 @@ fora do container, faz cinco coisas, nesta ordem:
    worker, e seguem como vieram, sem recomposição;
 4. quando o comando trouxe `elementos_exigidos`, **confere a cobertura** dos elementos da regra
    (T-241, `docs/t241-conferencia-de-cobertura.md`);
-5. **aplica o orçamento** e emite o veredito, quando o comando trouxe orçamento.
+5. quando o comando trouxe `alcance`, **confere o escopo**: fora do alcance da regra, a comissão
+   simulada é a do baseline (`docs/conferencia-de-escopo.md`);
+6. **aplica o orçamento** e emite o veredito, quando o comando trouxe orçamento.
 
 O orçamento é o único parâmetro que **julga** o resultado, e nunca entrou no container: código
 gerado que o enxergasse poderia mirar nele.
 
-Um job sem orçamento (T-281) recebe `executar-codigo` sem o campo. As conferências 1 a 4 são as
-mesmas, e só a 5 não acontece: o `sucesso` sai sem veredito e sem `totais.orcamento`, porque não
+Um job sem orçamento (T-281) recebe `executar-codigo` sem o campo. As conferências 1 a 5 são as
+mesmas, e só a 6 não acontece: o `sucesso` sai sem veredito e sem `totais.orcamento`, porque não
 há critério que o julgue. Um baseline adulterado continua `baseline_divergente`, e uma cobertura
 incompleta continua `cobertura_incompleta`.
 

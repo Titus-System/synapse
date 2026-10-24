@@ -603,11 +603,15 @@ class SugestaoAdaptacaoPersistenciaTests {
 		assertThat(Objects.requireNonNull(job.simulacao()).regra_id()).isEqualTo(alternativa.id());
 	}
 
+	/**
+	 * No último código da versão, a falha da alternativa encerra o job sem outra taxa.
+	 */
 	@Test
 	void alternativaComErroDeExecucaoEncerraOJobEmErro() {
 		UUID jobId = jobInviavel();
 		VersaoRegra alternativa = iterar(jobId, 2).getLast();
-		UUID resultado = resultadoComFalha(jobId, alternativa.id(), "erro_codigo");
+		UUID resultado = resultadoComFalha(jobId, alternativa.id(), "erro_codigo",
+				CorrecaoDoCodigo.LIMITE_DE_CODIGOS_POR_VERSAO);
 
 		sugestaoService.concluirSimulacao(jobId, resultado, DesfechoDaSimulacao.ERRO_CODIGO);
 
@@ -615,6 +619,25 @@ class SugestaoAdaptacaoPersistenciaTests {
 		assertThat(sugestaoService.aplicarEtapaAlterada(jobId, EtapaDoGrafo.SUGESTAO_ADAPTACAO, "sem_alternativa", null)
 			.transicao()).isNull();
 		assertThat(status(jobId)).isEqualTo("erro");
+	}
+
+	/**
+	 * Antes do limite, a alternativa com erro espera o código corrigido, como a original.
+	 */
+	@Test
+	void alternativaComErroDeExecucaoAntesDoLimiteAguardaOCodigoCorrigido() {
+		UUID jobId = jobInviavel();
+		VersaoRegra alternativa = iterar(jobId, 2).getLast();
+		UUID resultado = resultadoComFalha(jobId, alternativa.id(), "erro_codigo");
+
+		JobEventosService.DesfechoAplicado aplicado = Objects
+			.requireNonNull(sugestaoService.concluirSimulacao(jobId, resultado, DesfechoDaSimulacao.ERRO_CODIGO));
+
+		// A proposta deixou o job em gerando_regra, e o resultado chega antes da etapa
+		// que o levaria a simulando.
+		assertThat(aplicado.emCorrecao()).isTrue();
+		assertThat(aplicado.avancouDeGerandoRegra()).isTrue();
+		assertThat(status(jobId)).isEqualTo("simulando");
 	}
 
 	@ParameterizedTest
@@ -1087,17 +1110,27 @@ class SugestaoAdaptacaoPersistenciaTests {
 	}
 
 	private static UUID resultadoComFalha(UUID jobId, UUID regraId, String status) {
-		UUID prompt = UUID.randomUUID();
+		return resultadoComFalha(jobId, regraId, status, 1);
+	}
+
+	/**
+	 * A falha do código na {@code posicao} da versão, depois dos que a correção gerou
+	 * antes dele. Os instantes são explícitos para a ordem não depender de empate.
+	 */
+	private static UUID resultadoComFalha(UUID jobId, UUID regraId, String status, int posicao) {
 		UUID codigo = UUID.randomUUID();
 		UUID resultado = UUID.randomUUID();
-		artefatos.update("""
-				INSERT INTO prompts (id, job_id, no, conteudo, modelo, criado_em)
-				VALUES (?, ?, 'geracao_codigo', 'fixture', '{}'::jsonb, now())
-				""", prompt, jobId);
-		artefatos.update("""
-				INSERT INTO codigos_gerados (id, job_id, regra_id, linguagem, fonte, prompt_id, criado_em)
-				VALUES (?, ?, ?, 'python', 'fixture', ?, now())
-				""", codigo, jobId, regraId, prompt);
+		for (int atual = 1; atual <= posicao; atual++) {
+			UUID prompt = UUID.randomUUID();
+			artefatos.update("""
+					INSERT INTO prompts (id, job_id, no, conteudo, modelo, criado_em)
+					VALUES (?, ?, 'geracao_codigo', 'fixture', '{}'::jsonb, now())
+					""", prompt, jobId);
+			artefatos.update("""
+					INSERT INTO codigos_gerados (id, job_id, regra_id, linguagem, fonte, prompt_id, criado_em)
+					VALUES (?, ?, ?, 'python', 'fixture', ?, now() - make_interval(mins => ?))
+					""", (atual == posicao) ? codigo : UUID.randomUUID(), jobId, regraId, prompt, posicao - atual);
+		}
 		artefatos.update("""
 				INSERT INTO resultados_simulacao (id, job_id, codigo_gerado_id, status, assercoes, criado_em)
 				VALUES (?, ?, ?, ?, '[]'::jsonb, now())

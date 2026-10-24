@@ -13,7 +13,7 @@ from app.sugestao_adaptacao import (
     MOTIVO_SEM_MARGEM,
     QUANTUM,
     TaxaSimulada,
-    percentual_de_sondagem,
+    comissao_fora_da_regra,
     percentual_que_cabe,
     percentual_refinado,
     propor_alternativa,
@@ -74,44 +74,65 @@ GENERICO = {
 }
 
 
-def test_candidata_respeita_orcamento_quando_ha_custo_fora_do_escopo() -> None:
+def test_com_comissao_atual_no_escopo_estima_a_taxa_que_cabe_e_nao_a_do_baseline() -> None:
+    """A regra troca 2% por 3% nas vendas de R$ 40.000 do escopo; fora dele ficam R$ 1.000. O
+    baseline é R$ 1.800 e a regra custa R$ 2.200, e em R$ 2.000 cabe até 2,5%. Pelo baseline
+    inteiro, a estimativa daria 1,5%, abaixo dos 2% que o escopo já recebe, e caberia: a iteração
+    terminaria nela."""
+    fora_do_escopo = Decimal("1000")
+    vendas_no_escopo = Decimal("40000")
+    simulado = fora_do_escopo + vendas_no_escopo * Decimal("0.03")
+
+    candidato = percentual_que_cabe(
+        Decimal("0.03"), simulado, Decimal("2000"), parte_fixa=fora_do_escopo
+    )
+
+    assert candidato == Decimal("0.025")
+
+
+def test_candidata_e_a_maior_taxa_que_cabe_quando_a_parte_fixa_e_a_verdadeira() -> None:
     percentual = Decimal("0.10")
     custo_inalterado = Decimal("900")
     vendas_no_escopo = Decimal("3000")
-    baseline = custo_inalterado + Decimal("100")
     orcamento = Decimal("1100")
     simulado = custo_inalterado + vendas_no_escopo * percentual
 
-    candidato = percentual_que_cabe(percentual, simulado, orcamento, baseline=baseline)
+    candidato = percentual_que_cabe(percentual, simulado, orcamento, parte_fixa=custo_inalterado)
 
     assert candidato is not None
-    assert Decimal("0") < candidato < percentual
     assert custo_inalterado + vendas_no_escopo * candidato <= orcamento
+    assert custo_inalterado + vendas_no_escopo * (candidato + QUANTUM) > orcamento
 
 
-def test_estima_sobre_o_incremento_do_exemplo_do_contrato() -> None:
-    baseline = Decimal("480312")
-    simulado = Decimal("492100")
-    orcamento = Decimal("485000")
-    percentual = Decimal("0.025")
-
-    candidato = percentual_que_cabe(percentual, simulado, orcamento, baseline=baseline)
+def test_estima_sobre_os_totais_do_exemplo_do_contrato() -> None:
+    """Sem comissão prévia nas linhas que a nova taxa alcança, a parte fixa é o baseline."""
+    candidato = percentual_que_cabe(
+        Decimal("0.025"), Decimal("492100"), Decimal("485000"), parte_fixa=Decimal("480312")
+    )
 
     assert candidato == Decimal("0.0099")
-    # Caso conservador: nenhuma comissão prévia nas linhas afetadas pela nova taxa.
-    assert baseline + (simulado - baseline) * candidato / percentual <= orcamento
+
+
+def test_com_a_parte_fixa_no_orcamento_nenhuma_taxa_cabe() -> None:
+    """A comissão que a regra não move já consome o orçamento: reduzir a taxa não basta."""
+    assert (
+        percentual_que_cabe(
+            Decimal("0.03"), Decimal("2200"), Decimal("1000"), parte_fixa=Decimal("1000")
+        )
+        is None
+    )
 
 
 def test_trunca_para_baixo_em_vez_de_arredondar() -> None:
     candidato = percentual_que_cabe(
-        Decimal("0.02"), Decimal("1000"), Decimal("999.9"), baseline=Decimal("0")
+        Decimal("0.02"), Decimal("1000"), Decimal("999.9"), parte_fixa=Decimal("0")
     )
 
     assert candidato == Decimal("0.0199")
 
 
 @pytest.mark.parametrize(
-    "baseline,simulado,orcamento",
+    "parte_fixa,simulado,orcamento",
     [
         ("480312", "492100", "480312"),
         ("480312", "492100", "470000"),
@@ -122,11 +143,11 @@ def test_trunca_para_baixo_em_vez_de_arredondar() -> None:
     ],
 )
 def test_nao_estima_fora_do_intervalo_suportado(
-    baseline: str, simulado: str, orcamento: str
+    parte_fixa: str, simulado: str, orcamento: str
 ) -> None:
     assert (
         percentual_que_cabe(
-            Decimal("0.025"), Decimal(simulado), Decimal(orcamento), baseline=Decimal(baseline)
+            Decimal("0.025"), Decimal(simulado), Decimal(orcamento), parte_fixa=Decimal(parte_fixa)
         )
         is None
     )
@@ -135,7 +156,7 @@ def test_nao_estima_fora_do_intervalo_suportado(
 def test_nao_propoe_um_percentual_que_zera() -> None:
     assert (
         percentual_que_cabe(
-            Decimal("0.0001"), Decimal("1000000"), Decimal("1"), baseline=Decimal("0")
+            Decimal("0.0001"), Decimal("1000000"), Decimal("1"), parte_fixa=Decimal("0")
         )
         is None
     )
@@ -146,7 +167,7 @@ def test_propoe_mexendo_so_no_percentual_sem_mutar_a_regra_original() -> None:
     original = deepcopy(representacao)
 
     alternativa = propor_alternativa(
-        representacao, Decimal("492100"), Decimal("485000"), baseline=Decimal("480312")
+        representacao, Decimal("492100"), Decimal("485000"), parte_fixa=Decimal("480312")
     )
 
     assert alternativa.motivo == MOTIVO_PROPOSTA
@@ -164,7 +185,7 @@ def test_reduz_o_percentual_e_preserva_o_bonus_fixo() -> None:
         _representacao(especificacoes=especificacoes),
         Decimal("492100"),
         Decimal("485000"),
-        baseline=Decimal("480312"),
+        parte_fixa=Decimal("480312"),
     )
 
     assert alternativa.motivo == MOTIVO_PROPOSTA
@@ -181,7 +202,7 @@ def test_reduz_cada_taxa_por_cargo_pelo_mesmo_fator() -> None:
     )
 
     alternativa = propor_alternativa(
-        representacao, Decimal("492100"), Decimal("485000"), baseline=Decimal("480312")
+        representacao, Decimal("492100"), Decimal("485000"), parte_fixa=Decimal("480312")
     )
 
     assert (alternativa.motivo, alternativa.metodo) == (MOTIVO_PROPOSTA, METODO_ESTIMATIVA)
@@ -195,7 +216,7 @@ def test_reduz_cada_taxa_por_cargo_pelo_mesmo_fator() -> None:
 
 def test_nao_propoe_quando_nao_ha_estimativa() -> None:
     alternativa = propor_alternativa(
-        _representacao(), Decimal("400000"), Decimal("485000"), baseline=Decimal("480312")
+        _representacao(), Decimal("400000"), Decimal("485000"), parte_fixa=Decimal("480312")
     )
 
     assert alternativa.motivo == MOTIVO_SEM_MARGEM
@@ -207,7 +228,7 @@ def test_recusa_uma_proposta_que_ja_nasce_incoerente() -> None:
         _representacao(nucleo={"vigencia": {"inicio": "2025-12", "fim": "2025-08"}}),
         Decimal("492100"),
         Decimal("485000"),
-        baseline=Decimal("480312"),
+        parte_fixa=Decimal("480312"),
     )
 
     assert alternativa.motivo == MOTIVO_INCOERENTE
@@ -219,7 +240,7 @@ def test_percentual_inteiro_do_json_tambem_pode_ser_adaptado() -> None:
         _representacao(nucleo={"percentual": 1}),
         Decimal("1000"),
         Decimal("500"),
-        baseline=Decimal("0"),
+        parte_fixa=Decimal("0"),
     )
     assert alternativa.representacao is not None
     assert alternativa.representacao["nucleo"]["percentual"] == Decimal("0.5000")
@@ -288,13 +309,13 @@ def test_nao_refina_sem_uma_reta_que_desca_ate_o_orcamento(
     assert percentual_refinado(anteriores, Decimal(orcamento)) is None
 
 
-def test_a_partir_da_segunda_tentativa_propoe_pelos_pares_e_nao_pelo_baseline() -> None:
-    """Com baseline 1200, a estimativa inicial daria 0,0166; os pares dão a taxa que cabe."""
+def test_a_partir_da_segunda_tentativa_propoe_pelos_pares_e_nao_pela_parte_fixa() -> None:
+    """Com a parte fixa 1200, a estimativa inicial daria 0,0166; os pares dão a taxa que cabe."""
     alternativa = propor_alternativa(
         _representacao(nucleo={"percentual": Decimal("0.02")}),
         Decimal("1800"),
         Decimal("1700"),
-        baseline=Decimal("1200"),
+        parte_fixa=Decimal("1200"),
         anteriores=[ORIGINAL, PRIMEIRA],
     )
 
@@ -311,7 +332,7 @@ def test_a_partir_da_segunda_tentativa_propoe_pelos_pares_e_nao_pelo_baseline() 
         pytest.param([], id="cadeia-vazia"),
     ],
 )
-def test_com_menos_de_duas_taxas_simuladas_estima_pelos_totais(
+def test_com_menos_de_duas_taxas_simuladas_estima_pela_parte_fixa(
     anteriores: list[TaxaSimulada],
 ) -> None:
     """Sem reta a traçar, é a primeira taxa desta regra, mesmo que o job já tenha tentado outras."""
@@ -319,7 +340,7 @@ def test_com_menos_de_duas_taxas_simuladas_estima_pelos_totais(
         _representacao(nucleo={"percentual": Decimal("0.02")}),
         Decimal("1800"),
         Decimal("1700"),
-        baseline=Decimal("1200"),
+        parte_fixa=Decimal("1200"),
         anteriores=anteriores,
     )
 
@@ -334,7 +355,7 @@ def test_com_duas_taxas_e_sem_reta_ate_o_orcamento_nao_propoe() -> None:
         _representacao(nucleo={"percentual": Decimal("0.02")}),
         Decimal("1800"),
         Decimal("900"),
-        baseline=Decimal("0"),
+        parte_fixa=Decimal("0"),
         anteriores=[ORIGINAL, PRIMEIRA],
     )
 
@@ -348,14 +369,14 @@ def test_nao_propoe_taxa_refinada_que_nao_reduz_a_regra_simulada() -> None:
         _representacao(nucleo={"percentual": Decimal("0.015")}),
         Decimal("1600"),
         Decimal("1700"),
-        baseline=Decimal("1200"),
+        parte_fixa=Decimal("1200"),
         anteriores=[ORIGINAL, PRIMEIRA],
     )
 
     assert alternativa.motivo == MOTIVO_SEM_MARGEM
 
 
-# ---- sondagem: orçamento que não fica acima do baseline (T-283) ----
+# ---- sem detalhamento, a sondagem (T-283) ----
 
 # Um job real: 10% para o cargo 100 em setembro e outubro, simulado na meta de R$ 100 milhões,
 # com orçamento de R$ 5 milhões abaixo do baseline na meta.
@@ -365,10 +386,10 @@ BASELINE_DO_JOB = Decimal("5730771.25")
 ORCAMENTO_DO_JOB = Decimal("5000000")
 
 
-def test_sondagem_e_a_taxa_proporcional_ao_orcamento_truncada() -> None:
-    assert percentual_de_sondagem(TAXA_DO_JOB, SIMULADO_DO_JOB, ORCAMENTO_DO_JOB) == Decimal(
-        "0.0675"
-    )
+def test_sem_parte_fixa_a_taxa_e_proporcional_ao_orcamento_truncada() -> None:
+    assert percentual_que_cabe(
+        TAXA_DO_JOB, SIMULADO_DO_JOB, ORCAMENTO_DO_JOB, parte_fixa=Decimal(0)
+    ) == Decimal("0.0675")
 
 
 @pytest.mark.parametrize(
@@ -382,19 +403,24 @@ def test_sondagem_e_a_taxa_proporcional_ao_orcamento_truncada() -> None:
         pytest.param("0.0001", "1000000", "1", id="trunca-a-zero"),
     ],
 )
-def test_nao_sonda_fora_do_intervalo(percentual: str, simulado: str, orcamento: str) -> None:
+def test_sem_parte_fixa_nao_estima_fora_do_intervalo(
+    percentual: str, simulado: str, orcamento: str
+) -> None:
     assert (
-        percentual_de_sondagem(Decimal(percentual), Decimal(simulado), Decimal(orcamento)) is None
+        percentual_que_cabe(
+            Decimal(percentual), Decimal(simulado), Decimal(orcamento), parte_fixa=Decimal(0)
+        )
+        is None
     )
 
 
-def test_com_orcamento_abaixo_do_baseline_a_primeira_taxa_e_a_sondagem() -> None:
-    """Os totais não estimam abaixo do baseline, e o job terminava sem tentar taxa nenhuma."""
+def test_sem_detalhamento_a_primeira_taxa_e_a_sondagem() -> None:
+    """Sem as linhas do resultado, nenhuma é sabidamente fixa, e a parte fixa é zero."""
     alternativa = propor_alternativa(
         _representacao(nucleo={"percentual": TAXA_DO_JOB}),
         SIMULADO_DO_JOB,
         ORCAMENTO_DO_JOB,
-        baseline=BASELINE_DO_JOB,
+        parte_fixa=None,
         anteriores=[TaxaSimulada(TAXA_DO_JOB, SIMULADO_DO_JOB)],
     )
 
@@ -403,25 +429,31 @@ def test_com_orcamento_abaixo_do_baseline_a_primeira_taxa_e_a_sondagem() -> None
     assert alternativa.representacao["nucleo"]["percentual"] == Decimal("0.0675")
 
 
-def test_orcamento_igual_ao_baseline_tambem_e_sondado() -> None:
+def test_com_a_parte_fixa_do_detalhamento_a_primeira_taxa_e_a_estimativa() -> None:
+    """O orçamento abaixo do baseline não muda o método: a reta passa pela parte fixa."""
     alternativa = propor_alternativa(
         _representacao(nucleo={"percentual": TAXA_DO_JOB}),
         SIMULADO_DO_JOB,
-        BASELINE_DO_JOB,
-        baseline=BASELINE_DO_JOB,
-    )
-
-    assert (alternativa.motivo, alternativa.metodo) == (MOTIVO_PROPOSTA, METODO_SONDAGEM)
-
-
-def test_entre_o_baseline_e_o_simulado_a_primeira_taxa_continua_pelos_totais() -> None:
-    alternativa = propor_alternativa(
-        _representacao(), Decimal("492100"), Decimal("485000"), baseline=Decimal("480312")
+        ORCAMENTO_DO_JOB,
+        parte_fixa=Decimal("4000000"),
     )
 
     assert (alternativa.motivo, alternativa.metodo) == (MOTIVO_PROPOSTA, METODO_ESTIMATIVA)
     assert alternativa.representacao is not None
-    assert alternativa.representacao["nucleo"]["percentual"] == Decimal("0.0099")
+    assert alternativa.representacao["nucleo"]["percentual"] == Decimal("0.0294")
+
+
+def test_com_a_parte_fixa_acima_do_orcamento_a_alternativa_e_a_sondagem() -> None:
+    """Nenhuma taxa cabe, mas a alternativa ainda é simulada para o usuário ver o motivo."""
+    regra = _representacao(nucleo={"percentual": TAXA_DO_JOB})
+
+    alternativa = propor_alternativa(
+        regra, SIMULADO_DO_JOB, ORCAMENTO_DO_JOB, parte_fixa=BASELINE_DO_JOB
+    )
+    sondagem = propor_alternativa(regra, SIMULADO_DO_JOB, ORCAMENTO_DO_JOB, parte_fixa=None)
+
+    assert (alternativa.motivo, alternativa.metodo) == (MOTIVO_PROPOSTA, METODO_SONDAGEM)
+    assert alternativa.representacao == sondagem.representacao
 
 
 def test_a_taxa_refinada_diz_que_saiu_da_reta() -> None:
@@ -429,7 +461,7 @@ def test_a_taxa_refinada_diz_que_saiu_da_reta() -> None:
         _representacao(nucleo={"percentual": Decimal("0.02")}),
         Decimal("1800"),
         Decimal("1700"),
-        baseline=Decimal("1200"),
+        parte_fixa=Decimal("1200"),
         anteriores=[ORIGINAL, PRIMEIRA],
     )
 
@@ -438,56 +470,55 @@ def test_a_taxa_refinada_diz_que_saiu_da_reta() -> None:
 
 def test_sem_proposta_nao_ha_metodo() -> None:
     alternativa = propor_alternativa(
-        _representacao(), Decimal("400000"), Decimal("485000"), baseline=Decimal("480312")
+        _representacao(), Decimal("400000"), Decimal("485000"), parte_fixa=Decimal("480312")
     )
 
     assert (alternativa.motivo, alternativa.metodo) == (MOTIVO_SEM_MARGEM, None)
 
 
 @pytest.mark.parametrize(
-    "parte_fixa",
-    ["0", "1000000", "4000000", "4900000", "4999999", "5730771.25"],
-    ids=[
-        "sem-parte-fixa",
-        "pequena",
-        "media",
-        "perto-do-orcamento",
-        "taxa-que-cabe-abaixo-do-quantum",
-        "igual-ao-baseline",
-    ],
+    "verdadeira",
+    ["0", "1000000", "4000000", "4900000", "4999999"],
+    ids=["sem-parte-fixa", "pequena", "media", "perto-do-orcamento", "cabe-abaixo-do-quantum"],
 )
-def test_pela_reta_a_sondagem_nao_corta_demais_e_o_refinamento_acha_a_taxa(
-    parte_fixa: str,
+@pytest.mark.parametrize("conhecida", ["0", "0.5", "1"], ids=["nada", "metade", "toda"])
+def test_pela_reta_a_estimativa_nunca_corta_demais_e_o_refinamento_acha_a_taxa(
+    verdadeira: str, conhecida: str
 ) -> None:
-    """A comissão é a parte fixa mais a taxa vezes as vendas no escopo. Para qualquer parte fixa
-    entre zero e o baseline, a sondagem fica no máximo um `QUANTUM` abaixo da taxa que cabe. Se
-    ela não couber, o refinamento pelos dois pontos chega a uma taxa que cabe, ou conclui que
-    nenhuma taxa de pelo menos um `QUANTUM` caberia."""
-    fixa = Decimal(parte_fixa)
+    """A comissão é a parte fixa mais a taxa vezes as vendas no escopo. Com qualquer fração da
+    parte fixa conhecida, a estimativa fica no máximo um `QUANTUM` abaixo da taxa que cabe, e só
+    cabe quando é ela. Se ela não couber, o refinamento pelos dois pontos chega à taxa que cabe,
+    ou conclui que nenhuma taxa de pelo menos um `QUANTUM` caberia."""
+    fixa = Decimal(verdadeira)
     vendas_no_escopo = (SIMULADO_DO_JOB - fixa) / TAXA_DO_JOB
 
     def comissao(taxa: Decimal) -> Decimal:
         return fixa + taxa * vendas_no_escopo
 
-    sondagem = percentual_de_sondagem(TAXA_DO_JOB, SIMULADO_DO_JOB, ORCAMENTO_DO_JOB)
-    assert sondagem is not None
-    assert comissao(sondagem + QUANTUM) > ORCAMENTO_DO_JOB
-    if comissao(sondagem) <= ORCAMENTO_DO_JOB:
-        # A sondagem coube, e é ela a sugestão: o fluxo não refina uma taxa que já coube.
+    nenhuma_cabe = comissao(QUANTUM) > ORCAMENTO_DO_JOB
+    estimada = percentual_que_cabe(
+        TAXA_DO_JOB, SIMULADO_DO_JOB, ORCAMENTO_DO_JOB, parte_fixa=fixa * Decimal(conhecida)
+    )
+    if estimada is None:
+        assert nenhuma_cabe
+        return
+    assert comissao(estimada + QUANTUM) > ORCAMENTO_DO_JOB
+    if comissao(estimada) <= ORCAMENTO_DO_JOB:
+        # A estimativa coube, e é ela a sugestão: o fluxo não refina uma taxa que já coube.
         return
 
     refinada = percentual_refinado(
         [
             TaxaSimulada(TAXA_DO_JOB, SIMULADO_DO_JOB),
-            TaxaSimulada(sondagem, comissao(sondagem)),
+            TaxaSimulada(estimada, comissao(estimada)),
         ],
         ORCAMENTO_DO_JOB,
     )
-    if comissao(QUANTUM) <= ORCAMENTO_DO_JOB:
+    if nenhuma_cabe:
+        assert refinada is None
+    else:
         assert refinada is not None
         assert comissao(refinada) <= ORCAMENTO_DO_JOB < comissao(refinada + QUANTUM)
-    else:
-        assert refinada is None
 
 
 # ---- todas as taxas da regra pelo mesmo fator ----
@@ -537,7 +568,7 @@ def test_reduz_todas_as_taxas_e_mantem_o_resto_da_regra() -> None:
     original = deepcopy(representacao)
 
     alternativa = propor_alternativa(
-        representacao, Decimal("492100"), Decimal("485000"), baseline=Decimal("480312")
+        representacao, Decimal("492100"), Decimal("485000"), parte_fixa=Decimal("480312")
     )
 
     esperada = deepcopy(original)
@@ -552,14 +583,14 @@ def test_reduz_todas_as_taxas_e_mantem_o_resto_da_regra() -> None:
     assert representacao == original
 
 
-def test_sonda_todas_as_taxas_quando_o_orcamento_nao_supera_o_baseline() -> None:
+def test_sonda_todas_as_taxas_sem_detalhamento() -> None:
     representacao = _so_taxas_por_cargo(
         {"cargo": "100", "percentual": Decimal("0.03")},
         {"cargo": "150", "percentual": Decimal("0.05")},
     )
 
     alternativa = propor_alternativa(
-        representacao, SIMULADO_DO_JOB, ORCAMENTO_DO_JOB, baseline=BASELINE_DO_JOB
+        representacao, SIMULADO_DO_JOB, ORCAMENTO_DO_JOB, parte_fixa=None
     )
 
     assert (alternativa.motivo, alternativa.metodo) == (MOTIVO_PROPOSTA, METODO_SONDAGEM)
@@ -581,7 +612,7 @@ def test_refina_pela_taxa_de_referencia_e_aplica_o_fator_a_todas() -> None:
         representacao,
         Decimal("1800"),
         Decimal("1700"),
-        baseline=Decimal("1200"),
+        parte_fixa=Decimal("1200"),
         anteriores=[ORIGINAL, PRIMEIRA],
     )
 
@@ -601,7 +632,7 @@ def test_nao_propoe_quando_uma_taxa_zeraria() -> None:
     )
 
     alternativa = propor_alternativa(
-        representacao, Decimal("492100"), Decimal("485000"), baseline=Decimal("480312")
+        representacao, Decimal("492100"), Decimal("485000"), parte_fixa=Decimal("480312")
     )
 
     assert (alternativa.motivo, alternativa.representacao) == (MOTIVO_SEM_MARGEM, None)
@@ -612,7 +643,7 @@ def test_regra_sem_taxa_positiva_nao_e_suportada() -> None:
         _representacao(nucleo={"percentual": Decimal("0")}),
         Decimal("492100"),
         Decimal("485000"),
-        baseline=Decimal("480312"),
+        parte_fixa=Decimal("480312"),
     )
 
     assert (alternativa.motivo, alternativa.representacao) == (MOTIVO_NAO_SUPORTADA, None)
@@ -650,3 +681,104 @@ def test_a_referencia_e_a_primeira_taxa_positiva(
     representacao: dict[str, object], referencia: Decimal | None
 ) -> None:
     assert taxa_de_referencia(representacao) == referencia
+
+
+# ---- a parte fixa: a comissão das linhas que a regra não alcança ----
+
+
+def _linha(
+    comissao: str,
+    *,
+    loja: str = "13",
+    marca: str = "10",
+    cargo: str = "100",
+    contribuicoes: dict[str, Decimal] | None = None,
+) -> dict[str, object]:
+    return {
+        "cod_loja": loja,
+        "cod_marca": marca,
+        "cod_cargo": cargo,
+        "comissao_baseline": Decimal(comissao),
+        "comissao_simulada": Decimal(comissao),
+        "diferenca": Decimal("0"),
+        "contribuicoes": contribuicoes or {},
+    }
+
+
+def test_a_parte_fixa_soma_as_linhas_que_a_regra_nao_alcanca() -> None:
+    """Fora da vigência, de cada filtro do núcleo e excluída: cada uma conta uma vez."""
+    representacao = _representacao(especificacoes=[{**EXCLUSAO, "valores": ["13"]}])
+    representacao["nucleo"] = {**NUCLEO, "loja": ["13", "58"]}  # type: ignore[assignment]
+    linhas = {
+        "2025-07": {"M-ANTES": _linha("1", loja="58")},
+        "2025-11": {
+            "M-LOJA": _linha("10", loja="14"),
+            "M-MARCA": _linha("100", marca="20"),
+            "M-CARGO": _linha("1000", cargo="150"),
+            "M-EXCLUIDA": _linha("10000", loja="13"),
+            "M-ALCANCADA": _linha("100000", loja="58"),
+        },
+    }
+
+    assert comissao_fora_da_regra(representacao, linhas) == Decimal("11111")
+
+
+def test_a_linha_que_a_regra_alcanca_nao_e_fixa_mesmo_sem_contribuicao() -> None:
+    """A taxa atual dessa linha pode ser a mesma da regra: com outra taxa, ela muda."""
+    linhas = {"2025-11": {"M-FORA": _linha("1000", loja="14"), "M-IGUAL": _linha("800")}}
+
+    assert comissao_fora_da_regra(_representacao(), linhas) == Decimal("1000")
+
+
+def test_a_linha_que_mudou_nao_e_fixa_mesmo_fora_do_escopo() -> None:
+    """Um elemento a alcançou, como um bônus com alvo próprio: ela não é o que nenhuma taxa move."""
+    linhas = {
+        "2025-11": {
+            "M-FORA": _linha("1000", loja="14"),
+            "M-BONUS": _linha("350", loja="14", contribuicoes={"elem.4": Decimal("350")}),
+        }
+    }
+
+    assert comissao_fora_da_regra(_representacao(), linhas) == Decimal("1000")
+
+
+def test_sem_taxa_uniforme_o_cargo_sem_taxa_propria_e_fixo() -> None:
+    """O contrato do núcleo manda o cargo sem taxa própria conservar o baseline."""
+    representacao = _so_taxas_por_cargo({"cargo": "100", "percentual": Decimal("0.03")})
+    representacao["nucleo"]["cargo"] = ["100", "150"]  # type: ignore[index]
+    linhas = {"2025-11": {"M-150": _linha("500", cargo="150"), "M-100": _linha("800")}}
+
+    assert comissao_fora_da_regra(representacao, linhas) == Decimal("500")
+
+
+def test_com_taxa_uniforme_o_cargo_sem_taxa_propria_e_alcancado() -> None:
+    representacao = _representacao(
+        nucleo={"cargo": ["100", "150"], "taxas_por_cargo": [{"cargo": "100", "percentual": 0}]}
+    )
+    linhas = {"2025-11": {"M-150": _linha("500", cargo="150")}}
+
+    assert comissao_fora_da_regra(representacao, linhas) == Decimal("0")
+
+
+def test_filtro_vazio_e_vigencia_ausente_nao_restringem() -> None:
+    nucleo = {chave: valor for chave, valor in NUCLEO.items() if chave != "vigencia"}
+    representacao = {"nucleo": {**nucleo, "loja": []}, "especificacoes": []}
+    linhas = {"2025-07": {"M-14": _linha("1000", loja="14")}}
+
+    assert comissao_fora_da_regra(representacao, linhas) == Decimal("0")
+
+
+@pytest.mark.parametrize(
+    "linhas",
+    [
+        pytest.param({"2025-11": []}, id="competencia-sem-objeto"),
+        pytest.param({"2025-11": {"M-1": "linha"}}, id="linha-sem-objeto"),
+        pytest.param({"2025-11": {"M-1": {"cod_loja": "14"}}}, id="sem-comissao"),
+    ],
+)
+def test_detalhamento_fora_da_forma_nao_da_parte_fixa(linhas: dict[str, object]) -> None:
+    assert comissao_fora_da_regra(_representacao(), linhas) is None
+
+
+def test_sem_detalhamento_nao_ha_parte_fixa() -> None:
+    assert comissao_fora_da_regra(_representacao(), None) is None

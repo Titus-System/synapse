@@ -50,9 +50,9 @@ import static org.awaitility.Awaitility.await;
  * <p>
  * O corpo da requisição é o que {@code useFormularioRegra.montarRequisicao()} monta
  * ({@code frontend/src/features/formulario-regra/composables/useFormularioRegra.ts}):
- * {@code origem}, {@code orcamento} e {@code conteudo}. Copiar o corpo de outro teste da
- * api, que informa {@code competencias} diretamente, testaria um caminho que nenhum
- * usuário percorre.
+ * {@code origem}, {@code orcamento}, {@code meta_venda} e {@code conteudo}. Copiar o
+ * corpo de outro teste da api, que informa {@code competencias} diretamente, testaria um
+ * caminho que nenhum usuário percorre.
  * <p>
  * As asserções descrevem o comportamento correto, não o observado. Onde as duas coisas
  * divergem o teste falha, que é o serviço que ele presta.
@@ -86,12 +86,14 @@ class SubmissaoDeRegraFimAFimTests {
 
 	/**
 	 * O que a tela envia com a vigência acima, loja 13, marca 10, cargo 100, percentual
-	 * 2,5% e orçamento R$ 485.000,50. O percentual chega como fração
-	 * ({@code converterPercentual} divide por 100) e {@code texto_livre} é {@code null}
-	 * no formulário, que não tem campo de texto livre.
+	 * 2,5%, orçamento R$ 485.000,50 e meta de vendas R$ 55.267.944,10. O percentual chega
+	 * como fração ({@code converterPercentual} divide por 100) e {@code texto_livre} é
+	 * {@code null} no formulário, que não tem campo de texto livre. A meta é o total
+	 * histórico de vendas das cinco competências, então a simulação usa as vendas como
+	 * estão; sem ela a validação pausa o job antes da geração.
 	 */
 	private static final String CORPO_DO_FORMULARIO = """
-			{"origem":"formulario","orcamento":485000.5,
+			{"origem":"formulario","orcamento":485000.5,"meta_venda":55267944.1,
 			 "conteudo":{"nucleo":{"vigencia":{"inicio":"%s","fim":"%s"},
 			 "loja":["13"],"marca":["10"],"cargo":["100"],"percentual":0.025},"texto_livre":null}}
 			""".formatted(VIGENCIA_INICIO, VIGENCIA_FIM);

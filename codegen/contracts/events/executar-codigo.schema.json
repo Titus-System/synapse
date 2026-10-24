@@ -77,6 +77,54 @@
           "elem.1"
         ]
       ]
+    },
+    "alcance": {
+      "type": "object",
+      "description": "As linhas a que a regra dá efeito, já calculadas pelo codegen a partir da representação: fora delas, a comissão simulada de cada matrícula e competência tem de ser a do baseline. O Worker confere isso fora do container, depois da cobertura, linha a linha do detalhamento, com tolerância de um centavo; a falha é erro_codigo com causa fora_do_escopo (contracts/harness/README.md, seção \"Conferência de escopo\"). Cada chave ausente não restringe a dimensão, e uma linha está no alcance quando atende a todas as presentes e não está entre as excluídas. O alcance, como o orçamento, nunca entra no container. Ausente, o Worker não faz a conferência, e a execução segue como antes do campo existir.",
+      "properties": {
+        "vigencia": {
+          "$ref": "../domain/comum.schema.json#/$defs/vigencia",
+          "description": "Competências em que a regra vale. A competência do job fora dela é simulada pelas regras do baseline."
+        },
+        "loja": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "../domain/comum.schema.json#/$defs/codigo" },
+          "description": "Lojas da regra, comparadas ao cod_loja de cada linha do detalhamento."
+        },
+        "marca": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "../domain/comum.schema.json#/$defs/codigo" },
+          "description": "Marcas da regra, comparadas ao cod_marca de cada linha do detalhamento."
+        },
+        "cargo": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "../domain/comum.schema.json#/$defs/codigo" },
+          "description": "Cargos a que a regra dá efeito, comparados ao cod_cargo de cada linha. Sem taxa uniforme, são só os cargos com taxa própria em taxas_por_cargo: o cargo sem taxa conserva o baseline."
+        },
+        "excluidos": {
+          "type": "object",
+          "description": "Códigos que um elemento exclusao retira da regra inteira, por dimensão.",
+          "properties": {
+            "loja": { "type": "array", "minItems": 1, "items": { "$ref": "../domain/comum.schema.json#/$defs/codigo" } },
+            "marca": { "type": "array", "minItems": 1, "items": { "$ref": "../domain/comum.schema.json#/$defs/codigo" } },
+            "cargo": { "type": "array", "minItems": 1, "items": { "$ref": "../domain/comum.schema.json#/$defs/codigo" } }
+          }
+        }
+      },
+      "examples": [
+        {
+          "vigencia": { "inicio": "2025-08", "fim": "2025-11" },
+          "loja": ["13", "58"],
+          "marca": ["10", "20"],
+          "cargo": ["100", "150", "200"]
+        }
+      ]
     }
   },
   "examples": [
@@ -91,7 +139,16 @@
       "elementos_exigidos": [
         "nucleo.percentual",
         "elem.1"
-      ]
+      ],
+      "alcance": {
+        "vigencia": {
+          "inicio": "2025-08",
+          "fim": "2025-11"
+        },
+        "loja": [
+          "13"
+        ]
+      }
     },
     {
       "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",

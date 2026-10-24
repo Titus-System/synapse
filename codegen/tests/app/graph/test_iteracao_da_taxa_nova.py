@@ -26,16 +26,24 @@ from tests.app.iteracao_falsa import NUCLEO, HistoricoFalso
 from tests.app.test_mensageria import CONTRATOS, exemplo
 
 ORCAMENTO = Decimal("1700")
-BASELINE = Decimal("1000")
+# A comissão da loja que a regra não alcança, que o detalhamento de cada resultado traz.
+PARTE_FIXA = Decimal("1000")
 # A comissão que o worker apura para a original (0,03) e para cada alternativa. A estimativa
 # inicial e as duas refinadas são 0,0175, 0,0143 e 0,0086, e nenhuma cabe em 1700.
 COMISSOES_QUE_NAO_CABEM = (Decimal("2200"), Decimal("1800"), Decimal("1764"), Decimal("1710"))
 
 
 class Job:
-    def __init__(self, monkeypatch: pytest.MonkeyPatch, *, com_orcamento: bool = True) -> None:
+    def __init__(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        com_orcamento: bool = True,
+        orcamento: Decimal = ORCAMENTO,
+    ) -> None:
         self.ambiente = ConfirmacaoFalsa(monkeypatch)
-        self.historico = HistoricoFalso(uuid4(), ORCAMENTO, BASELINE)
+        self.orcamento = orcamento
+        self.historico = HistoricoFalso(uuid4(), orcamento, PARTE_FIXA)
         self.historico.instalar(monkeypatch)
         self.com_orcamento = com_orcamento
         self.submissao = Consumer(RegraSubmetida, "regra-submetida", self.ambiente.roteador)
@@ -51,7 +59,7 @@ class Job:
         payload = exemplo("regra-submetida-parametros") | {
             "job_id": str(self.historico.job_id),
             "regra_id": str(regra_id),
-            "orcamento": ORCAMENTO,
+            "orcamento": self.orcamento,
         }
         if not self.com_orcamento:
             del payload["orcamento"]
@@ -66,7 +74,7 @@ class Job:
         if not self.com_orcamento:
             base = exemplo("simulacao-concluida-sem-orcamento")
         else:
-            veredito = "inviavel" if simulado > ORCAMENTO else "viavel"
+            veredito = "inviavel" if simulado > self.orcamento else "viavel"
             base = exemplo("simulacao-concluida") | {"veredito": veredito}
         return base | {"job_id": str(self.historico.job_id), "resultado_id": str(resultado_id)}
 
@@ -212,6 +220,28 @@ async def test_a_alternativa_que_coube_encerra_a_iteracao_sem_nova_proposta(
     assert amostra(depois, "1", "viavel") - amostra(antes, "1", "viavel") == 1
 
 
+async def test_com_comissao_atual_no_escopo_a_primeira_taxa_e_a_que_cabe_e_encerra_a_iteracao(
+    monkeypatch: pytest.MonkeyPatch, logs: list[dict[str, Any]]
+) -> None:
+    """A regra troca 2% por 3% nas vendas de R$ 40.000 da loja 13, e a loja fora dela fica com
+    R$ 1.000: a comissão é 1000 + 40000 * taxa. Em R$ 2.000 cabe até 2,5%, e é essa a primeira
+    taxa, que a simulação confirma. Pelo baseline inteiro (R$ 1.800), ela seria 1,5%, abaixo dos
+    2% que a loja já recebe, e caberia do mesmo jeito: seria a sugestão final."""
+    job = Job(monkeypatch, orcamento=Decimal("2000"))
+    regra = job.original()
+    await job.abrir_ciclo(regra)
+    await job.simular(regra, Decimal("2200"))
+    alternativa = await job.alternativa(job.propostas()[0])
+
+    await job.simular(alternativa, Decimal("2000"))
+
+    [proposta] = job.propostas()
+    assert percentual(proposta) == Decimal("0.025")
+    assert job.etapas("sem_alternativa") == []
+    [publicada] = [log for log in logs if log["message"] == "adaptation proposal published"]
+    assert publicada["extra"]["metodo"] == "estimativa"
+
+
 async def test_regra_nova_no_job_depois_de_uma_iteracao_comeca_pela_estimativa_dos_totais(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -342,3 +372,22 @@ async def test_reentrega_depois_de_a_api_gravar_a_proposta_repete_a_mesma_tentat
     assert segunda == repeticao
     assert segunda["tentativa"] == 2
     assert job.etapas("sem_alternativa") == []
+
+
+async def test_parte_fixa_acima_do_orcamento_simula_uma_alternativa_e_encerra_sem_outra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nenhuma taxa cabe em 900 com 1000 fora da regra. A alternativa da sondagem ainda é
+    simulada, para o usuário vê-la, e a reta que passa por ela cruza o orçamento abaixo de zero."""
+    job = Job(monkeypatch, orcamento=Decimal("900"))
+    original = job.original()
+    await job.abrir_ciclo(original)
+
+    await job.simular(original, Decimal("2200"))
+    (proposta,) = job.propostas()
+    assert proposta["representacao"]["nucleo"]["percentual"] == Decimal("0.0122")
+    alternativa = await job.alternativa(proposta)
+    await job.simular(alternativa, Decimal("1500"))
+
+    assert len(job.propostas()) == 1
+    assert len(job.etapas("sem_alternativa")) == 1

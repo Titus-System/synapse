@@ -77,6 +77,25 @@ describe('visual do chatbot', () => {
         pagina: 1,
         tamanho: 100,
       })
+      .mockResolvedValueOnce({
+        itens: [
+          {
+            id: 'regra-a',
+            status: 'liberado',
+            competencias: [],
+            criado_em: '2026-10-08T12:00:00Z',
+          },
+          {
+            id: 'regra-b',
+            status: 'arquivado',
+            competencias: [],
+            criado_em: '2026-10-07T12:00:00Z',
+          },
+        ],
+        total: 2,
+        pagina: 0,
+        tamanho: 12,
+      })
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [{ path: '/correcao', component: CorrecaoRegraView }],
@@ -84,7 +103,8 @@ describe('visual do chatbot', () => {
     await router.push('/correcao')
     const wrapper = mount(CorrecaoRegraView, { global: { plugins: [createPinia(), router] } })
     await flushPromises()
-    expect(listar).toHaveBeenCalledTimes(2)
+    expect(listar).toHaveBeenCalledTimes(3)
+    expect(listar).toHaveBeenLastCalledWith({ pagina: 0, tamanho: 12 })
     expect(wrapper.get('a[href="/jobs/regra-a"]').text()).toContain('08/10/2026')
     expect(wrapper.get('a[href="/jobs/regra-b"]').text()).toContain('07/10/2026')
     expect(wrapper.get('a[href="/salvas"]').text()).toContain('1')
@@ -100,7 +120,7 @@ describe('visual do chatbot', () => {
     vi.spyOn(console, 'info').mockImplementation(() => undefined)
     vi.spyOn(apiClient, 'listarJobs')
       .mockRejectedValueOnce(new Error('conteudo confidencial'))
-      .mockResolvedValueOnce({ itens: [], total: 0, pagina: 0, tamanho: 100 })
+      .mockResolvedValue({ itens: [], total: 0, pagina: 0, tamanho: 100 })
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [{ path: '/correcao', component: CorrecaoRegraView }],
