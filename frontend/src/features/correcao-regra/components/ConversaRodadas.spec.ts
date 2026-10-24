@@ -197,3 +197,35 @@ it.each([
   expect(balao.text()).toContain(texto)
   expect(balao.get('svg').attributes('aria-hidden')).toBe('true')
 })
+it('não mostra termos internos em nenhum estado da rodada', () => {
+  const regra = {
+    id: pendente.regra_analisada_id,
+    versao: 7,
+    origem: 'extracao' as const,
+    criada_em: '2025-11-24T14:00:00Z',
+    representacao: {
+      nucleo: { vigencia: { inicio: '2025-08', fim: '2025-12' }, percentual: 0.05 },
+      especificacoes: [],
+    },
+  }
+  const estados = [
+    pendente,
+    rodadaVoz,
+    { ...pendente, id: 'reextracao', estado: 'em_reextracao' as const, correcao: corrigida.correcao },
+    corrigida,
+    falhou,
+    abandonada,
+  ]
+  const wrapper = mount(ConversaRodadas, {
+    props: { rodadas: estados, regras: [regra], metaVenda: 200000 },
+  })
+  const texto = wrapper.text().toLowerCase()
+  for (const termo of ['job', 'veredito', 'liberado', 'versão', 'versao', 'nucleo.', 'elem.']) {
+    expect(texto, `termo proibido: ${termo}`).not.toContain(termo)
+  }
+  const padraoDeUuid = new RegExp('[0-9a-f]{8}-[0-9a-f]{4}-')
+  expect(padraoDeUuid.test(texto)).toBe(false)
+  for (const estado of ['pendente', 'em_reextracao', 'reextracao_falhou', 'corrigida', 'abandonada']) {
+    expect(texto).not.toContain(estado)
+  }
+})
