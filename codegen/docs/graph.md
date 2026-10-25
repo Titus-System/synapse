@@ -15,6 +15,7 @@ graph TD;
 	reextract_rule(reextract_rule)
 	validate_domain(validate_domain)
 	report_conflicts(report_conflicts)
+	derive_code(derive_code)
 	code_generation(code_generation)
 	persist_response(persist_response)
 	extract_code(extract_code)
@@ -32,8 +33,11 @@ graph TD;
 	await_execution -.-> search_sales_target;
 	code_generation --> persist_response;
 	decision -.-> __end__;
+	decision -.-> code_generation;
 	decision -.-> search_sales_target;
 	decision -.-> suggest_adaptation;
+	derive_code -.-> code_generation;
+	derive_code -.-> dispatch_execution;
 	dispatch_execution -.-> __end__;
 	dispatch_execution -.-> await_execution;
 	extract_code --> dispatch_execution;
@@ -41,7 +45,7 @@ graph TD;
 	persist_response --> extract_code;
 	search_sales_target -.-> dispatch_execution;
 	search_sales_target -.-> publish_sales_target;
-	validate_domain -.-> code_generation;
+	validate_domain -.-> derive_code;
 	validate_domain -.-> report_conflicts;
 	extract_rule --> __end__;
 	publish_sales_target --> __end__;

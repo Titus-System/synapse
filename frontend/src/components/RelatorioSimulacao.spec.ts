@@ -73,3 +73,61 @@ it('informa ausência de agregados sem inferir totais das linhas', async () => {
   expect(wrapper.findAll('details p')).toHaveLength(3)
   expect(wrapper.get('[aria-label="Totais da simulação"]').text()).not.toContain('R$')
 })
+it('rola todas as colunas juntas, sem Competência e Matrícula fixas', () => {
+  const wrapper = montar()
+  const celulas = [
+    ...wrapper.findAll('thead th').slice(0, 2),
+    ...wrapper.findAll('tbody tr')[0]!.findAll('td').slice(0, 2),
+  ]
+
+  expect(celulas.map((celula) => celula.text())).toEqual([
+    'Competência',
+    'Matrícula',
+    '08/2025',
+    'ALPHA-1',
+  ])
+  for (const celula of celulas) expect(celula.classes()).not.toContain('sticky')
+  expect(wrapper.get('thead').classes()).toContain('sticky')
+})
+it('mostra a condição adicional com rótulo curto e abre a descrição só da linha escolhida', async () => {
+  const descricao =
+    'Para cada vendedor do cargo 100 abrangido pela regra, acrescente um bônus fixo de R$ 350,00.'
+  const comBonus = { ...linha, contribuicoes: { 'elem.1': 350, 'nucleo.taxas_por_cargo': 403.42 } }
+  const wrapper = mount(RelatorioSimulacao, {
+    attachTo: document.body,
+    props: {
+      aberto: true,
+      carregando: false,
+      erro: null,
+      linhas: { '2025-08': { 'ALPHA-1': comBonus, 'BETA-2': comBonus } },
+      regra: { nucleo: {}, especificacoes: [{ ref: 'elem.1', construto: 'generico', descricao }] },
+    },
+  })
+  const [primeira, segunda] = wrapper.findAll('tbody tr')
+  const botao = primeira!.get('button')
+  const descricaoDa = (linhaDaTabela: typeof primeira) => {
+    const controle = linhaDaTabela!.get('button').attributes('aria-controls')
+    return linhaDaTabela!.get(`[id="${controle}"]`)
+  }
+
+  expect(primeira!.text()).toContain('Condição adicional · condição 1: R$ 350,00')
+  expect(primeira!.text()).toContain('Taxas de comissão por cargo: R$ 403,42')
+  expect(primeira!.findAll('button')).toHaveLength(1)
+  expect(botao.text()).toBe('Ver descrição')
+  expect(botao.attributes('aria-expanded')).toBe('false')
+  expect(descricaoDa(primeira).isVisible()).toBe(false)
+
+  await botao.trigger('click')
+
+  expect(botao.text()).toBe('Ocultar descrição')
+  expect(botao.attributes('aria-expanded')).toBe('true')
+  expect(descricaoDa(primeira).isVisible()).toBe(true)
+  expect(descricaoDa(primeira).text()).toBe(descricao)
+  expect(segunda!.get('button').attributes('aria-expanded')).toBe('false')
+  expect(descricaoDa(segunda).isVisible()).toBe(false)
+
+  await botao.trigger('click')
+
+  expect(descricaoDa(primeira).isVisible()).toBe(false)
+  wrapper.unmount()
+})

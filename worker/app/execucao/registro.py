@@ -14,11 +14,17 @@ from dataclasses import dataclass, field
 from typing import Any, NotRequired, TypedDict
 
 from app.execucao.coleta import Motivo
+from app.execucao.escopo import LinhaForaDoEscopo
 from app.execucao.schema import Problema, validar_diagnostico
 from app.execucao.veredito import Julgamento, LinhasJulgadas
 from app.mensageria.contracts import SimulacaoConcluida
 from app.repositorio.resultados import ResultadoGravado
 from app.sandbox.envelope import Falha
+
+
+class LinhasForaDoEscopo(TypedDict):
+    total: int
+    exemplos: list[LinhaForaDoEscopo]
 
 
 class Diagnostico(TypedDict):
@@ -38,6 +44,8 @@ class Diagnostico(TypedDict):
     # código não declarou, e os que receberam contribuição sem ser exigidos.
     elementos_ausentes: NotRequired[list[str]]
     elementos_fora_da_regra: NotRequired[list[str]]
+    # Só fora do escopo: quantas linhas fora do alcance da regra mudaram, e as primeiras.
+    linhas_fora_do_escopo: NotRequired[LinhasForaDoEscopo]
 
 
 class DiagnosticoForaDoContratoError(ValueError):
@@ -82,6 +90,11 @@ def diagnostico_do_julgamento(julgamento: Julgamento) -> Diagnostico | None:
         diagnostico["elementos_ausentes"] = list(cobertura.ausentes)
     if cobertura is not None and cobertura.fora_da_regra:
         diagnostico["elementos_fora_da_regra"] = list(cobertura.fora_da_regra)
+    fora_do_escopo = julgamento.fora_do_escopo
+    if fora_do_escopo is not None:
+        diagnostico["linhas_fora_do_escopo"] = LinhasForaDoEscopo(
+            total=fora_do_escopo.total, exemplos=list(fora_do_escopo.exemplos)
+        )
     problemas = validar_diagnostico(diagnostico)
     if problemas:
         raise DiagnosticoForaDoContratoError(problemas)

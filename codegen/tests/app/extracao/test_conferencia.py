@@ -87,15 +87,15 @@ async def test_resolve_nomes_inequivocos(campo: str, termo: str, codigo: str) ->
     ("termo", "motivo"),
     [("VENDEDOR", "termo_ambiguo"), ("999", "codigo_fora_do_vocabulario")],
 )
-async def test_codigo_nao_resolvido_e_generico(termo: str, motivo: str) -> None:
+async def test_codigo_nao_resolvido_fica_fora_da_regra_e_registra_o_criterio(
+    termo: str, motivo: str
+) -> None:
     resultado = await montar(termo, nucleo={"cargo": [{"valor": termo, "trecho": termo}]})
 
     regra, diagnosticos = validar_conteudo(resultado.representacao, resultado.rebaixamentos)
     assert regra["nucleo"] == {}
-    assert regra["especificacoes"] == [
-        {"ref": "elem.1", "construto": "generico", "descricao": termo}
-    ]
-    assert diagnosticos == [{"ref": "elem.1", "motivo": motivo}]
+    assert regra["especificacoes"] == []
+    assert diagnosticos == [{"ref": "nucleo.cargo", "motivo": motivo}]
 
 
 async def test_codigo_com_lastro_que_nao_prova_seu_valor_e_descartado() -> None:
@@ -119,8 +119,10 @@ async def test_ano_implicito_da_vigencia_depende_do_job(publicadas: list[str]) -
         assert resultado.rebaixamentos == []
     else:
         assert "vigencia" not in regra["nucleo"]
-        assert regra["especificacoes"][0]["construto"] == "generico"
-        assert resultado.rebaixamentos[0].motivo == "periodo_nao_resolvido"
+        assert regra["especificacoes"] == []
+        assert [r.para_contrato() for r in resultado.rebaixamentos] == [
+            {"ref": "nucleo.vigencia", "motivo": "periodo_nao_resolvido"}
+        ]
 
 
 @pytest.mark.parametrize(

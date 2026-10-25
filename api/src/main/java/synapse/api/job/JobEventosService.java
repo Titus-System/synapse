@@ -116,11 +116,40 @@ class JobEventosService {
 		if (etapa == EtapaDoGrafo.DELEGACAO_WORKER && STATUS_INICIADA.equals(status)) {
 			return EtapaAplicada.comum(avancarDeGerandoRegra(jobId, JobStatus.SIMULANDO, null, null));
 		}
+		if (STATUS_ERRO.equals(status) && atual == JobStatus.SIMULANDO) {
+			EventoEstadoDto encerrada = encerrarCorrecao(jobId, MotivoDaParada.falhaNaEtapa(etapa, causa),
+					MotivoDaParada.razaoDaFalha(causa));
+			if (encerrada != null) {
+				return EtapaAplicada.comum(encerrada);
+			}
+		}
 		if (STATUS_ERRO.equals(status)) {
 			return EtapaAplicada.comum(avancarDeGerandoRegra(jobId, JobStatus.ERRO,
 					MotivoDaParada.falhaNaEtapa(etapa, causa), MotivoDaParada.razaoDaFalha(causa)));
 		}
 		return EtapaAplicada.comum(null);
+	}
+
+	/**
+	 * A falha do codegen durante a correção do código: o job segue em {@code simulando}
+	 * enquanto o código corrigido é gerado, e a falha da geração o encerra a partir daí.
+	 * Vale também quando ela chega antes do resultado que pediu a correção, porque as
+	 * filas não têm ordem entre si: a versão está em correção pelo que o worker gravou, e
+	 * não pelo que esta api já consumiu. {@code null} quando a versão atual não está em
+	 * correção.
+	 */
+	private @Nullable EventoEstadoDto encerrarCorrecao(UUID jobId, @Nullable String motivoDaTrilha,
+			@Nullable String razao) {
+		List<UUID> emCorrecao = this.repository.buscarResultadoEmCorrecao(jobId);
+		if (emCorrecao.isEmpty()) {
+			return null;
+		}
+		this.maquina.transicionar(jobId, JobStatus.ERRO, ATOR, motivoDaTrilha);
+		this.repository.vincularResultado(jobId, emCorrecao.getFirst());
+		log.atInfo()
+			.addKeyValue("resultado_id", emCorrecao.getFirst())
+			.log("falha do codegen na correção do código; job em erro");
+		return EventoEstadoDto.transicao(jobId, JobStatus.SIMULANDO, JobStatus.ERRO, razao);
 	}
 
 	private EtapaAplicada pausarPorConflitos(UUID jobId, JobStatus atual, @Nullable UUID regraId,
@@ -336,12 +365,33 @@ class JobEventosService {
 		}
 		boolean avancouDeGerandoRegra = this.maquina.avancarSeEm(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO,
 				ATOR, MOTIVO_ANTECIPADA);
+		if (desfecho.corrigivel() && this.repository.posicaoDoCodigoDoResultado(jobId,
+				resultadoId) < CorrecaoDoCodigo.LIMITE_DE_CODIGOS_POR_VERSAO) {
+			return devolverParaCorrecao(jobId, resultadoId, avancouDeGerandoRegra);
+		}
 		if (desfecho == DesfechoDaSimulacao.INVIAVEL && VersoesDaRegra.ORIGEM_SUGESTAO.equals(origens.getFirst())) {
 			return absorverAlternativaInviavel(jobId, resultadoId, avancouDeGerandoRegra);
 		}
 		JobStatus origem = this.maquina.transicionar(jobId, desfecho.destino(), ATOR, desfecho.motivoDaTrilha());
 		UUID simulacaoId = amarrarResultado(jobId, resultadoId);
-		return new DesfechoAplicado(origem, simulacaoId, avancouDeGerandoRegra, false);
+		return new DesfechoAplicado(origem, simulacaoId, avancouDeGerandoRegra, false, false);
+	}
+
+	/**
+	 * A falha do código que ainda cabe corrigir não é desfecho: o codegen gera e executa
+	 * o código corrigido, e o job segue em {@code simulando} até o resultado dele, como
+	 * na alternativa que não coube. Sem transição, a reentrega deste resultado não grava
+	 * nada de novo; depois do desfecho ela encontra o job fora de {@code simulando} e é
+	 * recusada como qualquer desfecho fora de ordem. O resultado é amarrado para a
+	 * auditoria, e o usuário não o vê.
+	 */
+	private DesfechoAplicado devolverParaCorrecao(UUID jobId, UUID resultadoId, boolean avancouDeGerandoRegra) {
+		JobStatus status = JobStatus.deColuna(this.repository.buscarStatusComTrava(jobId));
+		if (status != JobStatus.SIMULANDO) {
+			throw new TransicaoDeStatusInvalidaException(status, JobStatus.SIMULANDO);
+		}
+		this.repository.vincularResultado(jobId, resultadoId);
+		return DesfechoAplicado.emCorrecao(avancouDeGerandoRegra);
 	}
 
 	/**
@@ -386,12 +436,18 @@ class JobEventosService {
 	/**
 	 * {@code intermediario} é o resultado inviável de uma alternativa enquanto o codegen
 	 * pode tentar outra taxa: não houve transição, e o usuário não o vê.
+	 * {@code emCorrecao} é a falha do código que o codegen ainda corrige: também sem
+	 * transição, e o usuário também não vê o resultado.
 	 */
 	record DesfechoAplicado(JobStatus origem, @Nullable UUID simulacaoId, boolean avancouDeGerandoRegra,
-			boolean intermediario) {
+			boolean intermediario, boolean emCorrecao) {
 
 		static DesfechoAplicado intermediario(boolean avancouDeGerandoRegra) {
-			return new DesfechoAplicado(JobStatus.SIMULANDO, null, avancouDeGerandoRegra, true);
+			return new DesfechoAplicado(JobStatus.SIMULANDO, null, avancouDeGerandoRegra, true, false);
+		}
+
+		static DesfechoAplicado emCorrecao(boolean avancouDeGerandoRegra) {
+			return new DesfechoAplicado(JobStatus.SIMULANDO, null, avancouDeGerandoRegra, false, true);
 		}
 
 	}
@@ -444,7 +500,7 @@ class JobEventosService {
 				List<UUID> simulacoes = this.repository.buscarSimulacaoPorResultado(jobId, resultadoId);
 				if (!simulacoes.isEmpty()) {
 					desfechoDaOrigem = new DesfechoAplicado(desfechoDaOrigem.origem(), simulacoes.getFirst(),
-							desfechoDaOrigem.avancouDeGerandoRegra(), false);
+							desfechoDaOrigem.avancouDeGerandoRegra(), false, false);
 				}
 			}
 		}

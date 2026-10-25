@@ -5,7 +5,11 @@ import { rotuloDaRegra } from '@/services/job'
 import { limiteDoNome, usarStoreRenomearRegra } from '@/stores/renomearRegra'
 import type { JobResumo } from '@/types/api'
 
-const props = defineProps<{ resumo: JobResumo }>()
+const props = defineProps<{
+  resumo: Pick<JobResumo, 'id' | 'nome' | 'criado_em'>
+  cartao?: boolean
+  idDoTitulo?: string
+}>()
 
 const renomear = usarStoreRenomearRegra()
 const rotulo = computed(() =>
@@ -59,9 +63,22 @@ function aoSair(): void {
         <span class="shrink-0">{{ tamanho }}/{{ limiteDoNome }}</span>
       </div>
     </div>
-    <h2 v-else class="font-serif text-2xl font-semibold break-words">{{ rotulo }}</h2>
-    <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-      <p class="text-sm text-[#9c571e]">Criada em {{ criadaEm }}</p>
+    <h2 v-if="!cartao && !editando" class="font-serif text-2xl font-semibold break-words">
+      {{ rotulo }}
+    </h2>
+    <!-- No cartão, o título continua no documento durante a edição: ele nomeia o cartão. -->
+    <div
+      class="flex flex-wrap items-center gap-x-3 gap-y-1"
+      :class="cartao ? (editando ? 'sr-only' : '') : 'mt-1'"
+    >
+      <h1
+        v-if="cartao"
+        :id="idDoTitulo"
+        class="font-serif text-xl font-bold break-words text-[#2B160D]"
+      >
+        {{ rotulo }}
+      </h1>
+      <p v-else class="text-sm text-[#9c571e]">Criada em {{ criadaEm }}</p>
       <button
         v-if="!editando"
         type="button"

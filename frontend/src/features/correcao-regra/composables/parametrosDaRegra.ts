@@ -7,7 +7,7 @@ export interface ParametroConversa {
   valor: string
 }
 
-// Vocabulário do backlog (DEC-084): produto = marca, canal = loja, equipes = cargo.
+// Vocabulário do backlog (DEC-084): canal = loja, equipes = cargo.
 export function parametrosDaRegra(
   nucleo: NucleoRegra,
   metaVenda?: number,
@@ -15,10 +15,9 @@ export function parametrosDaRegra(
 ): ParametroConversa[] {
   return [
     { rotulo: 'Validade', valor: vigenciaDoNucleo(nucleo, competencias) },
-    { rotulo: 'Produto', valor: nomesDoEscopo('marca', nucleo.marca) },
+    { rotulo: 'Marca', valor: nomesDoEscopo('marca', nucleo.marca) },
     { rotulo: 'Canal', valor: nomesDoEscopo('loja', nucleo.loja) },
     { rotulo: 'Equipes', valor: nomesDoEscopo('cargo', nucleo.cargo) },
-    { rotulo: 'Marcas', valor: nomesDoEscopo('marca', nucleo.marca) },
     {
       rotulo: 'Comissionamento',
       valor: percentuaisDoNucleo(nucleo),

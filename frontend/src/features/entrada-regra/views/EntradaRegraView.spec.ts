@@ -78,7 +78,7 @@ describe('entrada da regra', () => {
   it('permite recuperar o historico sem expor a mensagem interna', async () => {
     vi.spyOn(apiClient, 'listarJobs')
       .mockRejectedValueOnce(new Error('segredo'))
-      .mockResolvedValueOnce({ itens: [], total: 0, pagina: 0, tamanho: 100 })
+      .mockResolvedValue({ itens: [], total: 0, pagina: 0, tamanho: 100 })
     const wrapper = await abrir()
     expect(wrapper.find('[role="alert"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('segredo')

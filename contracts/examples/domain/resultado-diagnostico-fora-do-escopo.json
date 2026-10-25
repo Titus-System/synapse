@@ -1,0 +1,16 @@
+{
+  "causa": "fora_do_escopo",
+  "linhas_fora_do_escopo": {
+    "total": 111,
+    "exemplos": [
+      {
+        "competencia": "2025-08",
+        "matricula": "MATRIC-371",
+        "cod_loja": "33",
+        "cod_marca": "10",
+        "cod_cargo": "100",
+        "diferenca": 350.0
+      }
+    ]
+  }
+}

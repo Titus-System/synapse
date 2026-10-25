@@ -6,6 +6,7 @@ from app.extracao.lastro import (
     conferir_data,
     conferir_numero,
     conferir_periodo,
+    numeros_por_extenso,
     resolver_datas,
     resolver_periodo,
 )
@@ -56,6 +57,49 @@ def test_evidencia_fora_do_texto_nao_confere() -> None:
     ],
 )
 def test_vocabulario_nunca_resolve_sem_evidencia(
+    campo: str, termo: str, trecho: str, codigo: str | None, motivo: str | None
+) -> None:
+    assert resolver_codigo(campo, termo, trecho, trecho) == (codigo, motivo)
+
+
+@pytest.mark.parametrize(
+    ("texto", "numeros"),
+    [
+        ("loja sessenta e oito", {68}),
+        ("loja quatorze", {14}),
+        ("loja catorze", {14}),
+        ("loja três", {3}),
+        ("cargo cento e cinquenta", {150}),
+        ("cargo cem", {100}),
+        ("duzentos e cinquenta e oito", {258}),
+        ("vinte e um", {21}),
+        ("lojas treze e cinquenta e oito", {13, 58}),
+        ("lojas um e dois", {1, 2}),
+        ("orçamento de duzentos mil e meta de um milhão", set()),
+        ("loja 68", set()),
+    ],
+)
+def test_numeros_por_extenso_seguem_a_leitura_composta(texto: str, numeros: set[int]) -> None:
+    assert numeros_por_extenso(texto) == numeros
+
+
+@pytest.mark.parametrize(
+    ("campo", "termo", "trecho", "codigo", "motivo"),
+    [
+        ("loja", "68", "loja sessenta e oito", "68", None),
+        ("loja", "LOJA-68", "loja sessenta e oito", "68", None),
+        ("loja", "14", "loja quatorze", "14", None),
+        ("loja", "14", "loja catorze", "14", None),
+        ("loja", "3", "loja três", "3", None),
+        ("loja", "13", "lojas treze e cinquenta e oito", "13", None),
+        ("loja", "58", "lojas treze e cinquenta e oito", "58", None),
+        ("loja", "71", "lojas treze e cinquenta e oito", None, "valor_sem_lastro"),
+        ("loja", "60", "loja sessenta e oito", None, "valor_sem_lastro"),
+        ("cargo", "150", "cargo cento e cinquenta", "150", None),
+        ("marca", "10", "marca dez", "10", None),
+    ],
+)
+def test_codigo_dito_por_extenso_tem_lastro(
     campo: str, termo: str, trecho: str, codigo: str | None, motivo: str | None
 ) -> None:
     assert resolver_codigo(campo, termo, trecho, trecho) == (codigo, motivo)

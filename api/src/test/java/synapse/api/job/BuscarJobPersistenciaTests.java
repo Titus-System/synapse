@@ -307,6 +307,8 @@ class BuscarJobPersistenciaTests {
 	void falhaDeExecucaoTrazAMesmaRazaoDoSseESimulacaoSemResultado(DesfechoDaSimulacao desfecho) throws Exception {
 		UUID jobId = criarJobEmProcessamento();
 		UUID regra = criarRegra(jobId, 1, "0.02", "hash-v1", "2026-01-01T10:01:00Z");
+		// O último código da versão: a falha dele já não se corrige e é o desfecho.
+		criarCodigosAnteriores(jobId, regra, CorrecaoDoCodigo.LIMITE_DE_CODIGOS_POR_VERSAO - 1);
 		UUID codigo = criarExecucaoPendente(jobId, regra);
 		eventos.aplicarEtapaAlterada(jobId, EtapaDoGrafo.DELEGACAO_WORKER, "iniciada", null);
 		String statusDoResultado = Objects.requireNonNull(desfecho.motivoDaTrilha());
@@ -519,6 +521,21 @@ class BuscarJobPersistenciaTests {
 	 * O que o codegen deixa ao gerar o código: prompt, código e a linha de
 	 * {@code simulacoes} ainda sem resultado. Devolve o id do código gerado.
 	 */
+	/** Códigos da versão gerados antes do próximo, como os da correção deixariam. */
+	private static void criarCodigosAnteriores(UUID jobId, UUID regraId, int quantidade) {
+		for (int anterior = quantidade; anterior >= 1; anterior--) {
+			UUID prompt = UUID.randomUUID();
+			dono.update("""
+					INSERT INTO prompts (id, job_id, no, conteudo, modelo, criado_em)
+					VALUES (?, ?, 'geracao_codigo', 'fixture', '{}'::jsonb, now())
+					""", prompt, jobId);
+			dono.update("""
+					INSERT INTO codigos_gerados (id, job_id, regra_id, linguagem, fonte, prompt_id, criado_em)
+					VALUES (?, ?, ?, 'python', 'fixture', ?, now() - make_interval(mins => ?))
+					""", UUID.randomUUID(), jobId, regraId, prompt, anterior);
+		}
+	}
+
 	private static UUID criarExecucaoPendente(UUID jobId, UUID regraId) {
 		UUID prompt = UUID.randomUUID();
 		UUID codigo = UUID.randomUUID();

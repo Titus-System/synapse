@@ -151,7 +151,7 @@ async def test_job_sem_orcamento_e_sem_meta_pausa_antes_da_geracao(
     assert "executar-codigo" not in [nome for nome, _ in ambiente.publicacoes]
 
 
-async def test_loja_fora_do_catalogo_e_preservada_e_nao_amplia_simulacao_para_todas(
+async def test_loja_fora_do_catalogo_pede_correcao_e_nao_amplia_simulacao_para_todas(
     ambiente: ConfirmacaoFalsa,
 ) -> None:
     from tests.app.extracao.test_motor import extrair, modelo_falso
@@ -173,19 +173,21 @@ async def test_loja_fora_do_catalogo_e_preservada_e_nao_amplia_simulacao_para_to
         texto,
     )
     ambiente.buscar_regra.return_value = extraida.representacao
+    # O que `nucleo_sem_lastro` leria de `extracoes_regras.rebaixamentos` para essa versão.
+    ambiente.nucleo_sem_lastro.return_value = frozenset(
+        r.ref.removeprefix("nucleo.") for r in extraida.rebaixamentos if r.ref.startswith("nucleo.")
+    )
     payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
 
     await ambiente.consumer.receber(mensagem(payload))
 
     representacao = extraida.representacao.para_contrato()
     assert "loja" not in representacao["nucleo"]
-    assert representacao["especificacoes"] == [
-        {"ref": "elem.1", "construto": "generico", "descricao": "loja 9999"}
-    ]
+    assert representacao["especificacoes"] == []
     assert ambiente.publicacoes[-1] == _pausa(
         payload,
         "nucleo.loja",
-        "escopo de loja não informado; indique os destinatários ou declare todos",
+        "escopo de loja citado sem código reconhecido; indique os destinatários ou declare todos",
     )
     assert ambiente.modelo.seen_messages == []
     assert "executar-codigo" not in [nome for nome, _ in ambiente.publicacoes]

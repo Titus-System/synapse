@@ -71,6 +71,11 @@ def id_do_codigo(prompt_id: UUID) -> UUID:
     return uuid5(_NAMESPACE, f"codigo:{prompt_id}")
 
 
+def id_do_codigo_derivado(codigo_origem_id: UUID, regra_id: UUID) -> UUID:
+    """O código derivado aponta o prompt do código de origem, então não pode tirar o id dele."""
+    return uuid5(_NAMESPACE, f"codigo-derivado:{codigo_origem_id}:{regra_id}")
+
+
 def id_do_evento_de_trilha(job_id: UUID, no: str, referencia: UUID) -> UUID:
     """Chave de idempotência do `no-concluido` deste nó.
 
@@ -179,6 +184,63 @@ async def buscar_resposta_gravada(
     if linha is None:
         return None
     return RespostaGravada(linha["prompt_id"], linha["resposta_id"], linha["conteudo"])
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class CodigoSimulado:
+    id: UUID
+    prompt_id: UUID
+    fonte: str
+
+
+_BUSCAR_CODIGO_SIMULADO = text(
+    "SELECT c.id, c.prompt_id, c.fonte FROM codigos_gerados c"
+    " JOIN resultados_simulacao rs ON rs.codigo_gerado_id = c.id AND rs.job_id = c.job_id"
+    " WHERE c.job_id = :job_id AND c.regra_id = :regra_id"
+    " AND rs.status = 'sucesso' AND rs.proposito = 'simulacao'"
+    " ORDER BY c.criado_em DESC, c.id DESC LIMIT 1"
+)
+
+
+async def buscar_codigo_simulado(
+    sessoes: async_sessionmaker[AsyncSession], job_id: UUID, regra_id: UUID
+) -> CodigoSimulado | None:
+    """O último código da versão `regra_id` cuja simulação terminou em sucesso no worker."""
+    async with sessoes() as sessao:
+        resultado = await sessao.execute(
+            _BUSCAR_CODIGO_SIMULADO, {"job_id": job_id, "regra_id": regra_id}
+        )
+        linha = resultado.mappings().one_or_none()
+    if linha is None:
+        return None
+    return CodigoSimulado(
+        id=UUID(str(linha["id"])), prompt_id=UUID(str(linha["prompt_id"])), fonte=linha["fonte"]
+    )
+
+
+async def gravar_codigo_derivado(
+    sessoes: async_sessionmaker[AsyncSession],
+    *,
+    job_id: UUID,
+    regra_id: UUID,
+    origem: CodigoSimulado,
+    fonte: str,
+) -> UUID:
+    """Insert the code derived from `origem`, pointing at the prompt that produced `origem`."""
+    codigo_gerado_id = id_do_codigo_derivado(origem.id, regra_id)
+    async with sessoes() as sessao, sessao.begin():
+        await sessao.execute(
+            _INSERIR_CODIGO,
+            {
+                "id": codigo_gerado_id,
+                "job_id": job_id,
+                "regra_id": regra_id,
+                "linguagem": LINGUAGEM,
+                "fonte": fonte,
+                "prompt_id": origem.prompt_id,
+            },
+        )
+    return codigo_gerado_id
 
 
 async def gravar_codigo(

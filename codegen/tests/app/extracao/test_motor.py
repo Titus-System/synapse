@@ -61,6 +61,15 @@ async def extrair(modelo: FakeChatModel, texto: str = TEXTO) -> ResultadoExtraca
             },
             {"vigencia": {"inicio": "2025-12", "fim": "2025-08"}, "percentual": Decimal("-0.1")},
         ),
+        (
+            "loja sessenta e oito produto preto com dois por cento",
+            {
+                "percentual": {"valor": Decimal("0.02"), "trecho": "dois por cento"},
+                "loja": [{"valor": "68", "trecho": "loja sessenta e oito"}],
+                "marca": [{"valor": "PRETO", "trecho": "produto preto"}],
+            },
+            {"percentual": Decimal("0.02"), "loja": ["68"], "marca": ["10"]},
+        ),
     ],
 )
 async def test_preserva_apenas_nucleo_com_lastro(
@@ -223,3 +232,111 @@ async def test_condicao_de_meta_dentro_da_regra_fica_em_elemento_sem_virar_meta_
     assert resultado.representacao.para_contrato()["especificacoes"] == [
         {"ref": "elem.1", "construto": "generico", "descricao": elemento["descricao"]}
     ]
+
+
+def texto_dos_vendedores(cargo: str = "o cargo 100, vendedor de loja", base: str = "") -> str:
+    return (
+        f"A regra vale em todas as lojas e em todas as marcas, somente para {cargo}, com "
+        f"comissão de 3% sobre suas vendas individuais{base}."
+    )
+
+
+def nucleo_dos_vendedores(cargo: object = None, percentual: str = "0.03") -> dict[str, Any]:
+    return {
+        "loja": {"valor": [], "trecho": "todas as lojas"},
+        "marca": {"valor": [], "trecho": "todas as marcas"},
+        "cargo": cargo if cargo is not None else [{"valor": "100", "trecho": "cargo 100"}],
+        "percentual": {"valor": Decimal(percentual), "trecho": "3%"},
+    }
+
+
+def repeticao_da_comissao(base: str = "") -> dict[str, str]:
+    return {
+        "construto_pretendido": "generico",
+        "descricao": f"comissão de 3% sobre suas vendas individuais{base}.",
+        "trecho": f"com comissão de 3% sobre suas vendas individuais{base}.",
+    }
+
+
+async def test_generico_que_so_repete_a_comissao_do_nucleo_nao_vira_especificacao() -> None:
+    """O modelo devolveu este rascunho para o texto sem meta, apesar de o prompt proibir a
+    repetição. O código gerado implementa o núcleo e não declara o elemento, e a conferência de
+    cobertura do worker reprovaria a simulação."""
+    rascunho = {
+        "nucleo": nucleo_dos_vendedores(),
+        "elementos": [repeticao_da_comissao()],
+        "parametros": {},
+    }
+
+    resultado = await extrair(modelo_falso(rascunho), texto_dos_vendedores())
+
+    assert resultado.representacao.para_contrato() == {
+        "nucleo": {"loja": [], "marca": [], "cargo": ["100"], "percentual": Decimal("0.03")},
+        "especificacoes": [],
+    }
+    assert resultado.rebaixamentos == []
+    assert resultado.elementos_redundantes == 1
+
+
+@pytest.mark.parametrize(
+    ("texto", "nucleo", "elemento"),
+    [
+        (
+            texto_dos_vendedores(base=" e da loja"),
+            nucleo_dos_vendedores(),
+            repeticao_da_comissao(" e da loja"),
+        ),
+        (
+            texto_dos_vendedores(base=" aos sábados"),
+            nucleo_dos_vendedores(),
+            repeticao_da_comissao(" aos sábados"),
+        ),
+        (
+            texto_dos_vendedores(cargo="o cargo 150, gerente de loja"),
+            nucleo_dos_vendedores([{"valor": "150", "trecho": "cargo 150"}]),
+            repeticao_da_comissao(),
+        ),
+        (
+            texto_dos_vendedores(cargo="todos os cargos"),
+            nucleo_dos_vendedores({"valor": [], "trecho": "todos os cargos"}),
+            repeticao_da_comissao(),
+        ),
+        (
+            texto_dos_vendedores(),
+            nucleo_dos_vendedores(percentual="0.04"),
+            repeticao_da_comissao(),
+        ),
+    ],
+    ids=["outra_base", "condicao", "gerente", "todos_os_cargos", "taxa_sem_lastro_no_nucleo"],
+)
+async def test_generico_que_acrescenta_algo_ao_nucleo_e_preservado(
+    texto: str, nucleo: dict[str, Any], elemento: dict[str, str]
+) -> None:
+    """Na dúvida o elemento fica. As vendas individuais só repetem a base do núcleo quando o
+    gerente, cuja base é a venda da loja, está fora do escopo; e uma taxa que o núcleo recusou
+    só existe no elemento."""
+    rascunho = {"nucleo": nucleo, "elementos": [elemento], "parametros": {}}
+
+    resultado = await extrair(modelo_falso(rascunho), texto)
+
+    assert resultado.representacao.para_contrato()["especificacoes"] == [
+        {"ref": "elem.1", "construto": "generico", "descricao": elemento["descricao"]}
+    ]
+    assert resultado.elementos_redundantes == 0
+
+
+async def test_elemento_depois_de_uma_repeticao_do_nucleo_assume_a_primeira_referencia() -> None:
+    bonus = "Pague um bônus de R$ 500 a quem vender acima de R$ 50 mil."
+    elemento = {"construto_pretendido": "generico", "descricao": bonus, "trecho": bonus}
+    rascunho = {
+        "nucleo": nucleo_dos_vendedores(),
+        "elementos": [repeticao_da_comissao(), elemento],
+        "parametros": {},
+    }
+
+    resultado = await extrair(modelo_falso(rascunho), f"{texto_dos_vendedores()} {bonus}")
+
+    assert resultado.representacao.para_contrato()["especificacoes"] == [
+        {"ref": "elem.1", "construto": "generico", "descricao": bonus}
+    ]
+    assert [r.ref for r in resultado.rebaixamentos] == ["elem.1"]

@@ -37,6 +37,7 @@ from app.core.logger import get_logger, job_id_ctx
 from app.core.metrics.global_metrics import (
     duracao_do_baseline_na_meta,
     execucoes_com_cobertura_incompleta,
+    execucoes_fora_do_escopo,
     execucoes_julgadas,
     execucoes_na_meta,
     resultados_conferidos,
@@ -150,6 +151,10 @@ def _registrar_julgamento(julgamento: Julgamento, comando: ExecutarCodigo) -> No
         extra["elementos_ausentes"] = list(julgamento.cobertura.ausentes)
         extra["quantidade_fora_da_regra"] = len(julgamento.cobertura.fora_da_regra)
         execucoes_com_cobertura_incompleta.inc()
+    if julgamento.fora_do_escopo is not None:
+        # Só quantas linhas: matrícula e códigos vêm do detalhamento e ficam no diagnóstico.
+        extra["quantidade_fora_do_escopo"] = julgamento.fora_do_escopo.total
+        execucoes_fora_do_escopo.inc()
     execucoes_julgadas.labels(desfecho=desfecho_da_metrica).inc()
     if com_meta_venda:
         execucoes_na_meta.labels(proposito=comando.proposito, desfecho=desfecho_da_metrica).inc()
@@ -300,6 +305,8 @@ async def _processar(mensagem: AbstractIncomingMessage, broker: ConexaoBroker) -
                         "competencias": execucao.payload.competencias,
                         # Nulo quando o comando não os trouxe e a cobertura não será conferida.
                         "elementos_exigidos": execucao.elementos_exigidos,
+                        # Se o escopo será conferido.
+                        "com_alcance": execucao.alcance is not None,
                         # Se haverá veredito, nunca o valor do orçamento.
                         "com_orcamento": execucao.orcamento is not None,
                         # Se as vendas serão escaladas, nunca o valor da meta.
@@ -331,6 +338,7 @@ async def _processar(mensagem: AbstractIncomingMessage, broker: ConexaoBroker) -
                     bases=carregar_bases(),
                     baseline_na_meta=baseline_na_meta,
                     meta_venda=execucao.payload.meta_venda,
+                    alcance=execucao.alcance,
                 )
                 _registrar_julgamento(julgamento, comando)
                 gravado = await _gravar(comando, julgamento)

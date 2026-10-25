@@ -10,8 +10,8 @@ import RelatorioSimulacao from '@/components/RelatorioSimulacao.vue'
 import { useDetalhamento } from '@/composables/useDetalhamento'
 import { observarConsulta } from '@/observability/consultasLogging'
 import { consultarDetalhamento } from '@/services/detalhamento'
-import { rotuloDaRegra } from '@/services/job'
 import { listarTodosOsJobs } from '../services/historicoJobs.api'
+import NomeEditavelDaRegra from '../components/NomeEditavelDaRegra.vue'
 import ResumoRegraHistorica from '../components/ResumoRegraHistorica.vue'
 import ResultadoVersaoHistorica from '../components/ResultadoVersaoHistorica.vue'
 import { simulacaoAnterior, simulacoesDoHistorico, versaoDeEncerramento } from '../composables/historicoDoJob'
@@ -31,12 +31,6 @@ let consulta: AbortController | undefined
 const versoes = computed(() => [...(job.value?.regras ?? [])].sort((a, b) => b.versao - a.versao))
 const jobsArquivados = computed(() => resumosDosJobs.value.filter((item) => item.status === 'arquivado'))
 const jobsSalvos = computed(() => resumosDosJobs.value.filter((item) => item.status !== 'arquivado'))
-const regrasRecentes = computed(() =>
-  resumosDosJobs.value.slice(0, 6).map((item) => ({
-    identificador: item.id,
-    rotulo: rotuloDaRegra(item),
-  })),
-)
 const encerramento = computed(() => (job.value ? versaoDeEncerramento(job.value) : undefined))
 const ordenadas = computed(() => [
   ...(encerramento.value ? [encerramento.value] : []),
@@ -69,10 +63,12 @@ function tituloVersao(versao: RegraVersionada) {
   if (versao.id !== encerramento.value?.id) return 'Regra Descartada'
   return job.value?.status === 'liberado' ? 'Regra Final' : 'Versão de encerramento'
 }
-function tituloDoResumo(versao: RegraVersionada) {
-  if (encerramento.value?.id === versao.id && job.value?.status === 'liberado') return 'Regra Final'
-  return `Versão ${versao.versao}`
-}
+const nomeNoResumo = computed(
+  () =>
+    job.value?.status === 'liberado' &&
+    regra.value !== undefined &&
+    regra.value.id === encerramento.value?.id,
+)
 function selecionar(versao: RegraVersionada, id?: string) {
   if (id) selecoes.value[versao.id] = id
   versaoId.value = versao.id
@@ -139,7 +135,6 @@ onBeforeUnmount(() => consulta?.abort())
       :secao-ativa="job?.status === 'arquivado' ? 'arquivadas' : 'salvas'"
       :quantidade-arquivadas="jobsArquivados.length"
       :quantidade-salvas="jobsSalvos.length"
-      :regras-recentes="regrasRecentes"
     />
     <main class="min-w-0 bg-[radial-gradient(circle_at_top,#fffdfb_0%,#fdf7f3_48%,#f8eee8_100%)] lg:min-h-0 lg:overflow-y-auto">
       <TheProcessHeader :etapa-da-rota="null" historico />
@@ -164,8 +159,11 @@ onBeforeUnmount(() => consulta?.abort())
             <ResumoRegraHistorica
               :regra="regra"
               :simulacao="simulacao"
-              :titulo="tituloDoResumo(regra)"
+              :titulo="`Versão ${regra.versao}`"
             >
+              <template v-if="nomeNoResumo" #titulo>
+                <NomeEditavelDaRegra :resumo="job" cartao id-do-titulo="titulo-regra-historica" />
+              </template>
               <RelatorioSimulacao
                 v-if="simulacao?.status === 'sucesso'"
                 sem-margens

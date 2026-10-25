@@ -173,6 +173,20 @@ async def gravar_extracao(
     return existente
 
 
+async def _referencias_sem_lastro(
+    sessoes: async_sessionmaker[AsyncSession], job_id: UUID, regra_id: UUID, prefixo: str
+) -> frozenset[str]:
+    async with sessoes() as sessao:
+        consulta = await sessao.execute(_SEM_LASTRO, {"job_id": job_id, "regra_id": regra_id})
+        linhas = consulta.mappings().all()
+    return frozenset(
+        str(rebaixamento["ref"]).removeprefix(prefixo)
+        for linha in linhas
+        for rebaixamento in simplejson.loads(linha["rebaixamentos"])
+        if str(rebaixamento["ref"]).startswith(prefixo)
+    )
+
+
 async def parametros_sem_lastro(
     sessoes: async_sessionmaker[AsyncSession], job_id: UUID, regra_id: UUID
 ) -> frozenset[str]:
@@ -181,12 +195,15 @@ async def parametros_sem_lastro(
     São os rebaixamentos com referência `parametros.<campo>`: o texto disse o parâmetro, e o
     valor não entrou em `extracoes_regras.parametros`.
     """
-    async with sessoes() as sessao:
-        consulta = await sessao.execute(_SEM_LASTRO, {"job_id": job_id, "regra_id": regra_id})
-        linhas = consulta.mappings().all()
-    return frozenset(
-        str(rebaixamento["ref"]).removeprefix("parametros.")
-        for linha in linhas
-        for rebaixamento in simplejson.loads(linha["rebaixamentos"])
-        if str(rebaixamento["ref"]).startswith("parametros.")
-    )
+    return await _referencias_sem_lastro(sessoes, job_id, regra_id, "parametros.")
+
+
+async def nucleo_sem_lastro(
+    sessoes: async_sessionmaker[AsyncSession], job_id: UUID, regra_id: UUID
+) -> frozenset[str]:
+    """Os critérios do núcleo que a extração não reconheceu, se `regra_id` nasceu dela.
+
+    São os rebaixamentos com referência `nucleo.<campo>`: o texto disse o critério, e ele não
+    entrou na representação.
+    """
+    return await _referencias_sem_lastro(sessoes, job_id, regra_id, "nucleo.")

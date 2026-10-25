@@ -224,11 +224,14 @@ class SimulacaoConcluidaConsumidorTests {
 		assertThat(transicao.motivo()).isEqualTo("inviavel");
 	}
 
-	/** Critério nº 3: asserção violada é erro, e não inviabilidade. */
+	/**
+	 * Critério nº 3: asserção violada é erro, e não inviabilidade, no código que já não
+	 * se corrige.
+	 */
 	@Test
 	void assercaoVioladaLevaAErroENaoASimulacaoInviavel() throws Exception {
 		UUID jobId = criarJob(JobStatus.SIMULANDO);
-		UUID resultadoId = criarResultadoOrfao(jobId, "assercao_violada", null);
+		UUID resultadoId = criarResultadoDoUltimoCodigo(jobId, "assercao_violada", null);
 
 		publicar(jobId, resultadoId, "assercao_violada", null);
 
@@ -241,7 +244,7 @@ class SimulacaoConcluidaConsumidorTests {
 	@Test
 	void erroCodigoEErroInfraLevamAErroComMotivosDistintosNaTrilha() throws Exception {
 		UUID jobUm = criarJob(JobStatus.SIMULANDO);
-		UUID resultadoUm = criarResultadoOrfao(jobUm, "erro_codigo", null);
+		UUID resultadoUm = criarResultadoDoUltimoCodigo(jobUm, "erro_codigo", null);
 		UUID jobDois = criarJob(JobStatus.SIMULANDO);
 		UUID resultadoDois = criarResultadoOrfao(jobDois, "erro_infra", null);
 
@@ -282,7 +285,7 @@ class SimulacaoConcluidaConsumidorTests {
 		UUID jobId = criarJob(JobStatus.SIMULANDO);
 		StreamCliente cliente = conectar(jobId);
 		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
-		UUID resultadoId = criarResultadoOrfao(jobId, status, veredito);
+		UUID resultadoId = criarResultadoDoUltimoCodigo(jobId, status, veredito);
 
 		publicar(jobId, resultadoId, status, veredito);
 
@@ -422,13 +425,132 @@ class SimulacaoConcluidaConsumidorTests {
 		UUID jobId = criarJob(JobStatus.SIMULANDO);
 		StreamCliente cliente = conectar(jobId);
 		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
-		Simulacao simulacao = criarSimulacaoPendente(jobId);
+		Simulacao simulacao = criarSimulacaoPendente(jobId, CorrecaoDoCodigo.LIMITE_DE_CODIGOS_POR_VERSAO);
 		UUID resultadoId = criarResultado(jobId, simulacao.codigoGeradoId(), "erro_codigo", null);
 
 		publicar(jobId, resultadoId, "erro_codigo", "viavel");
 
 		String blocoResultado = cliente.aguardarBloco("event:resultado", Duration.ofSeconds(10));
 		assertThat(blocoResultado).contains("\"status\":\"erro_codigo\"").doesNotContain("veredito");
+	}
+
+	/**
+	 * A falha do código que ainda se corrige não é desfecho: o job segue em
+	 * {@code simulando} à espera do código corrigido, sem transição, e o resultado com
+	 * erro não chega ao cliente.
+	 */
+	@ParameterizedTest
+	@CsvSource({ "erro_codigo,1", "erro_codigo,2", "assercao_violada,1", "assercao_violada,2" })
+	void falhaDoCodigoAntesDoLimiteAguardaOCodigoCorrigidoSemDesfecho(String status, int posicao) throws Exception {
+		UUID jobId = criarJob(JobStatus.SIMULANDO);
+		StreamCliente cliente = conectar(jobId);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
+		Simulacao simulacao = criarSimulacaoPendente(jobId, posicao);
+		UUID resultadoId = criarResultado(jobId, simulacao.codigoGeradoId(), status, null);
+		double antes = consumos(status, "correcao");
+
+		List<ILoggingEvent> logs;
+		try (CapturaDeLog captura = new CapturaDeLog(SimulacaoConcluidaConsumidor.class)) {
+			publicar(jobId, resultadoId, status, null);
+			await().atMost(Duration.ofSeconds(10))
+				.untilAsserted(() -> assertThat(consumos(status, "correcao")).isEqualTo(antes + 1));
+			logs = captura.eventos();
+		}
+
+		assertThat(statusPersistido(jobId)).isEqualTo("simulando");
+		assertThat(transicoesRegistradas(jobId)).isEmpty();
+		assertThat(resultadoIdDaSimulacao(simulacao.id())).isEqualTo(resultadoId);
+		assertThat(cliente.conteudo()).doesNotContain("event:resultado").doesNotContain("\"status\":\"erro\"");
+		ILoggingEvent registrado = logs.stream()
+			.filter(registro -> "resultado com erro de código registrado; job aguarda o código corrigido"
+				.equals(registro.getFormattedMessage()))
+			.findFirst()
+			.orElseThrow();
+		String linha = CapturaDeLog.emJson(registrado);
+		ContratoDeEvento.validarLog(linha);
+		assertThat(JSON.readTree(linha).path("job_id").asString()).isEqualTo(jobId.toString());
+		assertThat(linha).contains("\"desfecho\":\"" + status + "\"");
+	}
+
+	/**
+	 * O código corrigido que dá certo é o desfecho: o cliente vê só o resultado dele, e a
+	 * trilha, só a transição desse desfecho.
+	 */
+	@Test
+	void codigoCorrigidoQueDaCertoLevaAoDesfechoSoComOResultadoDele() throws Exception {
+		UUID jobId = criarJob(JobStatus.SIMULANDO);
+		StreamCliente cliente = conectar(jobId);
+		cliente.aguardarBloco("event:estado", Duration.ofSeconds(5));
+		List<UUID> codigos = criarCodigosDaVersao(jobId, 2);
+		Simulacao primeira = criarSimulacaoDoCodigo(codigos.getFirst());
+		Simulacao corrigida = criarSimulacaoDoCodigo(codigos.getLast());
+		UUID falha = criarResultado(jobId, primeira.codigoGeradoId(), "erro_codigo", null);
+		UUID sucesso = criarResultado(jobId, corrigida.codigoGeradoId(), "sucesso", "viavel");
+
+		publicar(jobId, falha, "erro_codigo", null);
+		publicar(jobId, sucesso, "sucesso", "viavel");
+
+		String bloco = cliente.aguardarBloco("\"status\":\"aguardando_decisao_usuario\"", Duration.ofSeconds(10));
+		assertThat(ClienteDoJob.dadosDoBloco(bloco).path("status_anterior").asString()).isEqualTo("simulando");
+		assertThat(cliente.contarOcorrencias("event:resultado")).isEqualTo(1);
+		assertThat(cliente.conteudo()).contains("\"simulacao_id\":\"" + corrigida.id() + "\"")
+			.doesNotContain("\"simulacao_id\":\"" + primeira.id() + "\"");
+		assertThat(transicaoUnica(jobId).destino()).isEqualTo("aguardando_decisao_usuario");
+		assertThat(resultadoIdDaSimulacao(primeira.id())).isEqualTo(falha);
+		assertThat(resultadoIdDaSimulacao(corrigida.id())).isEqualTo(sucesso);
+	}
+
+	@Test
+	void reentregaDaFalhaEmCorrecaoNaoMudaOJob() throws Exception {
+		UUID jobId = criarJob(JobStatus.SIMULANDO);
+		Simulacao simulacao = criarSimulacaoPendente(jobId, 1);
+		UUID resultadoId = criarResultado(jobId, simulacao.codigoGeradoId(), "erro_codigo", null);
+		double antes = consumos("erro_codigo", "correcao");
+
+		publicar(jobId, resultadoId, "erro_codigo", null);
+		publicar(jobId, resultadoId, "erro_codigo", null);
+
+		await().atMost(Duration.ofSeconds(10))
+			.untilAsserted(() -> assertThat(consumos("erro_codigo", "correcao")).isEqualTo(antes + 2));
+		assertThat(statusPersistido(jobId)).isEqualTo("simulando");
+		assertThat(transicoesRegistradas(jobId)).isEmpty();
+	}
+
+	/**
+	 * A falha do codegen ao gerar o código corrigido encerra o job a partir de
+	 * {@code simulando}, inclusive antes de esta api consumir o resultado que pediu a
+	 * correção: o que decide é o resultado que o worker gravou.
+	 */
+	@Test
+	void falhaDoCodegenDuranteACorrecaoEncerraOJobComOResultadoDaFalha() throws Exception {
+		UUID jobId = criarJob(JobStatus.SIMULANDO);
+		Simulacao simulacao = criarSimulacaoPendente(jobId, 2);
+		UUID resultadoId = criarResultado(jobId, simulacao.codigoGeradoId(), "assercao_violada", null);
+
+		EtapaAplicada aplicada = contexto.getBean(JobEventosService.class)
+			.aplicarEtapaAlterada(jobId, EtapaDoGrafo.GERACAO_CODIGO, "erro", "provedor_indisponivel");
+
+		assertThat(statusPersistido(jobId)).isEqualTo("erro");
+		EventoEstadoDto transicao = Objects.requireNonNull(aplicada.transicao());
+		assertThat(transicao.status()).isEqualTo("erro");
+		assertThat(transicao.status_anterior()).isEqualTo("simulando");
+		assertThat(transicaoUnica(jobId).motivo())
+			.isEqualTo(MotivoDaParada.falhaNaEtapa(EtapaDoGrafo.GERACAO_CODIGO, "provedor_indisponivel"));
+		assertThat(resultadoIdDaSimulacao(simulacao.id())).isEqualTo(resultadoId);
+	}
+
+	@Test
+	void erroDeEtapaComOJobSimulandoForaDaCorrecaoNaoMudaOJob() throws Exception {
+		UUID jobId = criarJob(JobStatus.SIMULANDO);
+		Simulacao simulacao = criarSimulacaoPendente(jobId, CorrecaoDoCodigo.LIMITE_DE_CODIGOS_POR_VERSAO);
+		criarResultado(jobId, simulacao.codigoGeradoId(), "erro_codigo", null);
+
+		EtapaAplicada aplicada = contexto.getBean(JobEventosService.class)
+			.aplicarEtapaAlterada(jobId, EtapaDoGrafo.GERACAO_CODIGO, "erro", null);
+
+		assertThat(aplicada.transicao()).isNull();
+		assertThat(statusPersistido(jobId)).isEqualTo("simulando");
+		assertThat(transicoesRegistradas(jobId)).isEmpty();
 	}
 
 	/**
@@ -1131,20 +1253,39 @@ class SimulacaoConcluidaConsumidorTests {
 	// produção (AGENTS.md); a fixture usa o usuário dono para simular o que eles já
 	// teriam gravado.
 	private static UUID criarCodigoGerado(UUID jobId) throws SQLException {
+		return criarCodigoGerado(jobId, 1);
+	}
+
+	/**
+	 * O código na {@code posicao} da sua versão, depois dos anteriores, que a correção
+	 * gerou: a posição decide se a falha dele ainda é corrigida
+	 * ({@link CorrecaoDoCodigo}). Os instantes são explícitos para a ordem de criação não
+	 * depender de empate.
+	 */
+	private static UUID criarCodigoGerado(UUID jobId, int posicao) throws SQLException {
+		return criarCodigosDaVersao(jobId, posicao).getLast();
+	}
+
+	/** Os códigos de uma versão nova, na ordem em que foram gerados. */
+	private static List<UUID> criarCodigosDaVersao(UUID jobId, int quantidade) throws SQLException {
 		UUID regraId = criarRegra(jobId);
-		UUID promptId = UUID.randomUUID();
-		UUID codigoGeradoId = UUID.randomUUID();
+		List<UUID> codigos = new ArrayList<>();
 		try (Connection connection = comoDono(); Statement statement = connection.createStatement()) {
-			statement.execute("""
-					INSERT INTO prompts (id, job_id, no, conteudo, modelo, criado_em)
-					VALUES ('%s', '%s', 'geracao_codigo', 'x', '{}'::jsonb, now())
-					""".formatted(promptId, jobId));
-			statement.execute("""
-					INSERT INTO codigos_gerados (id, job_id, regra_id, linguagem, fonte, prompt_id, criado_em)
-					VALUES ('%s', '%s', '%s', 'python', 'x', '%s', now())
-					""".formatted(codigoGeradoId, jobId, regraId, promptId));
+			for (int atual = 1; atual <= quantidade; atual++) {
+				UUID promptId = UUID.randomUUID();
+				UUID codigo = UUID.randomUUID();
+				statement.execute("""
+						INSERT INTO prompts (id, job_id, no, conteudo, modelo, criado_em)
+						VALUES ('%s', '%s', 'geracao_codigo', 'x', '{}'::jsonb, now())
+						""".formatted(promptId, jobId));
+				statement.execute("""
+						INSERT INTO codigos_gerados (id, job_id, regra_id, linguagem, fonte, prompt_id, criado_em)
+						VALUES ('%s', '%s', '%s', 'python', 'x', '%s', now() - interval '%d minutes')
+						""".formatted(codigo, jobId, regraId, promptId, quantidade - atual));
+				codigos.add(codigo);
+			}
 		}
-		return codigoGeradoId;
+		return codigos;
 	}
 
 	/**
@@ -1152,7 +1293,15 @@ class SimulacaoConcluidaConsumidorTests {
 	 * da T-046.
 	 */
 	private static Simulacao criarSimulacaoPendente(UUID jobId) throws SQLException {
-		UUID codigoGeradoId = criarCodigoGerado(jobId);
+		return criarSimulacaoPendente(jobId, 1);
+	}
+
+	private static Simulacao criarSimulacaoPendente(UUID jobId, int posicao) throws SQLException {
+		return criarSimulacaoDoCodigo(criarCodigoGerado(jobId, posicao));
+	}
+
+	/** A linha que o {@code no-concluido} da geração cria para o código. */
+	private static Simulacao criarSimulacaoDoCodigo(UUID codigoGeradoId) throws SQLException {
 		UUID simulacaoId = UUID.randomUUID();
 		try (Connection connection = comoDono(); Statement statement = connection.createStatement()) {
 			statement.execute("""
@@ -1184,6 +1333,16 @@ class SimulacaoConcluidaConsumidorTests {
 	 */
 	private static UUID criarResultadoOrfao(UUID jobId, String status, @Nullable String veredito) throws SQLException {
 		return criarResultado(jobId, criarCodigoGerado(jobId), status, veredito);
+	}
+
+	/**
+	 * O resultado do último código que a versão admite: a falha dele já não é corrigida e
+	 * é o desfecho do job.
+	 */
+	private static UUID criarResultadoDoUltimoCodigo(UUID jobId, String status, @Nullable String veredito)
+			throws SQLException {
+		return criarResultado(jobId, criarCodigoGerado(jobId, CorrecaoDoCodigo.LIMITE_DE_CODIGOS_POR_VERSAO), status,
+				veredito);
 	}
 
 	private static String statusPersistido(UUID jobId) throws SQLException {

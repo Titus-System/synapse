@@ -29,9 +29,9 @@ afterEach(() => {
   vi.resetAllMocks()
 })
 
-function montar(dados: JobResumo = resumo) {
+function montar(dados: JobResumo = resumo, cartao = false) {
   const wrapper = mount(NomeEditavelDaRegra, {
-    props: { resumo: dados },
+    props: cartao ? { resumo: dados, cartao, idDoTitulo: 'titulo-do-cartao' } : { resumo: dados },
     attachTo: document.body,
   })
   wrappers.push(wrapper)
@@ -136,4 +136,25 @@ it('não envia de novo enquanto a requisição está em andamento', async () => 
   expect(campo.attributes('disabled')).toBeDefined()
   concluir({ id: 'job-1', nome: 'Comissão' } as Job)
   await flushPromises()
+})
+
+it('no cartão mostra o título como h1 com o id recebido, sem a data de criação', () => {
+  const wrapper = montar({ ...resumo, nome: 'Comissão de novembro' }, true)
+
+  expect(wrapper.find('h2').exists()).toBe(false)
+  expect(wrapper.get('h1').text()).toBe('Comissão de novembro')
+  expect(wrapper.get('h1').attributes('id')).toBe('titulo-do-cartao')
+  expect(wrapper.text()).not.toContain('Criada em')
+  expect(wrapper.get('button').text()).toBe('Editar')
+})
+
+it('no cartão mantém o título no documento durante a edição, fora da tela', async () => {
+  const wrapper = montar(resumo, true)
+
+  const campo = await abrirEdicao(wrapper)
+
+  expect(document.activeElement).toBe(campo.element)
+  expect(wrapper.get('h1').text()).toBe(rotuloComData)
+  expect(wrapper.get('h1').element.parentElement?.classList).toContain('sr-only')
+  expect(wrapper.find('button').exists()).toBe(false)
 })

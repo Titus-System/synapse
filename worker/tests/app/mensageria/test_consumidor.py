@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import json
 import logging
 import re
@@ -2103,3 +2104,121 @@ async def test_a_conferencia_conta_cada_desfecho_em_metrics_e_a_reentrega_nao_co
         "baseline_divergente": 1,
         "resultado_incoerente": 1,
     }
+
+
+# ---- a conferência de escopo ----
+
+# Nenhuma loja do dataset: toda linha que o container falso muda fica fora do alcance.
+FORA_DE_TODA_LOJA = {"loja": ["9999"]}
+METRICA_ESCOPO = "worker_fora_do_escopo_total"
+
+
+def _contagem_de_escopo() -> float:
+    valor = REGISTRY.get_sample_value(METRICA_ESCOPO)
+    assert valor is not None, f"{METRICA_ESCOPO} não está no registry exposto"
+    return valor
+
+
+async def test_linha_fora_do_alcance_grava_erro_codigo_com_as_linhas_no_diagnostico(
+    monkeypatch: pytest.MonkeyPatch, sandbox: SandboxFalso, banco: BancoDeResultadosFalso
+) -> None:
+    corpo = _corpo_comando(alcance=FORA_DE_TODA_LOJA)
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=corpo)], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    (linha,) = banco.gravados
+    assert (linha["status"], linha["veredito"], linha["totais"]) == ("erro_codigo", None, None)
+    diagnostico = linha["diagnostico"]
+    assert diagnostico["causa"] == "fora_do_escopo"
+    assert diagnostico["linhas_fora_do_escopo"]["total"] > 0
+    assert 0 < len(diagnostico["linhas_fora_do_escopo"]["exemplos"]) <= 5
+    assert erros_do_dominio("resultado-diagnostico", diagnostico) == []
+    (evento,) = _publicados(broker)
+    assert evento["status"] == "erro_codigo"
+    # O alcance julga o resultado e, como o orçamento, nunca entra no container.
+    (payload,) = sandbox.payloads
+    assert "alcance" not in dataclasses.asdict(payload)
+
+
+async def test_a_falha_de_escopo_vai_ao_log_so_com_a_quantidade_e_conta_em_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+    banco: BancoDeResultadosFalso,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    antes = _contagem_de_escopo()
+    job_id = uuid4()
+    corpo = _corpo_comando(job_id=str(job_id), alcance=FORA_DE_TODA_LOJA)
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=corpo)], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    (linha,) = banco.gravados
+    fora = linha["diagnostico"]["linhas_fora_do_escopo"]
+    linhas = linhas_de_log()
+    (julgada,) = [registro for registro in linhas if registro["message"] == "execução julgada"]
+    assert erros_do_log(julgada) == []
+    assert julgada["job_id"] == str(job_id)
+    assert julgada["extra"] == {
+        "classe": "erro_codigo",
+        "motivo": "fora_do_escopo",
+        "veredito": "indeterminado",
+        "desfecho": "erro_codigo",
+        "com_meta_venda": False,
+        "proposito": "simulacao",
+        "conferencia": "coerente",
+        "codigo_saida": 0,
+        "quantidade_fora_do_escopo": fora["total"],
+    }
+    (preparada,) = [registro for registro in linhas if registro["message"] == "execução preparada"]
+    assert preparada["extra"]["com_alcance"] is True
+    texto = json.dumps(linhas)
+    for exemplo in fora["exemplos"]:
+        assert exemplo["matricula"] not in texto, "uma matrícula do detalhamento chegou ao log"
+    assert _contagem_de_escopo() == antes + 1
+
+
+async def test_a_falha_de_escopo_incrementa_o_contador_exposto_em_metrics(
+    monkeypatch: pytest.MonkeyPatch, client: AsyncClient
+) -> None:
+    def contagem(texto: str) -> float:
+        achado = re.search(rf"^{METRICA_ESCOPO} (\S+)$", texto, flags=re.MULTILINE)
+        assert achado is not None, f"{METRICA_ESCOPO} não aparece em /metrics"
+        return float(achado.group(1))
+
+    antes = contagem((await client.get("/metrics")).text)
+    corpo = _corpo_comando(alcance=FORA_DE_TODA_LOJA)
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=corpo)], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    resposta = await client.get("/metrics")
+    assert resposta.status_code == 200
+    assert contagem(resposta.text) == antes + 1
+
+
+async def test_comando_sem_alcance_nao_confere_o_escopo(
+    monkeypatch: pytest.MonkeyPatch, banco: BancoDeResultadosFalso
+) -> None:
+    antes = _contagem_de_escopo()
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=_corpo_comando())], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    (linha,) = banco.gravados
+    assert linha["status"] == "sucesso"
+    assert _contagem_de_escopo() == antes
+
+
+async def test_alcance_nulo_vai_a_dlq_sem_executar_nem_virar_comando_sem_conferencia(
+    monkeypatch: pytest.MonkeyPatch, sandbox: SandboxFalso, banco: BancoDeResultadosFalso
+) -> None:
+    """Lido como ausência, um `null` de um produtor errado desligaria a conferência em silêncio."""
+    broker, canal = _preparar(
+        monkeypatch, [MensagemFalsa(body=_corpo_comando(alcance=None))], _codigo()
+    )
+
+    await consumir_fila_execucao(broker)
+
+    assert sandbox.payloads == [] and banco.gravados == []
+    assert _rota_da_republicacao(canal) == "executar-codigo.dlq"

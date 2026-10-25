@@ -8,10 +8,12 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from app.correcao_codigo import ENCAMINHAMENTO_CORRECAO
 from app.graph.core.state import AgentState
 from app.graph.nodes.await_execution import await_execution
 from app.graph.nodes.code_generation import code_generation
 from app.graph.nodes.decision import ENCAMINHAMENTO_META, ENCAMINHAMENTO_SUGESTAO, decision
+from app.graph.nodes.derive_code import DERIVADO, derive_code
 from app.graph.nodes.dispatch_execution import dispatch_execution
 from app.graph.nodes.extract_code import extract_code
 from app.graph.nodes.extract_rule import extract_rule
@@ -36,6 +38,7 @@ def load_nodes(graph: StateGraph[AgentState]) -> None:
     graph.add_node("reextract_rule", reextract_rule)
     graph.add_node("validate_domain", validate_domain)
     graph.add_node("report_conflicts", report_conflicts)
+    graph.add_node("derive_code", derive_code)
     graph.add_node("code_generation", code_generation)
     graph.add_node("persist_response", persist_response)
     graph.add_node("extract_code", extract_code)
@@ -57,6 +60,8 @@ def _apos_a_decisao(state: AgentState) -> str:
         return "search_sales_target"
     if state.get("encaminhamento") == ENCAMINHAMENTO_SUGESTAO:
         return SUGGEST_ADAPTATION
+    if state.get("encaminhamento") == ENCAMINHAMENTO_CORRECAO:
+        return "code_generation"
     return END
 
 
@@ -68,7 +73,11 @@ def _entrada(state: AgentState) -> str:
 
 
 def _apos_a_validacao(state: AgentState) -> str:
-    return "code_generation" if state["regra_liberada"] else "report_conflicts"
+    return "derive_code" if state["regra_liberada"] else "report_conflicts"
+
+
+def _apos_a_derivacao(state: AgentState) -> str:
+    return "dispatch_execution" if state["derivacao"] == DERIVADO else "code_generation"
 
 
 def load_edges(graph: StateGraph[AgentState]) -> None:
@@ -91,7 +100,12 @@ def load_edges(graph: StateGraph[AgentState]) -> None:
     graph.add_conditional_edges(
         "validate_domain",
         _apos_a_validacao,
-        {"code_generation": "code_generation", "report_conflicts": "report_conflicts"},
+        {"derive_code": "derive_code", "report_conflicts": "report_conflicts"},
+    )
+    graph.add_conditional_edges(
+        "derive_code",
+        _apos_a_derivacao,
+        {"dispatch_execution": "dispatch_execution", "code_generation": "code_generation"},
     )
     graph.add_edge("report_conflicts", END)
     graph.add_edge("code_generation", "persist_response")
@@ -128,6 +142,7 @@ def load_edges(graph: StateGraph[AgentState]) -> None:
         {
             SUGGEST_ADAPTATION: SUGGEST_ADAPTATION,
             "search_sales_target": "search_sales_target",
+            "code_generation": "code_generation",
             END: END,
         },
     )

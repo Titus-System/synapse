@@ -18,6 +18,7 @@ vi.mock('@/services/api', () => ({
   apiClient: {
     consultarJob: vi.fn<typeof apiClient.consultarJob>(),
     renomearJob: vi.fn<typeof apiClient.renomearJob>(),
+    listarJobs: vi.fn<typeof apiClient.listarJobs>(),
   },
 }))
 
@@ -31,6 +32,7 @@ beforeEach(() => {
   opcoesDeMontagem = criarOpcoesDeMontagem()
   rota.name = 'regras-salvas'
   vi.mocked(apiClient.consultarJob).mockImplementation(async (id) => jobFixture({ id }))
+  vi.mocked(apiClient.listarJobs).mockResolvedValue({ itens: [], pagina: 0, tamanho: 12, total: 0 })
 })
 
 function botaoDeReprocessamento(conteiner: VueWrapper) {
@@ -115,6 +117,12 @@ describe('HistoricoJobsView', () => {
   it('renomeia pelo cartão e atualiza o cartão e a barra lateral sem recarregar a lista', async () => {
     const resumo = criarResumoDoJob(1)
     listarTodosOsJobs.mockResolvedValue([resumo])
+    vi.mocked(apiClient.listarJobs).mockResolvedValue({
+      itens: [resumo],
+      pagina: 0,
+      tamanho: 12,
+      total: 1,
+    })
     vi.mocked(apiClient.renomearJob).mockResolvedValue({
       ...jobFixture({ id: resumo.id }),
       nome: 'Comissão de dezembro',
@@ -132,6 +140,7 @@ describe('HistoricoJobsView', () => {
       nome: '  Comissão de dezembro ',
     })
     expect(listarTodosOsJobs).toHaveBeenCalledTimes(1)
+    expect(apiClient.listarJobs).toHaveBeenCalledTimes(1)
     expect(conteiner.get('article h2').text()).toBe('Comissão de dezembro')
     expect(conteiner.get('aside').text()).toContain('Comissão de dezembro')
     expect(conteiner.get('aside').text()).not.toContain('Regra de teste 1')

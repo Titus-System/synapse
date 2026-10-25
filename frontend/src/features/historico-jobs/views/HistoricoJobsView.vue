@@ -5,7 +5,7 @@ import TheProcessHeader from '@/components/TheProcessHeader.vue'
 import TheSidebar from '@/components/TheSidebar.vue'
 import type { JobResumo, StatusJob } from '@/types/api'
 import { apiClient } from '@/services/api'
-import { regraMaisRecente, rotuloDaRegra } from '@/services/job'
+import { regraMaisRecente } from '@/services/job'
 import { transformarRegra } from '@/composables/transformarRegra'
 import { listarTodosOsJobs } from '../services/historicoJobs.api'
 import NomeEditavelDaRegra from '../components/NomeEditavelDaRegra.vue'
@@ -36,12 +36,6 @@ const jobsDaPagina = computed(() => {
   const inicio = paginaAtual.value * tamanhoDaPagina
   return jobsDoHistorico.value.slice(inicio, inicio + tamanhoDaPagina)
 })
-const regrasRecentes = computed(() =>
-  resumosDosJobs.value.slice(0, 6).map((resumoDoJob) => ({
-    identificador: resumoDoJob.id,
-    rotulo: rotuloDaRegra(resumoDoJob),
-  })),
-)
 
 function nomearStatus(status: StatusJob): string {
   const nomes: Record<StatusJob, string> = {
@@ -145,7 +139,6 @@ watch(
       :secao-ativa="tipoDoHistorico"
       :quantidade-arquivadas="jobsArquivados.length"
       :quantidade-salvas="jobsSalvos.length"
-      :regras-recentes="regrasRecentes"
     />
 
     <main class="min-w-0 bg-[radial-gradient(circle_at_top,#fffdfb_0%,#fdf7f3_48%,#f8eee8_100%)] lg:min-h-0 lg:overflow-y-auto">

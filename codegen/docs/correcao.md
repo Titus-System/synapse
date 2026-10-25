@@ -148,7 +148,7 @@ class DiagnosticoOperacao:
 
 ### Destino dos diagnósticos de operação
 
-`contracts/domain/rebaixamentos-extracao.schema.json` tem motivos fechados e só aceita referências de elemento ou de parâmetro. Uma operação desconhecida ou com referência inexistente não é `campo_obrigatorio_ausente` nem `construto_nao_habilitado`, e a operação não tem referência nesse formato. Persistir a lista inteira exige decidir antes entre ampliar o contrato, com motivos e um alvo para a operação, como `operacoes.<posição>`, e deixar os diagnósticos de operação fora da persistência. Ampliar o contrato afeta o schema, os exemplos, a serialização do codegen e a validação na api, e um validador antigo pode recusar os valores novos.
+`contracts/domain/rebaixamentos-extracao.schema.json` tem motivos fechados e só aceita referências de elemento, de critério do núcleo ou de parâmetro. Uma operação desconhecida ou com referência inexistente não é `campo_obrigatorio_ausente` nem `construto_nao_habilitado`, e a operação não tem referência nesse formato. Persistir a lista inteira exige decidir antes entre ampliar o contrato, com motivos e um alvo para a operação, como `operacoes.<posição>`, e deixar os diagnósticos de operação fora da persistência. Ampliar o contrato afeta o schema, os exemplos, a serialização do codegen e a validação na api, e um validador antigo pode recusar os valores novos.
 
 ## Integração
 

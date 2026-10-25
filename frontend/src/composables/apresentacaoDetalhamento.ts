@@ -17,18 +17,25 @@ export function formatarReais(valor: number): string {
   })}`
 }
 
+export interface RotuloContribuicao {
+  rotulo: string
+  descricao?: string
+}
+
 export function rotulosContribuicoes(
   regra: RepresentacaoRegra | undefined,
-): Record<string, string> {
-  const rotulos: Record<string, string> = {
-    'nucleo.taxas_por_cargo': 'Taxas de comissão por cargo',
-    'nucleo.percentual':
-      regra?.nucleo.percentual == null
-        ? 'Percentual de comissão'
-        : `Comissão de ${new Intl.NumberFormat('pt-BR', {
-            style: 'percent',
-            maximumFractionDigits: 4,
-          }).format(regra.nucleo.percentual)}`,
+): Record<string, RotuloContribuicao> {
+  const rotulos: Record<string, RotuloContribuicao> = {
+    'nucleo.taxas_por_cargo': { rotulo: 'Taxas de comissão por cargo' },
+    'nucleo.percentual': {
+      rotulo:
+        regra?.nucleo.percentual == null
+          ? 'Percentual de comissão'
+          : `Comissão de ${new Intl.NumberFormat('pt-BR', {
+              style: 'percent',
+              maximumFractionDigits: 4,
+            }).format(regra.nucleo.percentual)}`,
+    },
   }
   const nomes: Record<string, string> = {
     faixa_valor: 'Faixa de vendas',
@@ -48,10 +55,14 @@ export function rotulosContribuicoes(
       typeof elemento.limite_superior === 'number'
     ) {
       detalhe = ` de ${formatarReais(elemento.limite_inferior)} a ${formatarReais(elemento.limite_superior)}`
-    } else if (elemento.construto === 'generico' && typeof elemento.descricao === 'string') {
-      detalhe = `: ${elemento.descricao}`
     }
-    rotulos[elemento.ref] = `${nome}${detalhe} · condição ${indice + 1}`
+    // O texto de um genérico se repete em todas as linhas da tabela: fica fora do rótulo, para
+    // ser aberto quando o usuário pedir.
+    const descricao =
+      elemento.construto === 'generico' && typeof elemento.descricao === 'string'
+        ? elemento.descricao
+        : undefined
+    rotulos[elemento.ref] = { rotulo: `${nome}${detalhe} · condição ${indice + 1}`, descricao }
   }
   return rotulos
 }

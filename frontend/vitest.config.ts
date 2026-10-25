@@ -7,7 +7,7 @@ export default mergeConfig(
   defineConfig({
     test: {
       environment: 'jsdom',
-      setupFiles: ['./src/__tests__/dialogo.ts'],
+      setupFiles: ['./src/__tests__/dialogo.ts', './src/__tests__/intersectionObserver.ts'],
       exclude: [...configDefaults.exclude, 'e2e/**'],
       root: fileURLToPath(new URL('./', import.meta.url)),
       // Sem isto o `.env` da máquina entra no teste: um dev que aponte

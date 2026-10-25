@@ -101,3 +101,28 @@ async def contar_tentativas(
         # A versão foi lida por `load_rule` neste ciclo, e `regras` só recebe INSERT.
         linha = resultado.mappings().one()
     return TentativasDeTaxa(int(linha["feitas"]), bool(linha["regra_e_tentativa"]))
+
+
+@dataclass(frozen=True, slots=True)
+class Procedencia:
+    """De onde veio a versão: `origem` de `regras` e a versão de que ela deriva, se houver."""
+
+    origem: str
+    regra_origem_id: UUID | None
+
+
+async def buscar_procedencia(
+    sessoes: async_sessionmaker[AsyncSession], job_id: UUID, regra_id: UUID
+) -> Procedencia:
+    consulta = text(
+        "SELECT origem, regra_origem_id FROM regras WHERE id = :regra_id AND job_id = :job_id"
+    )
+    parametros = {"regra_id": str(regra_id), "job_id": str(job_id)}
+    async with sessoes() as sessao:
+        resultado = await sessao.execute(consulta, parametros)
+        # A versão foi lida por `load_rule` neste ciclo, e `regras` só recebe INSERT.
+        linha = resultado.mappings().one()
+    origem_id = linha["regra_origem_id"]
+    return Procedencia(
+        str(linha["origem"]), UUID(str(origem_id)) if origem_id is not None else None
+    )

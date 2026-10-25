@@ -5,7 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import { apiClient } from "@/services/api";
 import type { JobResumo } from "@/types/api";
 import { HttpError } from "@/services/http";
-import { regraMaisRecente, rotuloDaRegra, simulacaoVisivel } from "@/services/job";
+import { regraMaisRecente, simulacaoVisivel } from "@/services/job";
 import { usarStoreJobAtual } from "@/stores/currentJob";
 import TheProcessHeader from "@/components/TheProcessHeader.vue";
 import TheSidebar from "@/components/TheSidebar.vue";
@@ -19,7 +19,6 @@ const roteador = useRouter();
 const store = usarStoreJobAtual();
 const { job, carregando } = storeToRefs(store);
 const jobId = computed(() => String(rota.params.id));
-const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([]);
 const quantidadeArquivadas = ref(0);
 const quantidadeSalvas = ref(0);
 const regra = computed(() =>
@@ -63,7 +62,7 @@ function exibirAlerta(tipo: "sucesso" | "erro", mensagem: string) {
   }, 4000);
 }
 
-async function carregarRegrasRecentes(): Promise<void> {
+async function carregarContagensDeRegras(): Promise<void> {
   try {
     const resumosDosJobs: JobResumo[] = [];
     let numeroDaPagina = 0;
@@ -85,11 +84,6 @@ async function carregarRegrasRecentes(): Promise<void> {
       itensDaPagina.length > 0
     );
 
-    regrasRecentes.value = resumosDosJobs.slice(0, 6).map((resumoDoJob) => ({
-      identificador: resumoDoJob.id,
-      rotulo: rotuloDaRegra(resumoDoJob),
-    }));
-
     quantidadeArquivadas.value = resumosDosJobs.filter(
       (resumoDoJob) => resumoDoJob.status === "arquivado",
     ).length;
@@ -97,7 +91,6 @@ async function carregarRegrasRecentes(): Promise<void> {
     quantidadeSalvas.value =
       resumosDosJobs.length - quantidadeArquivadas.value;
   } catch {
-    regrasRecentes.value = [];
     quantidadeArquivadas.value = 0;
     quantidadeSalvas.value = 0;
   }
@@ -157,7 +150,7 @@ watch(
 );
 
 onMounted(() => {
-  void carregarRegrasRecentes();
+  void carregarContagensDeRegras();
 });
 
 onBeforeUnmount(() => {
@@ -172,7 +165,7 @@ onBeforeUnmount(() => {
       {{ alerta.mensagem }}
     </div>
     <div class="tela-de-negocio h-[100dvh] overflow-hidden bg-[#fdf7f3] text-[#2e1a10] lg:grid lg:h-[100dvh] lg:grid-cols-[16rem_minmax(0,1fr)] lg:overflow-hidden">
-    <TheSidebar class="sticky top-0 hidden h-screen lg:flex" :quantidade-arquivadas="quantidadeArquivadas" :quantidade-salvas="quantidadeSalvas" :regras-recentes="regrasRecentes"/>
+    <TheSidebar class="sticky top-0 hidden h-screen lg:flex" :quantidade-arquivadas="quantidadeArquivadas" :quantidade-salvas="quantidadeSalvas"/>
     <main class="flex h-full min-h-0 min-w-0 flex-col" :class="relatorioAberto ? 'overflow-y-auto' : 'overflow-hidden'">
     <TheProcessHeader etapa-da-rota="salvar" :status-do-job="job?.status ?? null" class="sticky top-0 z-20 mb-4 shrink-0" />
     <div class="flex w-full flex-col items-center px-4 pt-4 pb-4 font-['Tinos'] sm:px-6 sm:pt-6 sm:pb-6" :class="relatorioAberto ? 'shrink-0' : 'min-h-0 flex-1'">

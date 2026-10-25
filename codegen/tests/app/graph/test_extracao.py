@@ -559,6 +559,75 @@ async def test_nao_descarta_elemento_generico(monkeypatch: pytest.MonkeyPatch) -
     ]
 
 
+TEXTO_DOS_VENDEDORES = (
+    "A regra vale em todas as lojas e em todas as marcas, somente para o cargo 100, com "
+    "comissão de 3% sobre suas vendas individuais."
+)
+REPETICAO_DO_NUCLEO = {
+    "nucleo": {
+        "loja": {"valor": [], "trecho": "todas as lojas"},
+        "marca": {"valor": [], "trecho": "todas as marcas"},
+        "cargo": [{"valor": "100", "trecho": "cargo 100"}],
+        "percentual": {"valor": Decimal("0.03"), "trecho": "3%"},
+    },
+    "elementos": [
+        {
+            "construto_pretendido": "generico",
+            "descricao": "comissão de 3% sobre suas vendas individuais.",
+            "trecho": "com comissão de 3% sobre suas vendas individuais.",
+        }
+    ],
+    "parametros": {},
+}
+REDUNDANTES = "codegen_extracao_elementos_redundantes_total"
+
+
+async def test_repeticao_do_nucleo_descartada_aparece_no_log_e_na_metrica(
+    monkeypatch: pytest.MonkeyPatch, cliente: AsyncClient, logs: list[dict[str, Any]]
+) -> None:
+    ambiente = AmbienteExtracao(monkeypatch, [REPETICAO_DO_NUCLEO])
+    payload = ambiente.entrada()
+    ambiente.banco.transcricoes[UUID(payload["submissao_id"])] = TEXTO_DOS_VENDEDORES
+    antes = (await cliente.get("/metrics")).text
+    recebida = mensagem(payload)
+
+    await ambiente.consumer.receber(recebida)
+
+    recebida.ack.assert_awaited_once_with()
+    [artefato] = ambiente.banco.tabela("extracoes_regras")
+    assert simplejson.loads(artefato["representacao"])["especificacoes"] == []
+    depois = (await cliente.get("/metrics")).text
+    assert amostra(depois, REDUNDANTES, {}) - amostra(antes, REDUNDANTES, {}) == 1
+    [concluida] = [log for log in logs if log["message"] == "extraction finished"]
+    assert concluida["extra"]["elementos_redundantes"] == 1
+    assert concluida["extra"]["elementos_por_construto"] == {"nucleo": 4}
+    assert "vendas individuais" not in simplejson.dumps(logs)
+
+
+async def test_extracao_reaproveitada_nao_conta_de_novo_a_repeticao_descartada(
+    monkeypatch: pytest.MonkeyPatch, cliente: AsyncClient, logs: list[dict[str, Any]]
+) -> None:
+    """A contagem não é gravada com o artefato: a tentativa que o reaproveita não a conhece."""
+    ambiente = AmbienteExtracao(monkeypatch, [REPETICAO_DO_NUCLEO])
+    payload = ambiente.entrada()
+    ambiente.banco.transcricoes[UUID(payload["submissao_id"])] = TEXTO_DOS_VENDEDORES
+    antes = (await cliente.get("/metrics")).text
+    original = ambiente.producers.no_concluido.side_effect
+    ambiente.producers.no_concluido.side_effect = RuntimeError("BROKER_PRIVADO")
+    await ambiente.consumer.receber(mensagem(payload))
+    ambiente.producers.no_concluido.side_effect = original
+    reentregue = mensagem(payload)
+
+    await ambiente.consumer.receber(reentregue)
+
+    reentregue.ack.assert_awaited_once_with()
+    depois = (await cliente.get("/metrics")).text
+    assert amostra(depois, REDUNDANTES, {}) - amostra(antes, REDUNDANTES, {}) == 1
+    [concluida] = [log for log in logs if log["message"] == "extraction finished"]
+    assert concluida["extra"]["extracao_reutilizada"] is True
+    assert "elementos_redundantes" not in concluida["extra"]
+
+
 def amostra(texto: str, nome: str, rotulos: dict[str, str]) -> float:
     return next(
         (
@@ -884,6 +953,44 @@ async def test_nucleo_do_modelo_so_chega_ao_artefato_com_lastro(
         "nucleo": esperado,
         "especificacoes": [],
     }
+
+
+async def test_loja_dita_por_extenso_chega_ao_artefato_sem_rebaixamento_nem_texto_no_log(
+    monkeypatch: pytest.MonkeyPatch, cliente: AsyncClient, logs: list[dict[str, Any]]
+) -> None:
+    texto = "loja sessenta e oito produto preto com dois por cento REGRA_PRIVADA_VOZ"
+    rascunho = {
+        "percentual": {"valor": Decimal("0.02"), "trecho": "dois por cento"},
+        "loja": [{"valor": "68", "trecho": "loja sessenta e oito"}],
+        "marca": [{"valor": "PRETO", "trecho": "produto preto"}],
+    }
+    ambiente = AmbienteExtracao(
+        monkeypatch, [{"nucleo": rascunho, "elementos": [], "parametros": {}}]
+    )
+    payload = ambiente.entrada(origem="voz")
+    ambiente.banco.transcricoes[UUID(payload["submissao_id"])] = texto
+    antes = (await cliente.get("/metrics")).text
+    recebida = mensagem(payload)
+
+    await ambiente.consumer.receber(recebida)
+
+    recebida.ack.assert_awaited_once_with()
+    [artefato] = ambiente.banco.tabela("extracoes_regras")
+    assert simplejson.loads(artefato["representacao"], use_decimal=True) == {
+        "nucleo": {"percentual": Decimal("0.02"), "loja": ["68"], "marca": ["10"]},
+        "especificacoes": [],
+    }
+    assert simplejson.loads(artefato["rebaixamentos"]) == []
+    depois = (await cliente.get("/metrics")).text
+    for motivo in ("valor_sem_lastro", "codigo_fora_do_vocabulario", "termo_ambiguo"):
+        rotulos = {"motivo": motivo}
+        nome = "codegen_extracao_rebaixamentos_total"
+        assert amostra(depois, nome, rotulos) - amostra(antes, nome, rotulos) == 0
+    do_no = [log for log in logs if log.get("no") == "extracao_parametros"]
+    assert [log["message"] for log in do_no] == ["extraction started", "extraction finished"]
+    assert do_no[-1]["extra"]["rebaixamentos_por_motivo"] == {}
+    for privado in ("sessenta", "REGRA_PRIVADA_VOZ", texto):
+        assert privado not in simplejson.dumps(logs)
 
 
 async def test_correlacao_e_restaurada_entre_dois_jobs(
