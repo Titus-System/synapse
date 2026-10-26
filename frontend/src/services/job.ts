@@ -1,10 +1,16 @@
-import type { Job, RegraVersionada } from '@/types/api'
+import type { Job, JobResumo, RegraVersionada } from '@/types/api'
 
 export function regraMaisRecente(regras: readonly RegraVersionada[]): RegraVersionada | undefined {
   return regras.reduce<RegraVersionada | undefined>(
     (atual, regra) => (!atual || regra.versao > atual.versao ? regra : atual),
     undefined,
   )
+}
+
+export function rotuloDaRegra(job: Pick<JobResumo, 'nome' | 'criado_em'>): string {
+  const nome = job.nome?.trim()
+  if (nome) return nome
+  return `Regra · ${new Date(job.criado_em).toLocaleDateString('pt-BR')}`
 }
 
 export function simulacaoVisivel(job: Job | null) {

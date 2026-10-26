@@ -9,7 +9,8 @@ reapuração aqui, sobre a própria cópia das bases, e é esse total que confer
 (``app/execucao/baseline.py``).
 
 Daqui também sai ``totais.vendas_historicas`` de toda execução com sucesso: o total de vendas
-das competências, lido de uma fonte que o código gerado não alcança, como o orçamento.
+das competências, lido de uma fonte que o código gerado não alcança, como o orçamento. Da mesma
+fonte sai o total vendido de cada linha do detalhamento (T-282).
 
 Só stdlib: o motor de apuração (``app/sandbox/regras_competencia.py`` e o que ele importa) não
 usa pandas, e o processo do worker não o carrega (``test_isolamento_harness.py``). Cada arquivo é
@@ -26,7 +27,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import NoReturn
 
-from app.execucao.baseline import CompetenciaSemBaselineError, localizar
+from app.execucao.baseline import (
+    BaselineIndisponivelError,
+    CompetenciaSemBaselineError,
+    LinhasDoBaseline,
+    indexar_linhas,
+    localizar,
+    total_das_linhas,
+)
 from app.sandbox.assercoes import AssercaoVioladaError
 from app.sandbox.escalonamento import (
     MetaVendaError,
@@ -77,9 +85,39 @@ class BasesDoWorker:
         self._conferir(competencias)
         return total_de_vendas(self._vendas_do_periodo(competencias))
 
+    def vendas_por_linha(
+        self, competencias: Sequence[str], meta_venda: float | None
+    ) -> dict[tuple[str, str], Decimal]:
+        """O total vendido de cada matrícula em cada competência, por ``(competencia,
+        matricula)``, somado em qualquer loja ou marca e sem arredondar: a linha do detalhamento
+        arredonda a soma uma vez.
+
+        São as vendas sobre as quais a execução apurou as comissões: as históricas, ou, na meta, as
+        escaladas pelo mesmo fator da reapuração do baseline. Uma matrícula sem venda no mês não
+        tem chave."""
+        self._conferir(competencias)
+        vendas: Sequence[Registro] = self._vendas_do_periodo(competencias)
+        if meta_venda is not None:
+            try:
+                fator = fator_de_escala(meta_venda, total_de_vendas(vendas))
+                vendas = escalar_vendas(vendas, fator)
+            except MetaVendaError as erro:
+                raise ReapuracaoNaMetaError(type(erro).__name__) from erro
+        totais: dict[tuple[str, str], Decimal] = {}
+        for venda in vendas:
+            chave = (str(venda["competencia"]), str(venda["matricula"]))
+            totais[chave] = totais.get(chave, Decimal(0)) + Decimal(str(venda["vlr_venda"]))
+        return totais
+
     def baseline_na_meta(self, competencias: Sequence[str], meta_venda: float) -> Decimal:
         """O total do baseline reapurado sobre as vendas escaladas até a meta, somado em
         centavos exatos, a mesma aritmética do harness."""
+        return total_das_linhas(self.linhas_na_meta(competencias, meta_venda))
+
+    def linhas_na_meta(self, competencias: Sequence[str], meta_venda: float) -> LinhasDoBaseline:
+        """O baseline reapurado sobre as vendas escaladas até a meta, linha a linha, indexado
+        como o congelado: é contra ele que o detalhamento de uma execução na meta é conferido
+        (T-262)."""
         try:
             self._conferir(competencias)
             vendas = self._vendas_do_periodo(competencias)
@@ -92,14 +130,17 @@ class BasesDoWorker:
                 self.regras,
                 competencias,
             )
+            indexadas = indexar_linhas(linhas)
         except (
             CompetenciaSemBaselineError,
             MetaVendaError,
             RegraBaseError,
             AssercaoVioladaError,
+            BaselineIndisponivelError,
         ) as erro:
             raise ReapuracaoNaMetaError(type(erro).__name__) from erro
-        return sum((Decimal(str(linha["comissao"])) for linha in linhas), Decimal(0))
+        # Uma competência sem nenhuma linha reapurada continua no período, como no congelado.
+        return {competencia: indexadas.get(competencia, {}) for competencia in competencias}
 
     def _conferir(self, competencias: Sequence[str]) -> None:
         faltando = [c for c in competencias if c not in self.competencias]

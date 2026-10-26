@@ -9,6 +9,7 @@ The same derivation also produces the idempotency key of the `no-concluido` even
 references these rows - see `id_do_evento_de_trilha`.
 """
 
+from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
 from uuid import UUID, uuid5
@@ -38,6 +39,23 @@ _INSERIR_CODIGO = text(
 )
 
 
+_BUSCAR_RESPOSTA = text(
+    "SELECT p.id AS prompt_id, r.id AS resposta_id, r.conteudo"
+    " FROM prompts p JOIN respostas_modelo r ON r.prompt_id = p.id"
+    " JOIN submissoes s ON s.id = :submissao_id"
+    " WHERE p.job_id = :job_id AND p.no = :no AND p.conteudo = :prompt"
+    " AND r.criado_em >= s.criado_em"
+    " ORDER BY r.criado_em, r.id LIMIT 1"
+)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class RespostaGravada:
+    prompt_id: UUID
+    resposta_id: UUID
+    conteudo: str
+
+
 def id_do_prompt(job_id: UUID, no: str, prompt: str, resposta: str) -> UUID:
     # The reply is part of the key: a later call with the same prompt that gets a different
     # reply is a different call, and must not collide with this one.
@@ -51,6 +69,11 @@ def id_da_resposta(prompt_id: UUID) -> UUID:
 
 def id_do_codigo(prompt_id: UUID) -> UUID:
     return uuid5(_NAMESPACE, f"codigo:{prompt_id}")
+
+
+def id_do_codigo_derivado(codigo_origem_id: UUID, regra_id: UUID) -> UUID:
+    """O código derivado aponta o prompt do código de origem, então não pode tirar o id dele."""
+    return uuid5(_NAMESPACE, f"codigo-derivado:{codigo_origem_id}:{regra_id}")
 
 
 def id_do_evento_de_trilha(job_id: UUID, no: str, referencia: UUID) -> UUID:
@@ -132,6 +155,92 @@ async def gravar_prompt_e_resposta_na_sessao(
         },
     )
     return prompt_id, resposta_id
+
+
+async def buscar_resposta_gravada(
+    sessoes: async_sessionmaker[AsyncSession],
+    *,
+    job_id: UUID,
+    no: str,
+    prompt: str,
+    submissao_id: UUID,
+) -> RespostaGravada | None:
+    """A resposta já gravada para o mesmo prompt do job neste nó, desde a submissão `submissao_id`.
+
+    O id do prompt depende da resposta, então é pelo conteúdo que uma reexecução acha a chamada
+    que já fez. A mais antiga vem primeiro: é a que a primeira execução publicou.
+
+    Só conta a resposta gravada depois da submissão: uma correção nova com o mesmo texto de uma
+    anterior recebe uma chamada própria ao modelo, e não a resposta da outra. A api grava a
+    submissão com o relógio dela, e o banco grava a resposta com o seu; uma diferença entre os
+    dois só pode fazer a reexecução chamar o modelo de novo.
+    """
+    async with sessoes() as sessao:
+        consulta = await sessao.execute(
+            _BUSCAR_RESPOSTA,
+            {"job_id": job_id, "no": no, "prompt": prompt, "submissao_id": submissao_id},
+        )
+        linha = consulta.mappings().one_or_none()
+    if linha is None:
+        return None
+    return RespostaGravada(linha["prompt_id"], linha["resposta_id"], linha["conteudo"])
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class CodigoSimulado:
+    id: UUID
+    prompt_id: UUID
+    fonte: str
+
+
+_BUSCAR_CODIGO_SIMULADO = text(
+    "SELECT c.id, c.prompt_id, c.fonte FROM codigos_gerados c"
+    " JOIN resultados_simulacao rs ON rs.codigo_gerado_id = c.id AND rs.job_id = c.job_id"
+    " WHERE c.job_id = :job_id AND c.regra_id = :regra_id"
+    " AND rs.status = 'sucesso' AND rs.proposito = 'simulacao'"
+    " ORDER BY c.criado_em DESC, c.id DESC LIMIT 1"
+)
+
+
+async def buscar_codigo_simulado(
+    sessoes: async_sessionmaker[AsyncSession], job_id: UUID, regra_id: UUID
+) -> CodigoSimulado | None:
+    """O último código da versão `regra_id` cuja simulação terminou em sucesso no worker."""
+    async with sessoes() as sessao:
+        resultado = await sessao.execute(
+            _BUSCAR_CODIGO_SIMULADO, {"job_id": job_id, "regra_id": regra_id}
+        )
+        linha = resultado.mappings().one_or_none()
+    if linha is None:
+        return None
+    return CodigoSimulado(
+        id=UUID(str(linha["id"])), prompt_id=UUID(str(linha["prompt_id"])), fonte=linha["fonte"]
+    )
+
+
+async def gravar_codigo_derivado(
+    sessoes: async_sessionmaker[AsyncSession],
+    *,
+    job_id: UUID,
+    regra_id: UUID,
+    origem: CodigoSimulado,
+    fonte: str,
+) -> UUID:
+    """Insert the code derived from `origem`, pointing at the prompt that produced `origem`."""
+    codigo_gerado_id = id_do_codigo_derivado(origem.id, regra_id)
+    async with sessoes() as sessao, sessao.begin():
+        await sessao.execute(
+            _INSERIR_CODIGO,
+            {
+                "id": codigo_gerado_id,
+                "job_id": job_id,
+                "regra_id": regra_id,
+                "linguagem": LINGUAGEM,
+                "fonte": fonte,
+                "prompt_id": origem.prompt_id,
+            },
+        )
+    return codigo_gerado_id
 
 
 async def gravar_codigo(

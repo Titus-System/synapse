@@ -7,6 +7,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -20,6 +21,7 @@ import synapse.api.core.outbox.EventoOutbox;
 import synapse.api.core.outbox.Outbox;
 import synapse.api.job.JobRepository.ContextoDoJob;
 import synapse.api.job.JobRepository.ExtracaoDaRegra;
+import synapse.api.job.JobRepository.VersaoAnterior;
 import synapse.api.job.VersoesDaRegra.VersaoRegra;
 
 @Service
@@ -99,13 +101,14 @@ class JobEventosService {
 		}
 		if (etapa == EtapaDoGrafo.SUGESTAO_ADAPTACAO && STATUS_SEM_ALTERNATIVA.equals(status)) {
 			EventoEstadoDto encerrada = encerrarIteracao(jobId, atual, JobStatus.SIMULACAO_INVIAVEL,
-					MotivoDaParada.SEM_ALTERNATIVA, MotivoDaParada.NENHUMA_TAXA_COUBE);
+					MotivoDaParada.SEM_ALTERNATIVA,
+					() -> MotivoDaParada.semAlternativa(this.repository.buscarComissaoDasLojasForaDaRegra(jobId)));
 			return (encerrada != null) ? EtapaAplicada.comum(encerrada, FimDaIteracao.SEM_ALTERNATIVA)
 					: EtapaAplicada.comum(null, FimDaIteracao.SEM_ALTERNATIVA_SEM_EFEITO);
 		}
 		if (STATUS_ERRO.equals(status) && (etapa == EtapaDoGrafo.DECISAO || etapa == EtapaDoGrafo.SUGESTAO_ADAPTACAO)) {
 			EventoEstadoDto encerrada = encerrarIteracao(jobId, atual, JobStatus.ERRO,
-					MotivoDaParada.falhaNaEtapa(etapa, causa), MotivoDaParada.razaoDaFalha(causa));
+					MotivoDaParada.falhaNaEtapa(etapa, causa), () -> MotivoDaParada.razaoDaFalha(causa));
 			if (encerrada != null) {
 				return EtapaAplicada.comum(encerrada, FimDaIteracao.FALHA);
 			}
@@ -113,11 +116,40 @@ class JobEventosService {
 		if (etapa == EtapaDoGrafo.DELEGACAO_WORKER && STATUS_INICIADA.equals(status)) {
 			return EtapaAplicada.comum(avancarDeGerandoRegra(jobId, JobStatus.SIMULANDO, null, null));
 		}
+		if (STATUS_ERRO.equals(status) && atual == JobStatus.SIMULANDO) {
+			EventoEstadoDto encerrada = encerrarCorrecao(jobId, MotivoDaParada.falhaNaEtapa(etapa, causa),
+					MotivoDaParada.razaoDaFalha(causa));
+			if (encerrada != null) {
+				return EtapaAplicada.comum(encerrada);
+			}
+		}
 		if (STATUS_ERRO.equals(status)) {
 			return EtapaAplicada.comum(avancarDeGerandoRegra(jobId, JobStatus.ERRO,
 					MotivoDaParada.falhaNaEtapa(etapa, causa), MotivoDaParada.razaoDaFalha(causa)));
 		}
 		return EtapaAplicada.comum(null);
+	}
+
+	/**
+	 * A falha do codegen durante a correção do código: o job segue em {@code simulando}
+	 * enquanto o código corrigido é gerado, e a falha da geração o encerra a partir daí.
+	 * Vale também quando ela chega antes do resultado que pediu a correção, porque as
+	 * filas não têm ordem entre si: a versão está em correção pelo que o worker gravou, e
+	 * não pelo que esta api já consumiu. {@code null} quando a versão atual não está em
+	 * correção.
+	 */
+	private @Nullable EventoEstadoDto encerrarCorrecao(UUID jobId, @Nullable String motivoDaTrilha,
+			@Nullable String razao) {
+		List<UUID> emCorrecao = this.repository.buscarResultadoEmCorrecao(jobId);
+		if (emCorrecao.isEmpty()) {
+			return null;
+		}
+		this.maquina.transicionar(jobId, JobStatus.ERRO, ATOR, motivoDaTrilha);
+		this.repository.vincularResultado(jobId, emCorrecao.getFirst());
+		log.atInfo()
+			.addKeyValue("resultado_id", emCorrecao.getFirst())
+			.log("falha do codegen na correção do código; job em erro");
+		return EventoEstadoDto.transicao(jobId, JobStatus.SIMULANDO, JobStatus.ERRO, razao);
 	}
 
 	private EtapaAplicada pausarPorConflitos(UUID jobId, JobStatus atual, @Nullable UUID regraId,
@@ -207,7 +239,7 @@ class JobEventosService {
 	 * processamento.
 	 */
 	private @Nullable EventoEstadoDto encerrarIteracao(UUID jobId, JobStatus status, JobStatus destino, String motivo,
-			String razao) {
+			Supplier<String> razao) {
 		if (!status.emProcessamento()) {
 			return null;
 		}
@@ -218,7 +250,7 @@ class JobEventosService {
 		this.maquina.avancarSeEm(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO, ATOR, MOTIVO_ANTECIPADA);
 		this.maquina.transicionar(jobId, destino, ATOR, motivo);
 		this.repository.vincularResultado(jobId, resultados.getFirst());
-		return EventoEstadoDto.transicao(jobId, JobStatus.SIMULANDO, destino, razao);
+		return EventoEstadoDto.transicao(jobId, JobStatus.SIMULANDO, destino, razao.get());
 	}
 
 	/**
@@ -260,9 +292,18 @@ class JobEventosService {
 		return avancou ? EventoEstadoDto.transicao(jobId, JobStatus.GERANDO_REGRA, destino, razao) : null;
 	}
 
+	/**
+	 * O que a linha gravada agora muda na busca da meta maior, para o consumidor anunciar
+	 * no SSE depois do commit: a decisão que abriu a busca a deixa em curso, e a decisão
+	 * que a fecha a encerra quando a meta sugerida não foi registrada. A reentrega não
+	 * grava de novo, e por isso não anuncia de novo.
+	 */
 	@Transactional
-	void registrarNoConcluido(UUID jobId, UUID eventoId, EtapaDoGrafo no, NoConcluidoDto evento) {
+	BuscaMetaAnunciada registrarNoConcluido(UUID jobId, UUID eventoId, EtapaDoGrafo no, NoConcluidoDto evento) {
 		this.repository.exigirJobExistente(jobId);
+		boolean decisao = no == EtapaDoGrafo.DECISAO;
+		boolean abreBusca = decisao && abriuBuscaMeta(evento);
+		boolean emCursoAntes = decisao && !abreBusca && this.repository.buscaMetaEmCurso(jobId);
 
 		UUID simulacaoId = evento.simulacao_id();
 		UUID regraId = evento.regra_id();
@@ -272,7 +313,42 @@ class JobEventosService {
 					Objects.requireNonNull(evento.concluido_em()));
 		}
 
-		this.repository.inserirTrilhaNo(eventoId, jobId, simulacaoId, no, evento);
+		if (!this.repository.inserirTrilhaNo(eventoId, jobId, simulacaoId, no, evento)) {
+			return BuscaMetaAnunciada.NENHUMA;
+		}
+		if (abreBusca && this.repository.buscaMetaEmCurso(jobId)) {
+			return BuscaMetaAnunciada.INICIADA;
+		}
+		if (emCursoAntes && !this.repository.buscaMetaEmCurso(jobId)) {
+			return BuscaMetaAnunciada.ENCERRADA;
+		}
+		return BuscaMetaAnunciada.NENHUMA;
+	}
+
+	/**
+	 * O status do evento {@code etapa} na etapa {@code sugestao_adaptacao} que a gravação
+	 * de uma decisão anuncia. O fim com a meta registrada é anunciado por quem a
+	 * registra.
+	 */
+	enum BuscaMetaAnunciada {
+
+		NENHUMA(null), INICIADA("buscando_meta"), ENCERRADA("busca_meta_encerrada");
+
+		private final @Nullable String status;
+
+		BuscaMetaAnunciada(@Nullable String status) {
+			this.status = status;
+		}
+
+		@Nullable String status() {
+			return this.status;
+		}
+
+	}
+
+	private static boolean abriuBuscaMeta(NoConcluidoDto evento) {
+		JsonNode encaminhamento = Objects.requireNonNull(evento.conclusao()).path("encaminhamento");
+		return encaminhamento.isString() && JobRepository.ENCAMINHAMENTO_BUSCA_META.equals(encaminhamento.asString());
 	}
 
 	@Transactional
@@ -289,12 +365,33 @@ class JobEventosService {
 		}
 		boolean avancouDeGerandoRegra = this.maquina.avancarSeEm(jobId, JobStatus.GERANDO_REGRA, JobStatus.SIMULANDO,
 				ATOR, MOTIVO_ANTECIPADA);
+		if (desfecho.corrigivel() && this.repository.posicaoDoCodigoDoResultado(jobId,
+				resultadoId) < CorrecaoDoCodigo.LIMITE_DE_CODIGOS_POR_VERSAO) {
+			return devolverParaCorrecao(jobId, resultadoId, avancouDeGerandoRegra);
+		}
 		if (desfecho == DesfechoDaSimulacao.INVIAVEL && VersoesDaRegra.ORIGEM_SUGESTAO.equals(origens.getFirst())) {
 			return absorverAlternativaInviavel(jobId, resultadoId, avancouDeGerandoRegra);
 		}
 		JobStatus origem = this.maquina.transicionar(jobId, desfecho.destino(), ATOR, desfecho.motivoDaTrilha());
 		UUID simulacaoId = amarrarResultado(jobId, resultadoId);
-		return new DesfechoAplicado(origem, simulacaoId, avancouDeGerandoRegra, false);
+		return new DesfechoAplicado(origem, simulacaoId, avancouDeGerandoRegra, false, false);
+	}
+
+	/**
+	 * A falha do código que ainda cabe corrigir não é desfecho: o codegen gera e executa
+	 * o código corrigido, e o job segue em {@code simulando} até o resultado dele, como
+	 * na alternativa que não coube. Sem transição, a reentrega deste resultado não grava
+	 * nada de novo; depois do desfecho ela encontra o job fora de {@code simulando} e é
+	 * recusada como qualquer desfecho fora de ordem. O resultado é amarrado para a
+	 * auditoria, e o usuário não o vê.
+	 */
+	private DesfechoAplicado devolverParaCorrecao(UUID jobId, UUID resultadoId, boolean avancouDeGerandoRegra) {
+		JobStatus status = JobStatus.deColuna(this.repository.buscarStatusComTrava(jobId));
+		if (status != JobStatus.SIMULANDO) {
+			throw new TransicaoDeStatusInvalidaException(status, JobStatus.SIMULANDO);
+		}
+		this.repository.vincularResultado(jobId, resultadoId);
+		return DesfechoAplicado.emCorrecao(avancouDeGerandoRegra);
 	}
 
 	/**
@@ -339,12 +436,18 @@ class JobEventosService {
 	/**
 	 * {@code intermediario} é o resultado inviável de uma alternativa enquanto o codegen
 	 * pode tentar outra taxa: não houve transição, e o usuário não o vê.
+	 * {@code emCorrecao} é a falha do código que o codegen ainda corrige: também sem
+	 * transição, e o usuário também não vê o resultado.
 	 */
 	record DesfechoAplicado(JobStatus origem, @Nullable UUID simulacaoId, boolean avancouDeGerandoRegra,
-			boolean intermediario) {
+			boolean intermediario, boolean emCorrecao) {
 
 		static DesfechoAplicado intermediario(boolean avancouDeGerandoRegra) {
-			return new DesfechoAplicado(JobStatus.SIMULANDO, null, avancouDeGerandoRegra, true);
+			return new DesfechoAplicado(JobStatus.SIMULANDO, null, avancouDeGerandoRegra, true, false);
+		}
+
+		static DesfechoAplicado emCorrecao(boolean avancouDeGerandoRegra) {
+			return new DesfechoAplicado(JobStatus.SIMULANDO, null, avancouDeGerandoRegra, false, true);
 		}
 
 	}
@@ -352,10 +455,6 @@ class JobEventosService {
 	@Transactional
 	@Nullable SugestaoAplicada aplicarSugestaoAdaptacao(UUID jobId, UUID regraOrigemId, UUID resultadoId,
 			RepresentacaoRegraDto representacao, @Nullable Integer tentativa) {
-		var percentual = representacao.nucleo().percentual();
-		if (percentual == null || percentual.signum() <= 0) {
-			return null;
-		}
 		List<ContextoDoJob> contextos = this.repository.buscarContextoComTrava(jobId);
 		if (contextos.isEmpty()) {
 			return null;
@@ -365,11 +464,17 @@ class JobEventosService {
 			.contains(contexto.status())) {
 			return null;
 		}
-		// A sugestão só ajusta nucleo.percentual; os parâmetros da versão de origem
-		// passam para a nova como estavam, e o hash os cobre pelo mesmo motivo do
-		// núcleo - sem isso, uma origem nascida de texto com parâmetros nunca bateria
-		// hash com a sugestão que ela mesma originou. Lista vazia é regraOrigemId
-		// inexistente: sugestaoElegivel também diria não, mas sem lançar antes dela.
+		List<VersaoAnterior> ultimas = this.repository.buscarUltimaVersao(jobId);
+		if (ultimas.isEmpty() || !ultimas.getFirst().id().equals(regraOrigemId)
+				|| !ReducaoDasTaxas.reduzSoAsTaxas(
+						new RepresentacaoRegraDto(ultimas.getFirst().nucleo(), ultimas.getFirst().especificacoes()),
+						representacao)) {
+			return null;
+		}
+		// A sugestão só reduz as taxas; os parâmetros da versão de origem
+		// passam para a nova como estavam, e o hash os cobre pelo mesmo motivo
+		// do núcleo - sem isso, uma origem nascida de texto com parâmetros
+		// nunca bateria hash com a sugestão que ela mesma originou.
 		List<String> parametrosDaOrigem = this.repository.buscarParametrosDaVersao(regraOrigemId);
 		if (parametrosDaOrigem.isEmpty()) {
 			return null;
@@ -377,8 +482,7 @@ class JobEventosService {
 		String parametrosJson = parametrosDaOrigem.getFirst();
 		ParametrosDaSimulacao parametros = ParametrosExtraidos.deVersaoExistente(parametrosJson);
 		String hash = HashDaRegra.calcular(representacao, parametros);
-		Boolean valida = this.repository.sugestaoElegivel(jobId, regraOrigemId, resultadoId, hash, percentual,
-				representacao);
+		Boolean valida = this.repository.sugestaoElegivel(jobId, regraOrigemId, resultadoId, hash);
 		if (!Boolean.TRUE.equals(valida)) {
 			return null;
 		}
@@ -396,7 +500,7 @@ class JobEventosService {
 				List<UUID> simulacoes = this.repository.buscarSimulacaoPorResultado(jobId, resultadoId);
 				if (!simulacoes.isEmpty()) {
 					desfechoDaOrigem = new DesfechoAplicado(desfechoDaOrigem.origem(), simulacoes.getFirst(),
-							desfechoDaOrigem.avancouDeGerandoRegra(), false);
+							desfechoDaOrigem.avancouDeGerandoRegra(), false, false);
 				}
 			}
 		}

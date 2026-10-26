@@ -49,7 +49,6 @@ async function enviar(audio?: Blob) {
 }
 const modo = ref<'voz' | 'texto'>('voz')
 const descricao = ref('')
-const regrasRecentes = ref<{ identificador: string; rotulo: string }[]>([])
 const quantidadeArquivadas = ref(0)
 const quantidadeSalvas = ref(0)
 const carregandoHistorico = ref(true)
@@ -74,10 +73,6 @@ async function carregarHistorico() {
       pagina += 1
       if (!resposta.itens.length) break
     } while (jobs.length < total)
-    regrasRecentes.value = jobs.slice(0, 6).map((job) => ({
-      identificador: job.id,
-      rotulo: `Regra · ${new Date(job.criado_em).toLocaleDateString('pt-BR')}`,
-    }))
     quantidadeArquivadas.value = jobs.filter((job) => job.status === 'arquivado').length
     quantidadeSalvas.value = jobs.length - quantidadeArquivadas.value
   } catch {
@@ -110,7 +105,6 @@ onBeforeUnmount(() => controlador.abort())
     <TheSidebar
       v-if="!carregandoHistorico && !erroHistorico"
       class="sticky top-0 hidden h-screen lg:flex"
-      :regras-recentes="regrasRecentes"
       :quantidade-salvas="quantidadeSalvas"
       :quantidade-arquivadas="quantidadeArquivadas"
     />
@@ -195,9 +189,7 @@ onBeforeUnmount(() => controlador.abort())
           <RouterLink v-if="jobCriado" :to="`/jobs/${encodeURIComponent(jobCriado)}`"
             >Acompanhar processamento</RouterLink
           >
-          <p class="mt-6 text-xs text-[#9d8274]">
-            Descreva a regra e, se desejar, o orçamento, a meta de venda e o período.
-          </p>
+
         </section>
       </div>
     </main>

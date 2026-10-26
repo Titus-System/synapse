@@ -7,11 +7,13 @@ em quê ele conflita; enquanto houver conflito, o avanço para a geração de c�
 fica bloqueado.
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
+from app.extracao.construtos.generico import DESCRICAO_SEM_LASTRO
+from app.extracao.vocabulario import carregar_vocabulario
 from app.nos.codigos_conflito import CodigoConflito
 
 
@@ -31,27 +33,201 @@ class ResultadoValidacao:
         return not self.conflitos
 
 
-def verificar(representacao: Mapping[str, object]) -> ResultadoValidacao:
+def verificar(
+    representacao: Mapping[str, object],
+    parametros: Mapping[str, object] | None = None,
+    *,
+    competencias_publicadas: Collection[str] = (),
+    sem_lastro: Collection[str] = (),
+    nucleo_sem_lastro: Collection[str] = (),
+) -> ResultadoValidacao:
+    """Verifica a regra e, com `parametros`, a completude para nova simulação.
+
+    `competencias_publicadas` são os meses com dados: com `parametros`, uma competência fora
+    delas é conflito, e por isso quem passa os parâmetros passa também a lista. `sem_lastro`
+    são os parâmetros que a extração inicial descartou por falta de lastro no texto, e
+    `nucleo_sem_lastro` os critérios do núcleo que ela não reconheceu; só a versão nascida da
+    extração os tem.
+    """
     conflitos: list[Conflito] = []
-    conflitos.extend(_completude_do_nucleo(representacao))
+    conflitos.extend(_completude_do_nucleo(representacao, nucleo_sem_lastro))
+    conflitos.extend(_criterios_sem_lastro(nucleo_sem_lastro))
     conflitos.extend(_coerencia_do_percentual(representacao))
+    conflitos.extend(_coerencia_das_taxas_por_cargo(representacao))
     conflitos.extend(_coerencia_da_vigencia(representacao))
     conflitos.extend(_coerencia_de_exclusoes(representacao))
     conflitos.extend(_conflitos_dos_elementos(representacao))
+    if parametros is not None:
+        conflitos.extend(_escopos_ausentes(representacao, nucleo_sem_lastro))
+        conflitos.extend(_conflitos_dos_parametros(parametros, competencias_publicadas))
+    conflitos.extend(_parametros_sem_lastro(sem_lastro))
     return ResultadoValidacao(tuple(conflitos))
 
 
-def _completude_do_nucleo(representacao: Mapping[str, object]) -> list[Conflito]:
-    # Só o percentual é obrigatório: loja/marca/cargo/vigência ausentes valem como "todos".
+# O `motivo` é texto do sistema, sem o valor que o usuário disse (T-280).
+_SEM_LASTRO = {
+    "orcamento": "orçamento citado sem valor reconhecido",
+    "meta_venda": "meta de venda citada sem valor reconhecido",
+    "competencias": "período da simulação citado sem meses reconhecidos",
+}
+
+
+def _conflitos_dos_parametros(
+    parametros: Mapping[str, object], competencias_publicadas: Collection[str]
+) -> list[Conflito]:
+    conflitos: list[Conflito] = []
+    orcamento = _numero(parametros.get("orcamento"))
+    if orcamento is None:
+        conflitos.append(
+            Conflito(
+                ("parametros.orcamento",),
+                "orçamento não informado",
+                CodigoConflito.ORCAMENTO_AUSENTE,
+            )
+        )
+    elif orcamento < 0:
+        conflitos.append(
+            Conflito(
+                ("parametros.orcamento",), "orçamento negativo", CodigoConflito.ORCAMENTO_NEGATIVO
+            )
+        )
+    meta = _numero(parametros.get("meta_venda"))
+    if meta is None:
+        conflitos.append(
+            Conflito(
+                ("parametros.meta_venda",),
+                "meta de vendas não informada",
+                CodigoConflito.META_VENDA_AUSENTE,
+            )
+        )
+    elif meta <= 0:
+        # Sem vendas a escalar, a simulação sobre a meta não tem o que calcular.
+        conflitos.append(
+            Conflito(
+                ("parametros.meta_venda",),
+                "meta de venda zero ou negativa",
+                CodigoConflito.META_VENDA_NAO_POSITIVA,
+            )
+        )
+    competencias = parametros.get("competencias")
+    if isinstance(competencias, list) and any(
+        competencia not in competencias_publicadas for competencia in competencias
+    ):
+        # Sem dado nem baseline para o mês, a simulação dele não existe.
+        conflitos.append(
+            Conflito(
+                ("parametros.competencias",),
+                "competência sem dados publicados",
+                CodigoConflito.COMPETENCIA_NAO_PUBLICADA,
+            )
+        )
+    return conflitos
+
+
+def _escopos_ausentes(
+    representacao: Mapping[str, object], nucleo_sem_lastro: Collection[str]
+) -> list[Conflito]:
+    nucleo = representacao.get("nucleo")
+    if not isinstance(nucleo, Mapping):
+        nucleo = {}
+    # Um escopo citado e não reconhecido já tem conflito próprio; dizer que não foi informado
+    # contradiria o que o usuário acabou de dizer.
+    return [
+        Conflito(
+            (f"nucleo.{campo}",),
+            f"escopo de {campo} não informado; indique os destinatários ou declare todos",
+            CodigoConflito.ESCOPO_AUSENTE,
+        )
+        for campo in ("loja", "marca", "cargo")
+        if campo not in nucleo and campo not in nucleo_sem_lastro
+    ]
+
+
+# O `motivo` é texto do sistema, sem o valor que o usuário disse (T-280).
+_CRITERIOS_SEM_LASTRO = {
+    "vigencia": "vigência citada sem período reconhecido",
+    "loja": (
+        "escopo de loja citado sem código reconhecido; indique os destinatários ou declare todos"
+    ),
+    "marca": (
+        "escopo de marca citado sem código reconhecido; indique os destinatários ou declare todos"
+    ),
+    "cargo": (
+        "escopo de cargo citado sem código reconhecido; indique os destinatários ou declare todos"
+    ),
+    "taxas_por_cargo": "taxa por cargo citada sem cargo ou percentual reconhecido",
+}
+
+
+def _criterios_sem_lastro(campos: Collection[str]) -> list[Conflito]:
+    # Na ordem do núcleo, e não na do chamador, para o resultado ser determinístico.
+    return [
+        Conflito((f"nucleo.{campo}",), motivo, CodigoConflito.NUCLEO_SEM_LASTRO)
+        for campo, motivo in _CRITERIOS_SEM_LASTRO.items()
+        if campo in campos
+    ]
+
+
+def _parametros_sem_lastro(campos: Collection[str]) -> list[Conflito]:
+    # Na ordem do contrato, e não na do chamador, para o resultado ser determinístico.
+    return [
+        Conflito((f"parametros.{campo}",), motivo, CodigoConflito.PARAMETRO_SEM_LASTRO)
+        for campo, motivo in _SEM_LASTRO.items()
+        if campo in campos
+    ]
+
+
+def _completude_do_nucleo(
+    representacao: Mapping[str, object], nucleo_sem_lastro: Collection[str]
+) -> list[Conflito]:
     nucleo = representacao.get("nucleo")
     percentual = nucleo.get("percentual") if isinstance(nucleo, Mapping) else None
-    if percentual is None:
+    taxas = nucleo.get("taxas_por_cargo") if isinstance(nucleo, Mapping) else None
+    # Taxas citadas e não reconhecidas já têm conflito próprio, que diz o que corrigir.
+    if percentual is None and not taxas and "taxas_por_cargo" not in nucleo_sem_lastro:
         return [
             Conflito(
                 ("nucleo.percentual",), "percentual ausente", CodigoConflito.PERCENTUAL_AUSENTE
             )
         ]
     return []
+
+
+def _coerencia_das_taxas_por_cargo(representacao: Mapping[str, object]) -> list[Conflito]:
+    nucleo = representacao.get("nucleo")
+    if not isinstance(nucleo, Mapping):
+        return []
+    taxas = nucleo.get("taxas_por_cargo")
+    if not isinstance(taxas, list):
+        return []
+    conflitos: list[Conflito] = []
+    por_cargo: dict[str, Decimal] = {}
+    cargos = nucleo.get("cargo")
+    for taxa in taxas:
+        if not isinstance(taxa, Mapping):
+            continue
+        cargo, percentual = taxa.get("cargo"), _numero(taxa.get("percentual"))
+        if not isinstance(cargo, str) or percentual is None:
+            continue
+        codigo = None
+        motivo = ""
+        if percentual < 0:
+            codigo, motivo = CodigoConflito.PERCENTUAL_NEGATIVO, "taxa por cargo negativa"
+        elif cargo not in carregar_vocabulario()["cargo"]:
+            codigo, motivo = CodigoConflito.TAXA_CARGO_DESCONHECIDO, "cargo da taxa não reconhecido"
+        elif isinstance(cargos, list) and cargos and cargo not in cargos:
+            codigo, motivo = CodigoConflito.TAXA_CARGO_FORA_ESCOPO, "taxa para cargo fora do núcleo"
+        elif cargo in por_cargo and por_cargo[cargo] != percentual:
+            codigo, motivo = (
+                CodigoConflito.TAXA_CARGO_CONTRADITORIA,
+                "taxas distintas para o mesmo cargo",
+            )
+        por_cargo[cargo] = percentual
+        if codigo is not None:
+            conflito = Conflito(("nucleo.taxas_por_cargo",), motivo, codigo)
+            if conflito not in conflitos:
+                conflitos.append(conflito)
+    return conflitos
 
 
 def _coerencia_do_percentual(representacao: Mapping[str, object]) -> list[Conflito]:
@@ -175,6 +351,18 @@ def _limiar_sem_escopo(elemento: Mapping[str, object], ref: str) -> Conflito | N
     )
 
 
+def _generico_sem_lastro(elemento: Mapping[str, object], ref: str) -> Conflito | None:
+    # Sem trecho no texto, o elemento não diz o que a regra faz: o código gerado não teria o
+    # que implementar, e descartá-lo simularia a regra sem uma condição que o usuário disse.
+    if elemento.get("descricao") != DESCRICAO_SEM_LASTRO:
+        return None
+    return Conflito(
+        (ref,),
+        "condição citada sem trecho reconhecido; descreva a condição novamente",
+        CodigoConflito.ELEMENTO_SEM_LASTRO,
+    )
+
+
 def _numero(valor: object) -> Decimal | None:
     if isinstance(valor, bool):
         return None
@@ -204,4 +392,5 @@ _VERIFICACOES: dict[str, Callable[[Mapping[str, object], str], Conflito | None]]
     "faixa_valor": _faixa_invertida,
     "janela_datas": _janela_invertida,
     "condicao_limiar": _limiar_sem_escopo,
+    "generico": _generico_sem_lastro,
 }

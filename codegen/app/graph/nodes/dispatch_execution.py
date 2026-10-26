@@ -84,6 +84,8 @@ async def dispatch_execution(state: AgentState, config: RunnableConfig) -> Agent
 
     representacao = state["representacao_regra"]
     elementos_exigidos = ["nucleo.percentual"] if "percentual" in representacao["nucleo"] else []
+    if "taxas_por_cargo" in representacao["nucleo"]:
+        elementos_exigidos.append("nucleo.taxas_por_cargo")
     elementos_exigidos.extend(elemento["ref"] for elemento in representacao["especificacoes"])
     if not elementos_exigidos:
         raise ElementosExigidosAusentesError("executar-codigo requires at least one rule element")
@@ -103,6 +105,9 @@ async def dispatch_execution(state: AgentState, config: RunnableConfig) -> Agent
     # recusa `null` explícito.
     if orcamento is not None:
         comando.orcamento = Decimal(orcamento)
+    # O `alcance` não vai no comando, e o worker não confere o escopo: a conferência ficou
+    # desligada enquanto a recusa de um código que muda linhas fora da regra encerrar jobs que
+    # antes mostravam um número. `AlcanceDaRegra.para_comando` o monta quando voltar.
     if meta_venda is not None:
         comando.meta_venda = Decimal(meta_venda)
     producers = config["configurable"]["producers"]

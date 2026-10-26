@@ -68,7 +68,7 @@ class JobComErroFimAFimTests {
 
 	/** O mesmo corpo do caminho feliz: o que {@code useFormularioRegra} monta. */
 	private static final String CORPO_DO_FORMULARIO = """
-			{"origem":"formulario","orcamento":485000.5,
+			{"origem":"formulario","orcamento":485000.5,"meta_venda":55267944.1,
 			 "conteudo":{"nucleo":{"vigencia":{"inicio":"2025-10","fim":"2025-12"},
 			 "loja":["13"],"marca":["10"],"cargo":["100"],"percentual":0.025},"texto_livre":null}}
 			""";

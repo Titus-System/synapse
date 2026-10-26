@@ -3,11 +3,15 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { apiClient } from '@/services/api'
+import { HttpError } from '@/services/http'
 import EntradaRegraView from './EntradaRegraView.vue'
 import * as submissoes from '../services/submissoes.api'
 import rotasEntrada from '../routes'
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 async function abrir() {
   vi.spyOn(console, 'info').mockImplementation(() => undefined)
@@ -74,7 +78,7 @@ describe('entrada da regra', () => {
   it('permite recuperar o historico sem expor a mensagem interna', async () => {
     vi.spyOn(apiClient, 'listarJobs')
       .mockRejectedValueOnce(new Error('segredo'))
-      .mockResolvedValueOnce({ itens: [], total: 0, pagina: 0, tamanho: 100 })
+      .mockResolvedValue({ itens: [], total: 0, pagina: 0, tamanho: 100 })
     const wrapper = await abrir()
     expect(wrapper.find('[role="alert"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('segredo')
@@ -161,6 +165,61 @@ it('envia áudio uma vez enquanto aguarda e abre o job de transcrição', async 
   expect(envio).toHaveBeenCalledWith(audio, expect.any(AbortSignal))
   concluir({ id: 'sub-voz', job: { id: 'job-voz', status: 'aguardando_transcricao' } })
   await flushPromises()
+  expect(wrapper.vm.$router.currentRoute.value.path).toBe('/jobs/job-voz')
+  wrapper.unmount()
+})
+
+it('mantém a gravação quando o envio falha e permite reenviá-la', async () => {
+  class Gravador {
+    static isTypeSupported = () => true
+    state = 'inactive'
+    ondataavailable?: (event: { data: Blob }) => void
+    onstop?: () => void
+    start() {
+      this.state = 'recording'
+    }
+    stop() {
+      this.state = 'inactive'
+      this.ondataavailable?.({ data: new Blob(['gravacao']) })
+      this.onstop?.()
+    }
+  }
+  vi.stubGlobal('MediaRecorder', Gravador)
+  vi.stubGlobal('navigator', {
+    mediaDevices: {
+      getUserMedia: vi
+        .fn<() => Promise<unknown>>()
+        .mockResolvedValue({ getTracks: () => [{ stop: () => {} }] }),
+    },
+  })
+  URL.createObjectURL = vi.fn<() => string>(() => 'blob:gravacao')
+  URL.revokeObjectURL = vi.fn<() => void>()
+  vi.spyOn(apiClient, 'listarJobs').mockResolvedValue({
+    itens: [],
+    total: 0,
+    pagina: 0,
+    tamanho: 100,
+  })
+  const envio = vi
+    .spyOn(submissoes, 'enviarAudio')
+    .mockRejectedValueOnce(new HttpError(0, 'rede'))
+    .mockResolvedValueOnce({
+      id: 'sub-voz',
+      job: { id: 'job-voz', status: 'aguardando_transcricao' },
+    })
+  const wrapper = await abrir()
+  await wrapper.get('[aria-label="Iniciar gravação"]').trigger('click')
+  await flushPromises()
+  await wrapper.get('[aria-label="Parar gravação"]').trigger('click')
+  const enviar = () => wrapper.findAll('button').find((b) => b.text() === 'Enviar gravação')!
+  await enviar().trigger('click')
+  await flushPromises()
+  expect(wrapper.get('[role="alert"]').text()).toContain('tente novamente')
+  expect(wrapper.find('audio').exists()).toBe(true)
+  await enviar().trigger('click')
+  await flushPromises()
+  expect(envio).toHaveBeenCalledTimes(2)
+  expect(envio.mock.calls[1]![0]).toBe(envio.mock.calls[0]![0])
   expect(wrapper.vm.$router.currentRoute.value.path).toBe('/jobs/job-voz')
   wrapper.unmount()
 })

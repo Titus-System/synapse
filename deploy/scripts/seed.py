@@ -84,6 +84,12 @@ USUARIOS = (
 class KeycloakAdmin:
     def __init__(self, url: str, realm: str, usuario: str, senha: str):
         self.url = url.rstrip("/")
+        # A identidade local não deve passar pelo proxy do sistema Windows.
+        self.opener = (
+            request.build_opener(request.ProxyHandler({}))
+            if parse.urlsplit(self.url).hostname in ("localhost", "127.0.0.1", "::1")
+            else request.build_opener()
+        )
         self.realm = parse.quote(realm, safe="")
         self.token: str | None = None
         _, resposta = self.requisitar(
@@ -115,7 +121,7 @@ class KeycloakAdmin:
             self.url + caminho, data=dados, headers=cabecalhos, method=metodo
         )
         try:
-            with request.urlopen(requisicao, timeout=10) as resposta:
+            with self.opener.open(requisicao, timeout=10) as resposta:
                 conteudo = resposta.read()
                 return resposta.status, json.loads(conteudo) if conteudo else None
         except error.HTTPError as exc:
@@ -144,6 +150,7 @@ class KeycloakAdmin:
     def provisionar_usuario(self, usuario: dict, senha: str) -> str:
         login = usuario["login"]
         existente = self.buscar_usuario(login)
+        criado = existente is None
         if existente is None:
             self.requisitar(
                 "POST",
@@ -153,6 +160,7 @@ class KeycloakAdmin:
                     "email": login,
                     "firstName": usuario["nome"],
                     "enabled": True,
+                    "emailVerified": True,
                 },
             )
             existente = self.buscar_usuario(login)
@@ -162,10 +170,23 @@ class KeycloakAdmin:
             raise RuntimeError(f"Usuário {login} está desabilitado no Keycloak.")
 
         usuario_id = parse.quote(existente["id"], safe="")
-        _, papeis = self.requisitar(
-            "GET", f"/admin/realms/{self.realm}/users/{usuario_id}/role-mappings/realm"
-        )
         papel = usuario["papel_keycloak"]
+        # Grupos padrão alcançam também contas novas criadas pela Admin API.
+        # Só o auditor que este seed acabou de criar pode perder esse grupo.
+        if criado and papel == "auditor":
+            _, grupos = self.requisitar(
+                "GET", f"/admin/realms/{self.realm}/users/{usuario_id}/groups"
+            )
+            for grupo in grupos:
+                if grupo["path"] == "/synapse-autocadastro":
+                    grupo_id = parse.quote(grupo["id"], safe="")
+                    self.requisitar(
+                        "DELETE",
+                        f"/admin/realms/{self.realm}/users/{usuario_id}/groups/{grupo_id}",
+                    )
+        _, papeis = self.requisitar(
+            "GET", f"/admin/realms/{self.realm}/users/{usuario_id}/role-mappings/realm/composite"
+        )
         outro_papel = "auditor" if papel == "profissional-rh" else "profissional-rh"
         nomes = {item["name"] for item in papeis}
         if outro_papel in nomes:
@@ -179,6 +200,11 @@ class KeycloakAdmin:
                 f"/admin/realms/{self.realm}/users/{usuario_id}/role-mappings/realm",
                 json_body=[representacao],
             )
+        # Estas duas identidades são fixtures locais, não cadastros de pessoas.
+        self.requisitar(
+            "PUT", f"/admin/realms/{self.realm}/users/{usuario_id}",
+            json_body={"emailVerified": True},
+        )
         self.requisitar(
             "PUT",
             f"/admin/realms/{self.realm}/users/{usuario_id}/reset-password",

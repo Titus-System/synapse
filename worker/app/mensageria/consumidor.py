@@ -7,7 +7,8 @@ a linha em `resultados_simulacao` e **só depois** publica `simulacao-concluida`
 que referencia uma linha inexistente é pior que um evento perdido. O `ack` vem por último.
 
 Com meta de venda, o worker reapura o baseline na meta por conta própria antes de subir o
-container (`app.execucao.bases`, T-270): é esse total que confere o baseline devolvido. Uma meta
+container (`app.execucao.bases`, T-270): é esse baseline, linha a linha, que confere o total e o
+detalhamento devolvidos (T-262). Uma meta
 que não se aplica às vendas do período leva o comando à DLQ sem executar, porque a falha não é
 da regra.
 
@@ -21,7 +22,6 @@ import threading
 import time
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager, suppress
-from decimal import Decimal
 
 from aio_pika.abc import AbstractIncomingMessage
 from asyncpg import (  # type: ignore[import-untyped]
@@ -37,11 +37,13 @@ from app.core.logger import get_logger, job_id_ctx
 from app.core.metrics.global_metrics import (
     duracao_do_baseline_na_meta,
     execucoes_com_cobertura_incompleta,
+    execucoes_fora_do_escopo,
     execucoes_julgadas,
     execucoes_na_meta,
+    resultados_conferidos,
 )
 from app.db.engine import get_sessionmaker
-from app.execucao.baseline import carregar_baselines
+from app.execucao.baseline import LinhasDoBaseline, carregar_baselines
 from app.execucao.bases import ReapuracaoNaMetaError, carregar_bases
 from app.execucao.coleta import classificar
 from app.execucao.container import SaidaBruta, SandboxInfraError, executar_no_sandbox
@@ -118,7 +120,10 @@ def _registrar_julgamento(julgamento: Julgamento, comando: ExecutarCodigo) -> No
 
     Toda execução julgada é contada pelo desfecho, e a cobertura incompleta também, uma vez por
     execução julgada (T-241). Um sucesso de job sem orçamento sai com veredito nulo e desfecho
-    `sem_orcamento` (T-281). A execução na meta conta também por propósito (T-270)."""
+    `sem_orcamento` (T-281). A execução na meta conta também por propósito (T-270).
+
+    O resultado que passou pela conferência é contado pelo que ela decidiu, e a recusa leva ao log
+    a verificação que falhou, nunca a linha que divergiu (T-262)."""
     desfecho_da_metrica = desfecho_da_execucao(julgamento)
     com_meta_venda = comando.meta_venda is not None
     extra: dict[str, object] = {
@@ -129,6 +134,11 @@ def _registrar_julgamento(julgamento: Julgamento, comando: ExecutarCodigo) -> No
         "com_meta_venda": com_meta_venda,
         "proposito": comando.proposito,
     }
+    if julgamento.conferencia is not None:
+        extra["conferencia"] = julgamento.conferencia
+        resultados_conferidos.labels(resultado=julgamento.conferencia).inc()
+    if julgamento.verificacao is not None:
+        extra["verificacao"] = julgamento.verificacao
     desfecho = julgamento.desfecho
     if desfecho is not None and desfecho.saida is not None:
         extra["codigo_saida"] = desfecho.saida.codigo_saida
@@ -141,6 +151,10 @@ def _registrar_julgamento(julgamento: Julgamento, comando: ExecutarCodigo) -> No
         extra["elementos_ausentes"] = list(julgamento.cobertura.ausentes)
         extra["quantidade_fora_da_regra"] = len(julgamento.cobertura.fora_da_regra)
         execucoes_com_cobertura_incompleta.inc()
+    if julgamento.fora_do_escopo is not None:
+        # Só quantas linhas: matrícula e códigos vêm do detalhamento e ficam no diagnóstico.
+        extra["quantidade_fora_do_escopo"] = julgamento.fora_do_escopo.total
+        execucoes_fora_do_escopo.inc()
     execucoes_julgadas.labels(desfecho=desfecho_da_metrica).inc()
     if com_meta_venda:
         execucoes_na_meta.labels(proposito=comando.proposito, desfecho=desfecho_da_metrica).inc()
@@ -173,9 +187,9 @@ async def _executar_no_container(payload: PayloadContainer) -> SaidaBruta:
         raise
 
 
-async def _baseline_na_meta(execucao: ExecucaoPreparada) -> Decimal | None:
-    """O baseline na meta reapurado pelo worker, ou None numa execução sobre as vendas
-    históricas, que é conferida contra o congelado.
+async def _baseline_na_meta(execucao: ExecucaoPreparada) -> LinhasDoBaseline | None:
+    """O baseline na meta reapurado pelo worker, linha a linha, ou None numa execução sobre as
+    vendas históricas, que é conferida contra o congelado.
 
     Roda numa thread, como o container, para o loop seguir atendendo o heartbeat do RabbitMQ. A
     duração é medida também quando a reapuração falha; um cancelamento (o desligamento do worker)
@@ -186,8 +200,8 @@ async def _baseline_na_meta(execucao: ExecucaoPreparada) -> Decimal | None:
         return None
     inicio = time.monotonic()
     try:
-        total = await asyncio.to_thread(
-            carregar_bases().baseline_na_meta, execucao.payload.competencias, meta_venda
+        linhas = await asyncio.to_thread(
+            carregar_bases().linhas_na_meta, execucao.payload.competencias, meta_venda
         )
     except Exception:
         duracao_do_baseline_na_meta.labels(resultado="falha").observe(time.monotonic() - inicio)
@@ -195,7 +209,7 @@ async def _baseline_na_meta(execucao: ExecucaoPreparada) -> Decimal | None:
     duracao = time.monotonic() - inicio
     duracao_do_baseline_na_meta.labels(resultado="ok").observe(duracao)
     logger.info("baseline na meta reapurado", extra={"duracao_s": round(duracao, 3)})
-    return total
+    return linhas
 
 
 async def _gravar(comando: ExecutarCodigo, julgamento: Julgamento) -> ResultadoGravado:
@@ -291,6 +305,8 @@ async def _processar(mensagem: AbstractIncomingMessage, broker: ConexaoBroker) -
                         "competencias": execucao.payload.competencias,
                         # Nulo quando o comando não os trouxe e a cobertura não será conferida.
                         "elementos_exigidos": execucao.elementos_exigidos,
+                        # Se o escopo será conferido.
+                        "com_alcance": execucao.alcance is not None,
                         # Se haverá veredito, nunca o valor do orçamento.
                         "com_orcamento": execucao.orcamento is not None,
                         # Se as vendas serão escaladas, nunca o valor da meta.
@@ -309,8 +325,11 @@ async def _processar(mensagem: AbstractIncomingMessage, broker: ConexaoBroker) -
                     classificar, saida, execucao.payload, execucao.orcamento
                 )
                 # Aqui, no processo do worker: nem o orçamento nem os elementos exigidos entraram
-                # no container.
-                julgamento = julgar(
+                # no container. Numa thread, como a classificação: o total vendido de cada linha
+                # do detalhamento percorre as vendas do período inteiro (perto de 50 ms, e de
+                # 0,1 s na meta, que escala as vendas de novo).
+                julgamento = await asyncio.to_thread(
+                    julgar,
                     desfecho,
                     execucao.payload.competencias,
                     execucao.orcamento,
@@ -318,6 +337,8 @@ async def _processar(mensagem: AbstractIncomingMessage, broker: ConexaoBroker) -
                     elementos_exigidos=execucao.elementos_exigidos,
                     bases=carregar_bases(),
                     baseline_na_meta=baseline_na_meta,
+                    meta_venda=execucao.payload.meta_venda,
+                    alcance=execucao.alcance,
                 )
                 _registrar_julgamento(julgamento, comando)
                 gravado = await _gravar(comando, julgamento)

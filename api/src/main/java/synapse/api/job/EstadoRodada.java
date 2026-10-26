@@ -4,7 +4,7 @@ import java.util.Locale;
 
 enum EstadoRodada {
 
-	PENDENTE, EM_REEXTRACAO, REEXTRACAO_FALHOU, CORRIGIDA, ABANDONADA;
+	PENDENTE, EM_TRANSCRICAO, EM_REEXTRACAO, REEXTRACAO_FALHOU, CORRIGIDA, ABANDONADA;
 
 	String paraColuna() {
 		return name().toLowerCase(Locale.ROOT);

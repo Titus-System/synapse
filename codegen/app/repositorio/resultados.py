@@ -5,6 +5,7 @@ Only `SELECT`: the row is written by the `worker`, that runs the code and apura 
 traz referência, e o número vem da linha que o worker gravou (ADR-001).
 """
 
+from collections.abc import Mapping
 from decimal import Decimal
 from uuid import UUID
 
@@ -12,8 +13,9 @@ import simplejson
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.correcao_codigo import FalhaDaExecucao
 from app.falhas import FalhaDoJobError
-from app.sugestao_adaptacao import LIMITE_DE_TENTATIVAS, TaxaSimulada
+from app.sugestao_adaptacao import LIMITE_DE_TENTATIVAS, TaxaSimulada, taxa_de_referencia
 
 
 class ResultadoDesconhecidoError(Exception):
@@ -35,14 +37,19 @@ class ResultadoIndisponivelError(FalhaDoJobError):
 
 
 class TotaisDaSimulacao:
-    """Totais persistidos que permitem estimar a redução de uma regra simples."""
+    """O simulado e o orçamento persistidos, com o detalhamento que situa a parte fixa da comissão.
 
-    __slots__ = ("baseline", "orcamento", "simulado")
+    `linhas` é None num resultado gravado antes do detalhamento.
+    """
 
-    def __init__(self, simulado: Decimal, orcamento: Decimal, *, baseline: Decimal) -> None:
-        self.baseline = baseline
+    __slots__ = ("linhas", "orcamento", "simulado")
+
+    def __init__(
+        self, simulado: Decimal, orcamento: Decimal, *, linhas: Mapping[str, object] | None
+    ) -> None:
         self.simulado = simulado
         self.orcamento = orcamento
+        self.linhas = linhas
 
 
 def _decimal(valor: object) -> Decimal | None:
@@ -60,7 +67,7 @@ def _objeto(valor: object) -> object:
 async def buscar_totais(
     sessoes: async_sessionmaker[AsyncSession], job_id: UUID, resultado_id: UUID
 ) -> TotaisDaSimulacao:
-    """Load baseline, simulated cost and budget from the worker's result row.
+    """Load simulated cost, budget and the per-line detail from the worker's result row.
 
     Raises `ResultadoIndisponivelError` when the row is missing for that job or when any
     total is absent - o que acontece em todo desfecho que não é `sucesso`.
@@ -68,7 +75,7 @@ async def buscar_totais(
     # `::text` pelo mesmo motivo de `buscar_regra`: sem o cast o driver decodifica o jsonb
     # com float, e o total viraria um número aproximado.
     consulta = text(
-        "SELECT totais::text AS totais FROM resultados_simulacao"
+        "SELECT totais::text AS totais, linhas::text AS linhas FROM resultados_simulacao"
         " WHERE id = :resultado_id AND job_id = :job_id"
     )
     parametros = {"resultado_id": str(resultado_id), "job_id": str(job_id)}
@@ -83,37 +90,42 @@ async def buscar_totais(
     if not isinstance(totais, dict):
         raise ResultadoIndisponivelError("Simulation result has no totals")
 
-    baseline = _decimal(totais.get("baseline"))
     simulado = _decimal(totais.get("simulado"))
     orcamento = _decimal(totais.get("orcamento"))
-    if baseline is None or simulado is None or orcamento is None:
-        raise ResultadoIndisponivelError("Simulation result is missing baseline/simulado/orcamento")
-    return TotaisDaSimulacao(simulado, orcamento, baseline=baseline)
+    if simulado is None or orcamento is None:
+        raise ResultadoIndisponivelError("Simulation result is missing simulado/orcamento")
+    linhas = _objeto(linha.get("linhas"))
+    return TotaisDaSimulacao(
+        simulado, orcamento, linhas=linhas if isinstance(linhas, dict) else None
+    )
 
 
 async def buscar_taxas_simuladas(
     sessoes: async_sessionmaker[AsyncSession], job_id: UUID, regra_id: UUID
 ) -> list[TaxaSimulada]:
-    """Load the rate and simulated commission of `regra_id` and of the versions it adapts.
+    """Load the reference rate and simulated commission of `regra_id` and of the versions it adapts.
 
     A cadeia sobe por `regra_origem_id` enquanto a versão é uma sugestão e para na regra que
-    a primeira sugestão adaptou: cada proposta muda só o percentual da versão de origem, então
-    os pares diferem só na taxa. Uma versão de fora da cadeia pode ter outro escopo, e a
-    execução candidata da busca da meta não é a simulação do job; nenhuma das duas vira par.
-    Raises `ResultadoIndisponivelError` when a simulated version lacks percentual or simulado.
+    a primeira sugestão adaptou: cada proposta reduz todas as taxas da versão de origem na mesma
+    proporção, então os pares diferem só nessa proporção, que a taxa de referência representa.
+    Uma versão de fora da cadeia pode ter outro escopo, e a execução candidata da busca da meta
+    não é a simulação do job; nenhuma das duas vira par.
+    Raises `ResultadoIndisponivelError` when a simulated version lacks a rate or simulado.
     """
     # `::text` pelo mesmo motivo de `buscar_totais`. A profundidade só limita a recursão.
     consulta = text(
         "WITH RECURSIVE cadeia AS ("
-        "  SELECT id, regra_origem_id, origem, nucleo, 1 AS profundidade FROM regras"
-        "  WHERE id = :regra_id AND job_id = :job_id"
+        "  SELECT id, regra_origem_id, origem, nucleo, especificacoes, 1 AS profundidade"
+        "  FROM regras WHERE id = :regra_id AND job_id = :job_id"
         "  UNION ALL"
-        "  SELECT r.id, r.regra_origem_id, r.origem, r.nucleo, c.profundidade + 1"
+        "  SELECT r.id, r.regra_origem_id, r.origem, r.nucleo, r.especificacoes,"
+        "  c.profundidade + 1"
         "  FROM regras r JOIN cadeia c ON r.id = c.regra_origem_id"
         "  WHERE c.origem = 'sugestao_adaptacao' AND r.job_id = :job_id"
         "  AND c.profundidade <= :limite"
         ")"
-        " SELECT c.nucleo::text AS nucleo, rs.totais::text AS totais FROM cadeia c"
+        " SELECT c.nucleo::text AS nucleo, c.especificacoes::text AS especificacoes,"
+        " rs.totais::text AS totais FROM cadeia c"
         " JOIN codigos_gerados cg ON cg.regra_id = c.id AND cg.job_id = :job_id"
         " JOIN resultados_simulacao rs ON rs.codigo_gerado_id = cg.id AND rs.job_id = :job_id"
         " WHERE rs.status = 'sucesso' AND rs.proposito = 'simulacao'"
@@ -127,12 +139,17 @@ async def buscar_taxas_simuladas(
     taxas: list[TaxaSimulada] = []
     for linha in linhas:
         nucleo = _objeto(linha["nucleo"])
+        especificacoes = _objeto(linha["especificacoes"])
         totais = _objeto(linha["totais"])
-        percentual = _decimal(nucleo.get("percentual")) if isinstance(nucleo, dict) else None
+        referencia = (
+            taxa_de_referencia({"nucleo": nucleo, "especificacoes": especificacoes})
+            if isinstance(nucleo, dict) and isinstance(especificacoes, list)
+            else None
+        )
         simulado = _decimal(totais.get("simulado")) if isinstance(totais, dict) else None
-        if percentual is None or simulado is None:
-            raise ResultadoIndisponivelError("Simulated version is missing percentual/simulado")
-        taxas.append(TaxaSimulada(percentual, simulado))
+        if referencia is None or simulado is None:
+            raise ResultadoIndisponivelError("Simulated version is missing a rate or simulado")
+        taxas.append(TaxaSimulada(referencia, simulado))
     return taxas
 
 
@@ -158,6 +175,56 @@ async def buscar_regra_do_resultado(
     if linha is None or linha["regra_id"] is None:
         raise ResultadoDesconhecidoError("No rule version behind this simulation result")
     return UUID(str(linha["regra_id"]))
+
+
+async def posicao_do_codigo(
+    sessoes: async_sessionmaker[AsyncSession], job_id: UUID, codigo_gerado_id: UUID
+) -> int:
+    """A posição do código entre os gerados para a mesma versão da regra, a partir de 1.
+
+    A `api` conta do mesmo jeito, pela ordem de criação, para decidir se a falha do código
+    encerra o job; uma ordem diferente aqui faria os dois serviços divergirem. Zero quando o
+    código não existe para o job.
+    """
+    consulta = text(
+        "SELECT count(*) AS posicao FROM codigos_gerados alvo"
+        " JOIN codigos_gerados c ON c.regra_id = alvo.regra_id AND c.job_id = alvo.job_id"
+        " WHERE alvo.id = :codigo AND alvo.job_id = :job"
+        " AND (c.criado_em, c.id) <= (alvo.criado_em, alvo.id)"
+    )
+    async with sessoes() as sessao:
+        resultado = await sessao.execute(consulta, {"codigo": codigo_gerado_id, "job": job_id})
+        posicao = resultado.scalar_one()
+    return int(posicao)
+
+
+async def buscar_falha_da_execucao(
+    sessoes: async_sessionmaker[AsyncSession], job_id: UUID, resultado_id: UUID
+) -> FalhaDaExecucao:
+    """O status, o diagnóstico e as asserções violadas que o worker gravou para a execução.
+
+    Raises `ResultadoDesconhecidoError` quando o resultado não existe para o job.
+    """
+    consulta = text(
+        "SELECT status, diagnostico::text AS diagnostico, assercoes::text AS assercoes"
+        " FROM resultados_simulacao WHERE id = :resultado AND job_id = :job"
+    )
+    async with sessoes() as sessao:
+        resultado = await sessao.execute(consulta, {"resultado": resultado_id, "job": job_id})
+        linha = resultado.mappings().one_or_none()
+    if linha is None:
+        raise ResultadoDesconhecidoError("Execution not found for this job")
+    diagnostico = _objeto(linha["diagnostico"])
+    assercoes = _objeto(linha["assercoes"])
+    return FalhaDaExecucao(
+        status=linha["status"],
+        diagnostico=diagnostico if isinstance(diagnostico, dict) else None,
+        assercoes_violadas=[
+            assercao
+            for assercao in (assercoes if isinstance(assercoes, list) else [])
+            if isinstance(assercao, dict) and assercao.get("resultado") == "violada"
+        ],
+    )
 
 
 class ExecucaoDaMeta:

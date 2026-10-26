@@ -7,11 +7,11 @@
   "properties": {
     "orcamento": {
       "$ref": "comum.schema.json#/$defs/brl",
-      "description": "Orçamento de comissão do período, como foi dito. É do período, e não mensal. Ausente quando o texto não diz orçamento, e então a simulação é feita sem a verificação de orçamento."
+      "description": "Orçamento de comissão do período, como foi dito. É do período, e não mensal. Ausente quando o texto não diz orçamento, e então a validação exige seu preenchimento antes de uma nova simulação."
     },
     "meta_venda": {
       "$ref": "comum.schema.json#/$defs/brl",
-      "description": "Meta de venda do período, como foi dita: o total de vendas sobre o qual a regra é simulada. Ausente quando o texto não diz meta, e então a simulação usa as vendas históricas. Uma condição de atingimento de meta dentro da regra, como um bônus para quem bate a meta, não é este campo: é parte da regra."
+      "description": "Meta de venda do período, como foi dita: o total de vendas sobre o qual a regra é simulada. Ausente quando o texto não diz meta, e então a validação exige seu preenchimento antes de uma nova simulação. Uma condição de atingimento de meta dentro da regra, como um bônus para quem bate a meta, não é este campo: é parte da regra."
     },
     "competencias": {
       "type": "array",

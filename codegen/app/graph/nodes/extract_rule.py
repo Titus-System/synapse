@@ -22,6 +22,7 @@ from app.core.metrics.global_metrics import (
     CONSTRUTOS_DA_EXTRACAO,
     PARAMETROS_DA_SIMULACAO,
     elementos_extraidos,
+    elementos_redundantes_extracao,
     falhas_extracao,
     job_duration,
     job_failures,
@@ -83,6 +84,7 @@ async def extract_rule(state: AgentState, config: RunnableConfig) -> AgentState:
     classe = "publicacao"
     operacao = "publicar_etapa_alterada"
     extracao_reutilizada = False
+    elementos_redundantes: int | None = None
     try:
         producers = config["configurable"]["producers"]
         sessoes = config["configurable"]["sessoes"]
@@ -129,6 +131,8 @@ async def extract_rule(state: AgentState, config: RunnableConfig) -> AgentState:
                 submissao_id=submissao_id,
                 resultado=resultado,
             )
+            elementos_redundantes = resultado.elementos_redundantes
+            elementos_redundantes_extracao.inc(elementos_redundantes)
         classe = "publicacao"
         operacao = "publicar_regra_extraida"
         await producers.regra_extraida(
@@ -165,16 +169,17 @@ async def extract_rule(state: AgentState, config: RunnableConfig) -> AgentState:
         for parametro in PARAMETROS_DA_SIMULACAO:
             resultado_parametro = "extraido" if parametro in salvo.parametros else "ausente"
             parametros_extracao.labels(parametro=parametro, resultado=resultado_parametro).inc()
-        logger.info(
-            "extraction finished",
-            extra={
-                "extracao_id": str(salvo.id),
-                "extracao_reutilizada": extracao_reutilizada,
-                "elementos_por_construto": dict(contagens),
-                "rebaixamentos_por_motivo": dict(rebaixamentos),
-                "parametros_extraidos": sorted(salvo.parametros),
-            },
-        )
+        conclusao: dict[str, object] = {
+            "extracao_id": str(salvo.id),
+            "extracao_reutilizada": extracao_reutilizada,
+            "elementos_por_construto": dict(contagens),
+            "rebaixamentos_por_motivo": dict(rebaixamentos),
+            "parametros_extraidos": sorted(salvo.parametros),
+        }
+        # A extração reaproveitada não guarda a contagem: ausente, e não zero.
+        if elementos_redundantes is not None:
+            conclusao["elementos_redundantes"] = elementos_redundantes
+        logger.info("extraction finished", extra=conclusao)
         return {"prompt_id": str(salvo.prompt_id), "resposta_id": str(salvo.resposta_id)}
     except (asyncio.CancelledError, Exception) as erro:
         if isinstance(erro, TranscricaoIndisponivelError):

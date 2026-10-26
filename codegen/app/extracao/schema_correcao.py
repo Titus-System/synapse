@@ -1,8 +1,9 @@
 from copy import deepcopy
 from typing import Any
 
+from app.extracao.construto import com_lastro
 from app.extracao.registro import CONSTRUTOS_HABILITADOS
-from app.extracao.schema import NUCLEO, PARAMETROS, schema_saida
+from app.extracao.schema import NUCLEO, PARAMETROS, TAXA_POR_CARGO, schema_saida
 
 
 def schema_envelope_correcao() -> dict[str, Any]:
@@ -17,7 +18,7 @@ def schema_envelope_correcao() -> dict[str, Any]:
 
 
 def _operacao(tipo: str, **campos: Any) -> dict[str, Any]:
-    propriedades = {"tipo": {"const": tipo}, **campos}
+    propriedades = {"tipo": {"const": tipo}, "trecho": {"type": "string", "minLength": 1}, **campos}
     return {
         "type": "object",
         "additionalProperties": False,
@@ -39,13 +40,12 @@ def schema_operacao_correcao(*, validar_elemento: bool = True) -> dict[str, Any]
     # O valor tem a forma do campo na extração inicial, com o trecho que lhe dá lastro. Uma lista
     # de códigos vazia tira o filtro, que passa a valer para todos.
     nucleo = {
-        nome: (
-            {chave: valor for chave, valor in campo.items() if chave != "minItems"}
-            if nome in ("loja", "marca", "cargo")
-            else campo
-        )
+        nome: deepcopy(campo)
         for nome, campo in NUCLEO["properties"].items()
+        if nome != "taxas_por_cargo"
     }
+    for dimensao in ("loja", "marca", "cargo"):
+        nucleo[dimensao]["anyOf"][0].pop("minItems")
     parametros = PARAMETROS["properties"]
     elemento = (
         schema_saida(CONSTRUTOS_HABILITADOS)["properties"]["elementos"]["items"]
@@ -57,6 +57,10 @@ def schema_operacao_correcao(*, validar_elemento: bool = True) -> dict[str, Any]
         {
             "anyOf": [
                 _definir("definir_nucleo", nucleo),
+                _operacao("definir_taxa_cargo", valor=TAXA_POR_CARGO),
+                _operacao(
+                    "remover_taxa_cargo", cargo=com_lastro({"type": "string", "minLength": 1})
+                ),
                 _operacao("substituir_elemento", ref=ref, elemento=elemento),
                 _operacao("remover_elemento", ref=ref),
                 _operacao("adicionar_elemento", elemento=elemento),

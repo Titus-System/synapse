@@ -1,10 +1,17 @@
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from app.extracao.construtos.generico import montar_generico
-from app.extracao.lastro import conferir_numero, numeros_citados, trecho_literal
-from app.extracao.modelos import MotivoRebaixamento, Rebaixamento
+from app.extracao.construto import ContextoExtracao
+from app.extracao.construtos.generico import DESCRICAO_SEM_LASTRO, montar_generico
+from app.extracao.lastro import (
+    campos_com_lastro,
+    conferir_numero,
+    numeros_citados,
+    trecho_literal,
+)
+from app.extracao.modelos import ElementoRebaixadoError, MotivoRebaixamento, Rebaixamento
 from app.extracao.registro import CONSTRUTOS_HABILITADOS
 from app.extracao.schema import schema_elemento
 from app.representacao_regra import RepresentacaoRegra
@@ -36,12 +43,19 @@ def _texto_util(valor: object) -> str | None:
 
 
 def montar_elemento(
-    elemento: dict[str, Any], ref: str, texto: str
+    elemento: dict[str, Any],
+    ref: str,
+    texto: str,
+    competencias: Sequence[str],
+    *,
+    elemento_atual: Mapping[str, ValorRegra] | None = None,
 ) -> tuple[dict[str, ValorRegra], Rebaixamento | None]:
     pretendido = _texto_util(elemento.get("construto_pretendido"))
     construto = CONSTRUTOS_HABILITADOS.get(pretendido) if pretendido else None
     descricao = _texto_util(elemento.get("descricao"))
     trecho = _texto_util(elemento.get("trecho"))
+    descricao_atual = _texto_util(elemento_atual.get("descricao")) if elemento_atual else None
+    numeros_atuais = numeros_citados(descricao_atual) if descricao_atual else set()
     incompleto = pretendido is None or descricao is None or trecho is None
     if descricao is None:
         if trecho is None or trecho not in texto:
@@ -56,7 +70,7 @@ def montar_elemento(
     if (
         trecho is not None
         and trecho_literal(texto, trecho)
-        and not numeros_citados(descricao).issubset(numeros_citados(trecho))
+        and not numeros_citados(descricao).issubset(numeros_citados(trecho) | numeros_atuais)
     ):
         motivo_lastro = "valor_sem_lastro"
     para_conversao = dict(elemento)
@@ -65,8 +79,15 @@ def montar_elemento(
             if definicao.get("type") not in ("number", "integer") or chave not in elemento:
                 continue
             campo = elemento[chave]
-            if not conferir_numero(
-                texto,
+            # Só o mesmo campo do mesmo construto pode conservar um valor já aplicado.
+            preservado = (
+                elemento_atual is not None
+                and elemento_atual.get("construto") == pretendido
+                and chave in elemento_atual
+                and campo["valor"] == elemento_atual[chave]
+            )
+            if not preservado and not conferir_numero(
+                trecho if construto.lastro_no_trecho and trecho is not None else texto,
                 campo["trecho"],
                 campo["valor"],
                 percentual=chave in ("percentual", "fracao", "taxa"),
@@ -74,14 +95,20 @@ def montar_elemento(
                 motivo_lastro = "valor_sem_lastro"
                 break
             para_conversao[chave] = campo["valor"]
+    motivo_conversao: MotivoRebaixamento | None = None
+    campos: dict[str, ValorRegra] | None = None
     if construto is not None and not erros and not incompleto and motivo_lastro is None:
         try:
             convertido = {
-                **construto.converter(para_conversao),
+                **construto.converter(para_conversao, ContextoExtracao(texto, competencias)),
                 "ref": ref,
                 "construto": pretendido,
             }
             RepresentacaoRegra.model_validate({"nucleo": {}, "especificacoes": [convertido]})
+        except ElementoRebaixadoError as erro:
+            motivo_conversao = erro.motivo
+            campos = erro.campos
+            descricao = trecho or descricao
         except (ValueError, TypeError, KeyError):
             incompleto = True
         else:
@@ -89,13 +116,16 @@ def montar_elemento(
 
     if motivo_lastro is not None:
         descricao = (
-            trecho
-            if trecho is not None and trecho_literal(texto, trecho)
-            else "Elemento sem lastro verificável"
+            trecho if trecho is not None and trecho_literal(texto, trecho) else DESCRICAO_SEM_LASTRO
         )
-    return montar_generico(ref, descricao), Rebaixamento(
+    # Os campos do conversor já foram resolvidos; os pares livres do modelo só acompanham um
+    # trecho verificado, e sem lastro fica só a descrição.
+    if campos is None and motivo_lastro is None and trecho is not None:
+        campos = dict(campos_com_lastro(elemento.get("campos"), trecho)) or None
+    return montar_generico(ref, descricao, campos), Rebaixamento(
         ref=ref,
         construto_pretendido=pretendido,
         motivo=motivo_lastro
+        or motivo_conversao
         or ("campo_obrigatorio_ausente" if incompleto else "construto_nao_habilitado"),
     )

@@ -16,6 +16,7 @@ import synapse.api.core.security.AcessoDoUsuario;
 import synapse.api.job.JobsDeSubmissoes;
 import synapse.api.job.JobsDeSubmissoes.TipoEntrada;
 import synapse.api.job.JobsDeSubmissoes.Rodada;
+import synapse.api.submissoes.SubmissoesRepository.FinalidadeTrabalho;
 
 @Service
 class SubmissoesService {
@@ -37,7 +38,7 @@ class SubmissoesService {
 		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		UUID jobId = entrada.jobId();
 		if (jobId != null) {
-			var recebida = this.jobs.corrigir(jobId, acesso, rodada -> {
+			var recebida = this.jobs.corrigir(jobId, TipoEntrada.TEXTO, acesso, rodada -> {
 				rodadaIdentificada.accept(rodada);
 				return this.repository.inserirTexto(acesso.usuarioId(), entrada.texto(), agora);
 			}, agora);
@@ -50,16 +51,32 @@ class SubmissoesService {
 	}
 
 	@Transactional
-	SubmissaoCriada voz(EntradaSubmissao entrada, AudioSubmissao audio, AcessoDoUsuario acesso) {
+	SubmissaoCriada voz(EntradaSubmissao entrada, AudioSubmissao audio, AcessoDoUsuario acesso,
+			Consumer<UUID> rodadaIdentificada) {
 		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		UUID jobId = entrada.jobId();
+		if (jobId != null) {
+			var recebida = this.jobs.corrigir(jobId, TipoEntrada.VOZ, acesso, rodada -> {
+				rodadaIdentificada.accept(rodada);
+				return this.repository.inserirVoz(acesso.usuarioId(), audio, agora);
+			}, agora);
+			exigirTranscricao();
+			this.repository.inserirTrabalho(jobId, recebida.submissaoId(), FinalidadeTrabalho.CORRECAO, agora);
+			return new SubmissaoCriada(recebida.submissaoId(), "voz", "correcao", agora, recebida.job(),
+					recebida.rodada());
+		}
 		UUID id = this.repository.inserirVoz(acesso.usuarioId(), audio, agora);
 		var job = this.jobs.criar(id, TipoEntrada.VOZ, acesso, agora);
+		exigirTranscricao();
+		this.repository.inserirTrabalho(job.id(), id, FinalidadeTrabalho.ENTRADA_INICIAL, agora);
+		return new SubmissaoCriada(id, "voz", "entrada_inicial", agora, job);
+	}
+
+	private void exigirTranscricao() {
 		if (!this.transcricao.disponivel()) {
 			throw new SubmissaoException(HttpStatus.CONFLICT, "estado_invalido",
 					"O envio por voz não está disponível no momento. Envie o texto.");
 		}
-		this.repository.inserirTrabalho(job.id(), id, agora);
-		return new SubmissaoCriada(id, "voz", "entrada_inicial", agora, job);
 	}
 
 }

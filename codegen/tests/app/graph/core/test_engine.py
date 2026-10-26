@@ -13,10 +13,11 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from app.codigo_gerado import CodigoInvalidoError
+from app.config import get_settings
 from app.graph.core.engine import build_graph
 from app.graph.core.state import AgentState
 from app.prompts.geracao_codigo import montar_prompt_geracao
-from app.repositorio.regras import TentativasDeTaxa
+from app.repositorio.regras import Procedencia, TentativasDeTaxa
 from app.repositorio.resultados import TotaisDaSimulacao
 from app.representacao_regra import RepresentacaoRegra
 from app.sugestao_adaptacao import TaxaSimulada
@@ -26,7 +27,10 @@ from tests.app.graph.conftest import FakeChatModel
 ScriptedModel = Callable[[Iterable[AIMessage]], FakeChatModel]
 
 _REGRA = RepresentacaoRegra.model_validate(
-    {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []}
+    {
+        "nucleo": {"loja": [], "marca": [], "cargo": [], "percentual": Decimal("0.025")},
+        "especificacoes": [],
+    }
 )
 
 
@@ -44,8 +48,10 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
         "__start__",
         "load_rule",
         "extract_rule",
+        "reextract_rule",
         "validate_domain",
         "report_conflicts",
+        "derive_code",
         "code_generation",
         "persist_response",
         "extract_code",
@@ -61,10 +67,14 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
     assert edges == {
         ("__start__", "load_rule"),
         ("__start__", "extract_rule"),
+        ("__start__", "reextract_rule"),
         ("extract_rule", "__end__"),
+        ("reextract_rule", "__end__"),
         ("load_rule", "validate_domain"),
-        ("validate_domain", "code_generation"),
+        ("validate_domain", "derive_code"),
         ("validate_domain", "report_conflicts"),
+        ("derive_code", "code_generation"),
+        ("derive_code", "dispatch_execution"),
         ("report_conflicts", "__end__"),
         ("code_generation", "persist_response"),
         ("persist_response", "extract_code"),
@@ -75,6 +85,7 @@ def test_build_graph_is_the_pipeline_and_nothing_else() -> None:
         ("decision", "__end__"),
         ("suggest_adaptation", "__end__"),
         ("decision", "search_sales_target"),
+        ("decision", "code_generation"),
         ("search_sales_target", "dispatch_execution"),
         ("search_sales_target", "publish_sales_target"),
         ("publish_sales_target", "__end__"),
@@ -105,6 +116,22 @@ class _Execucao:
         regra: RepresentacaoRegra = _REGRA,
     ) -> None:
         monkeypatch.setattr("app.graph.nodes.load_rule.buscar_regra", AsyncMock(return_value=regra))
+        # Uma versão que não é alternativa de taxa segue para a geração pelo modelo.
+        monkeypatch.setattr(
+            "app.graph.nodes.derive_code.buscar_procedencia",
+            AsyncMock(return_value=Procedencia("extracao", None)),
+        )
+        # O banco falso não responde às consultas da busca da meta maior, que tem testes
+        # próprios (`tests/app/graph/test_busca_meta.py`).
+        monkeypatch.setattr(get_settings(), "BUSCA_META_ENABLED", False)
+        monkeypatch.setattr(
+            "app.graph.nodes.validate_domain.parametros_sem_lastro",
+            AsyncMock(return_value=frozenset()),
+        )
+        monkeypatch.setattr(
+            "app.graph.nodes.validate_domain.nucleo_sem_lastro",
+            AsyncMock(return_value=frozenset()),
+        )
         monkeypatch.setattr(
             "app.graph.nodes.decision.contar_tentativas",
             AsyncMock(return_value=TentativasDeTaxa(feitas=0, regra_e_tentativa=False)),
@@ -133,6 +160,7 @@ class _Execucao:
             "regra_id": REGRA_ID,
             "competencias": ["2025-08", "2025-11"],
             "orcamento": "485000.00",
+            "meta_venda": "12000000",
         }
         return await self.graph.ainvoke(initial_state, self.config)
 
@@ -213,14 +241,15 @@ async def test_an_unaffordable_result_routes_to_the_adaptation_and_proposes_one(
     A proposta sai do total apurado, não do modelo - o nó de sugestão não chama LLM.
     """
     regra = RepresentacaoRegra.model_validate(
-        {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []}
+        {
+            "nucleo": {"loja": [], "marca": [], "cargo": [], "percentual": Decimal("0.025")},
+            "especificacoes": [],
+        }
     )
     monkeypatch.setattr(
         "app.graph.nodes.suggest_adaptation.buscar_totais",
         AsyncMock(
-            return_value=TotaisDaSimulacao(
-                Decimal("492100"), Decimal("485000"), baseline=Decimal("480312")
-            )
+            return_value=TotaisDaSimulacao(Decimal("492100"), Decimal("485000"), linhas=None)
         ),
     )
     # A regra ainda não foi adaptada: a cadeia dela tem só a taxa que acabou de ser simulada.
@@ -235,7 +264,8 @@ async def test_an_unaffordable_result_routes_to_the_adaptation_and_proposes_one(
     await execucao.retomar(RETOMADA_INVIAVEL)
 
     [proposta] = execucao.producers.sugestao_adaptacao_proposta.await_args.args
-    assert proposta.representacao.para_contrato()["nucleo"]["percentual"] == Decimal("0.0099")
+    # A regra vale para todas as lojas, marcas e cargos: toda a comissão acompanha a taxa.
+    assert proposta.representacao.para_contrato()["nucleo"]["percentual"] == Decimal("0.0246")
     assert (await execucao.graph.aget_state(execucao.config)).next == ()
 
 

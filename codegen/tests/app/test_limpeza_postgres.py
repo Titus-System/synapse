@@ -46,7 +46,7 @@ from app.graph.nodes.await_execution import await_execution
 from app.mensageria import limpeza as modulo_limpeza
 from app.mensageria import roteamento
 from app.mensageria.limpeza import LimpezaDeCheckpoints, ResultadoDaLimpeza
-from app.mensageria.roteamento import GraphRouter, JobEncerradoError
+from app.mensageria.roteamento import GraphRouter, JobEncerradoError, thread_da_correcao
 
 pytestmark = [
     pytest.mark.postgres,
@@ -297,6 +297,47 @@ async def test_remove_os_ciclos_de_todas_as_versoes_e_do_legado_e_preserva_outro
     assert concluida.ciclos_removidos == 3  # type: ignore[attr-defined]
     assert CONTEUDO_DO_CHECKPOINT not in caplog.text
     assert await dono.fetchval("SELECT count(*) FROM checkpoint_migrations") > 0
+
+
+async def test_remove_as_threads_de_reextracao_terminadas_e_interrompidas(
+    grafo: Grafo,
+    sessoes: async_sessionmaker[AsyncSession],
+    dono: Any,
+    novo_job: Callable[[], Any],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A thread `job_id:correcao:submissao_id` da reextração (T-221) também é do job.
+
+    Uma reextração termina ou falha de vez, nunca espera um resultado; as duas são removidas.
+    """
+    job_id = await novo_job()
+    concluida, interrompida = (
+        thread_da_correcao(job_id, uuid4()),
+        thread_da_correcao(job_id, uuid4()),
+    )
+    regra_concluida, regra_interrompida = uuid4(), uuid4()
+    await pausar(concluida, job_id, regra_concluida)
+    await concluir(concluida)
+    grafo.falhar_na_geracao.add(str(regra_interrompida))
+    with pytest.raises(FalhaNaGeracaoError):
+        await pausar(interrompida, job_id, regra_interrompida)
+    assert sorted(ciclo.thread_id for ciclo in await entrypoint.ciclos_do_job(job_id)) == sorted(
+        [concluida, interrompida]
+    )
+    caplog.set_level(logging.INFO)
+
+    await LimpezaDeCheckpoints(sessoes).registrar(encerramento(job_id))
+
+    assert await linhas_do_job(dono, job_id) == {
+        "checkpoints": 0,
+        "checkpoint_writes": 0,
+        "checkpoint_blobs": 0,
+    }
+    assert await limpo_em(dono, job_id) is not None
+    concluida_log = next(
+        r for r in caplog.records if r.getMessage() == "limpeza de checkpoints concluída"
+    )
+    assert concluida_log.ciclos_removidos == 2  # type: ignore[attr-defined]
 
 
 async def test_job_nao_encerrado_mantem_os_checkpoints_e_e_retomado_depois_de_reiniciar(

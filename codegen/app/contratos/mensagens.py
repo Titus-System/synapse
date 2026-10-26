@@ -84,9 +84,9 @@ class RegraSubmetida(ModeloContrato):
     competencias: list[str] = Field(min_length=1)
     submissao_id: UUID | None = None
     regra_id: UUID | None = None
-    orcamento: Decimal | None = Field(default=None, ge=0)
-    # Sem limite inferior, como no contrato: a meta zero ou negativa chega ao grafo como foi
-    # dita, para a validação de domínio apontá-la como conflito (T-280).
+    # Sem limite inferior, como no contrato: o orçamento negativo e a meta zero ou negativa
+    # chegam ao grafo como foram ditos, para a validação de domínio apontá-los (T-280).
+    orcamento: Decimal | None = None
     meta_venda: Decimal | None = None
 
 
@@ -100,8 +100,18 @@ class ParametrosConfirmados(ModeloContrato):
     job_id: UUID
     regra_id: UUID
     competencias: list[str] | None = Field(default=None, min_length=1)
-    orcamento: Decimal | None = Field(default=None, ge=0)
-    # Sem limite inferior pelo mesmo motivo de `RegraSubmetida.meta_venda`.
+    # Sem limite inferior pelo mesmo motivo de `RegraSubmetida`.
+    orcamento: Decimal | None = None
+    meta_venda: Decimal | None = None
+
+
+class CorrecaoSubmetida(ModeloContrato):
+    job_id: UUID
+    regra_origem_id: UUID
+    submissao_id: UUID
+    competencias: list[str] | None = Field(default=None, min_length=1)
+    # Sem limite inferior, como no contrato: são os parâmetros atuais do job como foram ditos.
+    orcamento: Decimal | None = None
     meta_venda: Decimal | None = None
 
 
@@ -133,6 +143,41 @@ class SugestaoAdaptacaoProposta(ModeloContrato):
     tentativa: int | None = Field(default=None, ge=1, le=3)
 
 
+class ParametrosSimulacao(ModeloContrato):
+    orcamento: Decimal | None = None
+    meta_venda: Decimal | None = None
+    competencias: list[str] | None = Field(default=None, min_length=1)
+
+
+class CorrecaoProposta(ModeloContrato):
+    job_id: UUID
+    regra_origem_id: UUID
+    submissao_id: UUID
+    representacao: RepresentacaoRegra
+    parametros: ParametrosSimulacao | None = None
+
+
+class VigenciaDoAlcance(ModeloContrato):
+    inicio: str
+    fim: str
+
+
+class ExcluidosDoAlcance(ModeloContrato):
+    loja: list[str] | None = Field(default=None, min_length=1)
+    marca: list[str] | None = Field(default=None, min_length=1)
+    cargo: list[str] | None = Field(default=None, min_length=1)
+
+
+class AlcanceDaExecucao(ModeloContrato):
+    """As linhas a que a regra dá efeito; cada campo ausente não restringe a dimensão."""
+
+    vigencia: VigenciaDoAlcance | None = None
+    loja: list[str] | None = Field(default=None, min_length=1)
+    marca: list[str] | None = Field(default=None, min_length=1)
+    cargo: list[str] | None = Field(default=None, min_length=1)
+    excluidos: ExcluidosDoAlcance | None = None
+
+
 class ExecutarCodigo(ModeloContrato):
     job_id: UUID
     codigo_gerado_id: UUID
@@ -141,6 +186,7 @@ class ExecutarCodigo(ModeloContrato):
     meta_venda: Decimal | None = Field(default=None, gt=0)
     proposito: Literal["simulacao", "busca_meta"] | None = None
     elementos_exigidos: list[ReferenciaDeElemento] | None = Field(default=None, min_length=1)
+    alcance: AlcanceDaExecucao | None = None
 
 
 class ConflitoDaRodada(ModeloContrato):
@@ -154,6 +200,7 @@ class EtapaAlterada(ModeloContrato):
     status: str = Field(min_length=1)
     causa: Literal["provedor_indisponivel"] | None = None
     regra_id: UUID | None = None
+    submissao_id: UUID | None = None
     conflitos: list[ConflitoDaRodada] | None = Field(default=None, min_length=1)
 
 

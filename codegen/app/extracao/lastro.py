@@ -3,7 +3,9 @@
 import re
 import unicodedata
 from collections.abc import Sequence
+from datetime import date
 from decimal import Decimal, InvalidOperation
+from itertools import pairwise
 
 _MESES = (
     "janeiro",
@@ -20,6 +22,13 @@ _MESES = (
     "dezembro",
 )
 _NUMERO = re.compile(r"(?<![\w])[-+]?(?:\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[,.]\d+)?)(?![\w])")
+_FRACAO_ANTES = re.compile(r"\bfra[cç][aã]o(?:\s+decimal)?(?:\s+de)?\s*[:=]?\s*$", re.IGNORECASE)
+_FRACAO_DEPOIS = re.compile(
+    r"\s*(?:(?:em|como)\s+fra[cç][aã]o(?:\s+decimal)?\b|\(\s*fra[cç][aã]o(?:\s+decimal)?\s*\))",
+    re.IGNORECASE,
+)
+_MOEDA_ANTES = re.compile(r"r\$\s*\)?\s*$", re.IGNORECASE)
+_MOEDA_DEPOIS = re.compile(r"\s*\(?\s*(?:r\$|(?:real|reais|centavos?)\b)", re.IGNORECASE)
 _POR_EXTENSO = re.compile(
     r"\b(zero|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|"
     r"onze|doze|treze|catorze|quatorze|quinze|dezesseis|dezessete|dezoito|"
@@ -31,6 +40,9 @@ _COMPETENCIA = re.compile(r"(?<!\d)(\d{4})-(0[1-9]|1[0-2])(?!\d)")
 _COMPETENCIA_BR = re.compile(r"(?<!\d)(0?[1-9]|1[0-2])/(19\d{2}|20\d{2})(?!\d)")
 _MES = re.compile(r"\b(" + "|".join(_MESES) + r")\b")
 _ANO = re.compile(r"\b(?:19|20)\d{2}\b")
+_DATA_ISO = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
+_DATA_BR = re.compile(r"(?<!\d)(\d{1,2})/(\d{1,2})(?:/(\d{4}))?(?![\d/])")
+_DATA_EXTENSO = re.compile(r"(?<!\d)(\d{1,2}) de (" + "|".join(_MESES) + r")(?: de (\d{4}))?(?!\d)")
 
 
 def normalizar(texto: str) -> str:
@@ -42,8 +54,134 @@ def normalizar(texto: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w]+", " ", sem_acentos.casefold())).strip()
 
 
+_UNIDADES = {
+    "zero": 0,
+    "um": 1,
+    "uma": 1,
+    "dois": 2,
+    "duas": 2,
+    "tres": 3,
+    "quatro": 4,
+    "cinco": 5,
+    "seis": 6,
+    "sete": 7,
+    "oito": 8,
+    "nove": 9,
+}
+_DEZ_A_DEZENOVE = {
+    "dez": 10,
+    "onze": 11,
+    "doze": 12,
+    "treze": 13,
+    "catorze": 14,
+    "quatorze": 14,
+    "quinze": 15,
+    "dezesseis": 16,
+    "dezessete": 17,
+    "dezoito": 18,
+    "dezenove": 19,
+}
+_DEZENAS = {
+    "vinte": 20,
+    "trinta": 30,
+    "quarenta": 40,
+    "cinquenta": 50,
+    "sessenta": 60,
+    "setenta": 70,
+    "oitenta": 80,
+    "noventa": 90,
+}
+_CENTENAS = {
+    "cento": 100,
+    "duzentos": 200,
+    "duzentas": 200,
+    "trezentos": 300,
+    "trezentas": 300,
+    "quatrocentos": 400,
+    "quatrocentas": 400,
+    "quinhentos": 500,
+    "quinhentas": 500,
+    "seiscentos": 600,
+    "seiscentas": 600,
+    "setecentos": 700,
+    "setecentas": 700,
+    "oitocentos": 800,
+    "oitocentas": 800,
+    "novecentos": 900,
+    "novecentas": 900,
+}
+_GRANDEZAS = frozenset({"mil", "milhao", "milhoes", "bilhao", "bilhoes"})
+
+
+def _ate_noventa_e_nove(palavras: Sequence[str], inicio: int) -> tuple[int, int] | None:
+    palavra = palavras[inicio]
+    if palavra in _DEZENAS:
+        fim = inicio + 1
+        if fim + 1 < len(palavras) and palavras[fim] == "e" and _UNIDADES.get(palavras[fim + 1]):
+            return _DEZENAS[palavra] + _UNIDADES[palavras[fim + 1]], fim + 2
+        return _DEZENAS[palavra], fim
+    if palavra in _DEZ_A_DEZENOVE:
+        return _DEZ_A_DEZENOVE[palavra], inicio + 1
+    if palavra in _UNIDADES:
+        return _UNIDADES[palavra], inicio + 1
+    return None
+
+
+def _numero_por_extenso(palavras: Sequence[str], inicio: int) -> tuple[int, int] | None:
+    palavra = palavras[inicio]
+    if palavra == "cem":
+        return 100, inicio + 1
+    if palavra in _CENTENAS:
+        fim = inicio + 1
+        if fim + 1 < len(palavras) and palavras[fim] == "e":
+            resto = _ate_noventa_e_nove(palavras, fim + 1)
+            if resto is not None and resto[0] > 0:
+                return _CENTENAS[palavra] + resto[0], resto[1]
+        return _CENTENAS[palavra], fim
+    return _ate_noventa_e_nove(palavras, inicio)
+
+
+def numeros_por_extenso(texto: str) -> set[int]:
+    """Os números de 0 a 999 escritos por extenso no texto.
+
+    A transcrição de voz escreve os números por extenso (ADR-007), e um código de loja, marca
+    ou cargo dito pelo usuário chega como "loja sessenta e oito". A leitura composta tem
+    prioridade, como no português falado: "sessenta e oito" é 68, e um "e" que não compõe
+    separa números, então "treze e cinquenta e oito" é 13 e 58. Um número seguido de "mil" ou
+    "milhão" é uma grandeza, e não um código.
+    """
+    palavras = normalizar(texto).split()
+    numeros: set[int] = set()
+    indice = 0
+    while indice < len(palavras):
+        lido = _numero_por_extenso(palavras, indice)
+        if lido is None:
+            indice += 1
+            continue
+        valor, indice = lido
+        if indice >= len(palavras) or palavras[indice] not in _GRANDEZAS:
+            numeros.add(valor)
+    return numeros
+
+
 def trecho_literal(texto: str, trecho: object) -> bool:
     return isinstance(trecho, str) and bool(trecho.strip()) and trecho in texto
+
+
+def restaurar_trechos_literais(valor: object, texto: str) -> None:
+    """Recupera a citação original quando só seus espaços foram alterados pelo modelo."""
+    if isinstance(valor, dict):
+        trecho = valor.get("trecho")
+        if isinstance(trecho, str) and trecho.split() and not trecho_literal(texto, trecho):
+            padrao = r"\s+".join(re.escape(parte) for parte in trecho.split())
+            encontrado = re.search(padrao, texto)
+            if encontrado is not None:
+                valor["trecho"] = encontrado.group()
+        for item in valor.values():
+            restaurar_trechos_literais(item, texto)
+    elif isinstance(valor, list):
+        for item in valor:
+            restaurar_trechos_literais(item, texto)
 
 
 def numeros_citados(texto: str) -> set[str]:
@@ -58,7 +196,26 @@ def _decimal(numero: str) -> Decimal:
     return Decimal(numero)
 
 
-def conferir_numero(texto: str, trecho: object, valor: object, *, percentual: bool) -> bool:
+def _numero_monetario(texto: str, trecho: str, numero: re.Match[str]) -> bool:
+    for evidencia in re.finditer(re.escape(trecho), texto):
+        antes = texto[: evidencia.start() + numero.start()]
+        depois = texto[evidencia.start() + numero.end() :]
+        indicacao_fracao = _FRACAO_DEPOIS.match(depois)
+        if indicacao_fracao is not None:
+            depois = depois[indicacao_fracao.end() :]
+        if _MOEDA_ANTES.search(antes) or _MOEDA_DEPOIS.match(depois):
+            return True
+    return False
+
+
+def conferir_numero(
+    texto: str,
+    trecho: object,
+    valor: object,
+    *,
+    percentual: bool,
+    exigir_marcador_percentual: bool = False,
+) -> bool:
     if not trecho_literal(texto, trecho) or isinstance(valor, bool):
         return False
     try:
@@ -70,13 +227,33 @@ def conferir_numero(texto: str, trecho: object, valor: object, *, percentual: bo
     assert isinstance(trecho, str)
     ocorrencias = list(_NUMERO.finditer(trecho))
     if not ocorrencias:
+        if exigir_marcador_percentual:
+            for marcador in re.finditer(r"%|\bpor\s+cento\b", trecho, flags=re.IGNORECASE):
+                palavras = normalizar(trecho[: marcador.start()]).split()
+                if palavras and _POR_EXTENSO.fullmatch(palavras[-1]):
+                    return True
+            return False
         # Número por extenso: somente a existência literal é verificável (T-210).
         return bool(_POR_EXTENSO.search(normalizar(trecho)))
     for ocorrencia in ocorrencias:
         encontrado = _decimal(ocorrencia.group())
         if percentual:
+            if exigir_marcador_percentual and _numero_monetario(texto, trecho, ocorrencia):
+                continue
             if re.match(r"\s*(?:%|por\s+cento\b)", trecho[ocorrencia.end() :], flags=re.IGNORECASE):
                 encontrado /= 100
+            elif exigir_marcador_percentual:
+                antes = trecho[: ocorrencia.start()].rstrip()
+                depois = trecho[ocorrencia.end() :].lstrip()
+                if (
+                    antes.endswith("/")
+                    or depois.startswith("/")
+                    or not (_FRACAO_ANTES.search(antes) or _FRACAO_DEPOIS.match(depois))
+                ):
+                    continue
+                # A fração explícita pode usar ponto decimal, como 0.025, sem agrupar milhares.
+                if re.fullmatch(r"[-+]?\d+\.\d+", ocorrencia.group()):
+                    encontrado = Decimal(ocorrencia.group())
         else:
             resto = normalizar(trecho[ocorrencia.end() :])
             if resto.startswith(("milhao", "milhoes")):
@@ -102,23 +279,44 @@ def resolver_periodo(
 ) -> list[str] | None:
     """Extrai somente meses presentes no trecho; o ano implícito vem do job."""
     normalizado = normalizar(trecho)
-    explicitadas = [f"{ano}-{mes}" for ano, mes in _COMPETENCIA.findall(trecho)]
-    if not explicitadas:
-        explicitadas = [f"{ano}-{int(mes):02d}" for mes, ano in _COMPETENCIA_BR.findall(trecho)]
-    if explicitadas:
-        if len(explicitadas) > 2:
+    iso = list(_COMPETENCIA.finditer(trecho))
+    brasileiro = list(_COMPETENCIA_BR.finditer(trecho))
+    por_nome = list(_MES.finditer(normalizado))
+    if sum(bool(formato) for formato in (iso, brasileiro, por_nome)) != 1:
+        return None
+    base = trecho
+    if iso:
+        referencias = iso
+        meses = [f"{item[1]}-{item[2]}" for item in iso]
+    elif brasileiro:
+        referencias = brasileiro
+        meses = [f"{item[2]}-{int(item[1]):02d}" for item in brasileiro]
+    else:
+        base = normalizado
+        referencias = por_nome
+        anos = set(_ANO.findall(normalizado))
+        if not anos:
+            anos = {c[:4] for c in publicadas if _COMPETENCIA.fullmatch(c)}
+        if len(anos) != 1:
             return None
-        return _meses_inclusivos(explicitadas[0], explicitadas[-1], vigencia=vigencia)
-    meses = [str(_MESES.index(m.group()) + 1).zfill(2) for m in _MES.finditer(normalizado)]
-    if not 1 <= len(meses) <= 2:
+        ano = anos.pop()
+        meses = [f"{ano}-{_MESES.index(item.group()) + 1:02d}" for item in referencias]
+
+    ligacoes = [base[a.end() : b.start()] for a, b in pairwise(referencias)]
+    intervalo = any(
+        re.search(r"\b(?:a|ate)$", normalizar(ligacao))
+        or ligacao.strip() in ("-", "\u2013", "\u2014")
+        for ligacao in ligacoes
+    ) or bool(re.search(r"\bentre\s*$", normalizar(base[: referencias[0].start()])))
+    if len(meses) == 2 and re.search(r"\s[-\u2013\u2014]\s", trecho):
+        intervalo = True
+    if intervalo:
+        if len(meses) != 2:
+            return None
+        return _meses_inclusivos(meses[0], meses[-1], vigencia=vigencia)
+    if vigencia and len(meses) > 1:
         return None
-    anos = set(_ANO.findall(normalizado))
-    if not anos:
-        anos = {c[:4] for c in publicadas if _COMPETENCIA.fullmatch(c)}
-    if len(anos) != 1:
-        return None
-    ano = anos.pop()
-    return _meses_inclusivos(f"{ano}-{meses[0]}", f"{ano}-{meses[-1]}", vigencia=vigencia)
+    return sorted(set(meses))
 
 
 def conferir_periodo(
@@ -134,3 +332,82 @@ def conferir_periodo(
     if vigencia:
         return isinstance(valor, dict) and valor == {"inicio": periodo[0], "fim": periodo[-1]}, True
     return isinstance(valor, list) and valor == periodo, True
+
+
+def _data_valida(ano: int, mes: int, dia: int) -> str | None:
+    try:
+        return date(ano, mes, dia).isoformat()
+    except ValueError:
+        return None
+
+
+def resolver_datas(trecho: str, publicadas: Sequence[str]) -> list[str] | None:
+    """Datas AAAA-MM-DD do trecho, na ordem em que aparecem; None se o ano não se resolve.
+
+    O ano que o trecho não diz é o ano comum das competências do job. Datas escritas em mais de
+    um formato no mesmo trecho não têm ordem confiável e também resultam em None.
+    """
+    por_formato: list[list[tuple[int | None, int, int]]] = [
+        [(int(a), int(m), int(d)) for a, m, d in _DATA_ISO.findall(trecho)],
+        [(int(a) if a else None, int(m), int(d)) for d, m, a in _DATA_BR.findall(trecho)],
+        [
+            (int(a) if a else None, _MESES.index(m) + 1, int(d))
+            for d, m, a in _DATA_EXTENSO.findall(normalizar(trecho))
+        ],
+    ]
+    encontradas = [formato for formato in por_formato if formato]
+    if not encontradas:
+        return []
+    if len(encontradas) > 1:
+        return None
+    anos = {c[:4] for c in publicadas if _COMPETENCIA.fullmatch(c)}
+    datas: list[str] = []
+    for ano, mes, dia in encontradas[0]:
+        if ano is None:
+            if len(anos) != 1:
+                return None
+            ano = int(next(iter(anos)))
+        # Descartar só a data inválida faria um intervalo incompleto parecer um dia único.
+        resolvida = _data_valida(ano, mes, dia)
+        if resolvida is None:
+            return []
+        datas.append(resolvida)
+    return datas
+
+
+def conferir_data(
+    texto: str, trecho: object, valor: object, publicadas: Sequence[str]
+) -> tuple[bool, bool]:
+    """Retorna (confere, resolvido) para uma única data, como `conferir_periodo`."""
+    if not trecho_literal(texto, trecho):
+        return False, True
+    assert isinstance(trecho, str)
+    datas = resolver_datas(trecho, publicadas)
+    if datas is None:
+        return False, False
+    return len(datas) == 1 and valor == datas[0], True
+
+
+_CHAVE_DE_CAMPO = re.compile(r"[a-z][a-z0-9_]{0,39}")
+
+
+def campos_com_lastro(campos: object, trecho: str) -> dict[str, str | int | Decimal]:
+    """Mantém só os pares de `campos` cujo valor aparece no trecho do elemento."""
+    if not isinstance(campos, dict):
+        return {}
+    aprovados: dict[str, str | int | Decimal] = {}
+    for chave, valor in campos.items():
+        if not isinstance(chave, str) or not _CHAVE_DE_CAMPO.fullmatch(chave):
+            continue
+        if isinstance(valor, str):
+            confere = bool(normalizar(valor)) and normalizar(valor) in normalizar(trecho)
+        elif isinstance(valor, int | Decimal) and not isinstance(valor, bool):
+            confere = any(
+                conferir_numero(trecho, trecho, valor, percentual=percentual)
+                for percentual in (False, True)
+            )
+        else:
+            confere = False
+        if confere:
+            aprovados[chave] = valor
+    return aprovados

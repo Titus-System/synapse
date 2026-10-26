@@ -28,6 +28,42 @@ import synapse.api.job.VersoesDaRegra.VersaoRegra;
 @Repository
 class JobRepository {
 
+	/**
+	 * Texto inicial do job: o da própria submissão ou, no job reprocessado, o do primeiro
+	 * job da cadeia de origem que tem submissão. Exige o alias {@code j} para jobs.
+	 */
+	/**
+	 * O {@code conclusao.encaminhamento} da decisão que abriu a busca da meta maior, como
+	 * o codegen o grava na trilha
+	 * ({@code contracts/domain/trilha-conclusao.schema.json}).
+	 */
+	static final String ENCAMINHAMENTO_BUSCA_META = "busca_meta";
+
+	private static final String JUNCAO_TEXTO_INICIAL = """
+			LEFT JOIN LATERAL (
+				WITH RECURSIVE cadeia AS (
+					SELECT j.submissao_id, j.job_origem_id, 0 AS nivel
+					UNION ALL
+					SELECT o.submissao_id, o.job_origem_id, c.nivel + 1
+					FROM cadeia c
+					JOIN jobs o ON o.id = c.job_origem_id
+					WHERE c.submissao_id IS NULL
+				)
+				SELECT si.transcricao
+				FROM cadeia c
+				JOIN submissoes si ON si.id = c.submissao_id
+				ORDER BY c.nivel
+				LIMIT 1
+			) inicial ON true
+			""";
+
+	/** Nome resolvido: o definido pelo usuário, senão o padrão, senão NULL. */
+	private static final String NOME_RESOLVIDO = """
+			COALESCE(j.nome, NULLIF(left(
+				regexp_replace(btrim(inicial.transcricao, E' \\t\\r\\n'), '[ \\t\\r\\n]+', ' ', 'g'),
+				50), '')) AS nome
+			""";
+
 	private final JdbcTemplate jdbc;
 
 	private final JsonMapper json = JsonMapper.builder()
@@ -49,8 +85,10 @@ class JobRepository {
 	List<JobResumoDto> listarJobs(UUID usuarioId, int tamanho, long deslocamento) {
 		return this.jdbc.query("""
 				SELECT j.id, j.status, j.competencias, j.orcamento, j.meta_venda, j.criado_em, j.finalizado_em,
-				       j.job_origem_id, rs.veredito
+				       j.job_origem_id, rs.veredito,
+					   """ + NOME_RESOLVIDO + """
 				FROM jobs j
+				""" + JUNCAO_TEXTO_INICIAL + """
 				LEFT JOIN LATERAL (
 				    SELECT s.resultado_id FROM simulacoes s
 				    WHERE s.job_id = j.id
@@ -69,7 +107,7 @@ class JobRepository {
 				Objects.requireNonNull(linha.getString("status")), competencias(linha.getArray("competencias")),
 				linha.getBigDecimal("orcamento"), linha.getBigDecimal("meta_venda"), linha.getString("veredito"),
 				Objects.requireNonNull(instante(linha, "criado_em")), instante(linha, "finalizado_em"),
-				linha.getObject("job_origem_id", UUID.class));
+				linha.getObject("job_origem_id", UUID.class), linha.getString("nome"));
 	}
 
 	private static List<String> competencias(Array coluna) throws SQLException {
@@ -105,9 +143,11 @@ class JobRepository {
 				    j.submissao_id,
 				    j.job_origem_id,
 				    ultima.motivo AS motivo_da_trilha,
-				    regras.regras
+				    regras.regras,
+					""" + NOME_RESOLVIDO + """
 
 				FROM jobs j
+				""" + JUNCAO_TEXTO_INICIAL + """
 				LEFT JOIN submissoes s ON s.id = j.submissao_id
 				LEFT JOIN LATERAL (
 				    SELECT t.motivo
@@ -150,17 +190,28 @@ class JobRepository {
 
 			String regras = rs.getString("regras");
 
+			String nome = rs.getString("nome");
+
 			return new DadosConsulta(id, status, origem, competencias, orcamento, metaVenda, criadoEm, iniciadoEm,
-					finalizadoEm, submissaoId, jobOrigemId, motivo, regras);
+					finalizadoEm, submissaoId, jobOrigemId, motivo, regras, nome);
 		}, jobId);
 	}
 
 	List<SimulacaoDto> listarSimulacoes(UUID jobId) {
 		return this.jdbc.query("""
 				SELECT s.id, s.regra_id, s.criado_em, s.flag_baixa_rastreabilidade,
-				       r.status, r.veredito, r.totais, r.assercoes, r.decomposicao, r.meta_venda
+				       r.status, r.veredito, r.totais, r.assercoes, r.decomposicao, r.meta_venda,
+				       m.aceita_em AS meta_sugerida_aceita_em,
+				       a.id AS anterior_id, a.criado_em AS anterior_criado_em, a.status AS anterior_status,
+				       a.veredito AS anterior_veredito, a.meta_venda AS anterior_meta_venda,
+				       a.totais AS anterior_totais, a.assercoes AS anterior_assercoes,
+				       a.decomposicao AS anterior_decomposicao
 				FROM simulacoes s
 				JOIN resultados_simulacao r ON r.id = s.resultado_id
+				LEFT JOIN sugestoes_meta_venda m ON m.job_id = s.job_id AND m.regra_id = s.regra_id
+				    AND m.resultado_id = s.resultado_id AND m.aceita_em IS NOT NULL
+				LEFT JOIN resultados_simulacao a ON a.id = m.resultado_anterior_id
+				    AND a.job_id = s.job_id AND a.codigo_gerado_id = s.codigo_gerado_id
 				WHERE s.job_id = ? ORDER BY s.criado_em, s.id
 				""", (rs, numero) -> simulacao(rs), jobId);
 	}
@@ -168,26 +219,32 @@ class JobRepository {
 	private SimulacaoDto simulacao(ResultSet rs) throws SQLException {
 		String status = Objects.requireNonNull(rs.getString("status"));
 		boolean sucesso = "sucesso".equals(status);
+		Timestamp aceitaEm = rs.getTimestamp("meta_sugerida_aceita_em");
+		UUID anteriorId = rs.getObject("anterior_id", UUID.class);
+		SimulacaoAnteriorDto anterior = anteriorId == null ? null
+				: new SimulacaoAnteriorDto(anteriorId, rs.getTimestamp("anterior_criado_em").toInstant(),
+						rs.getString("anterior_status"), rs.getString("anterior_veredito"),
+						rs.getBigDecimal("anterior_meta_venda"), resultado(rs, "anterior_"));
 		return new SimulacaoDto(rs.getObject("id", UUID.class), rs.getObject("regra_id", UUID.class),
 				rs.getTimestamp("criado_em").toInstant(), status, sucesso ? rs.getString("veredito") : null,
-				rs.getBoolean("flag_baixa_rastreabilidade"), sucesso ? resultado(rs) : null,
-				rs.getBigDecimal("meta_venda"));
+				rs.getBoolean("flag_baixa_rastreabilidade"), sucesso ? resultado(rs, "") : null,
+				rs.getBigDecimal("meta_venda"), aceitaEm == null ? null : aceitaEm.toInstant(), anterior);
 	}
 
-	private ResultadoSimulacaoDto resultado(ResultSet rs) throws SQLException {
-		TotaisSimulacaoDto totais = rs.getString("totais") == null ? null
-				: this.json.readValue(rs.getString("totais"), TotaisSimulacaoDto.class);
-		List<ResultadoAssercaoDto> assercoes = this.json.readValue(rs.getString("assercoes"),
+	private ResultadoSimulacaoDto resultado(ResultSet rs, String prefixo) throws SQLException {
+		TotaisSimulacaoDto totais = rs.getString(prefixo + "totais") == null ? null
+				: this.json.readValue(rs.getString(prefixo + "totais"), TotaisSimulacaoDto.class);
+		List<ResultadoAssercaoDto> assercoes = this.json.readValue(rs.getString(prefixo + "assercoes"),
 				new TypeReference<List<ResultadoAssercaoDto>>() {
 				});
-		DecomposicaoResultadoDto decomposicao = rs.getString("decomposicao") == null ? null
-				: this.json.readValue(rs.getString("decomposicao"), DecomposicaoResultadoDto.class);
+		DecomposicaoResultadoDto decomposicao = rs.getString(prefixo + "decomposicao") == null ? null
+				: this.json.readValue(rs.getString(prefixo + "decomposicao"), DecomposicaoResultadoDto.class);
 		return new ResultadoSimulacaoDto(totais, assercoes, decomposicao);
 	}
 
 	/**
-	 * Única leitura de {@code resultados_simulacao.linhas}. O {@code LEFT JOIN} mantém a
-	 * simulação ainda sem resultado, que existe e não tem detalhamento.
+	 * O {@code LEFT JOIN} mantém a simulação ainda sem resultado, que existe e não tem
+	 * detalhamento.
 	 */
 	List<DetalhamentoSimulacaoDto> buscarDetalhamento(UUID jobId, UUID simulacaoId) {
 		return this.jdbc.query("""
@@ -199,6 +256,21 @@ class JobRepository {
 				(rs, numero) -> new DetalhamentoSimulacaoDto(Objects.requireNonNull(rs.getObject("id", UUID.class)),
 						rs.getString("linhas")),
 				simulacaoId, jobId);
+	}
+
+	List<DetalhamentoSimulacaoDto> buscarDetalhamentoAnterior(UUID jobId, UUID simulacaoId, UUID resultadoId) {
+		return this.jdbc.query("""
+				SELECT s.id, r.linhas
+				FROM simulacoes s
+				JOIN sugestoes_meta_venda m ON m.job_id = s.job_id AND m.regra_id = s.regra_id
+				    AND m.resultado_id = s.resultado_id AND m.aceita_em IS NOT NULL
+				JOIN resultados_simulacao r ON r.id = m.resultado_anterior_id
+				    AND r.job_id = s.job_id AND r.codigo_gerado_id = s.codigo_gerado_id
+				WHERE s.id = ? AND s.job_id = ? AND r.id = ?
+				""",
+				(rs, numero) -> new DetalhamentoSimulacaoDto(Objects.requireNonNull(rs.getObject("id", UUID.class)),
+						rs.getString("linhas")),
+				simulacaoId, jobId, resultadoId);
 	}
 
 	List<RegraCriadaDto> mapearRegras(String regrasJson) {
@@ -309,6 +381,35 @@ class JobRepository {
 				jobId);
 	}
 
+	UUID inserirVersaoCorrecao(UUID jobId, int versao, UUID origemId, JsonNode representacao,
+			@Nullable String parametros, String hash, Timestamp agora) {
+		return Objects.requireNonNull(this.jdbc.queryForObject("""
+				INSERT INTO regras (job_id, versao, origem, regra_origem_id, representacao, nucleo,
+				    especificacoes, parametros, hash, criada_em)
+				VALUES (?, ?, 'correcao', ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?) RETURNING id
+				""", UUID.class, jobId, versao, origemId, representacao.toString(),
+				representacao.path("nucleo").toString(), representacao.path("especificacoes").toString(), parametros,
+				hash, agora));
+	}
+
+	JsonNode buscarRepresentacaoCompleta(UUID regraId) {
+		return this.json.readTree(Objects.requireNonNull(this.jdbc.queryForObject(
+				"""
+						SELECT COALESCE(representacao, jsonb_build_object('nucleo', nucleo, 'especificacoes', especificacoes))::text
+						FROM regras WHERE id = ?
+						""",
+				String.class, regraId)));
+	}
+
+	void substituirParametros(UUID jobId, ParametrosDaSimulacao parametros) {
+		List<String> competencias = parametros.periodoCanonico();
+		if (competencias == null)
+			competencias = CompetenciasPublicadas.TODAS;
+		this.jdbc.update("UPDATE jobs SET orcamento = ?, meta_venda = ?, competencias = ? WHERE id = ?",
+				parametros.orcamento(), parametros.meta_venda(), new SqlArrayValue("text", competencias.toArray()),
+				jobId);
+	}
+
 	DadosDoJob buscarDadosParaConfirmacao(UUID jobId) {
 		return Objects.requireNonNull(this.jdbc.queryForObject("""
 				SELECT CASE WHEN j.job_origem_id IS NOT NULL THEN 'reprocessamento' ELSE s.tipo END AS origem,
@@ -337,6 +438,10 @@ class JobRepository {
 		this.jdbc.update("UPDATE jobs SET orcamento = ? WHERE id = ?", novo, jobId);
 	}
 
+	void atualizarNome(UUID jobId, String nome) {
+		this.jdbc.update("UPDATE jobs SET nome = ? WHERE id = ?", nome, jobId);
+	}
+
 	void atualizarCompetencias(UUID jobId, List<String> novas) {
 		this.jdbc.update("UPDATE jobs SET competencias = ? WHERE id = ?", new SqlArrayValue("text", novas.toArray()),
 				jobId);
@@ -362,12 +467,12 @@ class JobRepository {
 	}
 
 	UUID inserirJobReprocessado(String status, UUID usuarioId, UUID origemId, List<String> competencias,
-			@Nullable BigDecimal orcamento, Timestamp timestamp) {
+			@Nullable BigDecimal orcamento, @Nullable String nome, Timestamp timestamp) {
 		return Objects.requireNonNull(this.jdbc.queryForObject("""
-				INSERT INTO jobs (status, usuario_id, job_origem_id, competencias, orcamento, criado_em)
-				VALUES (?, ?, ?, ?, ?, ?) RETURNING id
+				INSERT INTO jobs (status, usuario_id, job_origem_id, competencias, orcamento, nome, criado_em)
+				VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
 				""", UUID.class, status, usuarioId, origemId, new SqlArrayValue("text", competencias.toArray()),
-				orcamento, timestamp));
+				orcamento, nome, timestamp));
 	}
 
 	/**
@@ -395,11 +500,12 @@ class JobRepository {
 
 	List<JobDeOrigem> buscarJobDeOrigem(UUID jobId) {
 		return this.jdbc.query("""
-				SELECT status, usuario_id, competencias, orcamento FROM jobs WHERE id = ?
+				SELECT status, usuario_id, competencias, orcamento, nome, meta_venda FROM jobs WHERE id = ?
 				""",
 				(rs, linha) -> new JobDeOrigem(JobStatus.deColuna(Objects.requireNonNull(rs.getString("status"))),
 						Objects.requireNonNull(rs.getObject("usuario_id", UUID.class)),
-						List.of((String[]) rs.getArray("competencias").getArray()), rs.getBigDecimal("orcamento")),
+						List.of((String[]) rs.getArray("competencias").getArray()), rs.getBigDecimal("orcamento"),
+						rs.getString("nome"), rs.getBigDecimal("meta_venda")),
 				jobId);
 	}
 
@@ -435,9 +541,13 @@ class JobRepository {
 				UUID.class, codigoGeradoId));
 	}
 
-	void inserirTrilhaNo(UUID eventoId, UUID jobId, @Nullable UUID simulacaoId, EtapaDoGrafo no,
+	/**
+	 * Falso quando a linha já existia: a reentrega do mesmo {@code evento_id} não grava
+	 * de novo, e quem chama não anuncia de novo o que ela registrou.
+	 */
+	boolean inserirTrilhaNo(UUID eventoId, UUID jobId, @Nullable UUID simulacaoId, EtapaDoGrafo no,
 			NoConcluidoDto evento) {
-		this.jdbc.update(
+		return this.jdbc.update(
 				"""
 						INSERT INTO trilhas_auditoria
 							(evento_id, job_id, simulacao_id, no, concluido_em, regra_id, conclusao, prompt_id, codigo_gerado_id, explicacao_id)
@@ -447,7 +557,7 @@ class JobRepository {
 				eventoId, jobId, simulacaoId, no.paraEvento(),
 				Timestamp.from(Objects.requireNonNull(evento.concluido_em())), evento.regra_id(),
 				Objects.requireNonNull(evento.conclusao()).toString(), evento.prompt_id(), evento.codigo_gerado_id(),
-				evento.explicacao_id());
+				evento.explicacao_id()) == 1;
 	}
 
 	void bloquearJob(UUID jobId) {
@@ -486,6 +596,45 @@ class JobRepository {
 				  AND rs.status = 'sucesso' AND rs.veredito = 'inviavel' AND rs.proposito = 'simulacao'
 				ORDER BY rs.criado_em DESC, rs.id DESC
 				""", UUID.class, jobId);
+	}
+
+	/**
+	 * A posição, a partir de 1, do código que produziu o resultado entre os gerados para
+	 * a mesma versão da regra, pela ordem de criação. O codegen conta do mesmo jeito para
+	 * decidir se corrige o código ({@link CorrecaoDoCodigo}); zero quando o resultado não
+	 * é do job.
+	 */
+	int posicaoDoCodigoDoResultado(UUID jobId, UUID resultadoId) {
+		Integer posicao = this.jdbc.queryForObject("""
+				SELECT count(*) FROM resultados_simulacao rs
+				JOIN codigos_gerados alvo ON alvo.id = rs.codigo_gerado_id AND alvo.job_id = rs.job_id
+				JOIN codigos_gerados c ON c.regra_id = alvo.regra_id AND c.job_id = alvo.job_id
+				WHERE rs.id = ? AND rs.job_id = ? AND (c.criado_em, c.id) <= (alvo.criado_em, alvo.id)
+				""", Integer.class, resultadoId, jobId);
+		return (posicao != null) ? posicao : 0;
+	}
+
+	/**
+	 * O resultado mais recente da versão atual quando ele é uma falha do código que ainda
+	 * cabe corrigir: vazio fora disso. É o estado do job enquanto o codegen gera o código
+	 * corrigido, mesmo antes de esta api consumir o resultado.
+	 */
+	List<UUID> buscarResultadoEmCorrecao(UUID jobId) {
+		return this.jdbc.queryForList("""
+				WITH ultimo AS (
+				  SELECT rs.id, rs.status, alvo.id AS codigo_id, alvo.regra_id, alvo.criado_em
+				  FROM resultados_simulacao rs
+				  JOIN codigos_gerados alvo ON alvo.id = rs.codigo_gerado_id AND alvo.job_id = rs.job_id
+				  JOIN regras r ON r.id = alvo.regra_id AND r.job_id = rs.job_id
+				  WHERE rs.job_id = ? AND rs.proposito = 'simulacao'
+				    AND NOT EXISTS (SELECT 1 FROM regras nova WHERE nova.job_id = r.job_id
+				        AND nova.versao > r.versao)
+				  ORDER BY rs.criado_em DESC, rs.id DESC LIMIT 1)
+				SELECT u.id FROM ultimo u
+				WHERE u.status IN ('erro_codigo', 'assercao_violada')
+				  AND (SELECT count(*) FROM codigos_gerados c WHERE c.regra_id = u.regra_id AND c.job_id = ?
+				      AND (c.criado_em, c.id) <= (u.criado_em, u.codigo_id)) < ?
+				""", UUID.class, jobId, jobId, CorrecaoDoCodigo.LIMITE_DE_CODIGOS_POR_VERSAO);
 	}
 
 	List<UUID> vincularResultado(UUID jobId, UUID resultadoId) {
@@ -569,6 +718,36 @@ class JobRepository {
 				evento.meta_venda()) == 1;
 	}
 
+	/**
+	 * A busca da meta maior está em curso quando a decisão sobre a versão atual a abriu,
+	 * pelo {@code encaminhamento} que ela grava na trilha, e ainda não terminou. Termina
+	 * com a meta sugerida registrada ou com a decisão que o codegen grava ao fechá-la,
+	 * uma linha posterior da mesma versão; a segunda cobre a meta que a api descarta e
+	 * não registra. Só vale com o job aguardando a decisão do usuário: fora disso, ou ele
+	 * ainda não chegou ao resultado, ou já saiu dele.
+	 */
+	boolean buscaMetaEmCurso(UUID jobId) {
+		return Boolean.TRUE.equals(this.jdbc.queryForObject("""
+				SELECT EXISTS (
+				    SELECT 1
+				    FROM trilhas_auditoria t
+				    JOIN jobs j ON j.id = t.job_id
+				    JOIN regras r ON r.id = t.regra_id
+				    WHERE t.job_id = ? AND t.no = ? AND t.conclusao ->> 'encaminhamento' = ?
+				      AND j.status = 'aguardando_decisao_usuario'
+				      AND NOT EXISTS (SELECT 1 FROM regras nova WHERE nova.job_id = r.job_id AND nova.versao > r.versao)
+				      AND NOT EXISTS (
+				          SELECT 1 FROM sugestoes_meta_venda m WHERE m.job_id = t.job_id AND m.regra_id = t.regra_id
+				      )
+				      AND NOT EXISTS (
+				          SELECT 1 FROM trilhas_auditoria fim
+				          WHERE fim.job_id = t.job_id AND fim.regra_id = t.regra_id AND fim.no = t.no
+				            AND fim.id <> t.id AND fim.concluido_em >= t.concluido_em
+				      )
+				)
+				""", Boolean.class, jobId, EtapaDoGrafo.DECISAO.paraEvento(), ENCAMINHAMENTO_BUSCA_META));
+	}
+
 	@Nullable MetaSugeridaDto buscarMetaSugerida(UUID jobId) {
 		List<MetaSugeridaDto> sugestoes = this.jdbc.query("""
 				SELECT rs.meta_venda, (rs.totais ->> 'simulado')::numeric AS total_simulado,
@@ -587,6 +766,14 @@ class JobRepository {
 	}
 
 	boolean aceitarMetaSugerida(UUID jobId) {
+		this.jdbc.update("""
+				UPDATE sugestoes_meta_venda m SET resultado_anterior_id = s.resultado_id
+				FROM simulacoes s
+				WHERE m.job_id = ? AND m.aceita_em IS NULL AND m.resultado_id IS NOT NULL
+				  AND s.job_id = m.job_id AND s.regra_id = m.regra_id AND s.resultado_id IS NOT NULL
+				  AND s.id = (SELECT vigente.id FROM simulacoes vigente WHERE vigente.job_id = s.job_id
+				      ORDER BY vigente.criado_em DESC, vigente.id DESC LIMIT 1)
+				""", jobId);
 		int atualizadas = this.jdbc.update("""
 				UPDATE simulacoes s SET resultado_id = m.resultado_id
 				FROM sugestoes_meta_venda m, resultados_simulacao rs, regras r
@@ -620,14 +807,19 @@ class JobRepository {
 		return this.jdbc.queryForList("SELECT parametros::text FROM regras WHERE id = ?", String.class, regraId);
 	}
 
+	List<String> buscarParametrosDaVersao(UUID jobId, UUID regraId) {
+		return this.jdbc.queryForList("SELECT parametros::text FROM regras WHERE job_id = ? AND id = ?", String.class,
+				jobId, regraId);
+	}
+
 	/**
 	 * A proposta parte da versão atual do job - a regra original ou a alternativa
-	 * anterior - e do resultado inviável dela, muda só o percentual, para menos, e não
-	 * repete uma versão do job. A reentrega encontra a versão que a primeira entrega
-	 * criou e é recusada aqui. A api não conta tentativas: o limite é do codegen.
+	 * anterior - e do resultado inviável dela, e não repete uma versão do job. A
+	 * reentrega encontra a versão que a primeira entrega criou e é recusada aqui. O
+	 * conteúdo da proposta é conferido por {@link ReducaoDasTaxas}. A api não conta
+	 * tentativas: o limite é do codegen.
 	 */
-	@Nullable Boolean sugestaoElegivel(UUID jobId, UUID regraOrigemId, UUID resultadoId, String hash, BigDecimal percentual,
-			RepresentacaoRegraDto representacao) {
+	@Nullable Boolean sugestaoElegivel(UUID jobId, UUID regraOrigemId, UUID resultadoId, String hash) {
 		return this.jdbc.queryForObject("""
 				SELECT EXISTS (
 				    SELECT 1 FROM regras r
@@ -637,13 +829,8 @@ class JobRepository {
 				      AND rs.status = 'sucesso' AND rs.veredito = 'inviavel' AND rs.proposito = 'simulacao'
 				      AND NOT EXISTS (SELECT 1 FROM regras outra WHERE outra.job_id = r.job_id
 				          AND (outra.versao > r.versao OR outra.hash = ?))
-				      AND (r.nucleo->>'percentual')::numeric > ?
-				      AND r.nucleo - 'percentual' = ?::jsonb - 'percentual'
-				      AND r.especificacoes = ?::jsonb
 				)
-				""", Boolean.class, regraOrigemId, jobId, resultadoId, hash, percentual,
-				this.jsonPadrao.writeValueAsString(representacao.nucleo()),
-				this.jsonPadrao.writeValueAsString(representacao.especificacoes()));
+				""", Boolean.class, regraOrigemId, jobId, resultadoId, hash);
 	}
 
 	List<UUID> buscarSimulacaoPorResultado(UUID jobId, UUID resultadoId) {
@@ -651,10 +838,43 @@ class JobRepository {
 				(rs, numero) -> rs.getObject("id", UUID.class), jobId, resultadoId);
 	}
 
+	/**
+	 * A comissão das lojas que o núcleo da regra não alcança, na última simulação do job,
+	 * e o orçamento com que ela rodou. Essas lojas ficam no baseline qualquer que seja a
+	 * taxa da regra, então a soma é um piso do total simulado. Vazio quando a regra vale
+	 * para todas as lojas ou quando o resultado não traz a quebra absoluta por loja.
+	 */
+	@Nullable ComissaoForaDaRegra buscarComissaoDasLojasForaDaRegra(UUID jobId) {
+		List<ComissaoForaDaRegra> encontradas = this.jdbc.query("""
+				SELECT sum(l.valor::numeric) AS fora, (ultima.totais ->> 'orcamento')::numeric AS orcamento
+				FROM (
+				    SELECT rs.id, rs.totais, rs.decomposicao, r.nucleo
+				    FROM simulacoes s
+				    JOIN resultados_simulacao rs ON rs.id = s.resultado_id AND rs.job_id = s.job_id
+				    JOIN regras r ON r.id = s.regra_id AND r.job_id = s.job_id
+				    WHERE s.job_id = ? AND rs.status = 'sucesso' AND rs.proposito = 'simulacao'
+				    ORDER BY s.criado_em DESC, s.id DESC LIMIT 1
+				) ultima
+				CROSS JOIN LATERAL jsonb_each_text(
+				    CASE WHEN jsonb_typeof(ultima.decomposicao -> 'loja_absoluto') = 'object'
+				         THEN ultima.decomposicao -> 'loja_absoluto' ELSE '{}'::jsonb END) AS l(chave, valor)
+				WHERE jsonb_typeof(ultima.nucleo -> 'loja') = 'array'
+				  AND jsonb_array_length(ultima.nucleo -> 'loja') > 0
+				  AND NOT jsonb_exists(ultima.nucleo -> 'loja', l.chave)
+				  AND ultima.totais ->> 'orcamento' IS NOT NULL
+				GROUP BY ultima.id, ultima.totais
+				""", (rs, numero) -> new ComissaoForaDaRegra(Objects.requireNonNull(rs.getBigDecimal("fora")),
+				Objects.requireNonNull(rs.getBigDecimal("orcamento"))), jobId);
+		return encontradas.isEmpty() ? null : encontradas.getFirst();
+	}
+
+	record ComissaoForaDaRegra(BigDecimal fora, BigDecimal orcamento) {
+	}
+
 	record DadosConsulta(UUID id, String status, String origem, List<String> competencias,
 			@Nullable BigDecimal orcamento, @Nullable BigDecimal metaVenda, Instant criadoEm,
 			@Nullable Instant iniciadoEm, @Nullable Instant finalizadoEm, @Nullable UUID submissaoId,
-			@Nullable UUID jobOrigemId, @Nullable String motivoDaTrilha, String regrasJson) {
+			@Nullable UUID jobOrigemId, @Nullable String motivoDaTrilha, String regrasJson, @Nullable String nome) {
 	}
 
 	record DadosDoJob(String origem, @Nullable BigDecimal orcamento, Instant criadoEm, @Nullable UUID submissaoId,
@@ -665,7 +885,8 @@ class JobRepository {
 			@Nullable String parametros) {
 	}
 
-	record JobDeOrigem(JobStatus status, UUID usuarioId, List<String> competencias, @Nullable BigDecimal orcamento) {
+	record JobDeOrigem(JobStatus status, UUID usuarioId, List<String> competencias, @Nullable BigDecimal orcamento,
+			@Nullable String nome, @Nullable BigDecimal metaVenda) {
 	}
 
 	/**

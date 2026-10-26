@@ -1,10 +1,11 @@
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.contratos.mensagens import (
+    CorrecaoSubmetida,
     EtapaAlterada,
     JobEncerrado,
     ParametrosConfirmados,
@@ -21,7 +22,10 @@ from app.mensageria.producers import Producers
 from app.repositorio.encerramentos import EstadoDoEncerramento, JobInexistenteError
 from app.repositorio.resultados import ResultadoDesconhecidoError, buscar_regra_do_resultado
 
-type Entrada = RegraSubmetida | ParametrosConfirmados | SimulacaoConcluida | JobEncerrado
+type Entrada = (
+    RegraSubmetida | ParametrosConfirmados | CorrecaoSubmetida | SimulacaoConcluida | JobEncerrado
+)
+type AbreCiclo = RegraSubmetida | ParametrosConfirmados | CorrecaoSubmetida
 
 logger = get_logger("app.mensageria.roteamento")
 
@@ -55,20 +59,22 @@ class RoteadorGrafo(Protocol):
     async def entregar(self, job_id: UUID, mensagem: Entrada) -> None:
         """Retorna só após processamento persistido; reentregas devem ser idempotentes.
 
-        Abre ciclos de regra-submetida e parametros-confirmados, retoma o resultado e registra
-        job-encerrado. ContextoAusenteError descarta confirmação sem competências, sem falhar
-        o job. Lança JobDesconhecidoError se não houver grafo
+        Abre ciclos de regra-submetida, parametros-confirmados e correcao-submetida, retoma o
+        resultado e registra job-encerrado. ContextoAusenteError descarta confirmação sem
+        competências, sem falhar o job. Lança JobDesconhecidoError se não houver grafo
         correspondente à mensagem, JobEncerradoError quando a mensagem é de um job já
         encerrado, RetomadaIndisponivelError quando o grafo ainda não chegou à pausa, e
         `app.falhas.FalhaDoJobError` quando o processamento falha de forma permanente - depois de
-        avisar a `api`, para que o job termine em erro em vez de ficar pendurado.
+        avisar a `api`, para que o job termine em erro, ou a correção seja reaberta, em vez de
+        ficar pendurado.
         """
         ...
 
 
 @dataclass
 class GraphRouter:
-    """Concrete `RoteadorGrafo`: opens a graph cycle for each submitted or confirmed rule.
+    """Concrete `RoteadorGrafo`: opens a graph cycle for each submitted or confirmed rule, and
+    for each correction to re-extract.
 
     `sessoes`, `producers` and `limpeza` are set once by the app's lifespan, after the
     corresponding resource (database engine, broker connection) is ready - see `app/main.py`.
@@ -122,11 +128,20 @@ class GraphRouter:
                     "regra_id": str(mensagem.regra_id),
                 },
             )
+        elif isinstance(mensagem, CorrecaoSubmetida) and desfecho is RunOutcome.IGNORED:
+            logger.info(
+                "correção já reextraída, reentrega ignorada",
+                extra={
+                    "tipo_mensagem": "correcao-submetida",
+                    "regra_id": str(mensagem.regra_origem_id),
+                    "submissao_id": str(mensagem.submissao_id),
+                },
+            )
 
     async def _processar(
         self,
         job_id: UUID,
-        mensagem: RegraSubmetida | ParametrosConfirmados | SimulacaoConcluida,
+        mensagem: AbreCiclo | SimulacaoConcluida,
         sessoes: async_sessionmaker[AsyncSession],
         producers: Producers,
         assentados: set[str],
@@ -138,6 +153,13 @@ class GraphRouter:
                 return await run_to_completion(
                     thread_do_ciclo(job_id, mensagem.regra_id),
                     _estado_confirmado(mensagem),
+                    sessoes=sessoes,
+                    producers=producers,
+                )
+            elif isinstance(mensagem, CorrecaoSubmetida):
+                return await run_to_completion(
+                    thread_da_correcao(job_id, mensagem.submissao_id),
+                    _estado_da_correcao(mensagem),
                     sessoes=sessoes,
                     producers=producers,
                 )
@@ -153,13 +175,7 @@ class GraphRouter:
             # o job em `gerando_regra` para sempre. Uma falha ao publicar não é tratada de
             # propósito - ela sobe como falha comum, o consumer reenfileira e a reentrega
             # tenta avisar de novo. Melhor do que engolir o aviso.
-            if falha.causa is None:
-                aviso = EtapaAlterada(job_id=job_id, etapa=falha.etapa, status="erro")
-            else:
-                aviso = EtapaAlterada(
-                    job_id=job_id, etapa=falha.etapa, status="erro", causa=falha.causa
-                )
-            await producers.etapa_alterada(aviso)
+            await producers.etapa_alterada(_aviso_de_falha(job_id, mensagem, falha))
             raise
         return None
 
@@ -197,16 +213,33 @@ class GraphRouter:
         # não retoma nada de novo, e confirmar a mensagem é o que tira a duplicata da fila.
 
 
+def _aviso_de_falha(
+    job_id: UUID, mensagem: AbreCiclo | SimulacaoConcluida, falha: FalhaDoJobError
+) -> EtapaAlterada:
+    # Campo opcional ausente fica sem valor, e não `None`: o contrato recusa `null` explícito.
+    campos: dict[str, Any] = {"job_id": job_id, "etapa": falha.etapa, "status": "erro"}
+    if falha.causa is not None:
+        campos["causa"] = falha.causa
+    if isinstance(mensagem, CorrecaoSubmetida):
+        # A api só reconhece a falha da reextração em `extracao_parametros`, com a versão e a
+        # correção. É pela submissão que ela fecha a rodada dessa correção e reabre outra; em
+        # outra etapa, ou sem as referências, a rodada ficaria presa em `em_reextracao`.
+        campos["etapa"] = "extracao_parametros"
+        campos["regra_id"] = mensagem.regra_origem_id
+        campos["submissao_id"] = mensagem.submissao_id
+    return EtapaAlterada(**campos)
+
+
 def _recusar_se_encerrado(
     job_id: UUID,
-    mensagem: RegraSubmetida | ParametrosConfirmados | SimulacaoConcluida,
+    mensagem: AbreCiclo | SimulacaoConcluida,
     encerramento: EstadoDoEncerramento | None,
 ) -> None:
     """Depois da limpeza, nada do job roda; antes dela, só um resultado ainda esperado."""
     if encerramento is EstadoDoEncerramento.LIMPO:
         raise JobEncerradoError(str(job_id))
     if encerramento is EstadoDoEncerramento.REGISTRADO and isinstance(
-        mensagem, RegraSubmetida | ParametrosConfirmados
+        mensagem, RegraSubmetida | ParametrosConfirmados | CorrecaoSubmetida
     ):
         raise JobEncerradoError(str(job_id))
 
@@ -220,6 +253,16 @@ def thread_do_ciclo(job_id: UUID, regra_id: UUID | None) -> str:
     ciclo próprio, e o job responde por ele.
     """
     return f"{job_id}:{regra_id}" if regra_id is not None else str(job_id)
+
+
+def thread_da_correcao(job_id: UUID, submissao_id: UUID) -> str:
+    """Identifica o ciclo de reextração, um por correção.
+
+    Cada correção é uma submissão distinta, então a reentrega cai no mesmo checkpoint e uma
+    correção nova nunca reaproveita o de outra. O segmento `correcao` impede a colisão com
+    `thread_do_ciclo`, que tem `regra_id` no mesmo lugar.
+    """
+    return f"{job_id}:correcao:{submissao_id}"
 
 
 def _valor_da_retomada(mensagem: SimulacaoConcluida) -> dict[str, str | None]:
@@ -259,6 +302,23 @@ def _estado_confirmado(mensagem: ParametrosConfirmados) -> AgentState:
         "regra_id": str(mensagem.regra_id),
         "competencias": list(mensagem.competencias),
     }
+    if mensagem.orcamento is not None:
+        estado["orcamento"] = str(mensagem.orcamento)
+    if mensagem.meta_venda is not None:
+        estado["meta_venda"] = str(mensagem.meta_venda)
+    return estado
+
+
+def _estado_da_correcao(mensagem: CorrecaoSubmetida) -> AgentState:
+    """Só referências e os parâmetros atuais do job; o texto e a regra o nó lê do banco."""
+    estado: AgentState = {
+        "job_id": str(mensagem.job_id),
+        "regra_origem_id": str(mensagem.regra_origem_id),
+        "submissao_correcao_id": str(mensagem.submissao_id),
+    }
+    # Sem competências, o nó falha na etapa da reextração, e a api reabre a correção.
+    if mensagem.competencias is not None:
+        estado["competencias"] = list(mensagem.competencias)
     if mensagem.orcamento is not None:
         estado["orcamento"] = str(mensagem.orcamento)
     if mensagem.meta_venda is not None:

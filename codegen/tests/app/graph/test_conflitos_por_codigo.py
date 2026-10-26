@@ -1,7 +1,7 @@
 import logging
 from decimal import Decimal
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import simplejson
@@ -10,6 +10,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from prometheus_client.parser import text_string_to_metric_families
 
 from app.core.logger import FormatadorJson, ManipuladorFilaContexto
+from app.extracao.construtos.generico import DESCRICAO_SEM_LASTRO
 from app.nos.codigos_conflito import CodigoConflito
 from app.repositorio.regras import RegraInvalidaError, buscar_regra
 from app.representacao_regra import RepresentacaoRegra
@@ -63,7 +64,13 @@ def _regra(
 ) -> RepresentacaoRegra:
     return RepresentacaoRegra.model_validate(
         {
-            "nucleo": {"percentual": Decimal("0.025"), **(nucleo or {})},
+            "nucleo": {
+                "loja": [],
+                "marca": [],
+                "cargo": [],
+                "percentual": Decimal("0.025"),
+                **(nucleo or {}),
+            },
             "especificacoes": especificacoes or [],
         }
     )
@@ -73,7 +80,9 @@ def _regra(
 _ALCANCAVEIS: list[tuple[CodigoConflito, RepresentacaoRegra]] = [
     (
         CodigoConflito.PERCENTUAL_AUSENTE,
-        RepresentacaoRegra.model_validate({"nucleo": {}, "especificacoes": []}),
+        RepresentacaoRegra.model_validate(
+            {"nucleo": {"loja": [], "marca": [], "cargo": []}, "especificacoes": []}
+        ),
     ),
     (CodigoConflito.PERCENTUAL_NEGATIVO, _regra({"percentual": Decimal("-0.01")})),
     (
@@ -102,11 +111,19 @@ _ALCANCAVEIS: list[tuple[CodigoConflito, RepresentacaoRegra]] = [
             ]
         ),
     ),
+    (
+        CodigoConflito.ELEMENTO_SEM_LASTRO,
+        _regra(
+            especificacoes=[
+                {"ref": "elem.1", "construto": "generico", "descricao": DESCRICAO_SEM_LASTRO}
+            ]
+        ),
+    ),
 ]
 
 
 async def _processar(ambiente: ConfirmacaoFalsa, regra: RepresentacaoRegra) -> dict[str, Any]:
-    payload = exemplo("parametros-confirmados") | {
+    payload = (exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}) | {
         "job_id": str(uuid4()),
         "regra_id": str(uuid4()),
     }
@@ -162,10 +179,11 @@ async def test_regra_com_dois_conflitos_conta_os_dois_codigos_e_uma_regra_barrad
 @pytest.mark.parametrize(
     "arquivo", ["representacao-regra-elementos", "representacao-regra-generico"]
 )
-async def test_exemplos_do_contrato_sao_liberados_pelo_no_sem_contar_conflito(
+async def test_exemplos_com_escopo_completado_sao_liberados_sem_conflito(
     ambiente: ConfirmacaoFalsa, cliente: AsyncClient, arquivo: str
 ) -> None:
     exemplo_regra = simplejson.loads((EXEMPLOS / f"{arquivo}.json").read_bytes(), use_decimal=True)
+    exemplo_regra["nucleo"] = {"loja": [], "marca": [], "cargo": [], **exemplo_regra["nucleo"]}
     antes = _contagens((await cliente.get("/metrics")).text)
 
     payload = await _processar(ambiente, RepresentacaoRegra.model_validate(exemplo_regra))
@@ -199,6 +217,41 @@ async def test_log_da_regra_barrada_traz_codigos_e_referencias_sem_motivo(
     serializados = simplejson.dumps(logs)
     for privado in ("limite inferior", "percentual negativo", "50000", "40000"):
         assert privado not in serializados
+
+
+async def test_criterio_sem_lastro_da_versao_extraida_pausa_conta_o_codigo_e_loga_sem_motivo(
+    ambiente: ConfirmacaoFalsa, cliente: AsyncClient, logs: list[dict[str, Any]]
+) -> None:
+    regra = RepresentacaoRegra.model_validate(
+        {"nucleo": {"marca": [], "cargo": [], "percentual": Decimal("0.01")}, "especificacoes": []}
+    )
+    ambiente.nucleo_sem_lastro.return_value = frozenset({"loja"})
+    antes = _contagens((await cliente.get("/metrics")).text)
+
+    payload = await _processar(ambiente, regra)
+
+    ambiente.nucleo_sem_lastro.assert_awaited_once_with(
+        ambiente.banco, UUID(payload["job_id"]), UUID(payload["regra_id"])
+    )
+    motivo = (
+        "escopo de loja citado sem código reconhecido; indique os destinatários ou declare todos"
+    )
+    assert ambiente.publicacoes[-1][1]["conflitos"] == [
+        {"elementos": ["nucleo.loja"], "motivo": motivo}
+    ]
+    assert "executar-codigo" not in [nome for nome, _ in ambiente.publicacoes]
+    depois = _contagens((await cliente.get("/metrics")).text)
+    assert {k: depois[k] - antes[k] for k in depois} == {
+        c.value: 1.0 if c is CodigoConflito.NUCLEO_SEM_LASTRO else 0.0 for c in CodigoConflito
+    }
+    (final,) = [
+        log
+        for log in logs
+        if log.get("no") == "validacao_dominio" and log["message"] == "domain validation finished"
+    ]
+    assert final["extra"]["codigos"] == ["nucleo_sem_lastro"]
+    assert final["extra"]["elementos"] == ["nucleo.loja"]
+    assert "citado sem código" not in simplejson.dumps(logs)
 
 
 async def test_estado_do_grafo_mantem_so_elementos_e_motivo(
@@ -238,7 +291,10 @@ async def test_condicao_limiar_sem_escopo_falha_na_leitura_como_regra_fora_do_co
         "operador": ">=",
         "limiar": 50000,
     }
-    linha = {"nucleo": {"percentual": 0.025}, "especificacoes": [limiar]}
+    linha = {
+        "nucleo": {"loja": [], "marca": [], "cargo": [], "percentual": 0.025},
+        "especificacoes": [limiar],
+    }
 
     with pytest.raises(RegraInvalidaError):
         await buscar_regra(_sessionmaker(linha), uuid4(), uuid4())

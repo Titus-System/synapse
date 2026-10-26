@@ -3,11 +3,12 @@ import { computed, ref } from 'vue'
 import type { StatusJob } from '@/types/api'
 import { usarStoreSessao } from '@/stores/session'
 
-type EtapaDoProcesso = 'voz-texto' | 'simulacao' | 'salvar'
+type EtapaDoProcesso = 'voz-texto' | 'conversa' | 'simulacao' | 'salvar'
 
 const props = defineProps<{
   etapaDaRota: EtapaDoProcesso | null
   statusDoJob?: StatusJob | null
+  historico?: boolean
 }>()
 
 const sessao = usarStoreSessao()
@@ -15,13 +16,14 @@ const saindoDaConta = ref(false)
 
 const rotulosDasEtapas: Record<EtapaDoProcesso, string> = {
   'voz-texto': 'Voz/Texto',
+  conversa: 'Conversa',
   simulacao: 'Simulação',
   salvar: 'Salvar',
 }
 
 const etapasPorStatus: Partial<Record<StatusJob, EtapaDoProcesso>> = {
   aguardando_transcricao: 'voz-texto',
-  aguardando_confirmacao_parametros: 'simulacao',
+  aguardando_confirmacao_parametros: 'conversa',
   gerando_regra: 'simulacao',
   simulando: 'simulacao',
   simulacao_inviavel: 'simulacao',
@@ -33,6 +35,7 @@ const etapasPorStatus: Partial<Record<StatusJob, EtapaDoProcesso>> = {
 }
 
 const etapaAtual = computed<EtapaDoProcesso | null>(() => {
+  if (props.historico) return null
   if (props.statusDoJob === undefined) return props.etapaDaRota
 
   if (props.etapaDaRota === 'salvar') {
@@ -61,7 +64,7 @@ async function sairDaConta(): Promise<void> {
 <template>
   <header class="flex h-14 items-center gap-3 border-b border-[#ebd8cc] bg-[#fffaf7] px-4 sm:gap-6 sm:px-6 lg:h-16 lg:px-8">
 
-    <ol v-if="etapaAtual" class="hidden min-w-0 flex-1 items-center justify-center gap-3 text-sm xl:flex" aria-label="Etapas do processo">
+    <ol v-if="etapaAtual || historico" class="hidden min-w-0 flex-1 items-center justify-center gap-3 text-sm xl:flex" aria-label="Etapas do processo">
       <li
         class="flex shrink-0 items-center gap-2.5"
         :class="etapaEstaAtiva('voz-texto') ? 'font-medium text-[#c2560b]' : 'text-[#a79489]'"
@@ -75,6 +78,21 @@ async function sairDaConta(): Promise<void> {
           <svg class="size-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="7.25" y="2.75" width="5.5" height="9.5" rx="2.75" /><path d="M4.75 9.5a5.25 5.25 0 0 0 10.5 0M10 14.75v2.5" /></svg>
         </span>
         Voz/Texto
+      </li>
+      <li class="h-px min-w-6 flex-1 bg-[#e5d3c8]" aria-hidden="true"></li>
+      <li
+        class="flex shrink-0 items-center gap-2.5"
+        :class="etapaEstaAtiva('conversa') ? 'font-medium text-[#c2560b]' : 'text-[#a79489]'"
+        :aria-current="etapaEstaAtiva('conversa') ? 'step' : undefined"
+      >
+        <span
+          class="grid size-[2.125rem] place-items-center rounded-full"
+          :class="etapaEstaAtiva('conversa') ? 'border-[0.09375rem] border-[#c2560b]' : 'border-[0.0625rem] border-[#e5d3c8]'"
+          aria-hidden="true"
+        >
+          <svg class="size-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3.25 6.25a2.5 2.5 0 0 1 2.5-2.5h8.5a2.5 2.5 0 0 1 2.5 2.5v5a2.5 2.5 0 0 1-2.5 2.5H8l-4.75 3.25z" /></svg>
+        </span>
+        Conversa
       </li>
       <li class="h-px min-w-6 flex-1 bg-[#e5d3c8]" aria-hidden="true"></li>
       <li
@@ -108,6 +126,7 @@ async function sairDaConta(): Promise<void> {
       </li>
     </ol>
 
+    <p v-if="historico" class="min-w-0 flex-1 text-center text-sm text-[#6b564a] xl:hidden">Histórico da regra</p>
     <p
       v-if="etapaAtual"
       class="min-w-0 flex-1 truncate text-center text-xs font-medium text-[#6b564a] sm:text-sm xl:hidden"

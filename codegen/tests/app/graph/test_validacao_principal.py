@@ -53,7 +53,7 @@ def logs() -> Any:
 def regra(conflito: bool) -> RepresentacaoRegra:
     return RepresentacaoRegra.model_validate(
         {
-            "nucleo": {"percentual": Decimal("0.025")},
+            "nucleo": {"loja": [], "marca": [], "cargo": [], "percentual": Decimal("0.025")},
             "especificacoes": [
                 {
                     "ref": "elem.1",
@@ -74,7 +74,7 @@ async def test_regra_passa_pela_validacao_antes_de_qualquer_geracao(
 ) -> None:
     original = regra(conflito).para_contrato()
     ambiente.buscar_regra.return_value = regra(conflito)
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     recebida = mensagem(payload)
 
     await ambiente.consumer.receber(recebida)
@@ -164,7 +164,7 @@ async def test_leitura_invalida_reporta_falha_da_validacao_apos_anuncio(
         return await buscar_regra(_sessionmaker(linha), job_id, regra_id)
 
     ambiente.buscar_regra.side_effect = buscar
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     recebida = mensagem(payload)
 
     await ambiente.consumer.receber(recebida)
@@ -184,16 +184,19 @@ async def test_proposta_da_adaptacao_passa_pela_mesma_validacao(
     ambiente: ConfirmacaoFalsa,
 ) -> None:
     alternativa = propor_alternativa(
-        {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []},
+        {
+            "nucleo": {"loja": [], "marca": [], "cargo": [], "percentual": Decimal("0.025")},
+            "especificacoes": [],
+        },
         Decimal("492100"),
         Decimal("485000"),
-        baseline=Decimal("480312"),
+        parte_fixa=Decimal("480312"),
     )
     assert alternativa.representacao is not None
     ambiente.buscar_regra.return_value = RepresentacaoRegra.model_validate(
         alternativa.representacao
     )
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
 
     await ambiente.consumer.receber(mensagem(payload))
 
@@ -214,10 +217,10 @@ async def test_falha_do_no_conta_duracao_e_falha_sem_expor_conteudo(
         ambiente.producers.no_concluido.side_effect = erro
     else:
         monkeypatch.setattr(
-            "app.nos.validacao_dominio.verificar", lambda _: (_ for _ in ()).throw(erro)
+            "app.nos.validacao_dominio.verificar", lambda *_, **__: (_ for _ in ()).throw(erro)
         )
     antes = (await cliente.get("/metrics")).text
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     recebida = mensagem(payload)
 
     await ambiente.consumer.receber(recebida)
@@ -259,9 +262,9 @@ async def test_falha_do_job_dentro_do_no_propaga_sem_virar_transitoria(
 
     monkeypatch.setattr(
         "app.nos.validacao_dominio.verificar",
-        lambda _: (_ for _ in ()).throw(_FalhaPermanenteDaValidacaoError()),
+        lambda *_, **__: (_ for _ in ()).throw(_FalhaPermanenteDaValidacaoError()),
     )
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     estado = {
         "job_id": payload["job_id"],
         "regra_id": payload["regra_id"],
@@ -270,7 +273,9 @@ async def test_falha_do_job_dentro_do_no_propaga_sem_virar_transitoria(
     antes = (await cliente.get("/metrics")).text
 
     with pytest.raises(_FalhaPermanenteDaValidacaoError) as erro:
-        await validate_domain(estado, {"configurable": {"producers": ambiente.producers}})
+        await validate_domain(
+            estado, {"configurable": {"producers": ambiente.producers, "sessoes": ambiente.banco}}
+        )
 
     assert erro.value.etapa == "validacao_dominio"
     depois = (await cliente.get("/metrics")).text
@@ -292,9 +297,9 @@ async def test_erro_inesperado_ou_cancelamento_do_no_e_sanitizado_e_medido(
 
     erro = CancelledError("CONTEUDO_PRIVADO") if cancelamento else RuntimeError("CONTEUDO_PRIVADO")
     monkeypatch.setattr(
-        "app.nos.validacao_dominio.verificar", lambda _: (_ for _ in ()).throw(erro)
+        "app.nos.validacao_dominio.verificar", lambda *_, **__: (_ for _ in ()).throw(erro)
     )
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     estado = {
         "job_id": payload["job_id"],
         "regra_id": payload["regra_id"],
@@ -304,7 +309,10 @@ async def test_erro_inesperado_ou_cancelamento_do_no_e_sanitizado_e_medido(
     token = no_ctx.set("contexto-anterior")
     try:
         with pytest.raises(CancelledError if cancelamento else RuntimeError) as capturado:
-            await validate_domain(estado, {"configurable": {"producers": ambiente.producers}})
+            await validate_domain(
+                estado,
+                {"configurable": {"producers": ambiente.producers, "sessoes": ambiente.banco}},
+            )
         assert str(capturado.value) == (
             "Domain validation cancelled" if cancelamento else "Domain validation failed"
         )
@@ -323,13 +331,13 @@ async def test_trilha_reexecutada_mantem_identidade_da_versao(
 ) -> None:
     from app.graph.nodes.validate_domain import validate_domain
 
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     estado = {
         "job_id": payload["job_id"],
         "regra_id": payload["regra_id"],
         "representacao_regra": regra(True).para_contrato(),
     }
-    config = {"configurable": {"producers": ambiente.producers}}
+    config = {"configurable": {"producers": ambiente.producers, "sessoes": ambiente.banco}}
 
     await validate_domain(estado, config)
     await validate_domain(estado, config)
@@ -344,9 +352,9 @@ async def test_percentual_ausente_barrado_nomeia_elemento_sem_modelo(
     ambiente: ConfirmacaoFalsa,
 ) -> None:
     ambiente.buscar_regra.return_value = RepresentacaoRegra.model_validate(
-        {"nucleo": {}, "especificacoes": []}
+        {"nucleo": {"loja": [], "marca": [], "cargo": []}, "especificacoes": []}
     )
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
 
     await ambiente.consumer.receber(mensagem(payload))
 
@@ -372,18 +380,40 @@ def amostra(texto: str, nome: str, labels: dict[str, str]) -> float:
     )
 
 
+@pytest.mark.parametrize("taxas_por_cargo", [False, True])
 async def test_metricas_e_logs_dos_desfechos_no_caminho_real_sem_vazamento(
-    ambiente: ConfirmacaoFalsa, cliente: AsyncClient, logs: list[dict[str, Any]]
+    ambiente: ConfirmacaoFalsa,
+    cliente: AsyncClient,
+    logs: list[dict[str, Any]],
+    taxas_por_cargo: bool,
 ) -> None:
     antes = (await cliente.get("/metrics")).text
     jobs: list[str] = []
     for conflito in (False, True):
-        payload = exemplo("parametros-confirmados") | {
+        payload = (exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}) | {
             "job_id": str(uuid4()),
             "regra_id": str(uuid4()),
         }
         jobs.append(payload["job_id"])
         ambiente.buscar_regra.return_value = regra(conflito)
+        if taxas_por_cargo:
+            ambiente.buscar_regra.return_value = RepresentacaoRegra.model_validate(
+                {
+                    "nucleo": {
+                        "loja": [],
+                        "marca": [],
+                        "cargo": ["100", "150"],
+                        "taxas_por_cargo": [
+                            {"cargo": "100", "percentual": Decimal("0.0312345")},
+                            {
+                                "cargo": "100" if conflito else "150",
+                                "percentual": Decimal("0.0523456"),
+                            },
+                        ],
+                    },
+                    "especificacoes": [],
+                }
+            )
         await ambiente.consumer.receber(mensagem(payload))
         assert job_id_ctx.get() is None
         assert no_ctx.get() is None
@@ -412,21 +442,29 @@ async def test_metricas_e_logs_dos_desfechos_no_caminho_real_sem_vazamento(
     assert eventos[-1]["extra"] == {
         "resultado": "barrada",
         "quantidade_conflitos": 1,
-        "elementos": ["elem.1"],
-        "codigos": ["faixa_invertida"],
+        "elementos": ["nucleo.taxas_por_cargo" if taxas_por_cargo else "elem.1"],
+        "codigos": ["taxa_cargo_contraditoria" if taxas_por_cargo else "faixa_invertida"],
     }
     schema = simplejson.loads((CONTRATOS / "observability/log.schema.json").read_bytes())
     for log in logs:
         Draft202012Validator(schema, format_checker=FormatChecker()).validate(log)
     serializados = simplejson.dumps(logs)
-    for privado in ("CONTEUDO_PRIVADO", "50000", "40000", "limite inferior", "representacao_regra"):
+    for privado in (
+        "CONTEUDO_PRIVADO",
+        "50000",
+        "40000",
+        "limite inferior",
+        "representacao_regra",
+        "0.0312345",
+        "0.0523456",
+    ):
         assert privado not in serializados
 
 
 async def test_reentrega_apos_fim_nao_revalida_nem_conta_execucao(
     ambiente: ConfirmacaoFalsa, monkeypatch: pytest.MonkeyPatch, cliente: AsyncClient
 ) -> None:
-    payload = exemplo("parametros-confirmados")
+    payload = exemplo("parametros-confirmados") | {"meta_venda": Decimal("12000000")}
     await ambiente.consumer.receber(mensagem(payload))
     monkeypatch.setattr(
         "app.mensageria.roteamento.buscar_regra_do_resultado",

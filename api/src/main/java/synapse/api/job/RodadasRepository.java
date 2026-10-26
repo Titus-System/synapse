@@ -43,7 +43,8 @@ class RodadasRepository {
 	}
 
 	List<Rodada> abertas(UUID jobId) {
-		return this.jdbc.query(CONSULTA + " WHERE r.job_id = ? AND r.estado IN ('pendente', 'em_reextracao')",
+		return this.jdbc.query(
+				CONSULTA + " WHERE r.job_id = ? AND r.estado IN ('pendente', 'em_transcricao', 'em_reextracao')",
 				(rs, numero) -> converter(rs), jobId);
 	}
 
@@ -52,14 +53,41 @@ class RodadasRepository {
 			.requireNonNull(this.jdbc.queryForObject(CONSULTA + " WHERE r.id = ?", (rs, numero) -> converter(rs), id));
 	}
 
-	void receber(UUID rodadaId, UUID submissaoId, Instant agora) {
+	boolean jaAnalisada(UUID jobId, UUID regraId) {
+		return Boolean.TRUE.equals(this.jdbc.queryForObject("""
+				SELECT EXISTS (SELECT 1 FROM rodadas_correcao WHERE job_id = ? AND regra_analisada_id = ?)
+				""", Boolean.class, jobId, regraId));
+	}
+
+	void receber(UUID rodadaId, UUID submissaoId, EstadoRodada destino, Instant agora) {
 		int alteradas = this.jdbc.update("""
 				UPDATE rodadas_correcao SET estado = ?, submissao_correcao_id = ?, atualizada_em = ?
 				WHERE id = ? AND estado = 'pendente'
-				""", EstadoRodada.EM_REEXTRACAO.paraColuna(), submissaoId, Timestamp.from(agora), rodadaId);
+				""", destino.paraColuna(), submissaoId, Timestamp.from(agora), rodadaId);
 		if (alteradas != 1) {
 			throw new IllegalStateException("A rodada não está mais pendente.");
 		}
+	}
+
+	void corrigir(UUID jobId, UUID rodadaId, UUID regraAnalisadaId, UUID regraResultanteId, Instant agora) {
+		int alteradas = this.jdbc.update("""
+				UPDATE rodadas_correcao SET estado = 'corrigida', regra_resultante_id = ?, atualizada_em = ?
+				WHERE id = ? AND job_id = ? AND regra_analisada_id = ?
+				AND estado IN ('pendente', 'em_transcricao', 'em_reextracao')
+				AND EXISTS (SELECT 1 FROM regras WHERE id = ? AND job_id = ?)
+				AND EXISTS (SELECT 1 FROM regras WHERE id = ? AND job_id = ?)
+				""", regraResultanteId, Timestamp.from(agora), rodadaId, jobId, regraAnalisadaId, regraAnalisadaId,
+				jobId, regraResultanteId, jobId);
+		if (alteradas != 1) {
+			throw new IllegalStateException("A rodada não corresponde à confirmação do job.");
+		}
+	}
+
+	int abandonarAbertas(UUID jobId, Instant agora) {
+		return this.jdbc.update("""
+				UPDATE rodadas_correcao SET estado = ?, atualizada_em = ?
+				WHERE job_id = ? AND estado IN ('pendente', 'em_transcricao', 'em_reextracao')
+				""", EstadoRodada.ABANDONADA.paraColuna(), Timestamp.from(agora), jobId);
 	}
 
 	private static Rodada converter(ResultSet rs) throws SQLException {

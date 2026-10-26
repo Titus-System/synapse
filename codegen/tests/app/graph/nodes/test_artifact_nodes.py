@@ -172,13 +172,33 @@ async def test_dispatch_execution_publica_so_referencias() -> None:
         ({"percentual": Decimal("0.025")}, [], ["nucleo.percentual"]),
         ({"percentual": Decimal("0")}, [], ["nucleo.percentual"]),
         (
+            {"taxas_por_cargo": [{"cargo": "100", "percentual": Decimal("0.03")}]},
+            [],
+            ["nucleo.taxas_por_cargo"],
+        ),
+        (
+            {
+                "percentual": Decimal("0.02"),
+                "taxas_por_cargo": [{"cargo": "150", "percentual": Decimal("0.05")}],
+            },
+            [],
+            ["nucleo.percentual", "nucleo.taxas_por_cargo"],
+        ),
+        (
             {"percentual": Decimal("0.025"), "loja": ["13"], "marca": ["10"], "cargo": ["100"]},
             ["elem.2", "elem.1"],
             ["nucleo.percentual", "elem.2", "elem.1"],
         ),
         ({"loja": ["13"]}, ["elem.2", "elem.1"], ["elem.2", "elem.1"]),
     ],
-    ids=["so-nucleo", "percentual-zero", "especificacoes-na-ordem", "sem-percentual"],
+    ids=[
+        "so-nucleo",
+        "percentual-zero",
+        "taxas-por-cargo",
+        "uniforme-com-excecao",
+        "especificacoes-na-ordem",
+        "sem-percentual",
+    ],
 )
 async def test_dispatch_execution_envia_elementos_da_representacao(
     nucleo: dict[str, Any], refs: list[str], esperados: list[str], caplog: pytest.LogCaptureFixture
@@ -429,3 +449,22 @@ async def test_a_trilha_da_delegacao_nao_colide_com_a_da_geracao() -> None:
     [da_geracao] = producers.no_concluido.await_args_list[0].args
     [da_delegacao] = producers.no_concluido.await_args_list[1].args
     assert da_geracao.evento_id != da_delegacao.evento_id
+
+
+async def test_dispatch_execution_nao_leva_o_alcance_com_o_escopo_desligado() -> None:
+    """Sem o campo, o worker não confere o escopo."""
+    producers = _producers()
+    representacao = {
+        "nucleo": {
+            "loja": ["58", "13"],
+            "marca": ["10"],
+            "taxas_por_cargo": [{"cargo": "100", "percentual": Decimal("0.03")}],
+            "cargo": ["100"],
+        },
+        "especificacoes": [],
+    }
+    estado = _estado(codigo_gerado_id=str(uuid4()), representacao_regra=representacao)
+
+    await dispatch_execution(estado, _config(producers=producers))
+
+    assert "alcance" not in _payload_do_comando(producers)

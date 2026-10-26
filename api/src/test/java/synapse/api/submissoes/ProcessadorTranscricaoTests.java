@@ -505,14 +505,17 @@ class ProcessadorTranscricaoTests {
 		processador.processarPendentes();
 
 		String depois = metricas();
-		assertThat(depois).contains("transcricao_trabalhos_total{resultado=\"concluida\"}")
-			.contains("transcricao_trabalhos_total{resultado=\"falhou_permanente\"}")
-			.contains("transcricao_trabalhos_total{resultado=\"descartada\"}")
+		assertThat(depois)
+			.contains("transcricao_trabalhos_total{finalidade=\"entrada_inicial\",resultado=\"concluida\"}")
+			.contains("transcricao_trabalhos_total{finalidade=\"entrada_inicial\",resultado=\"falhou_permanente\"}")
+			.contains("transcricao_trabalhos_total{finalidade=\"entrada_inicial\",resultado=\"descartada\"}")
 			.contains("transcricao_chamada_seconds_count{resultado=\"concluida\"}")
 			.contains("transcricao_chamada_seconds_count{resultado=\"falhou_permanente\"}")
 			.contains("transcricao_espera_seconds_count");
-		assertThat(amostra(depois, "transcricao_trabalhos_total{resultado=\"concluida\"}"))
-			.isEqualTo(amostra(antes, "transcricao_trabalhos_total{resultado=\"concluida\"}") + 1);
+		assertThat(
+				amostra(depois, "transcricao_trabalhos_total{finalidade=\"entrada_inicial\",resultado=\"concluida\"}"))
+			.isEqualTo(amostra(antes,
+					"transcricao_trabalhos_total{finalidade=\"entrada_inicial\",resultado=\"concluida\"}") + 1);
 		assertThat(amostra(depois, "transcricao_espera_seconds_count"))
 			.as("três trabalhos esperaram na fila, nenhum deles recuperado")
 			.isEqualTo(amostra(antes, "transcricao_espera_seconds_count") + 3);
@@ -750,17 +753,21 @@ class ProcessadorTranscricaoTests {
 			.isEqualTo("erro_transcricao");
 		String depois = metricas();
 		for (String resultado : List.of("nova_tentativa", "esgotado")) {
-			String serie = "transcricao_trabalhos_total{resultado=\"" + resultado + "\"}";
+			String serie = "transcricao_trabalhos_total{finalidade=\"entrada_inicial\",resultado=\"" + resultado
+					+ "\"}";
 			assertThat(amostra(depois, serie))
 				.isEqualTo(amostra(antes, serie) + (resultado.equals("nova_tentativa") ? 2 : 1));
 			assertThat(contexto.getBean(io.micrometer.core.instrument.MeterRegistry.class)
 				.get("transcricao.trabalhos")
+				.tag("finalidade", "entrada_inicial")
 				.tag("resultado", resultado)
 				.counter()
 				.count()).isEqualTo(amostra(depois, serie));
 		}
-		assertThat(amostra(depois, "transcricao_trabalhos_total{resultado=\"concluida\"}"))
-			.isEqualTo(amostra(antes, "transcricao_trabalhos_total{resultado=\"concluida\"}"));
+		assertThat(
+				amostra(depois, "transcricao_trabalhos_total{finalidade=\"entrada_inicial\",resultado=\"concluida\"}"))
+			.isEqualTo(amostra(antes,
+					"transcricao_trabalhos_total{finalidade=\"entrada_inicial\",resultado=\"concluida\"}"));
 	}
 
 	@Test

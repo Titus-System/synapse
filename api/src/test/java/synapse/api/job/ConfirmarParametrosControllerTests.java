@@ -50,7 +50,8 @@ class ConfirmarParametrosControllerTests {
 	void preparar() {
 		this.mvc = MockMvcBuilders
 			.standaloneSetup(new JobController(this.service, mock(EmissoresSse.class), new CorrelationContext(),
-					org.mockito.Mockito.mock(synapse.api.core.metrics.AppMetrics.class)))
+					new synapse.api.core.metrics.AppMetrics(
+							new io.micrometer.core.instrument.simple.SimpleMeterRegistry())))
 			.setControllerAdvice(new JobAdvice())
 			.build();
 	}
@@ -142,6 +143,22 @@ class ConfirmarParametrosControllerTests {
 			.andExpect(jsonPath("$.codigo").value("nucleo_incompleto"))
 			.andExpect(jsonPath("$.elementos[0].ref").value("nucleo.percentual"));
 		verifyNoInteractions(this.service);
+	}
+
+	@Test
+	void confirmaTaxasPorCargoSemReduzirAoPercentualEscalar() throws Exception {
+		String taxas = "\"taxas_por_cargo\":[{\"cargo\":\"100\",\"percentual\":0.031234567890123456789},{\"cargo\":\"300\",\"percentual\":0.05}]";
+		this.mvc
+			.perform(post("/jobs/" + JOB + "/parameters").contentType(MediaType.APPLICATION_JSON)
+				.content(CONFIRMAR.replace("\"percentual\":0.03", taxas)))
+			.andExpect(status().isAccepted());
+		var captor = ArgumentCaptor.forClass(ConfirmarParametrosRequisicao.class);
+		verify(this.service).confirmar(eq(JOB), captor.capture());
+		NucleoRegraDto nucleo = captor.getValue().representacao().nucleo();
+		assertThat(nucleo.percentual()).isNull();
+		assertThat(nucleo.taxas_por_cargo()).containsExactly(
+				new TaxaPorCargoDto("100", new BigDecimal("0.031234567890123456789")),
+				new TaxaPorCargoDto("300", new BigDecimal("0.05")));
 	}
 
 	@Test

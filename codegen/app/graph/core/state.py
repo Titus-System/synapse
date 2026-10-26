@@ -60,6 +60,10 @@ class AgentState(TypedDict, total=False):
     modelo: dict[str, Any]
     consumo_tokens: dict[str, Any]
 
+    # Se o código da versão foi derivado do código já simulado da versão de origem, sem chamar
+    # o modelo, ou se segue para a geração. O campo validado que a aresta lê.
+    derivacao: str
+
     # T-097
     prompt_id: str
     resposta_id: str
@@ -78,5 +82,13 @@ class AgentState(TypedDict, total=False):
     # Taxas novas que o job já tentou até a regra deste ciclo, inclusive (T-271). O nó de
     # decisão a conta, e a sugestão a lê do checkpoint para numerar a tentativa seguinte.
     tentativas_de_taxa: int
+    # Posição, na versão da regra, do código corrigido que está em geração ou execução. A
+    # decisão o grava ao pedir a correção e o lê na execução seguinte para contar o desfecho.
+    correcao_pendente: int | None
 
     busca_meta: BuscaMeta
+
+    # T-221 (estado inicial do ciclo de reextração, a partir de `correcao-submetida`). Só
+    # referências: o texto da correção e a regra ficam no banco e são lidos pelo nó.
+    regra_origem_id: str
+    submissao_correcao_id: str

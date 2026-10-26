@@ -1,5 +1,6 @@
 package synapse.api.job;
 
+import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Map;
@@ -7,6 +8,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.jspecify.annotations.Nullable;
+
+import synapse.api.job.JobRepository.ComissaoForaDaRegra;
 
 /**
  * As ações do contrato HTTP ({@code AcaoJob}), no mesmo vocabulário da coluna
@@ -155,6 +158,15 @@ enum DesfechoDaSimulacao {
 	}
 
 	/**
+	 * A falha do código gerado, que o codegen corrige enquanto a versão não chega ao
+	 * limite de {@link CorrecaoDoCodigo}. A de infraestrutura fica de fora: outro código
+	 * não a resolve.
+	 */
+	boolean corrigivel() {
+		return this == ERRO_CODIGO || this == ASSERCAO_VIOLADA;
+	}
+
+	/**
 	 * {@code null} quando o par recebido não descreve um desfecho conhecido - status fora
 	 * do vocabulário, ou {@code sucesso} com veredito fora do vocabulário. A ausência é o
 	 * próprio sinal para quem chama: não há exceção aqui, porque lançar dentro de um
@@ -189,6 +201,23 @@ enum DesfechoDaSimulacao {
 }
 
 /**
+ * A correção do código gerado cuja execução falhou: a falha volta ao modelo com o código,
+ * e o código corrigido é executado de novo. Cada versão da regra tem no máximo
+ * {@link #LIMITE_DE_CODIGOS_POR_VERSAO} códigos, contados pela ordem de criação em
+ * {@code codigos_gerados}. O codegen aplica o mesmo limite pela mesma conta
+ * ({@code codegen/app/correcao_codigo.py}), e por isso os dois chegam à mesma decisão em
+ * qualquer ordem de consumo de {@code simulacao-concluida}.
+ */
+final class CorrecaoDoCodigo {
+
+	static final int LIMITE_DE_CODIGOS_POR_VERSAO = 3;
+
+	private CorrecaoDoCodigo() {
+	}
+
+}
+
+/**
  * Único tradutor do token gravado em {@code job_transicoes.motivo} para a razão
  * localizada que o usuário lê, tanto no evento SSE {@code estado} quanto em {@code GET
  * /jobs/{id}}. A trilha guarda o token, e não a razão, porque é por ele que as falhas
@@ -217,10 +246,29 @@ final class MotivoDaParada {
 
 	private static final String PREFIXO_FALHA_NA_ETAPA = "erro_";
 
+	private static final Locale PT_BR = Locale.of("pt", "BR");
+
 	private static final String MOTIVO_DA_TRILHA_PROVEDOR_INDISPONIVEL = PREFIXO_FALHA_NA_ETAPA
 			+ CAUSA_PROVEDOR_INDISPONIVEL;
 
 	private MotivoDaParada() {
+	}
+
+	/**
+	 * A razão do fim das tentativas de taxa nova sem alternativa. Quando as lojas fora da
+	 * regra já custam mais que o orçamento, nenhuma taxa cabe e a razão diz isso, com os
+	 * dois valores; sem esse piso, é a razão genérica.
+	 */
+	static String semAlternativa(@Nullable ComissaoForaDaRegra comissao) {
+		if (comissao == null || comissao.fora().compareTo(comissao.orcamento()) <= 0) {
+			return NENHUMA_TAXA_COUBE;
+		}
+		return "O orçamento de %s é menor que as comissões das lojas fora da regra (%s), que a sugestão não altera. Nenhuma redução de taxa faz a regra caber: aumente o orçamento ou revise o alcance da regra."
+			.formatted(reais(comissao.orcamento()), reais(comissao.fora()));
+	}
+
+	private static String reais(BigDecimal valor) {
+		return String.format(PT_BR, "R$ %,.2f", valor);
 	}
 
 	/** O token de {@code job_transicoes.motivo} de uma falha anterior à simulação. */

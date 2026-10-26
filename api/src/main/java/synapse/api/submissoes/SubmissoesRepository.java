@@ -4,6 +4,7 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -33,21 +34,20 @@ class SubmissoesRepository {
 				""", UUID.class, usuarioId, audio.bytes(), audio.formato(), Timestamp.from(agora)));
 	}
 
-	void inserirTrabalho(UUID jobId, UUID submissaoId, Instant agora) {
+	void inserirTrabalho(UUID jobId, UUID submissaoId, FinalidadeTrabalho finalidade, Instant agora) {
 		this.jdbc.update(
 				"""
 						INSERT INTO trabalhos_transcricao (job_id, submissao_id, finalidade, estado, tentativas, criado_em, atualizado_em)
-						VALUES (?, ?, 'entrada_inicial', 'pendente', 0, ?, ?)
+						VALUES (?, ?, ?, 'pendente', 0, ?, ?)
 						""",
-				jobId, submissaoId, Timestamp.from(agora), Timestamp.from(agora));
+				jobId, submissaoId, finalidade.paraColuna(), Timestamp.from(agora), Timestamp.from(agora));
 	}
 
 	/**
 	 * Reserva o trabalho elegível mais antigo e devolve a lista vazia quando não há
 	 * nenhum. {@code SKIP LOCKED} faz outro processador pular a linha já travada em vez
 	 * de esperar por ela, e a reserva vencida volta a ser elegível para que uma instância
-	 * que caiu no meio da chamada não deixe o job preso. A finalidade {@code correcao}
-	 * fica de fora até a T-238.
+	 * que caiu no meio da chamada não deixe o job preso.
 	 * <p>
 	 * É uma instrução só, e portanto a transação curta da reserva: quem chama está em
 	 * autocommit, e nada da chamada ao provedor acontece com esta linha travada.
@@ -57,9 +57,8 @@ class SubmissoesRepository {
 				"""
 						WITH alvo AS (
 						    SELECT id, estado, tentativas FROM trabalhos_transcricao
-						    WHERE finalidade = 'entrada_inicial'
-						      AND ((estado = 'pendente' AND (proxima_tentativa_em IS NULL OR proxima_tentativa_em <= ?))
-						           OR (estado = 'em_andamento' AND reservado_ate <= ?))
+						    WHERE (estado = 'pendente' AND (proxima_tentativa_em IS NULL OR proxima_tentativa_em <= ?))
+						       OR (estado = 'em_andamento' AND reservado_ate <= ?)
 						    ORDER BY criado_em, id
 						    LIMIT 1
 						    FOR UPDATE SKIP LOCKED
@@ -68,13 +67,14 @@ class SubmissoesRepository {
 						SET estado = 'em_andamento', tentativas = CASE WHEN t.tentativas >= ? THEN t.tentativas ELSE t.tentativas + 1 END,
 						    reservado_ate = ?, atualizado_em = ?
 						FROM alvo WHERE t.id = alvo.id
-						RETURNING t.id, t.job_id, t.submissao_id, t.tentativas, t.criado_em, t.resposta_invalida, t.reservado_ate,
-						    alvo.estado AS estado_anterior, alvo.tentativas AS tentativas_anteriores
+						RETURNING t.id, t.job_id, t.submissao_id, t.finalidade, t.tentativas, t.criado_em, t.resposta_invalida,
+						    t.reservado_ate, alvo.estado AS estado_anterior, alvo.tentativas AS tentativas_anteriores
 						""",
 				(rs, numero) -> new TrabalhoReservado(Objects.requireNonNull(rs.getObject("id", UUID.class)),
 						Objects.requireNonNull(rs.getObject("job_id", UUID.class)),
-						Objects.requireNonNull(rs.getObject("submissao_id", UUID.class)), rs.getInt("tentativas"),
-						Objects.requireNonNull(rs.getTimestamp("criado_em")).toInstant(),
+						Objects.requireNonNull(rs.getObject("submissao_id", UUID.class)),
+						FinalidadeTrabalho.deColuna(Objects.requireNonNull(rs.getString("finalidade"))),
+						rs.getInt("tentativas"), Objects.requireNonNull(rs.getTimestamp("criado_em")).toInstant(),
 						"em_andamento".equals(rs.getString("estado_anterior")), rs.getBoolean("resposta_invalida"),
 						rs.getInt("tentativas_anteriores") >= limite,
 						Objects.requireNonNull(rs.getTimestamp("reservado_ate")).toInstant()),
@@ -127,8 +127,23 @@ class SubmissoesRepository {
 	 * @param recuperado a reserva venceu e foi retomada, em vez de o trabalho estar
 	 * pendente; é a reentrada que não conta espera nem conclusão nova
 	 */
-	record TrabalhoReservado(UUID id, UUID jobId, UUID submissaoId, int tentativas, Instant criadoEm,
-			boolean recuperado, boolean respostaInvalida, boolean limiteEsgotado, Instant reservadoAte) {
+	record TrabalhoReservado(UUID id, UUID jobId, UUID submissaoId, FinalidadeTrabalho finalidade, int tentativas,
+			Instant criadoEm, boolean recuperado, boolean respostaInvalida, boolean limiteEsgotado,
+			Instant reservadoAte) {
+	}
+
+	enum FinalidadeTrabalho {
+
+		ENTRADA_INICIAL, CORRECAO;
+
+		String paraColuna() {
+			return name().toLowerCase(Locale.ROOT);
+		}
+
+		static FinalidadeTrabalho deColuna(String valor) {
+			return valueOf(valor.toUpperCase(Locale.ROOT));
+		}
+
 	}
 
 	/** Classe, e não record: um record com componente de array é recusado na revisão. */

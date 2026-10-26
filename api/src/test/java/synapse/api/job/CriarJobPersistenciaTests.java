@@ -126,8 +126,8 @@ class CriarJobPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ JobRepository.class, JobService.class, MaquinaDeEstadosDoJob.class, Outbox.class, JobAdvice.class,
-			VersoesDaRegra.class, CorrelationContext.class })
+	@Import({ JobRepository.class, JobService.class, RodadasRepository.class, MaquinaDeEstadosDoJob.class, Outbox.class,
+			JobAdvice.class, VersoesDaRegra.class, CorrelationContext.class })
 	static class Config {
 
 	}

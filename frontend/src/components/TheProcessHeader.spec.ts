@@ -16,14 +16,13 @@ describe('TheProcessHeader', () => {
     expect(conteiner.get('li[aria-current="step"]').text()).toContain('Voz/Texto')
   })
 
-  it('associa os estados intermediários à simulação enquanto a conversa não possui tela própria', () => {
+  it('associa a regra que aguarda correção à conversa', () => {
     const conteiner = mount(TheProcessHeader, {
       ...opcoesDeMontagem,
       props: { etapaDaRota: 'simulacao', statusDoJob: 'aguardando_confirmacao_parametros' },
     })
 
-    expect(conteiner.get('li[aria-current="step"]').text()).toContain('Simulação')
-    expect(conteiner.text()).not.toContain('Conversa')
+    expect(conteiner.get('li[aria-current="step"]').text()).toContain('Conversa')
   })
 
   it('mantém a simulação acesa quando o processamento foi interrompido', () => {
@@ -57,6 +56,18 @@ describe('TheProcessHeader', () => {
 
     expect(indicador.text()).toContain('Etapa: Simulação')
     expect(indicador.classes()).toContain('xl:hidden')
+  })
+
+  it('mostra as etapas no histórico sem indicar que uma operação está em andamento', () => {
+    const conteiner = mount(TheProcessHeader, {
+      ...opcoesDeMontagem,
+      props: { etapaDaRota: null, historico: true, statusDoJob: 'liberado' },
+    })
+
+    expect(conteiner.get('[aria-label="Etapas do processo"]').text()).toContain('Simulação')
+    expect(conteiner.find('[aria-current="step"]').exists()).toBe(false)
+    expect(conteiner.text()).toContain('Histórico da regra')
+    conteiner.unmount()
   })
 
   it('usa um ícone reconhecível para abrir o menu de perfil', () => {

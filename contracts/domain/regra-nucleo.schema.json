@@ -13,24 +13,37 @@
     "loja": {
       "type": "array",
       "items": { "$ref": "comum.schema.json#/$defs/codigo" },
-      "description": "Cod_Loja. Filtro de escopo: a regra só se aplica a estas lojas. Ausente ou vazio significa todas. Corresponde ao termo canal do backlog (DEC-084).",
+      "description": "Cod_Loja. Filtro de escopo: a regra só se aplica a estas lojas. Vazio declara todas explicitamente. Ausente permanece pendente antes de uma nova simulação; versões históricas continuam legíveis. Corresponde ao termo canal do backlog (DEC-084).",
       "examples": [["13"]]
     },
     "marca": {
       "type": "array",
       "items": { "$ref": "comum.schema.json#/$defs/codigo" },
-      "description": "Cod_Marca. Filtro de escopo. Ausente ou vazio significa todas. Corresponde ao termo produto do backlog; não há granularidade de item ou SKU (DEC-084).",
+      "description": "Cod_Marca. Filtro de escopo. Vazio declara todas explicitamente. Ausente permanece pendente antes de uma nova simulação; versões históricas continuam legíveis. Corresponde ao termo produto do backlog; não há granularidade de item ou SKU (DEC-084).",
       "examples": [["10", "20"]]
     },
     "cargo": {
       "type": "array",
       "items": { "$ref": "comum.schema.json#/$defs/codigo" },
-      "description": "Cod_Cargo. Filtro de escopo. Ausente ou vazio significa todos. Corresponde ao termo equipe ou funções do backlog (DEC-084).",
+      "description": "Cod_Cargo. Filtro de escopo. Vazio declara todos explicitamente. Ausente permanece pendente antes de uma nova simulação; versões históricas continuam legíveis. Corresponde ao termo equipe ou funções do backlog (DEC-084).",
       "examples": [["100", "300"]]
     },
     "percentual": {
       "$ref": "comum.schema.json#/$defs/fracao",
       "description": "%_Comiss proposto, em fração. 0.025 são 2,5%."
+    },
+    "taxas_por_cargo": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Taxas explicitamente propostas para cada cargo, em fração. Cargos sem taxa própria conservam o baseline, salvo uma taxa uniforme explicitamente declarada em percentual. Uma taxa própria substitui a uniforme para seu cargo; não é um acréscimo. Não implica taxa uniforme para os demais cargos.",
+      "items": {
+        "type": "object",
+        "required": ["cargo", "percentual"],
+        "properties": {
+          "cargo": { "$ref": "comum.schema.json#/$defs/codigo" },
+          "percentual": { "$ref": "comum.schema.json#/$defs/fracao" }
+        }
+      }
     }
   },
   "examples": [
@@ -40,6 +53,15 @@
       "marca": ["10", "20"],
       "cargo": ["100", "300"],
       "percentual": 0.025
+    },
+    {
+      "loja": [],
+      "marca": [],
+      "cargo": ["100", "150"],
+      "taxas_por_cargo": [
+        { "cargo": "100", "percentual": 0.03 },
+        { "cargo": "150", "percentual": 0.05 }
+      ]
     }
   ]
 }

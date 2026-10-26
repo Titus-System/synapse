@@ -1,6 +1,6 @@
 ---
 name: correction-loop
-description: Como a api implementa o loop de correção - os nomes atuais das classes que as tarefas do E3 citam, por que as rodadas moram no pacote `job`, como a fatia `submissoes` chega ao domínio sem tocar no repositório nem perder a autorização, as transições novas, os consumidores de `etapa-alterada` e `correcao-proposta`, o outbox de `correcao-submetida` e `parametros-confirmados`, o fechamento das rodadas na confirmação direta e no cancelamento, e as armadilhas do código atual. Use ao implementar T-214 a T-217 ou T-225, ou ao depurar uma rodada que não abriu, não fechou ou abriu duas vezes.
+description: Como a api implementa o loop de correção - os nomes atuais das classes que as tarefas do E3 citam, por que as rodadas moram no pacote `job`, como a fatia `submissoes` chega ao domínio sem tocar no repositório nem perder a autorização, as transições novas, os consumidores de `etapa-alterada` e `correcao-proposta`, o outbox de `correcao-submetida` e `parametros-confirmados`, o fechamento das rodadas na confirmação direta e no cancelamento, e as armadilhas do código atual. Use ao implementar T-214 a T-217, T-225 ou T-238, ou ao depurar uma rodada que não abriu, não fechou ou abriu duas vezes.
 ---
 
 # Loop de correção na api
@@ -29,7 +29,7 @@ As tarefas do E3 foram escritas antes da reorganização do pacote `job` e citam
 Toda mudança de rodada acontece junto com uma leitura do job sob trava, uma transição de estado, uma versão de regra ou um evento de outbox. `MaquinaDeEstadosDoJob`, `VersoesDaRegra`, `JobRepository` e o `Outbox` já estão ao alcance package-private do pacote `job`. Uma fatia `rodada` separada precisaria de todos eles como API pública, que é o acoplamento que a skill [`architecture`](../architecture/SKILL.md) evita.
 
 - O repositório das rodadas fica no pacote `job`, com `JdbcTemplate` e parâmetros bind, como `JobRepository`.
-- O estado é um enum package-private com `paraColuna` e `deColuna`, no molde de `JobStatus`. `pendente` e `em_reextracao` são os abertos.
+- O estado é um enum package-private com `paraColuna` e `deColuna`, no molde de `JobStatus`. `pendente`, `em_transcricao` e `em_reextracao` são os abertos.
 - A resposta `Rodada` é um record em `RespostasJob.java`. `correcao` sai de um join com `submissoes` pelo `submissao_correcao_id`: `texto` vem de `transcricao` e `enviada_em` de `criado_em`. Fica nula enquanto não há submissão.
 - Quando uma rodada nova sucede a última do job, `rodada_anterior_id` aponta para a mais recente pela ordem de criação, aberta ou fechada.
 
@@ -94,6 +94,14 @@ O restante, numa transação:
 
 - `JobService.confirmar` (T-217): com uma rodada aberta, feche-a como `corrigida` com a versão confirmada, na mesma transação. Se `VersoesDaRegra.resolver` devolver uma versão que já existia, decida explicitamente o que publicar. O codegen não reabre o ciclo de um `regra_id` que já terminou, e um job em `gerando_regra` sem ciclo vivo fica parado.
 - `JobService.executarAcao` (T-225): depois de uma transição bem-sucedida para `cancelado` ou `arquivado`, marque as rodadas abertas como `abandonada` na mesma transação, alterando só `estado` e `atualizada_em`.
+
+## Correção por voz (T-238)
+
+- `SubmissoesService.voz` chama `JobsDeSubmissoes.corrigir` com `TipoEntrada.VOZ`: as mesmas conferências da correção por texto, a rodada vai a `em_transcricao` e nenhum evento é registrado. A fatia insere o trabalho com finalidade `correcao` na mesma transação.
+- `ProcessadorTranscricao` reserva as duas finalidades. Na transação final de uma `correcao`, chama `concluirTranscricaoDaCorrecao`, `falharTranscricaoDaCorrecao` ou `aguardandoTranscricaoDaCorrecao` em vez das operações do job, que só valem para a entrada inicial.
+- Essas operações travam o job e acham a rodada pela `submissao_correcao_id`. Com ela em `em_transcricao` e o job em `aguardando_confirmacao_parametros`, a conclusão leva a rodada a `em_reextracao` e registra o mesmo `correcao-submetida` do texto, e a falha fecha a rodada como `reextracao_falhou` e abre a `pendente` nova. Fora disso, devolvem false e o trabalho é descartado.
+- Depois do commit da falha, a api emite no stream o mesmo `etapa` da falha da reextração (`extracao_parametros`, `erro`, sem `conflitos` e sem `estado`), que o contrato define como a correção reaberta numa rodada pendente nova.
+- O Spring admite o arquivo até o teto da requisição, e `AudioSubmissao` confere os 5 MB depois de o controller ler `parametros`. Assim a recusa por tamanho de uma correção conta em `submissoes.correcoes`; só o corpo acima do teto, recusado antes de qualquer parte ser lida, conta em `submissoes.criacao`.
 
 ## Testes
 

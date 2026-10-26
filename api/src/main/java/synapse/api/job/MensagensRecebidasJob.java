@@ -91,3 +91,11 @@ record SugestaoAdaptacaoPropostaDto(@Nullable UUID job_id, @Nullable UUID regra_
  */
 record RegraExtraidaDto(@Nullable UUID job_id, @Nullable UUID submissao_id, @Nullable UUID extracao_id) {
 }
+
+/**
+ * Evento validado; os objetos JSON mantêm extensões e a ausência do conjunto de
+ * parâmetros.
+ */
+record CorrecaoPropostaDto(UUID job_id, UUID regra_origem_id, UUID submissao_id, JsonNode representacao,
+		@Nullable JsonNode parametros, JsonNode corpo) {
+}

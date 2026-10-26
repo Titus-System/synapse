@@ -16,10 +16,21 @@ from langchain_core.language_models import BaseChatModel
 from app.config import get_settings
 from app.extracao.modelos import ResultadoExtracao
 from app.extracao.motor import extrair_regra
+from app.extracao.registro import CONSTRUTOS_HABILITADOS
 from app.graph.core.llm.registry import get_model, get_model_metadata
+from app.representacao_regra import RepresentacaoRegra
 
 ARQUIVO = Path(__file__).resolve().parents[2] / "fixtures" / "corpus_extracao.json"
 CORPUS: list[dict[str, Any]] = json.loads(ARQUIVO.read_text(encoding="utf-8"), parse_float=Decimal)
+for _nome in ("corpus_condicao_limiar.json", "corpus_exclusao.json"):
+    CORPUS += [
+        caso
+        for caso in json.loads(
+            ARQUIVO.with_name(_nome).read_text(encoding="utf-8"),
+            parse_float=Decimal,
+        )
+        if not caso.get("somente_modelo_falso")
+    ]
 
 
 def test_corpus_versionado_cobre_categorias_obrigatorias() -> None:
@@ -41,11 +52,33 @@ def test_corpus_versionado_cobre_categorias_obrigatorias() -> None:
         "instrucoes_maliciosas",
         "simulacao_completa",
         "sem_parametros",
+        "bonus_fixo_lista",
+        "bonus_fixo_filtro",
+        "bonus_fixo_matricula_numero",
+        "janela_black_friday",
+        "janela_gerentes",
+        "janela_dia_unico",
+        "exclusao_cargo_gerentes",
+        "exclusao_cargo_negado",
+        "exclusao_bonus_sem_valor",
+        "exclusao_global_inclusive_bonus",
+        "exclusao_global_clausulas",
+        "exclusao_bonus_retomado",
+        "exclusao_lojas",
+        "exclusao_cargo_e_marca",
+        "exclusao_codigo_fora_do_vocabulario",
+        "exclusao_matricula",
+        "exclusao_so_de_uma_regra",
+        "exclusao_do_codigo_incluido",
+        "faixa_escada_de_bonus",
+        "faixa_limiar_unico",
+        "faixa_loja_generico",
     } <= set(ids)
     for caso in CORPUS:
         assert caso["texto"] and caso["competencias_publicadas"]
         assert set(caso["representacao_esperada"]) == {"nucleo", "especificacoes"}
         assert isinstance(caso["parametros_esperados"], dict)
+        RepresentacaoRegra.model_validate(caso["representacao_esperada"])
 
 
 def test_corpus_mantem_percentuais_com_precisao_decimal() -> None:
@@ -57,6 +90,12 @@ def test_corpus_mantem_percentuais_com_precisao_decimal() -> None:
 
     assert percentuais
     assert all(isinstance(percentual, Decimal) for percentual in percentuais)
+
+
+def _sem_descricao(elemento: dict[str, Any]) -> dict[str, Any]:
+    return {
+        campo: valor for campo, valor in elemento.items() if campo not in ("descricao", "campos")
+    }
 
 
 def _indisponibilidade_503(erro: BaseException) -> bool:
@@ -194,6 +233,8 @@ async def modelo_corpus() -> AsyncGenerator[BaseChatModel, None]:
 async def test_corpus_contra_modelo_real(
     caso: dict[str, Any], modelo_corpus: BaseChatModel
 ) -> None:
+    if any(c in CONSTRUTOS_HABILITADOS for c in caso.get("construtos_desabilitados", [])):
+        pytest.skip("caso de fallback exige construto desabilitado")
     resultado = await _extrair_com_retentativa(caso, modelo_corpus)
 
     regra = resultado.representacao.para_contrato()
@@ -202,9 +243,15 @@ async def test_corpus_contra_modelo_real(
     esperados = caso["representacao_esperada"]["especificacoes"]
     if esperados:
         assert len(regra["especificacoes"]) == len(esperados)
-        assert [(e["ref"], e["construto"]) for e in regra["especificacoes"]] == [
-            (e["ref"], e["construto"]) for e in esperados
+        # Descrição e `campos` de um genérico são texto livre do modelo; o resto é determinístico.
+        assert [_sem_descricao(e) for e in regra["especificacoes"]] == [
+            _sem_descricao(e) for e in esperados
         ]
-        assert all(e["descricao"] for e in regra["especificacoes"])
+        if "rascunho" in caso:
+            assert regra["especificacoes"] == esperados
+        else:
+            assert all(
+                e["descricao"] for e in regra["especificacoes"] if e["construto"] == "generico"
+            )
     else:
         assert regra["especificacoes"] == []

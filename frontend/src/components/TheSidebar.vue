@@ -1,25 +1,81 @@
 <script setup lang="ts">
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import simboloSynapse from '@/assets/imagens/synapse-simbolo.png'
-
-interface RegraRecente {
-  identificador: string
-  rotulo: string
-}
+import { usarStoreRenomearRegra, limiteDoNome } from '@/stores/renomearRegra'
+import { usarStoreRegrasRecentes, type RegraRecente } from '@/stores/regrasRecentes'
 
 withDefaults(
   defineProps<{
     secaoAtiva?: 'salvas' | 'arquivadas'
     quantidadeArquivadas?: number
     quantidadeSalvas?: number
-    regrasRecentes?: readonly RegraRecente[]
   }>(),
   {
     secaoAtiva: undefined,
     quantidadeArquivadas: 0,
     quantidadeSalvas: 0,
-    regrasRecentes: () => [],
   },
 )
+
+const renomear = usarStoreRenomearRegra()
+const { idEmEdicao, texto, enviando, erro, tamanho, mensagemDeValidacao, podeConfirmar } =
+  storeToRefs(renomear)
+const campo = ref<HTMLInputElement[] | HTMLInputElement | null>(null)
+
+const regrasRecentes = usarStoreRegrasRecentes()
+const { regras, total, falhou, carregando, todasCarregadas } = storeToRefs(regrasRecentes)
+const lista = ref<HTMLUListElement | null>(null)
+const fimDaLista = ref<HTMLLIElement | null>(null)
+let observador: IntersectionObserver | null = null
+
+function observarFimDaLista(): void {
+  observador?.disconnect()
+  if (fimDaLista.value) observador?.observe(fimDaLista.value)
+}
+
+onMounted(() => {
+  observador = new IntersectionObserver(
+    (entradas) => {
+      if (entradas.some((entrada) => entrada.isIntersecting)) void regrasRecentes.carregarMais()
+    },
+    { root: lista.value, rootMargin: '0px 0px 80px 0px' },
+  )
+  observarFimDaLista()
+  void regrasRecentes.atualizar()
+})
+
+// O observador só avisa quando o fim da lista entra ou sai da área visível. Se ele continua
+// visível depois de uma página carregada, observar de novo dispara a checagem que pede a próxima.
+watch(
+  [fimDaLista, carregando],
+  () => {
+    if (!carregando.value) observarFimDaLista()
+  },
+  { flush: 'post' },
+)
+
+onBeforeUnmount(() => observador?.disconnect())
+
+function rotuloDe(regra: RegraRecente): string {
+  return renomear.rotuloExibido(regra.identificador, regra.rotulo)
+}
+
+async function editar(regra: RegraRecente): Promise<void> {
+  renomear.iniciar(regra.identificador, rotuloDe(regra))
+  await nextTick()
+  const el = Array.isArray(campo.value) ? campo.value[0] : campo.value
+  el?.focus()
+  el?.select()
+}
+
+function confirmar(): void {
+  if (podeConfirmar.value) void renomear.confirmar()
+}
+
+function aoSair(): void {
+  if (!enviando.value) renomear.cancelar()
+}
 </script>
 
 <template>
@@ -39,19 +95,77 @@ withDefaults(
       Nova Regra
     </RouterLink>
 
-    <section class="mt-4" aria-labelledby="titulo-recentes">
+    <section class="mt-4 flex min-h-0 flex-1 flex-col" aria-labelledby="titulo-recentes">
       <h2 id="titulo-recentes" class="text-sm font-normal text-[#c7afa3]">Recentes</h2>
-      <ul class="mt-3 space-y-2">
-        <li v-for="regra in regrasRecentes" :key="regra.identificador">
-          <RouterLink
-            :to="`/jobs/${regra.identificador}`"
-            class="flex h-10 items-center rounded-[.625rem] bg-[#4d3125] px-4 text-sm text-[#eaddd5] transition hover:bg-[#5a3b2c]"
-          >
-            {{ regra.rotulo }}
-          </RouterLink>
+      <!-- O Chrome ignora ::-webkit-scrollbar quando scrollbar-width/scrollbar-color estão
+           definidos e volta a desenhar as setas; por isso as propriedades padrão ficam só para o Firefox. -->
+      <ul
+        ref="lista"
+        class="mt-3 -mr-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1.5 [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#6b4535] hover:[&::-webkit-scrollbar-thumb]:bg-[#7a5442] supports-[-moz-appearance:none]:[scrollbar-width:thin] supports-[-moz-appearance:none]:[scrollbar-color:#6b4535_transparent]"
+      >
+        <li v-for="regra in regras" :key="regra.identificador">
+          <div v-if="idEmEdicao === regra.identificador" class="rounded-[.625rem] bg-[#4d3125] p-2">
+            <input
+              ref="campo"
+              v-model="texto"
+              type="text"
+              :disabled="enviando"
+              :aria-label="`Novo nome da regra ${rotuloDe(regra)}`"
+              :aria-invalid="mensagemDeValidacao !== '' || erro !== ''"
+              class="h-8 w-full rounded-md border border-[#7a5442] bg-[#3b2318] px-2 text-sm text-[#f6eae3] outline-none focus:border-[#f26b0f] disabled:opacity-60"
+              @keydown.enter.prevent="confirmar"
+              @keydown.esc.prevent="renomear.cancelar()"
+              @blur="aoSair"
+            />
+            <div class="mt-1 flex items-center justify-between gap-2 text-xs text-[#c7afa3]">
+              <span v-if="mensagemDeValidacao || erro" role="alert" class="text-[#ffb59a]">
+                {{ erro || mensagemDeValidacao }}
+              </span>
+              <span v-else>Enter confirma · Esc cancela</span>
+              <span class="shrink-0">{{ tamanho }}/{{ limiteDoNome }}</span>
+            </div>
+          </div>
+          <div v-else class="group relative">
+            <RouterLink
+              :to="`/jobs/${regra.identificador}`"
+              :title="rotuloDe(regra)"
+              class="flex h-10 min-w-0 items-center rounded-[.625rem] bg-[#4d3125] pr-10 pl-4 text-sm text-[#eaddd5] transition hover:bg-[#5a3b2c]"
+            >
+              <span class="min-w-0 flex-1 truncate">{{ rotuloDe(regra) }}</span>
+            </RouterLink>
+            <button
+              type="button"
+              :aria-label="`Renomear a regra ${rotuloDe(regra)}`"
+              class="cursor-pointer absolute top-1/2 right-2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-[#d6bdb0] opacity-100 transition hover:bg-[#6b4535] focus-visible:opacity-100 group-focus-within:opacity-100 lg:[@media(hover:hover)]:opacity-0 lg:[@media(hover:hover)]:group-hover:opacity-100 lg:[@media(hover:hover)]:group-focus-within:opacity-100 lg:[@media(hover:hover)]:focus-visible:opacity-100"
+              @mousedown.prevent
+              @click="editar(regra)"
+            >
+              <svg class="size-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M13.5 3.5l3 3L7 16H4v-3l9.5-9.5z" />
+              </svg>
+            </button>
+          </div>
         </li>
-        <li v-if="regrasRecentes.length === 0" class="px-1 py-2 text-sm text-[#c7afa3]">
+        <li v-if="total === 0" class="px-1 py-2 text-sm text-[#c7afa3]">
           Nenhuma regra criada ainda.
+        </li>
+        <li v-if="falhou" role="alert" class="px-1 py-2 text-sm text-[#c7afa3]">
+          <p>Não foi possível carregar as regras.</p>
+          <button
+            type="button"
+            class="mt-1 cursor-pointer underline"
+            @click="regrasRecentes.atualizar()"
+          >
+            Tentar novamente
+          </button>
+        </li>
+        <li
+          v-else-if="!todasCarregadas"
+          ref="fimDaLista"
+          role="status"
+          class="px-1 py-2 text-sm text-[#c7afa3]"
+        >
+          Carregando regras…
         </li>
       </ul>
     </section>

@@ -25,7 +25,9 @@ record NucleoSubmissaoDto(
 
 		List<String> cargo,
 
-		@Nullable BigDecimal percentual) {
+		@Nullable BigDecimal percentual,
+
+		@Nullable List<TaxaPorCargoDto> taxas_por_cargo) {
 }
 
 record ConteudoSubmissaoDto(
@@ -51,7 +53,17 @@ record NucleoRegraDto(
 
 		@Nullable List<String> cargo,
 
-		@Nullable BigDecimal percentual) {
+		@Nullable BigDecimal percentual,
+
+		@Nullable List<TaxaPorCargoDto> taxas_por_cargo) {
+
+	NucleoRegraDto(@Nullable VigenciaDto vigencia, @Nullable List<String> loja, @Nullable List<String> marca,
+			@Nullable List<String> cargo, @Nullable BigDecimal percentual) {
+		this(vigencia, loja, marca, cargo, percentual, null);
+	}
+}
+
+record TaxaPorCargoDto(String cargo, BigDecimal percentual) {
 }
 
 record RepresentacaoRegraDto(

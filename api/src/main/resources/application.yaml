@@ -9,7 +9,10 @@ server:
 spring:
   servlet:
     multipart:
-      max-file-size: 5MB
+      # O arquivo pode chegar ao teto da requisição: o limite de 5 MB do áudio é
+      # conferido pela api depois de ler os parâmetros, para que a recusa saiba se
+      # a submissão era uma correção.
+      max-file-size: 6MB
       max-request-size: 6MB
   main:
     banner-mode: off

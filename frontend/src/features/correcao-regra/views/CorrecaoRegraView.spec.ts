@@ -1,14 +1,30 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '@/services/api'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { listarRodadas } from '../services/correcao.api'
+import { pendente, jobCorrecao } from '../services/correcao.fixtures'
+vi.mock('@/services/jobEvents', () => ({
+  abrirAcompanhamentoJob: vi.fn<() => { fechar: () => void }>(() => ({
+    fechar: vi.fn<() => void>(),
+  })),
+}))
+vi.mock('../services/correcao.api', () => ({
+  listarRodadas: vi.fn<typeof import('../services/correcao.api').listarRodadas>(),
+  enviarCorrecaoTexto: vi.fn<typeof import('../services/correcao.api').enviarCorrecaoTexto>(),
+  enviarCorrecaoVoz: vi.fn<typeof import('../services/correcao.api').enviarCorrecaoVoz>(),
+}))
+beforeEach(() => {
+  vi.mocked(listarRodadas).mockResolvedValue([pendente])
+  vi.spyOn(apiClient, 'consultarJob').mockResolvedValue(jobCorrecao)
+})
 import CorrecaoRegraView from './CorrecaoRegraView.vue'
 
 afterEach(() => vi.restoreAllMocks())
 
 describe('visual do chatbot', () => {
-  it('mostra a conversa de exemplo e o processo com envio desabilitado', async () => {
+  it('mostra conflitos reais e mantém o envio vazio desabilitado', async () => {
     vi.spyOn(console, 'info').mockImplementation(() => undefined)
     vi.spyOn(apiClient, 'listarJobs').mockResolvedValue({
       itens: [],
@@ -25,8 +41,9 @@ describe('visual do chatbot', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('Refine sua Regra')
     expect(wrapper.find('[aria-label="Etapas do processo"]').exists()).toBe(true)
-    expect(wrapper.find('[role="status"]').text()).toContain('Exemplo de conversa')
-    expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('percentual ausente')
+    expect(wrapper.text()).not.toContain('Exemplo de conversa')
+    expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined()
     expect(wrapper.get('button[aria-label="Enviar correção"]').attributes('disabled')).toBeDefined()
     wrapper.unmount()
   })
@@ -60,6 +77,25 @@ describe('visual do chatbot', () => {
         pagina: 1,
         tamanho: 100,
       })
+      .mockResolvedValueOnce({
+        itens: [
+          {
+            id: 'regra-a',
+            status: 'liberado',
+            competencias: [],
+            criado_em: '2026-10-08T12:00:00Z',
+          },
+          {
+            id: 'regra-b',
+            status: 'arquivado',
+            competencias: [],
+            criado_em: '2026-10-07T12:00:00Z',
+          },
+        ],
+        total: 2,
+        pagina: 0,
+        tamanho: 12,
+      })
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [{ path: '/correcao', component: CorrecaoRegraView }],
@@ -67,7 +103,8 @@ describe('visual do chatbot', () => {
     await router.push('/correcao')
     const wrapper = mount(CorrecaoRegraView, { global: { plugins: [createPinia(), router] } })
     await flushPromises()
-    expect(listar).toHaveBeenCalledTimes(2)
+    expect(listar).toHaveBeenCalledTimes(3)
+    expect(listar).toHaveBeenLastCalledWith({ pagina: 0, tamanho: 12 })
     expect(wrapper.get('a[href="/jobs/regra-a"]').text()).toContain('08/10/2026')
     expect(wrapper.get('a[href="/jobs/regra-b"]').text()).toContain('07/10/2026')
     expect(wrapper.get('a[href="/salvas"]').text()).toContain('1')
@@ -83,7 +120,7 @@ describe('visual do chatbot', () => {
     vi.spyOn(console, 'info').mockImplementation(() => undefined)
     vi.spyOn(apiClient, 'listarJobs')
       .mockRejectedValueOnce(new Error('conteudo confidencial'))
-      .mockResolvedValueOnce({ itens: [], total: 0, pagina: 0, tamanho: 100 })
+      .mockResolvedValue({ itens: [], total: 0, pagina: 0, tamanho: 100 })
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [{ path: '/correcao', component: CorrecaoRegraView }],

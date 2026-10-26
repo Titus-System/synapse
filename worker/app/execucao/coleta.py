@@ -50,12 +50,18 @@ type Motivo = Literal[
     "envelope_de_outra_execucao",
     "codigo_de_saida_divergente",
     "resultado_fora_do_schema",
-    # Atribuído no julgamento (T-066): o total do baseline que saiu do container não é o que o
-    # worker tem congelado, ou os totais não fecham entre si.
+    # Atribuído no julgamento (T-066, T-262): o baseline que saiu do container, no total ou em
+    # alguma linha do detalhamento, não é o que o worker tem, ou os totais não fecham entre si.
     "baseline_divergente",
+    # Atribuído no julgamento (T-262): o detalhamento não fecha com os totais, com as próprias
+    # diferenças e contribuições, ou com as quebras da decomposição.
+    "resultado_incoerente",
     # Atribuído no julgamento (T-241): o comando exigiu um elemento que o código não declarou,
     # ou o código atribuiu contribuição a um elemento que o comando não exige.
     "cobertura_incompleta",
+    # Atribuído no julgamento: o código mudou a comissão de uma linha fora do alcance da regra
+    # que o comando trouxe.
+    "fora_do_escopo",
     "infra",
 ]
 

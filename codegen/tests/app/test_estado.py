@@ -197,10 +197,17 @@ def test_recusa_data_invalida_na_janela(inicial: EstadoGrafo) -> None:
         EstadoGrafo.model_validate({**inicial.model_dump(), "representacao_regra": regra})
 
 
-@pytest.mark.parametrize("valor", ["abc", "NaN", "Infinity", "-0.01", 0.1])
+@pytest.mark.parametrize("valor", ["abc", "NaN", "Infinity", 0.1])
 def test_recusa_orcamento_invalido(valor: object, inicial: EstadoGrafo) -> None:
     with pytest.raises(ValidationError):
         EstadoGrafo.model_validate({**inicial.model_dump(), "orcamento": valor})
+
+
+def test_aceita_orcamento_negativo_como_foi_dito(inicial: EstadoGrafo) -> None:
+    """Quem aponta o orçamento negativo é a validação de domínio (T-280)."""
+    estado = EstadoGrafo.model_validate({**inicial.model_dump(), "orcamento": "-0.01"})
+
+    assert estado.orcamento == Decimal("-0.01")
 
 
 @pytest.mark.parametrize("valor", [[], ["2025-13"], ["2025-00"], ["2025-1"], ["2025-11-01"]])

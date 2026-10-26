@@ -13,12 +13,13 @@ from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import StateSnapshot
 
+from app.config import get_settings
 from app.contratos.mensagens import ModeloContrato, ParametrosConfirmados
 from app.contratos.serializacao import serializar
 from app.graph.core.engine import build_graph
 from app.mensageria.consumers import Consumer
 from app.mensageria.roteamento import GraphRouter, thread_do_ciclo
-from app.repositorio.regras import TentativasDeTaxa
+from app.repositorio.regras import Procedencia, TentativasDeTaxa
 from app.representacao_regra import RepresentacaoRegra
 from tests.app.banco_falso import BancoFalso
 from tests.app.graph.conftest import FakeChatModel
@@ -38,7 +39,15 @@ class ConfirmacaoFalsa:
         self.modelo = FakeChatModel(messages=iter([AIMessage(content=resposta) for _ in range(4)]))
         self.buscar_regra = AsyncMock(
             return_value=RepresentacaoRegra.model_validate(
-                {"nucleo": {"percentual": Decimal("0.025")}, "especificacoes": []}
+                {
+                    "nucleo": {
+                        "loja": [],
+                        "marca": [],
+                        "cargo": [],
+                        "percentual": Decimal("0.025"),
+                    },
+                    "especificacoes": [],
+                }
             )
         )
 
@@ -48,10 +57,27 @@ class ConfirmacaoFalsa:
 
         monkeypatch.setattr("app.graph.entrypoint.get_checkpointer", checkpointer)
         monkeypatch.setattr("app.graph.nodes.load_rule.buscar_regra", self.buscar_regra)
+        # Uma versão que não é alternativa de taxa segue para a geração pelo modelo.
+        monkeypatch.setattr(
+            "app.graph.nodes.derive_code.buscar_procedencia",
+            AsyncMock(return_value=Procedencia("extracao", None)),
+        )
+        # A versão não nasceu da extração, ou nasceu sem parâmetro descartado.
+        self.sem_lastro = AsyncMock(return_value=frozenset())
+        monkeypatch.setattr(
+            "app.graph.nodes.validate_domain.parametros_sem_lastro", self.sem_lastro
+        )
+        self.nucleo_sem_lastro = AsyncMock(return_value=frozenset())
+        monkeypatch.setattr(
+            "app.graph.nodes.validate_domain.nucleo_sem_lastro", self.nucleo_sem_lastro
+        )
         self.contar_tentativas = AsyncMock(
             return_value=TentativasDeTaxa(feitas=0, regra_e_tentativa=False)
         )
         monkeypatch.setattr("app.graph.nodes.decision.contar_tentativas", self.contar_tentativas)
+        # O banco falso não responde às consultas da busca da meta maior, que tem testes
+        # próprios (`tests/app/graph/test_busca_meta.py`).
+        monkeypatch.setattr(get_settings(), "BUSCA_META_ENABLED", False)
         monkeypatch.setattr("app.graph.nodes.code_generation.get_model", lambda _: self.modelo)
         self.producers = MagicMock()
         for metodo, evento in (

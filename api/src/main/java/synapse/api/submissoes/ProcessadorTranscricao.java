@@ -5,6 +5,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -26,12 +27,13 @@ import synapse.api.core.config.AppProperties;
 import synapse.api.core.logging.CorrelationContext;
 import synapse.api.core.metrics.AppMetrics;
 import synapse.api.job.JobsDeSubmissoes;
+import synapse.api.submissoes.SubmissoesRepository.FinalidadeTrabalho;
 
 /**
  * Transcreve os áudios já persistidos, com simultaneidade limitada, em três passos: uma
  * transação curta reserva o trabalho, a chamada ao provedor acontece sem transação
  * aberta, e uma transação nova grava o texto e encerra o trabalho junto com a transição
- * do job e o seu evento de outbox.
+ * do job, ou a da rodada na correção, e o seu evento de outbox.
  *
  * <p>
  * A chamada externa nunca mantém aberta a transação que grava o job e o seu evento: ela
@@ -39,9 +41,10 @@ import synapse.api.job.JobsDeSubmissoes;
  * uma conexão do pool e as travas das linhas lidas. É o motivo de a reserva existir.
  *
  * <p>
- * O estado do job, a trilha, o motivo e o {@code regra-submetida} pertencem ao domínio
- * {@code job}, e são alterados pelas operações públicas de {@link JobsDeSubmissoes}
- * dentro da transação final. Este processador não toca a máquina de estados nem o outbox.
+ * O estado do job, a trilha, o motivo, a rodada, o {@code regra-submetida} e o
+ * {@code correcao-submetida} pertencem ao domínio {@code job}, e são alterados pelas
+ * operações públicas de {@link JobsDeSubmissoes} dentro da transação final. Este
+ * processador não toca a máquina de estados, as rodadas nem o outbox.
  */
 @Component
 class ProcessadorTranscricao {
@@ -186,9 +189,10 @@ class ProcessadorTranscricao {
 				.log("processamento da transcrição interrompido");
 			resultado = Resultado.INTERROMPIDA;
 		}
-		this.metrics.transcricaoTrabalho(resultado.rotulo).increment();
+		this.metrics.transcricaoTrabalho(trabalho.finalidade().paraColuna(), resultado.rotulo).increment();
 		var evento = resultado.falha ? log.atWarn() : log.atInfo();
 		evento.addKeyValue("trabalho_id", trabalho.id())
+			.addKeyValue("finalidade", trabalho.finalidade().paraColuna())
 			.addKeyValue("tentativas", trabalho.tentativas())
 			.addKeyValue("resultado", resultado.rotulo)
 			.addKeyValue("classe_motivo", desfecho.classeDoMotivo)
@@ -245,36 +249,45 @@ class ProcessadorTranscricao {
 	 * fecha ciclo.
 	 *
 	 * <p>
-	 * A porta devolve false quando o job já saiu da espera - cancelado pelo usuário
-	 * enquanto o provedor respondia, por exemplo. Nesse caso o trabalho é descartado e
-	 * nada mais é gravado: nem o texto, nem a transição, nem o evento.
+	 * A porta devolve false quando o job ou a rodada da correção já saiu da espera -
+	 * cancelado pelo usuário enquanto o provedor respondia, por exemplo. Nesse caso o
+	 * trabalho é descartado e nada mais é gravado: nem o texto, nem a transição, nem o
+	 * evento.
 	 */
 	private Resultado gravar(SubmissoesRepository.TrabalhoReservado trabalho, Desfecho desfecho, Instant proxima) {
 		if (!this.repository.reservaAindaENossa(trabalho.id(), trabalho.tentativas(), trabalho.reservadoAte())) {
 			return Resultado.RESERVA_PERDIDA;
 		}
 		Instant agora = agora();
+		boolean correcao = trabalho.finalidade() == FinalidadeTrabalho.CORRECAO;
+		UUID jobId = trabalho.jobId();
+		UUID submissaoId = trabalho.submissaoId();
 		String texto = desfecho.texto;
 		if (texto == null) {
 			if ("transitoria".equals(desfecho.classeDoMotivo)
 					&& trabalho.tentativas() < this.properties.maxAttempts()) {
-				if (!this.jobs.aguardandoTranscricao(trabalho.jobId(), trabalho.submissaoId())) {
+				boolean aguardando = correcao ? this.jobs.aguardandoTranscricaoDaCorrecao(jobId, submissaoId)
+						: this.jobs.aguardandoTranscricao(jobId, submissaoId);
+				if (!aguardando) {
 					this.repository.encerrarTrabalho(trabalho.id(), "descartado", agora);
 					return Resultado.DESCARTADA;
 				}
 				this.repository.reagendar(trabalho.id(), agora, proxima, desfecho.respostaInvalida);
 				return Resultado.NOVA_TENTATIVA;
 			}
-			boolean aplicada = this.jobs.falharTranscricao(trabalho.jobId(), trabalho.submissaoId());
+			boolean aplicada = correcao ? this.jobs.falharTranscricaoDaCorrecao(jobId, submissaoId)
+					: this.jobs.falharTranscricao(jobId, submissaoId);
 			this.repository.encerrarTrabalho(trabalho.id(), aplicada ? "falhou" : "descartado", agora);
 			return aplicada ? ("transitoria".equals(desfecho.classeDoMotivo) || trabalho.limiteEsgotado()
 					? Resultado.ESGOTADO : Resultado.FALHOU_PERMANENTE) : Resultado.DESCARTADA;
 		}
-		if (!this.jobs.concluirTranscricao(trabalho.jobId(), trabalho.submissaoId())) {
+		boolean concluida = correcao ? this.jobs.concluirTranscricaoDaCorrecao(jobId, submissaoId)
+				: this.jobs.concluirTranscricao(jobId, submissaoId);
+		if (!concluida) {
 			this.repository.encerrarTrabalho(trabalho.id(), "descartado", agora);
 			return Resultado.DESCARTADA;
 		}
-		this.repository.gravarTranscricao(trabalho.submissaoId(), texto, agora);
+		this.repository.gravarTranscricao(submissaoId, texto, agora);
 		this.repository.encerrarTrabalho(trabalho.id(), "concluido", agora);
 		return Resultado.CONCLUIDA;
 	}

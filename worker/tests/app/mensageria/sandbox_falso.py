@@ -7,7 +7,7 @@ from typing import Any
 from app.execucao.container import SaidaBruta
 from app.execucao.preparo import PayloadContainer
 from app.sandbox.envelope import SAIDA_POR_STATUS
-from tests.app.execucao.envelopes import envelope, resultado_para, saida
+from tests.app.execucao.envelopes import envelope, linhas_para, resultado_para, saida
 
 
 def saida_para(
@@ -16,10 +16,14 @@ def saida_para(
     """O que o container devolveria para este payload: o envelope leva os ids e as
     competências dele, senão a classificação o trataria como de outra execução, e o resultado de
     sucesso parte do baseline que o worker confere para essas competências (o congelado, ou o
-    reapurado na meta do payload), senão o julgamento o reprovaria."""
+    reapurado na meta do payload), com o detalhamento do mesmo resultado, senão o julgamento o
+    reprovaria."""
     if status == "sucesso":
         mudancas.setdefault(
             "resultado", resultado_para(payload.competencias, meta_venda=payload.meta_venda)
+        )
+        mudancas.setdefault(
+            "linhas", linhas_para(payload.competencias, meta_venda=payload.meta_venda)
         )
     dados = envelope(
         status,

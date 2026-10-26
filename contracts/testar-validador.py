@@ -366,8 +366,80 @@ class TestarDiagnostico(unittest.TestCase):
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn("campo $.elementos_ausentes[0]", resultado.stderr)
 
+    def test_rejeita_fora_do_escopo_sem_as_linhas(self) -> None:
+        def alterar(diagnostico: Any) -> None:
+            del diagnostico["linhas_fora_do_escopo"]
+
+        resultado = validar_com_alteracao(
+            "domain/resultado-diagnostico-fora-do-escopo.json", alterar
+        )
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("domain/resultado-diagnostico-fora-do-escopo.json", resultado.stderr)
+
+    def test_rejeita_linhas_fora_do_escopo_em_outra_causa(self) -> None:
+        def alterar(diagnostico: Any) -> None:
+            diagnostico["linhas_fora_do_escopo"] = {
+                "total": 1,
+                "exemplos": [
+                    {
+                        "competencia": "2025-08",
+                        "matricula": "MATRIC-1",
+                        "cod_loja": "33",
+                        "cod_marca": "10",
+                        "cod_cargo": "100",
+                        "diferenca": 350.0,
+                    }
+                ],
+            }
+
+        resultado = validar_com_alteracao("domain/resultado-diagnostico-timeout.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("domain/resultado-diagnostico-timeout.json: campo $:", resultado.stderr)
+
+    def test_rejeita_mais_de_cinco_exemplos_fora_do_escopo(self) -> None:
+        def alterar(diagnostico: Any) -> None:
+            exemplo = diagnostico["linhas_fora_do_escopo"]["exemplos"][0]
+            diagnostico["linhas_fora_do_escopo"]["exemplos"] = [exemplo] * 6
+
+        resultado = validar_com_alteracao(
+            "domain/resultado-diagnostico-fora-do-escopo.json", alterar
+        )
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.linhas_fora_do_escopo.exemplos", resultado.stderr)
+
 
 class TestarExecutarCodigo(unittest.TestCase):
+    def test_aceita_comando_sem_alcance(self) -> None:
+        # O campo é aditivo: sem ele o Worker não confere o escopo.
+        def alterar(comando: Any) -> None:
+            del comando["alcance"]
+
+        resultado = validar_com_alteracao("events/executar-codigo-alcance.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_alcance_com_lista_vazia(self) -> None:
+        # Filtro que não restringe fica ausente; uma lista vazia seria ambígua.
+        def alterar(comando: Any) -> None:
+            comando["alcance"]["loja"] = []
+
+        resultado = validar_com_alteracao("events/executar-codigo-alcance.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.alcance.loja", resultado.stderr)
+
+    def test_rejeita_vigencia_do_alcance_fora_do_formato(self) -> None:
+        def alterar(comando: Any) -> None:
+            comando["alcance"]["vigencia"] = {"inicio": "08/2025", "fim": "2025-11"}
+
+        resultado = validar_com_alteracao("events/executar-codigo-alcance.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.alcance.vigencia", resultado.stderr)
+
     def test_aceita_comando_sem_elementos_exigidos(self) -> None:
         # O campo é aditivo: um comando publicado antes dele continua válido.
         def alterar(comando: Any) -> None:
@@ -668,8 +740,9 @@ class TestarRebaixamentos(unittest.TestCase):
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn("campo $[2].ref", resultado.stderr)
 
-    def test_rejeita_campo_do_nucleo(self) -> None:
-        # Um campo do núcleo sem lastro fica ausente da representação; não é rebaixado.
+    def test_rejeita_percentual_do_nucleo(self) -> None:
+        # Um percentual sem lastro fica ausente da representação sem registro: a validação
+        # já o pede como ausente.
         def alterar(rebaixamentos: Any) -> None:
             rebaixamentos[0]["ref"] = "nucleo.percentual"
 
@@ -677,6 +750,23 @@ class TestarRebaixamentos(unittest.TestCase):
 
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn("campo $[0].ref", resultado.stderr)
+
+    def test_aceita_criterio_do_nucleo_nao_reconhecido(self) -> None:
+        def alterar(rebaixamentos: Any) -> None:
+            rebaixamentos[1]["ref"] = "nucleo.taxas_por_cargo"
+
+        resultado = validar_com_alteracao("domain/rebaixamentos-extracao-nucleo.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_campo_inexistente_do_nucleo(self) -> None:
+        def alterar(rebaixamentos: Any) -> None:
+            rebaixamentos[1]["ref"] = "nucleo.matricula"
+
+        resultado = validar_com_alteracao("domain/rebaixamentos-extracao-nucleo.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $[1].ref", resultado.stderr)
 
 
 class TestarRegraSubmetida(unittest.TestCase):
@@ -1010,6 +1100,25 @@ class TestarResultadoLinhas(unittest.TestCase):
 
         self.assertEqual(resultado.returncode, 0, resultado.stderr)
 
+    def test_aceita_linha_sem_vendas_gravada_antes_do_campo(self) -> None:
+        def alterar(linhas: Any) -> None:
+            for colaboradores in linhas.values():
+                for linha in colaboradores.values():
+                    del linha["vendas"]
+
+        resultado = validar_com_alteracao("domain/resultado-linhas.json", alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_rejeita_vendas_que_nao_e_numero(self) -> None:
+        def alterar(linhas: Any) -> None:
+            linhas["2025-08"]["MATRIC-1"]["vendas"] = "20970.00"
+
+        resultado = validar_com_alteracao("domain/resultado-linhas.json", alterar)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("campo $.2025-08.MATRIC-1.vendas", resultado.stderr)
+
 
 class TestarSimulacaoNaMeta(unittest.TestCase):
     def test_execucao_sem_os_campos_novos_continua_valida(self) -> None:
@@ -1250,6 +1359,37 @@ class TestarMetaSugeridaHttp(unittest.TestCase):
             "exemplo simulacaoNaMetaComMetaSugerida, campo $.simulacao.meta_venda",
             resultado.stderr,
         )
+
+
+class TestarBuscaMetaEmCursoHttp(unittest.TestCase):
+    @staticmethod
+    def exemplo_do_job(documento: Any) -> Any:
+        resposta = documento["paths"]["/jobs/{id}"]["get"]["responses"]["200"]
+        exemplos = resposta["content"]["application/json"]["examples"]
+        return exemplos["simulacaoNaMetaComBuscaEmCurso"]["value"]
+
+    def test_rejeita_busca_em_curso_que_nao_e_true(self) -> None:
+        for valor in (False, "true", None):
+            with self.subTest(valor=valor):
+
+                def alterar(documento: Any, valor: Any = valor) -> None:
+                    self.exemplo_do_job(documento)["busca_meta_em_curso"] = valor
+
+                resultado = validar_openapi_com_alteracao(alterar)
+
+                self.assertNotEqual(resultado.returncode, 0)
+                self.assertIn(
+                    "exemplo simulacaoNaMetaComBuscaEmCurso, campo $.busca_meta_em_curso",
+                    resultado.stderr,
+                )
+
+    def test_aceita_o_job_sem_o_campo(self) -> None:
+        def alterar(documento: Any) -> None:
+            del self.exemplo_do_job(documento)["busca_meta_em_curso"]
+
+        resultado = validar_openapi_com_alteracao(alterar)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
 
 
 if __name__ == "__main__":

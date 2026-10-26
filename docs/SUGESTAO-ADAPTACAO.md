@@ -1,33 +1,22 @@
 # Sugestão de adaptação ao orçamento
 
-Após uma simulação bem-sucedida cujo veredito é `inviavel`, o codegen tenta reduzir apenas
-o percentual do núcleo de regras simples, sem especificações. Os demais campos permanecem
-iguais. A estimativa usa Decimal e os totais persistidos pelo worker:
-`percentual × (orçamento − baseline) / (simulado − baseline)`, truncado em quatro casas.
-Ela só se aplica quando `0 ≤ baseline < orçamento < simulado` e passa pela validação
-determinística de coerência. Não há chamada adicional de LLM para escolher percentuais
-ou produzir totais. A taxa é uma candidata conservadora; o worker confirma sua viabilidade.
+Após uma simulação bem-sucedida cujo veredito é `inviavel`, o codegen propõe uma versão alternativa da regra, qualquer que seja a sua estrutura. A alternativa reduz na mesma proporção todas as taxas: o percentual uniforme do núcleo, cada taxa de `taxas_por_cargo` e o valor dos efeitos `acrescimo_pct` e `substituicao_pct` de `faixa_valor` e `janela_datas`. Valores em reais (bônus, efeitos em reais), limiares, exclusões, escopo, vigência e o texto dos elementos genéricos ficam como estavam. Ausência de alternativa não prova que inexiste solução.
 
-Regras com especificações ou fora desse intervalo mantêm o resultado original e o caminho
-de revisão manual. Não produzir proposta não significa que inexiste solução.
+A busca determinística usa `Decimal` e resultados persistidos pelo worker. A primeira taxa positiva, na ordem acima, é a referência: ela é estimada como se fosse a única taxa da regra, e as demais são multiplicadas pela razão entre a referência nova e a atual.
 
-1. O codegen publica `sugestao-adaptacao-proposta`, referenciando job, regra original e resultado.
-2. A API trava o job, confere que o resultado pertence à última versão e registra no máximo
-   uma versão com origem `sugestao_adaptacao`. Propostas com outras alterações são descartadas.
-3. A versão e o evento `regra-submetida` são gravados na mesma transação pelo outbox.
-   O evento preserva origem, competências e orçamento do job e aponta a versão nova.
-4. O codegen executa um ciclo com checkpoint próprio para essa versão e delega ao worker.
-5. O worker simula a alternativa no sandbox. Se ela continuar inviável, não há terceira
-   tentativa automática.
+- Estimativa: `referência × (orçamento − parte fixa) / (simulado − parte fixa)`, quando `0 ≤ parte fixa < orçamento < simulado`. A parte fixa é a comissão das linhas do detalhamento que a regra não alcança, sem contribuição de elemento algum: fora da vigência, dos filtros de loja, marca e cargo, excluídas, ou do cargo sem taxa própria quando não há taxa uniforme. Como ela nunca passa da verdadeira, a estimativa nunca fica abaixo da taxa que cabe.
+- Sondagem: sem o detalhamento, num resultado gravado antes dele, a parte fixa é zero e a referência é proporcional ao orçamento e ao total simulado.
+- Refinamento: com pelo menos duas referências distintas já simuladas, usa a reta observada entre referência e comissão para escolher outra candidata. O limite é de três propostas.
 
-A proposta pode chegar à API antes do evento do resultado, pois são filas independentes.
-Nesse caso a API aplica o desfecho persistido e reabre o processamento na mesma transação.
-Após o commit, anuncia a transição para simulação quando necessária, o resultado original,
-a inviabilidade e a abertura do novo ciclo, nessa ordem. A chegada posterior do evento do
-worker não repete os anúncios nem altera o estado do novo ciclo.
+As taxas são truncadas em quatro casas, em direção a zero. Taxa zero continua zero; as demais precisam manter o sinal e diminuir em módulo, e a regra proposta precisa ser coerente. Não há chamada de LLM para escolher as taxas nem produzir os totais. Cada candidata precisa de uma simulação no worker para confirmar sua viabilidade. Meta e orçamento permanecem os parâmetros do job; a validação completa é executada antes de gerar e delegar cada regra.
 
-Checkpoints existentes sob `job_id` continuam atendendo a mesma regra, inclusive em
-reentregas da submissão. A alternativa recebe seu próprio checkpoint por versão.
+Quando a regra tem dentro do escopo uma parte que não acompanha as taxas, como um bônus em reais, a primeira estimativa tende a não caber, e o refinamento corrige a tentativa seguinte. Quando o orçamento não passa das comissões que a regra não altera, como as de lojas, marcas e cargos fora dela, nenhuma redução o alcança. A primeira alternativa ainda é simulada, proporcional ao orçamento, para o usuário ver a regra reduzida e o motivo de ela não caber, e a busca termina sem alternativa na tentativa seguinte.
+
+1. O codegen publica `sugestao-adaptacao-proposta`, referenciando job, versão e resultado de origem, com a tentativa e o método utilizados.
+2. A API trava o job, confere procedência, resultado e tentativa e rejeita mudanças além da redução das taxas ou propostas duplicadas.
+3. A versão com origem `sugestao_adaptacao` e o evento `regra-submetida` são gravados na mesma transação pelo outbox, preservando competências, orçamento e meta.
+4. O codegen executa o ciclo dessa versão e o worker simula a candidata no sandbox.
+5. Uma candidata ainda inviável pode originar a tentativa seguinte, até o limite de três. Esgotamento, regra sem taxa positiva ou ausência de candidata encerram a busca automática.
 
 ## Consulta e interface
 
@@ -42,9 +31,32 @@ aceita e seguir à finalização, usando a versão corrente, sem solicitar outra
 Recusar cancela o job pelo endpoint existente. Se a alternativa não couber, for indeterminada
 ou falhar, a tela explicita esse desfecho e oferece iniciar uma nova regra.
 
-Há uma tentativa automática para o recorte suportado, sem garantia de encontrar toda
-solução possível. Regras com parcelas fixas ou especificações complexas ficam fora da
-estimativa. O valor final e a viabilidade sempre vêm do worker.
+Há até três propostas automáticas, sem garantia de encontrar toda solução possível. A tela informa que as taxas da alternativa foram reduzidas na mesma proporção e que as demais condições foram mantidas. Quando a decomposição absoluta por loja comprova que as comissões das lojas fora do escopo já ultrapassam o orçamento, a API informa os dois valores no campo existente `motivo`, na consulta e no evento de estado. A tela destaca essa explicação: reduzir as taxas do escopo não altera essas comissões e não basta para atingir o orçamento. Sem essa evidência, mantém a explicação neutra. O valor final e a viabilidade sempre vêm do worker.
+
+## Sugestão de meta de vendas maior
+
+Uma simulação viável com orçamento pode originar a busca de uma meta maior, mantendo a
+regra. O frontend apresenta o progresso por `busca_meta_em_curso` e os desfechos de
+`meta_sugerida`, já disponibilizados pela API. Os eventos `buscando_meta`, `meta_sugerida`,
+`sem_solucao` e `busca_meta_encerrada` da etapa `sugestao_adaptacao` disparam uma nova
+consulta do job, inclusive quando seu status principal não muda.
+
+Quando há uma meta encontrada, a tela mostra meta, comissão simulada e orçamento como
+recebidos, sem calcular aumentos ou novos valores financeiros. A meta atual pode ser
+mantida. A opção “Usar meta sugerida” envia a ação existente `aceitar_meta` e só atualiza
+a simulação após a resposta confirmada da API, aproveitando o resultado já executado.
+O relatório é invalidado quando a meta da execução muda. Falha da ação fica no cartão
+da sugestão, preservando a simulação aprovada; resposta de um job anterior não pode
+alterar o job que está aberto. A requisição de aceitação registra início, resultado,
+duração e job, sem token, payload ou totais financeiros nos logs.
+
+O aceite também permanece no histórico do job finalizado. A consulta entrega o campo
+opcional `simulacao.meta_sugerida_aceita_em` (e o mesmo campo em `simulacoes`) a partir
+de `sugestoes_meta_venda.aceita_em`, somente quando job, versão e resultado vinculado
+correspondem à sugestão aceita. A tela mostra “Meta de vendas sugerida aceita” com a
+data no resumo e na execução selecionada. O valor continua vindo de
+`simulacao.meta_venda`; a aceitação não cria outra versão da lógica da regra. Sem
+registro de aceite, o campo fica ausente e a tela não atribui uma origem à meta.
 
 ## Verificação
 

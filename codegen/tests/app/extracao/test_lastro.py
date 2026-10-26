@@ -2,7 +2,14 @@ from decimal import Decimal
 
 import pytest
 
-from app.extracao.lastro import conferir_numero, conferir_periodo, resolver_periodo
+from app.extracao.lastro import (
+    conferir_data,
+    conferir_numero,
+    conferir_periodo,
+    numeros_por_extenso,
+    resolver_datas,
+    resolver_periodo,
+)
 from app.extracao.vocabulario import resolver_codigo
 
 
@@ -55,6 +62,49 @@ def test_vocabulario_nunca_resolve_sem_evidencia(
     assert resolver_codigo(campo, termo, trecho, trecho) == (codigo, motivo)
 
 
+@pytest.mark.parametrize(
+    ("texto", "numeros"),
+    [
+        ("loja sessenta e oito", {68}),
+        ("loja quatorze", {14}),
+        ("loja catorze", {14}),
+        ("loja três", {3}),
+        ("cargo cento e cinquenta", {150}),
+        ("cargo cem", {100}),
+        ("duzentos e cinquenta e oito", {258}),
+        ("vinte e um", {21}),
+        ("lojas treze e cinquenta e oito", {13, 58}),
+        ("lojas um e dois", {1, 2}),
+        ("orçamento de duzentos mil e meta de um milhão", set()),
+        ("loja 68", set()),
+    ],
+)
+def test_numeros_por_extenso_seguem_a_leitura_composta(texto: str, numeros: set[int]) -> None:
+    assert numeros_por_extenso(texto) == numeros
+
+
+@pytest.mark.parametrize(
+    ("campo", "termo", "trecho", "codigo", "motivo"),
+    [
+        ("loja", "68", "loja sessenta e oito", "68", None),
+        ("loja", "LOJA-68", "loja sessenta e oito", "68", None),
+        ("loja", "14", "loja quatorze", "14", None),
+        ("loja", "14", "loja catorze", "14", None),
+        ("loja", "3", "loja três", "3", None),
+        ("loja", "13", "lojas treze e cinquenta e oito", "13", None),
+        ("loja", "58", "lojas treze e cinquenta e oito", "58", None),
+        ("loja", "71", "lojas treze e cinquenta e oito", None, "valor_sem_lastro"),
+        ("loja", "60", "loja sessenta e oito", None, "valor_sem_lastro"),
+        ("cargo", "150", "cargo cento e cinquenta", "150", None),
+        ("marca", "10", "marca dez", "10", None),
+    ],
+)
+def test_codigo_dito_por_extenso_tem_lastro(
+    campo: str, termo: str, trecho: str, codigo: str | None, motivo: str | None
+) -> None:
+    assert resolver_codigo(campo, termo, trecho, trecho) == (codigo, motivo)
+
+
 def test_resolucao_do_ano_unico_e_diferente() -> None:
     trecho = "entre setembro e novembro"
     periodo = ["2025-09", "2025-10", "2025-11"]
@@ -77,3 +127,61 @@ def test_vigencia_invertida_permanece_para_validacao_de_dominio() -> None:
         "2025-12",
         "2025-08",
     ]
+
+
+ANO_UNICO = ["2025-10", "2025-11"]
+
+
+@pytest.mark.parametrize(
+    ("trecho", "publicadas", "esperado"),
+    [
+        ("até o dia 10/10", ANO_UNICO, ["2025-10-10"]),
+        ("de 24/11 a 30/11", ANO_UNICO, ["2025-11-24", "2025-11-30"]),
+        ("até 10/10/2024", ANO_UNICO, ["2024-10-10"]),
+        ("até 10/10/2024", ["2025-12", "2026-01"], ["2024-10-10"]),
+        ("até 2024-10-10", ["2025-12", "2026-01"], ["2024-10-10"]),
+        ("até 10 de outubro", ANO_UNICO, ["2025-10-10"]),
+        ("até 1 de março de 2024", ["2025-12", "2026-01"], ["2024-03-01"]),
+        ("até 10/10", ["2025-12", "2026-01"], None),
+        ("até 10/10", [], None),
+        ("até 10/10 ou 11 de outubro", ANO_UNICO, None),
+        ("até 31/02", ANO_UNICO, []),
+        ("competência 10/2025", ANO_UNICO, []),
+        ("sem data alguma", ANO_UNICO, []),
+    ],
+)
+def test_resolve_datas_com_o_ano_do_texto_ou_o_ano_comum_das_competencias(
+    trecho: str, publicadas: list[str], esperado: list[str] | None
+) -> None:
+    assert resolver_datas(trecho, publicadas) == esperado
+
+
+@pytest.mark.parametrize(
+    "trecho",
+    [
+        "de 24/11 a 31/11",
+        "de 2025-11-31 a 2025-11-24",
+        "de 24 de novembro a 31 de novembro",
+    ],
+)
+def test_data_invalida_impede_resolucao_parcial_do_trecho(trecho: str) -> None:
+    assert resolver_datas(trecho, ANO_UNICO) == []
+
+
+@pytest.mark.parametrize(
+    ("trecho", "valor", "publicadas", "esperado"),
+    [
+        ("até 10/10", "2025-10-10", ANO_UNICO, (True, True)),
+        ("até 10/10", "2025-10-11", ANO_UNICO, (False, True)),
+        ("de 24/11 a 30/11", "2025-11-24", ANO_UNICO, (False, True)),
+        ("até 10/10", "2025-10-10", ["2025-12", "2026-01"], (False, False)),
+    ],
+)
+def test_data_confere_quando_e_a_unica_que_o_trecho_resolve(
+    trecho: str, valor: str, publicadas: list[str], esperado: tuple[bool, bool]
+) -> None:
+    assert conferir_data(trecho, trecho, valor, publicadas) == esperado
+
+
+def test_data_fora_do_texto_nao_confere() -> None:
+    assert conferir_data("pague até 10/10", "até 11/10", "2025-10-11", ANO_UNICO) == (False, True)

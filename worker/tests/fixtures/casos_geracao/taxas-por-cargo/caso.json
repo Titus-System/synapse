@@ -1,0 +1,18 @@
+{
+  "id": "taxas-por-cargo",
+  "descricao": "Duas taxas por cargo, sem taxa uniforme, preservando o baseline das outras pessoas.",
+  "leitura": "Em todas as lojas da marca 10, o cargo 100 recebe 3% sobre vendas individuais e o cargo 150 recebe 5% sobre vendas da loja. Os demais cargos e marcas mantêm o baseline. A vigência cobre as competências do job.",
+  "representacao": {
+    "nucleo": {
+      "loja": [],
+      "marca": ["10"],
+      "cargo": ["100", "150"],
+      "taxas_por_cargo": [
+        {"cargo": "100", "percentual": 0.03},
+        {"cargo": "150", "percentual": 0.05}
+      ]
+    },
+    "especificacoes": []
+  },
+  "competencias": ["2025-08", "2025-11"]
+}

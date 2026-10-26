@@ -1,10 +1,12 @@
 import asyncio
+import dataclasses
 import json
 import logging
 import re
 import threading
 import time
 from collections.abc import AsyncIterator, Callable, Iterator
+from decimal import ROUND_HALF_UP, Decimal
 from queue import Queue
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -30,7 +32,7 @@ from app.mensageria.retry import HEADER_RETRY
 from app.repositorio.codigos_gerados import CodigoGerado, CodigoNaoEncontradoError
 from app.repositorio.resultados import ResultadoGravado
 from tests.app.esquemas import erros_do_dominio, erros_do_evento, erros_do_log
-from tests.app.execucao.envelopes import FALHA, resultado_para
+from tests.app.execucao.envelopes import FALHA, linhas_para, resultado_para
 from tests.app.execucao.envelopes import saida as _saida
 from tests.app.mensageria.resultado_falso import DIARIO, BancoDeResultadosFalso, ExchangeFalsa
 from tests.app.mensageria.sandbox_falso import SandboxFalso, saida_para
@@ -1156,6 +1158,7 @@ async def test_a_falha_de_cobertura_vai_ao_log_com_o_job_e_as_referencias_sem_co
         "desfecho": "erro_codigo",
         "com_meta_venda": False,
         "proposito": "simulacao",
+        "conferencia": "coerente",
         "codigo_saida": 0,
         "elementos_ausentes": ["elem.2"],
         "quantidade_fora_da_regra": 1,
@@ -1441,6 +1444,7 @@ async def test_comando_sem_orcamento_vai_ao_log_e_a_metrica_como_execucao_normal
         "desfecho": "sem_orcamento",
         "com_meta_venda": False,
         "proposito": "simulacao",
+        "conferencia": "coerente",
         "codigo_saida": 0,
     }
     mensagens_registradas = [linha["message"] for linha in linhas]
@@ -1524,12 +1528,15 @@ class BasesQueRegistram:
     def __init__(self) -> None:
         self._bases = carregar_bases()
 
-    def baseline_na_meta(self, competencias: list[str], meta_venda: float) -> Any:
+    def linhas_na_meta(self, competencias: list[str], meta_venda: float) -> Any:
         DIARIO.append("reapurar")
-        return self._bases.baseline_na_meta(competencias, meta_venda)
+        return self._bases.linhas_na_meta(competencias, meta_venda)
 
     def vendas_historicas(self, competencias: list[str]) -> Any:
         return self._bases.vendas_historicas(competencias)
+
+    def vendas_por_linha(self, competencias: list[str], meta_venda: float | None) -> Any:
+        return self._bases.vendas_por_linha(competencias, meta_venda)
 
 
 @pytest.fixture
@@ -1579,6 +1586,10 @@ async def test_na_meta_o_worker_reapura_antes_do_container_e_grava_e_publica_a_m
     assert linha["totais"]["baseline"] == reapurado != 363021.46
     assert linha["totais"]["vendas_historicas"] == VENDAS_2025_08
     assert erros_do_dominio("resultado-totais", linha["totais"]) == []
+    # MATRIC-1 vendeu R$ 20.970,00 em agosto; na meta, a linha mostra essa venda escalada (T-282).
+    fator = Decimal(str(META)) / Decimal(str(VENDAS_2025_08))
+    escalada = (Decimal("20970") * fator).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    assert linha["linhas"]["2025-08"]["MATRIC-1"]["vendas"] == float(escalada)
     (evento,) = _publicados(broker)
     assert evento["meta_venda"] == META and evento.get("proposito") == no_evento
     assert erros_do_evento("simulacao-concluida", evento) == []
@@ -1816,12 +1827,27 @@ async def test_envelope_medido_no_consumidor_e_exposto_em_metrics(
     assert all(erros_do_log(r) == [] for r in registros)
     gravacao = next(r for r in registros if r["message"] == "resultado gravado")
     assert gravacao["job_id"] == json.loads(mensagem.body)["job_id"]
-    assert gravacao["extra"]["status"] == status
-    assert gravacao["extra"]["competencias_detalhadas"] == (1 if status == "sucesso" else 0)
-    assert gravacao["extra"]["linhas_detalhadas"] == (1 if status == "sucesso" else 0)
-    assert "MATRIC-1" not in json.dumps(registros)
     linhas = json.loads(respostas[0].stdout)["linhas"]
-    assert banco.gravados[0]["linhas"] == linhas
+    assert gravacao["extra"]["status"] == status
+    assert gravacao["extra"]["competencias_detalhadas"] == len(linhas or {})
+    assert gravacao["extra"]["linhas_detalhadas"] == sum(
+        len(mes) for mes in (linhas or {}).values()
+    )
+    assert "MATRIC-1" not in json.dumps(registros)
+    gravadas = banco.gravados[0]["linhas"]
+    if status == "sucesso":
+        assert gravacao["extra"]["linhas_detalhadas"] > 1
+        # O worker acrescenta o total vendido das próprias bases (T-282): no dataset canônico,
+        # MATRIC-1 vendeu R$ 20.970,00 em 2025-08. O resto de cada linha é o do container.
+        assert gravadas["2025-08"]["MATRIC-1"]["vendas"] == 20970.0
+        gravadas = {
+            competencia: {
+                matricula: {campo: valor for campo, valor in linha.items() if campo != "vendas"}
+                for matricula, linha in mes.items()
+            }
+            for competencia, mes in gravadas.items()
+        }
+    assert gravadas == linhas
     assert "linhas" not in json.loads(broker.exchange.publicadas[0].body)
 
     # A republicação não executa o sandbox e não observa novamente o envelope.
@@ -1856,6 +1882,83 @@ async def test_recusa_do_detalhamento_na_coleta_nao_expoe_chaves_nem_valores(
     assert segredo not in json.dumps(registros)
     assert banco.gravados[0]["linhas"] is None
     assert segredo not in json.dumps(banco.gravados[0]["diagnostico"])
+
+
+async def test_vendas_fabricadas_pelo_container_nao_chegam_ao_detalhamento(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    """O total vendido é do worker (T-282). Um container que o devolve não grava detalhamento, e o
+    log e o diagnóstico levam só a classe, nunca o valor escolhido por ele."""
+
+    def com_vendas(payload: PayloadContainer) -> SaidaBruta:
+        linhas = linhas_para(payload.competencias)
+        for colaboradores in linhas.values():
+            for linha in colaboradores.values():
+                linha["vendas"] = 987654.32
+        return saida_para(payload, linhas=linhas)
+
+    sandbox.resposta = com_vendas
+    mensagem = MensagemFalsa(body=_corpo_comando())
+    broker, _ = _preparar(monkeypatch, [mensagem], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    registros = linhas_de_log()
+    assert all(erros_do_log(r) == [] for r in registros)
+    recusa = next(r for r in registros if r["message"] == "detalhamento recusado")
+    assert recusa["job_id"] == json.loads(mensagem.body)["job_id"]
+    assert recusa["extra"] == {
+        "status": "erro_codigo",
+        "motivo": "resultado_fora_do_schema",
+        "classes": ["fornecido_pelo_container"],
+    }
+    (gravado,) = banco.gravados
+    assert (gravado["status"], gravado["linhas"]) == ("erro_codigo", None)
+    assert gravado["diagnostico"]["problemas"] == [
+        {"caminho": "$.linhas", "palavra_chave": "fornecido_pelo_container"}
+    ]
+    assert "987654" not in json.dumps(registros)
+
+
+async def test_o_julgamento_nao_bloqueia_o_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    """Somar o total vendido de cada linha percorre as vendas do período inteiro (T-282): no loop
+    pararia o heartbeat do RabbitMQ e o `/metrics` por todo esse tempo.
+
+    `liberar` só é acionado pelo loop, depois de o julgamento ter começado: se ele estivesse no
+    loop, a espera de dentro dele terminaria por timeout e não por progresso.
+    """
+    entrou, liberar = threading.Event(), threading.Event()
+    progrediu: list[bool] = []
+    real = consumidor.julgar
+
+    def julgar_devagar(*args: Any, **kwargs: Any) -> Any:
+        entrou.set()
+        progrediu.append(liberar.wait(2))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(consumidor, "julgar", julgar_devagar)
+    mensagem = MensagemFalsa(body=_corpo_comando())
+    broker, _ = _preparar(monkeypatch, [mensagem], _codigo())
+
+    consumo = asyncio.create_task(consumir_fila_execucao(broker))
+    await asyncio.to_thread(entrou.wait, 5)
+    liberar.set()
+    await consumo
+
+    assert progrediu == [True]
+    assert banco.gravados[0]["status"] == "sucesso"
+    assert banco.gravados[0]["linhas"]["2025-08"]["MATRIC-1"]["vendas"] == 20970.0
+    registros = linhas_de_log()
+    julgada = next(r for r in registros if r["message"] == "execução julgada")
+    assert julgada["job_id"] == json.loads(mensagem.body)["job_id"]
 
 
 async def test_a_classificacao_do_envelope_nao_bloqueia_o_event_loop(
@@ -1895,3 +1998,227 @@ async def test_a_classificacao_do_envelope_nao_bloqueia_o_event_loop(
     julgada = next(r for r in registros if r["message"] == "execução julgada")
     assert julgada["job_id"] == json.loads(mensagem.body)["job_id"]
     assert all(erros_do_log(r) == [] for r in registros)
+
+
+# ---- a conferência do detalhamento e das quebras (T-262), pelo caminho do consumidor ----
+
+METRICA_CONFERENCIA = "job_resultado_conferencia_total"
+
+
+def _com_linha_do_baseline_adulterada(payload: PayloadContainer) -> SaidaBruta:
+    """Um centavo a mais no baseline de uma linha: o total do baseline continua o do worker."""
+    linhas = linhas_para(payload.competencias)
+    mes = linhas[payload.competencias[0]]
+    linha = mes[next(iter(mes))]
+    linha["comissao_baseline"] = float(Decimal(str(linha["comissao_baseline"])) + Decimal("0.01"))
+    return saida_para(payload, linhas=linhas)
+
+
+def _com_quebra_adulterada(payload: PayloadContainer) -> SaidaBruta:
+    resultado = resultado_para(payload.competencias)
+    loja = resultado["decomposicao"]["loja"]
+    chave = next(iter(loja))
+    loja[chave] = float(Decimal(str(loja[chave])) + Decimal("0.01"))
+    return saida_para(payload, resultado=resultado)
+
+
+@pytest.mark.parametrize(
+    ("resposta", "motivo", "verificacao"),
+    [
+        (_com_linha_do_baseline_adulterada, "baseline_divergente", "baseline"),
+        (_com_quebra_adulterada, "resultado_incoerente", "quebras"),
+    ],
+    ids=["baseline_divergente", "resultado_incoerente"],
+)
+async def test_resultado_recusado_na_conferencia_grava_a_causa_e_o_log_leva_a_verificacao(
+    resposta: Callable[[PayloadContainer], SaidaBruta],
+    motivo: str,
+    verificacao: str,
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    """A recusa é gravada como `erro_codigo`, sem linhas e sem veredito, com a causa no
+    diagnóstico. O log leva o motivo e a verificação, com o job, e nenhuma matrícula."""
+    sandbox.resposta = resposta
+    job_id = uuid4()
+    corpo = _corpo_comando(job_id=str(job_id))
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=corpo)], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    (linha,) = banco.gravados
+    assert (linha["status"], linha["veredito"], linha["linhas"]) == ("erro_codigo", None, None)
+    assert linha["diagnostico"] == {"causa": motivo}
+    assert erros_do_dominio("resultado-diagnostico", linha["diagnostico"]) == []
+    registros = linhas_de_log()
+    (julgada,) = [r for r in registros if r["message"] == "execução julgada"]
+    assert erros_do_log(julgada) == []
+    assert julgada["job_id"] == str(job_id)
+    extra = julgada["extra"]
+    assert (extra["motivo"], extra["conferencia"], extra["verificacao"]) == (
+        motivo,
+        motivo,
+        verificacao,
+    )
+    assert "MATRIC-" not in json.dumps(registros)
+
+
+async def test_a_conferencia_conta_cada_desfecho_em_metrics_e_a_reentrega_nao_conta(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    client: AsyncClient,
+) -> None:
+    """Um resultado aceito e um recusado de cada motivo contam uma vez cada. A reentrega que
+    encontra o resultado gravado só republica, e o desfecho que não é sucesso não é conferido."""
+    resultados = ("coerente", "baseline_divergente", "resultado_incoerente")
+    texto = (await client.get("/metrics")).text
+    antes = {r: _amostra_em_metrics(texto, METRICA_CONFERENCIA, resultado=r) for r in resultados}
+
+    for resposta in (saida_para, _com_linha_do_baseline_adulterada, _com_quebra_adulterada):
+        sandbox.resposta = resposta
+        broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=_corpo_comando())], _codigo())
+        await consumir_fila_execucao(broker)
+    sandbox.resposta = lambda p: saida_para(p, "erro_codigo")
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=_corpo_comando())], _codigo())
+    await consumir_fila_execucao(broker)
+    # Se a reentrega executasse, este sucesso seria conferido e contaria como coerente.
+    sandbox.resposta = saida_para
+    executadas = len(sandbox.payloads)
+    banco.existente = banco.retornados[0]
+    reentrega = MensagemFalsa(body=_corpo_comando())
+    broker, _ = _preparar(monkeypatch, [reentrega], _codigo())
+    await consumir_fila_execucao(broker)
+
+    assert len(sandbox.payloads) == executadas
+    resposta_metrics = await client.get("/metrics")
+    assert resposta_metrics.status_code == 200
+    depois = {
+        r: _amostra_em_metrics(resposta_metrics.text, METRICA_CONFERENCIA, resultado=r)
+        for r in resultados
+    }
+    assert {r: depois[r] - antes[r] for r in resultados} == {
+        "coerente": 1,
+        "baseline_divergente": 1,
+        "resultado_incoerente": 1,
+    }
+
+
+# ---- a conferência de escopo ----
+
+# Nenhuma loja do dataset: toda linha que o container falso muda fica fora do alcance.
+FORA_DE_TODA_LOJA = {"loja": ["9999"]}
+METRICA_ESCOPO = "worker_fora_do_escopo_total"
+
+
+def _contagem_de_escopo() -> float:
+    valor = REGISTRY.get_sample_value(METRICA_ESCOPO)
+    assert valor is not None, f"{METRICA_ESCOPO} não está no registry exposto"
+    return valor
+
+
+async def test_linha_fora_do_alcance_grava_erro_codigo_com_as_linhas_no_diagnostico(
+    monkeypatch: pytest.MonkeyPatch, sandbox: SandboxFalso, banco: BancoDeResultadosFalso
+) -> None:
+    corpo = _corpo_comando(alcance=FORA_DE_TODA_LOJA)
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=corpo)], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    (linha,) = banco.gravados
+    assert (linha["status"], linha["veredito"], linha["totais"]) == ("erro_codigo", None, None)
+    diagnostico = linha["diagnostico"]
+    assert diagnostico["causa"] == "fora_do_escopo"
+    assert diagnostico["linhas_fora_do_escopo"]["total"] > 0
+    assert 0 < len(diagnostico["linhas_fora_do_escopo"]["exemplos"]) <= 5
+    assert erros_do_dominio("resultado-diagnostico", diagnostico) == []
+    (evento,) = _publicados(broker)
+    assert evento["status"] == "erro_codigo"
+    # O alcance julga o resultado e, como o orçamento, nunca entra no container.
+    (payload,) = sandbox.payloads
+    assert "alcance" not in dataclasses.asdict(payload)
+
+
+async def test_a_falha_de_escopo_vai_ao_log_so_com_a_quantidade_e_conta_em_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+    banco: BancoDeResultadosFalso,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    antes = _contagem_de_escopo()
+    job_id = uuid4()
+    corpo = _corpo_comando(job_id=str(job_id), alcance=FORA_DE_TODA_LOJA)
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=corpo)], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    (linha,) = banco.gravados
+    fora = linha["diagnostico"]["linhas_fora_do_escopo"]
+    linhas = linhas_de_log()
+    (julgada,) = [registro for registro in linhas if registro["message"] == "execução julgada"]
+    assert erros_do_log(julgada) == []
+    assert julgada["job_id"] == str(job_id)
+    assert julgada["extra"] == {
+        "classe": "erro_codigo",
+        "motivo": "fora_do_escopo",
+        "veredito": "indeterminado",
+        "desfecho": "erro_codigo",
+        "com_meta_venda": False,
+        "proposito": "simulacao",
+        "conferencia": "coerente",
+        "codigo_saida": 0,
+        "quantidade_fora_do_escopo": fora["total"],
+    }
+    (preparada,) = [registro for registro in linhas if registro["message"] == "execução preparada"]
+    assert preparada["extra"]["com_alcance"] is True
+    texto = json.dumps(linhas)
+    for exemplo in fora["exemplos"]:
+        assert exemplo["matricula"] not in texto, "uma matrícula do detalhamento chegou ao log"
+    assert _contagem_de_escopo() == antes + 1
+
+
+async def test_a_falha_de_escopo_incrementa_o_contador_exposto_em_metrics(
+    monkeypatch: pytest.MonkeyPatch, client: AsyncClient
+) -> None:
+    def contagem(texto: str) -> float:
+        achado = re.search(rf"^{METRICA_ESCOPO} (\S+)$", texto, flags=re.MULTILINE)
+        assert achado is not None, f"{METRICA_ESCOPO} não aparece em /metrics"
+        return float(achado.group(1))
+
+    antes = contagem((await client.get("/metrics")).text)
+    corpo = _corpo_comando(alcance=FORA_DE_TODA_LOJA)
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=corpo)], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    resposta = await client.get("/metrics")
+    assert resposta.status_code == 200
+    assert contagem(resposta.text) == antes + 1
+
+
+async def test_comando_sem_alcance_nao_confere_o_escopo(
+    monkeypatch: pytest.MonkeyPatch, banco: BancoDeResultadosFalso
+) -> None:
+    antes = _contagem_de_escopo()
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=_corpo_comando())], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    (linha,) = banco.gravados
+    assert linha["status"] == "sucesso"
+    assert _contagem_de_escopo() == antes
+
+
+async def test_alcance_nulo_vai_a_dlq_sem_executar_nem_virar_comando_sem_conferencia(
+    monkeypatch: pytest.MonkeyPatch, sandbox: SandboxFalso, banco: BancoDeResultadosFalso
+) -> None:
+    """Lido como ausência, um `null` de um produtor errado desligaria a conferência em silêncio."""
+    broker, canal = _preparar(
+        monkeypatch, [MensagemFalsa(body=_corpo_comando(alcance=None))], _codigo()
+    )
+
+    await consumir_fila_execucao(broker)
+
+    assert sandbox.payloads == [] and banco.gravados == []
+    assert _rota_da_republicacao(canal) == "executar-codigo.dlq"

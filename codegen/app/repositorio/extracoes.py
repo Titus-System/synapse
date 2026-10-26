@@ -32,6 +32,17 @@ _INSERIR = text(
 )
 
 
+# Só a versão que nasceu da extração inicial: a de uma correção, de uma confirmação ou de uma
+# sugestão já respondeu a esse conflito, e checá-la o manteria para sempre (T-280). O job tem
+# uma única extração, a da submissão que o abriu, então o `job_id` basta para achá-la, também
+# no ciclo de reextração, que só conhece a submissão da correção.
+_SEM_LASTRO = text(
+    "SELECT e.rebaixamentos::text AS rebaixamentos"
+    " FROM regras r JOIN extracoes_regras e ON e.job_id = r.job_id"
+    " WHERE r.id = :regra_id AND r.job_id = :job_id AND r.origem = 'extracao'"
+)
+
+
 class PersistenciaExtracaoError(RuntimeError):
     """Falha de infraestrutura sanitizada, sujeita à reentrega do chamador."""
 
@@ -160,3 +171,39 @@ async def gravar_extracao(
     if existente is None:
         raise PersistenciaExtracaoError("Extração concorrente indisponível")
     return existente
+
+
+async def _referencias_sem_lastro(
+    sessoes: async_sessionmaker[AsyncSession], job_id: UUID, regra_id: UUID, prefixo: str
+) -> frozenset[str]:
+    async with sessoes() as sessao:
+        consulta = await sessao.execute(_SEM_LASTRO, {"job_id": job_id, "regra_id": regra_id})
+        linhas = consulta.mappings().all()
+    return frozenset(
+        str(rebaixamento["ref"]).removeprefix(prefixo)
+        for linha in linhas
+        for rebaixamento in simplejson.loads(linha["rebaixamentos"])
+        if str(rebaixamento["ref"]).startswith(prefixo)
+    )
+
+
+async def parametros_sem_lastro(
+    sessoes: async_sessionmaker[AsyncSession], job_id: UUID, regra_id: UUID
+) -> frozenset[str]:
+    """Os parâmetros que a extração descartou por falta de lastro, se `regra_id` nasceu dela.
+
+    São os rebaixamentos com referência `parametros.<campo>`: o texto disse o parâmetro, e o
+    valor não entrou em `extracoes_regras.parametros`.
+    """
+    return await _referencias_sem_lastro(sessoes, job_id, regra_id, "parametros.")
+
+
+async def nucleo_sem_lastro(
+    sessoes: async_sessionmaker[AsyncSession], job_id: UUID, regra_id: UUID
+) -> frozenset[str]:
+    """Os critérios do núcleo que a extração não reconheceu, se `regra_id` nasceu dela.
+
+    São os rebaixamentos com referência `nucleo.<campo>`: o texto disse o critério, e ele não
+    entrou na representação.
+    """
+    return await _referencias_sem_lastro(sessoes, job_id, regra_id, "nucleo.")

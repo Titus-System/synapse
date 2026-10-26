@@ -1,15 +1,11 @@
 package synapse.api.job;
 
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -17,11 +13,16 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import synapse.api.core.logging.CorrelationContext;
@@ -31,10 +32,12 @@ import synapse.api.core.security.AcessoDoUsuario;
 import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
 import synapse.api.job.JobRepository.DadosConsulta;
+import synapse.api.job.JobRepository.ContextoDoJob;
 import synapse.api.job.JobRepository.DadosDoJob;
 import synapse.api.job.JobRepository.JobDeOrigem;
 import synapse.api.job.JobRepository.VersaoAnterior;
 import synapse.api.job.VersoesDaRegra.VersaoRegra;
+import synapse.api.job.JobsDeSubmissoes.Rodada;
 
 @Service
 class JobService {
@@ -54,14 +57,21 @@ class JobService {
 
 	private final CorrelationContext correlacao;
 
+	private final RodadasRepository rodadas;
+
+	private static final JsonMapper JSON = JsonMapper.builder()
+		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+		.build();
+
 	JobService(JobRepository repository, MaquinaDeEstadosDoJob maquina, Outbox outbox, VersoesDaRegra versoes,
-			EmissoresSse emissores, CorrelationContext correlacao) {
+			EmissoresSse emissores, CorrelationContext correlacao, RodadasRepository rodadas) {
 		this.repository = repository;
 		this.maquina = maquina;
 		this.outbox = outbox;
 		this.versoes = versoes;
 		this.emissores = emissores;
 		this.correlacao = correlacao;
+		this.rodadas = rodadas;
 	}
 
 	@Transactional
@@ -88,13 +98,14 @@ class JobService {
 		String status = JobStatus.GERANDO_REGRA.paraColuna();
 		UUID jobId = this.repository.inserirJob(status, usuarioId, submissaoId, requisicao.competencias(),
 				requisicao.orcamento(), timestamp);
+		if (requisicao.meta_venda() != null) {
+			this.repository.atualizarMetaVenda(jobId, requisicao.meta_venda());
+		}
 		this.maquina.registrarCriacao(jobId, JobStatus.GERANDO_REGRA, "usuario");
 		UUID regraId = this.repository.inserirRegraInicial(jobId, representacao, hash, timestamp);
 		RegraCriadaDto regra = new RegraCriadaDto(regraId, 1, "confirmacao_usuario", representacao, agora);
-		// O formulário tem campo de orçamento e nenhum de meta: a meta de venda só é dita
-		// na descrição de uma regra por texto ou voz, que nasce por outro caminho.
 		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, new RegraSubmetidaDto(jobId, requisicao.origem(),
-				requisicao.competencias(), requisicao.orcamento(), null, submissaoId, regraId));
+				requisicao.competencias(), requisicao.orcamento(), requisicao.meta_venda(), submissaoId, regraId));
 		return new JobCriadoDto(jobId, status, requisicao.origem(), requisicao.competencias(), requisicao.orcamento(),
 				agora, submissaoId, null, regra);
 	}
@@ -123,17 +134,26 @@ class JobService {
 	 */
 	@Transactional(readOnly = true)
 	DetalhamentoSimulacaoDto detalharSimulacao(UUID jobId, UUID simulacaoId) {
+		return detalharSimulacao(jobId, simulacaoId, null);
+	}
+
+	@Transactional(readOnly = true)
+	DetalhamentoSimulacaoDto detalharSimulacao(UUID jobId, UUID simulacaoId, @Nullable UUID resultadoAnteriorId) {
 		try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
-			List<DetalhamentoSimulacaoDto> encontrados = this.repository.buscarDetalhamento(jobId, simulacaoId);
+			List<DetalhamentoSimulacaoDto> encontrados = resultadoAnteriorId == null
+					? this.repository.buscarDetalhamento(jobId, simulacaoId)
+					: this.repository.buscarDetalhamentoAnterior(jobId, simulacaoId, resultadoAnteriorId);
 			if (encontrados.isEmpty()) {
 				log.atWarn()
 					.addKeyValue("simulacao_id", simulacaoId)
+					.addKeyValue("resultado_anterior", resultadoAnteriorId != null)
 					.log("detalhamento recusado: simulação não encontrada no job");
 				throw new SimulacaoNaoEncontradaException(simulacaoId);
 			}
 			DetalhamentoSimulacaoDto detalhamento = encontrados.getFirst();
 			log.atDebug()
 				.addKeyValue("simulacao_id", simulacaoId)
+				.addKeyValue("resultado_anterior", resultadoAnteriorId != null)
 				.addKeyValue("com_detalhamento", detalhamento.linhas() != null)
 				.log("detalhamento da simulação consultado");
 			return detalhamento;
@@ -153,7 +173,8 @@ class JobService {
 			return new JobDetalhadoDto(job.id(), job.status(), job.origem(), job.competencias(), job.orcamento(),
 					job.meta_venda(), job.criado_em(), job.iniciado_em(), job.finalizado_em(), job.submissao_id(),
 					job.job_origem_id(), job.motivo(), job.regras(), simulacao, simulacoes,
-					this.repository.buscarMetaSugerida(jobId));
+					this.repository.buscarMetaSugerida(jobId), dados.nome(),
+					this.repository.buscaMetaEmCurso(jobId) ? Boolean.TRUE : null);
 		}
 		catch (EmptyResultDataAccessException ex) {
 			throw new JobNaoEncontradoException(jobId);
@@ -168,6 +189,9 @@ class JobService {
 	 */
 	private @Nullable String motivo(UUID jobId, JobStatus status, @Nullable String motivoDaTrilha) {
 		String razao = MotivoDaParada.razaoLocalizada(status, motivoDaTrilha);
+		if (status == JobStatus.SIMULACAO_INVIAVEL && MotivoDaParada.SEM_ALTERNATIVA.equals(motivoDaTrilha)) {
+			razao = MotivoDaParada.semAlternativa(this.repository.buscarComissaoDasLojasForaDaRegra(jobId));
+		}
 		if (razao == null && (status == JobStatus.ERRO || status == JobStatus.SIMULACAO_INVIAVEL)) {
 			try (var escopo = this.correlacao.abrir(jobId.toString(), null)) {
 				log.atWarn()
@@ -207,26 +231,32 @@ class JobService {
 
 	@Transactional
 	JobCriadoDto confirmar(UUID jobId, ConfirmarParametrosRequisicao requisicao) {
+		List<ContextoDoJob> encontrados = this.repository.buscarContextoComTrava(jobId);
+		if (encontrados.isEmpty()) {
+			throw new JobNaoEncontradoException(jobId);
+		}
+		ContextoDoJob contexto = encontrados.getFirst();
 		DadosDoJob dados = carregarJob(jobId);
-		JobStatus origem = JobStatus.deColuna(this.repository.buscarStatusComTrava(jobId));
+		JobStatus origem = contexto.status();
 		// A volta de simulando para gerando_regra é da próxima proposta automática,
 		// não de uma confirmação do usuário durante a execução.
 		if (origem.emProcessamento()) {
 			throw new TransicaoDeStatusInvalidaException(origem, JobStatus.GERANDO_REGRA);
 		}
-		this.maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "usuario", null);
-
 		VersaoAnterior anterior = ultimaVersao(jobId);
+		Rodada rodada = rodadaParaConfirmacao(jobId, origem, anterior);
 		RepresentacaoRegraDto representacao = requisicao.representacao();
-		// Esta confirmação não edita parâmetro algum (T-217): os da versão anterior
-		// passam para a nova como estavam, e o hash os cobre pelo mesmo motivo de
-		// cobrir o núcleo - sem isso, uma versão nascida de texto com parâmetros
-		// pareceria sempre editada, porque o hash sem eles nunca bateria com o da
-		// versão anterior.
-		String parametrosJson = (anterior != null) ? anterior.parametros() : null;
+		List<String> parametrosCorrigidos = parametrosCorrigidos(contexto, requisicao);
+		String parametrosJson = parametrosDaConfirmacao((anterior != null) ? anterior.parametros() : null, contexto,
+				requisicao, parametrosCorrigidos);
 		ParametrosDaSimulacao parametros = ParametrosExtraidos.deVersaoExistente(parametrosJson);
 		String hash = HashDaRegra.calcular(representacao, parametros);
+		List<VersaoRegra> existentes = this.repository.buscarRegraPorHash(jobId, hash);
+		if (!existentes.isEmpty() && this.rodadas.jaAnalisada(jobId, existentes.getFirst().id())) {
+			throw ConfirmarParametrosException.versaoJaAnalisada();
+		}
 		boolean editado = anterior != null && !hash.equals(anterior.hash());
+		this.maquina.transicionar(jobId, JobStatus.GERANDO_REGRA, "usuario", null);
 
 		Instant agora = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		Timestamp timestamp = Timestamp.from(agora);
@@ -234,16 +264,90 @@ class JobService {
 				(anterior != null) ? anterior.id() : null, timestamp, agora);
 
 		BigDecimal orcamento = resolverOrcamento(jobId, requisicao, dados.orcamento());
+		BigDecimal metaVenda = requisicao.meta_venda() != null ? requisicao.meta_venda() : contexto.metaVenda();
+		if (requisicao.meta_venda() != null) {
+			this.repository.atualizarMetaVenda(jobId, requisicao.meta_venda());
+		}
 		List<String> competencias = resolverCompetencias(jobId, requisicao);
 
 		this.outbox.registrar(jobId, EventoOutbox.PARAMETROS_CONFIRMADOS,
-				new ParametrosConfirmadosDto(jobId, versao.id()));
-		registrarTrilha(jobId, versao.id(), editado, representacao, anterior, timestamp);
+				new ParametrosConfirmadosDto(jobId, versao.id(), competencias, orcamento, metaVenda));
+		TrilhaDaConfirmacao.registrar(this.repository, jobId, versao.id(), editado || !parametrosCorrigidos.isEmpty(),
+				representacao, anterior, parametrosCorrigidos, timestamp);
+		if (rodada != null) {
+			this.rodadas.corrigir(jobId, rodada.id(), rodada.regra_analisada_id(), versao.id(), agora);
+			registrarFechamento(jobId, rodada.id(), versao.id());
+		}
 
 		RegraCriadaDto regra = new RegraCriadaDto(versao.id(), versao.versao(), versao.origem(), representacao,
 				versao.criadaEm());
 		return new JobCriadoDto(jobId, JobStatus.GERANDO_REGRA.paraColuna(), dados.origem(), competencias, orcamento,
 				dados.criadoEm(), dados.submissaoId(), dados.jobOrigemId(), regra);
+	}
+
+	private @Nullable Rodada rodadaParaConfirmacao(UUID jobId, JobStatus status, @Nullable VersaoAnterior anterior) {
+		List<Rodada> abertas = this.rodadas.abertas(jobId);
+		if (abertas.isEmpty()) {
+			return null;
+		}
+		if (abertas.size() != 1 || status != JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS || anterior == null
+				|| !abertas.getFirst().regra_analisada_id().equals(anterior.id())) {
+			throw ConfirmarParametrosException.estadoInvalido();
+		}
+		return abertas.getFirst();
+	}
+
+	private static List<String> parametrosCorrigidos(ContextoDoJob contexto, ConfirmarParametrosRequisicao requisicao) {
+		List<String> campos = new ArrayList<>();
+		if (requisicao.orcamento() != null
+				&& TrilhaDaConfirmacao.decimalDiferente(contexto.orcamento(), requisicao.orcamento())) {
+			campos.add("parametros.orcamento");
+		}
+		if (requisicao.competencias() != null && !requisicao.competencias().equals(contexto.competencias())) {
+			campos.add("parametros.competencias");
+		}
+		if (requisicao.meta_venda() != null
+				&& TrilhaDaConfirmacao.decimalDiferente(contexto.metaVenda(), requisicao.meta_venda())) {
+			campos.add("parametros.meta_venda");
+		}
+		return campos;
+	}
+
+	private static @Nullable String parametrosDaConfirmacao(@Nullable String anteriores, ContextoDoJob contexto,
+			ConfirmarParametrosRequisicao requisicao, List<String> corrigidos) {
+		if (corrigidos.isEmpty()) {
+			return anteriores;
+		}
+		// Sem edição efetiva, NULL e {} mantêm sua identidade histórica. Ao editar uma
+		// versão legada, os parâmetros preservados vêm do job, pois ela não tem artefato.
+		ObjectNode parametros = anteriores == null
+				? JSON.valueToTree(
+						new ParametrosDaSimulacao(contexto.orcamento(), contexto.metaVenda(), contexto.competencias()))
+				: (ObjectNode) JSON.readTree(anteriores);
+		if (corrigidos.contains("parametros.orcamento")) {
+			parametros.put("orcamento", Objects.requireNonNull(requisicao.orcamento()));
+		}
+		if (corrigidos.contains("parametros.competencias")) {
+			parametros.set("competencias", JSON.valueToTree(Objects.requireNonNull(requisicao.competencias())));
+		}
+		if (corrigidos.contains("parametros.meta_venda")) {
+			parametros.put("meta_venda", Objects.requireNonNull(requisicao.meta_venda()));
+		}
+		return JSON.writeValueAsString(parametros);
+	}
+
+	private void registrarFechamento(UUID jobId, UUID rodadaId, UUID regraId) {
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit() {
+				try (var escopo = JobService.this.correlacao.abrir(jobId.toString(), null)) {
+					log.atInfo()
+						.addKeyValue("rodada_id", rodadaId)
+						.addKeyValue("regra_id", regraId)
+						.log("rodada corrigida por confirmação direta");
+				}
+			}
+		});
 	}
 
 	private DadosDoJob carregarJob(UUID jobId) {
@@ -279,63 +383,6 @@ class JobService {
 		return this.repository.buscarCompetencias(jobId);
 	}
 
-	private void registrarTrilha(UUID jobId, UUID regraId, boolean editado, RepresentacaoRegraDto atual,
-			@Nullable VersaoAnterior anterior, Timestamp timestamp) {
-		List<String> corrigidos = (anterior != null && editado) ? camposCorrigidos(atual.nucleo(), anterior.nucleo())
-				: new ArrayList<>();
-		if (anterior != null && editado) {
-			corrigidos.addAll(especificacoesCorrigidas(atual.especificacoes(), anterior.especificacoes()));
-		}
-		String resumo = editado ? "usuário corrigiu "
-				+ (corrigidos.isEmpty() ? "a representação" : String.join(", ", corrigidos)) + " antes de confirmar"
-				: "usuário confirmou os parâmetros";
-		Map<String, Object> conclusao = new LinkedHashMap<>();
-		conclusao.put("resumo", resumo);
-		conclusao.put("editado_pelo_usuario", editado);
-		conclusao.put("campos_corrigidos", corrigidos);
-		UUID eventoId = UUID.nameUUIDFromBytes(("confirmacao:" + regraId).getBytes(StandardCharsets.UTF_8));
-		this.repository.inserirTrilhaConfirmacao(eventoId, jobId, timestamp, regraId, conclusao);
-	}
-
-	private static List<String> camposCorrigidos(NucleoRegraDto atual, NucleoRegraDto anterior) {
-		List<String> corrigidos = new ArrayList<>();
-		if (!Objects.equals(atual.vigencia(), anterior.vigencia())) {
-			corrigidos.add("nucleo.vigencia");
-		}
-		if (!Objects.equals(atual.loja(), anterior.loja())) {
-			corrigidos.add("nucleo.loja");
-		}
-		if (!Objects.equals(atual.marca(), anterior.marca())) {
-			corrigidos.add("nucleo.marca");
-		}
-		if (!Objects.equals(atual.cargo(), anterior.cargo())) {
-			corrigidos.add("nucleo.cargo");
-		}
-		if (percentualDiferente(atual.percentual(), anterior.percentual())) {
-			corrigidos.add("nucleo.percentual");
-		}
-		return corrigidos;
-	}
-
-	private static boolean percentualDiferente(@Nullable BigDecimal atual, @Nullable BigDecimal anterior) {
-		if (atual == null || anterior == null) {
-			return (atual == null) != (anterior == null);
-		}
-		return atual.compareTo(anterior) != 0;
-	}
-
-	private static List<String> especificacoesCorrigidas(List<JsonNode> atuais, List<JsonNode> anteriores) {
-		var refs = new LinkedHashSet<String>();
-		atuais.forEach(elemento -> refs.add(elemento.path("ref").asString()));
-		anteriores.forEach(elemento -> refs.add(elemento.path("ref").asString()));
-		return refs.stream()
-			.filter(ref -> !atuais.stream()
-				.filter(elemento -> ref.equals(elemento.path("ref").asString()))
-				.toList()
-				.equals(anteriores.stream().filter(elemento -> ref.equals(elemento.path("ref").asString())).toList()))
-			.toList();
-	}
-
 	@Transactional
 	AcaoAplicada executarAcao(UUID jobId, AcaoJob acao) {
 		if (acao == AcaoJob.ACEITAR_META) {
@@ -344,7 +391,7 @@ class JobService {
 				throw ExecutarAcaoException.estadoInvalido(acao, estado);
 			}
 			this.repository.inserirAcao(jobId, acao.paraColuna(), Timestamp.from(Instant.now()));
-			return new AcaoAplicada(EventoEstadoDto.fotografia(jobId, estado), consultarJob(jobId));
+			return new AcaoAplicada(EventoEstadoDto.fotografia(jobId, estado), consultarJob(jobId), 0);
 		}
 		JobStatus origem;
 		try {
@@ -360,12 +407,22 @@ class JobService {
 			throw ExecutarAcaoException.estadoInvalido(acao, ex.origem());
 		}
 		this.repository.inserirAcao(jobId, acao.paraColuna(), Timestamp.from(Instant.now()));
+		int abandonadas = 0;
+		if (acao.destino() == JobStatus.CANCELADO || acao.destino() == JobStatus.ARQUIVADO) {
+			abandonadas = this.rodadas.abandonarAbertas(jobId, Instant.now().truncatedTo(ChronoUnit.MICROS));
+		}
 		EventoEstadoDto evento = EventoEstadoDto.transicao(jobId, origem, acao.destino(), null);
 		JobDetalhadoDto job = consultarJob(jobId);
-		return new AcaoAplicada(evento, job);
+		return new AcaoAplicada(evento, job, abandonadas);
 	}
 
-	record AcaoAplicada(EventoEstadoDto evento, JobDetalhadoDto job) {
+	@Transactional
+	JobDetalhadoDto renomear(UUID jobId, RenomearJobRequisicao requisicao) {
+		this.repository.atualizarNome(jobId, requisicao.nome());
+		return consultarJob(jobId);
+	}
+
+	record AcaoAplicada(EventoEstadoDto evento, JobDetalhadoDto job, int rodadasAbandonadas) {
 	}
 
 	@Transactional
@@ -385,11 +442,14 @@ class JobService {
 		Timestamp timestamp = Timestamp.from(agora);
 		JobStatus status = JobStatus.AGUARDANDO_CONFIRMACAO_PARAMETROS;
 		UUID jobId = this.repository.inserirJobReprocessado(status.paraColuna(), origem.usuarioId(), origemId,
-				competencias, orcamento, timestamp);
+				competencias, orcamento, origem.nome(), timestamp);
+		if (origem.metaVenda() != null) {
+			this.repository.atualizarMetaVenda(jobId, origem.metaVenda());
+		}
 		this.maquina.registrarCriacao(jobId, status, "usuario");
 		RegraCriadaDto regra = this.repository.copiarRegra(jobId, regras.getFirst(), timestamp, agora);
-		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA,
-				new RegraSubmetidaDto(jobId, "reprocessamento", competencias, orcamento, null, null, regra.id()));
+		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, new RegraSubmetidaDto(jobId, "reprocessamento",
+				competencias, orcamento, origem.metaVenda(), null, regra.id()));
 		return new JobCriadoDto(jobId, status.paraColuna(), "reprocessamento", competencias, orcamento, agora, null,
 				origemId, regra);
 	}

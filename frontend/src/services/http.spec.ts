@@ -110,6 +110,36 @@ describe('http', () => {
     expect(init?.method).toBe('GET')
     expect(init).not.toHaveProperty('body')
   })
+
+  it('mantém a mensagem de validação genérica em uma 400 sem elementos', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({ codigo: 'requisicao_invalida', mensagem: 'O campo nome é obrigatório.' }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+
+    await expect(http.put('/jobs/job-1/nome', { nome: '' })).rejects.toMatchObject({
+      status: 400,
+      code: 'requisicao_invalida',
+      message: 'Revise os dados informados e tente novamente.',
+    })
+  })
+  it('envia PUT com corpo JSON', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ id: 'job-1' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    await http.put('/jobs/job-1/nome', { nome: 'Comissão' })
+
+    const init = fetchMock.mock.calls[0]?.[1]
+    expect(init?.method).toBe('PUT')
+    expect(init?.body).toBe(JSON.stringify({ nome: 'Comissão' }))
+    expect(new Headers(init?.headers).get('Content-Type')).toBe('application/json')
+  })
 })
 
 

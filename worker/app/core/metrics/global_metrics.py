@@ -60,6 +60,13 @@ execucoes_com_cobertura_incompleta = prometheus.register_counter(
     "Execuções no sandbox reprovadas porque o código gerado não cobre os elementos exigidos",
 )
 
+# Uma por execução no sandbox julgada fora do escopo, com a mesma contagem da cobertura: a
+# reentrega que encontra o resultado gravado não conta, a execução repetida conta de novo.
+execucoes_fora_do_escopo = prometheus.register_counter(
+    "worker_fora_do_escopo_total",
+    "Execuções no sandbox reprovadas porque o código gerado mudou linhas fora do alcance da regra",
+)
+
 # O desfecho de cada execução no sandbox julgada, o mesmo que vai para a linha e o evento:
 # o veredito de um sucesso, sem_orcamento num sucesso de job sem orçamento (T-281), e a classe
 # nos demais. Conta execuções, não jobs: a reentrega que encontra o resultado já gravado não
@@ -109,3 +116,17 @@ duracao_do_baseline_na_meta = prometheus.register_histogram(
 )
 for _resultado in RESULTADOS_DA_REAPURACAO:
     duracao_do_baseline_na_meta.labels(resultado=_resultado)
+
+# A conferência do resultado contra o baseline do worker e da coerência entre o detalhamento, os
+# totais e as quebras (T-066, T-262), pelo que ela decidiu. Uma por execução com sucesso julgada:
+# a reentrega que encontra o resultado já gravado não confere de novo e não conta, e o desfecho
+# que não é sucesso não chega à conferência.
+RESULTADOS_DA_CONFERENCIA = ("coerente", "baseline_divergente", "resultado_incoerente")
+
+resultados_conferidos = prometheus.register_counter(
+    "job_resultado_conferencia_total",
+    "Resultados com sucesso conferidos pelo worker contra o baseline e entre si, por resultado",
+    ["resultado"],
+)
+for _resultado in RESULTADOS_DA_CONFERENCIA:
+    resultados_conferidos.labels(resultado=_resultado)

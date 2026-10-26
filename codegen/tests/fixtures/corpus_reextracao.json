@@ -1,0 +1,345 @@
+[
+  {
+    "id": "primeira_correcao_sem_historico",
+    "texto": "Corrija o percentual para 3%.",
+    "historico": [],
+    "operacoes_falsas": [
+      {
+        "tipo": "definir_nucleo",
+        "trecho": "3%",
+        "campo": "percentual",
+        "valor": {
+          "valor": 0.03,
+          "trecho": "3%"
+        }
+      }
+    ],
+    "percentual_esperado": 0.03,
+    "orcamento_esperado": 500000,
+    "meta_esperada": 12000000,
+    "motivos_esperados": [],
+    "modelo_real": true
+  },
+  {
+    "id": "terceira_correcao_com_conflitos_e_textos",
+    "texto": "Agora o percentual deve ser 3% e o orçamento deve ser de R$ 600 mil.",
+    "historico": [
+      {
+        "conflitos": [
+          {
+            "elementos": [
+              "nucleo.percentual"
+            ],
+            "motivo": "percentual conflitante"
+          }
+        ],
+        "texto": "Na primeira revisão, pedi para rever o percentual."
+      },
+      {
+        "conflitos": [
+          {
+            "elementos": [
+              "parametros.orcamento"
+            ],
+            "motivo": "orçamento insuficiente"
+          }
+        ],
+        "texto": "Na segunda revisão, disse que o orçamento precisava mudar."
+      }
+    ],
+    "operacoes_falsas": [
+      {
+        "tipo": "definir_nucleo",
+        "trecho": "3%",
+        "campo": "percentual",
+        "valor": {
+          "valor": 0.03,
+          "trecho": "3%"
+        }
+      },
+      {
+        "tipo": "definir_parametro",
+        "trecho": "R$ 600 mil",
+        "campo": "orcamento",
+        "valor": {
+          "valor": 600000,
+          "trecho": "R$ 600 mil"
+        }
+      }
+    ],
+    "percentual_esperado": 0.03,
+    "orcamento_esperado": 600000,
+    "meta_esperada": 12000000,
+    "motivos_esperados": [],
+    "modelo_real": true
+  },
+  {
+    "id": "historico_nao_e_fonte_de_valores_novos",
+    "texto": "Mantenha os valores atuais.",
+    "historico": [
+      {
+        "conflitos": [
+          {
+            "elementos": [
+              "parametros.orcamento"
+            ],
+            "motivo": "orçamento anterior"
+          }
+        ],
+        "texto": "Antes eu mencionei R$ 700 mil."
+      }
+    ],
+    "operacoes_falsas": [
+      {
+        "tipo": "definir_parametro",
+        "trecho": "Mantenha os valores atuais",
+        "campo": "orcamento",
+        "valor": {
+          "valor": 700000,
+          "trecho": "R$ 700 mil"
+        }
+      }
+    ],
+    "percentual_esperado": 0.025,
+    "orcamento_esperado": 500000,
+    "meta_esperada": 12000000,
+    "motivos_esperados": [
+      "valor_sem_lastro"
+    ],
+    "modelo_real": true
+  },
+  {
+    "id": "remocao_precisa_trecho_da_correcao",
+    "texto": "Retire a meta de venda da simulação.",
+    "historico": [],
+    "operacoes_falsas": [
+      {
+        "tipo": "remover_parametro",
+        "campo": "meta_venda"
+      }
+    ],
+    "percentual_esperado": 0.025,
+    "orcamento_esperado": 500000,
+    "meta_esperada": 12000000,
+    "motivos_esperados": [
+      "operacao_sem_trecho"
+    ],
+    "modelo_real": false
+  },
+  {
+    "id": "orcamento_hallucinado_com_trecho_validado",
+    "texto": "A comissão passa a 3%; sem alteração do orçamento.",
+    "historico": [],
+    "operacoes_falsas": [
+      {
+        "tipo": "definir_nucleo",
+        "trecho": "3%",
+        "campo": "percentual",
+        "valor": {
+          "valor": 0.03,
+          "trecho": "3%"
+        }
+      },
+      {
+        "tipo": "definir_parametro",
+        "trecho": "sem alteração do orçamento",
+        "campo": "orcamento",
+        "valor": {
+          "valor": 600000,
+          "trecho": "sem alteração do orçamento"
+        }
+      }
+    ],
+    "percentual_esperado": 0.03,
+    "orcamento_esperado": 500000,
+    "meta_esperada": 12000000,
+    "motivos_esperados": [
+      "valor_sem_lastro"
+    ],
+    "modelo_real": false
+  },
+  {
+    "id": "bonus_parcial_preserva_condicao",
+    "texto": "o bônus passa para 600 reais",
+    "historico": [],
+    "regra_atual": {
+      "nucleo": {
+        "percentual": 0.025
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "bônus de R$ 500 para quem vender acima de R$ 10.000 no mês"
+        }
+      ]
+    },
+    "operacoes_falsas": [
+      {
+        "tipo": "substituir_elemento",
+        "ref": "elem.1",
+        "trecho": "o bônus passa para 600 reais",
+        "elemento": {
+          "construto_pretendido": "generico",
+          "descricao": "bônus de R$ 600 para quem vender acima de R$ 10.000 no mês",
+          "trecho": "o bônus passa para 600 reais"
+        }
+      }
+    ],
+    "especificacoes_esperadas": [
+      {
+        "ref": "elem.1",
+        "construto": "generico",
+        "descricao": "bônus de R$ 600 para quem vender acima de R$ 10.000 no mês"
+      }
+    ],
+    "percentual_esperado": 0.025,
+    "orcamento_esperado": 500000,
+    "meta_esperada": 12000000,
+    "motivos_esperados": [
+      "construto_nao_habilitado"
+    ],
+    "modelo_real": true
+  },
+  {
+    "id": "bonus_sem_lastro_preserva_elemento",
+    "texto": "o bônus passa para 600 reais",
+    "historico": [],
+    "regra_atual": {
+      "nucleo": {
+        "percentual": 0.025
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "bônus de R$ 500 para quem vender acima de R$ 10.000 no mês"
+        }
+      ]
+    },
+    "operacoes_falsas": [
+      {
+        "tipo": "substituir_elemento",
+        "ref": "elem.1",
+        "trecho": "o bônus passa para 600 reais",
+        "elemento": {
+          "construto_pretendido": "generico",
+          "descricao": "bônus de R$ 700 para quem vender acima de R$ 10.000 no mês",
+          "trecho": "o bônus passa para 600 reais"
+        }
+      }
+    ],
+    "especificacoes_esperadas": [
+      {
+        "ref": "elem.1",
+        "construto": "generico",
+        "descricao": "bônus de R$ 500 para quem vender acima de R$ 10.000 no mês"
+      }
+    ],
+    "percentual_esperado": 0.025,
+    "orcamento_esperado": 500000,
+    "meta_esperada": 12000000,
+    "motivos_esperados": [
+      "valor_sem_lastro"
+    ],
+    "modelo_real": false
+  },
+  {
+    "id": "confirmacao_nao_substitui_bonus",
+    "texto": "Está certo assim, pode seguir.",
+    "historico": [],
+    "regra_atual": {
+      "nucleo": {
+        "percentual": 0.025
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "bônus de R$ 500 para quem vender acima de R$ 10.000 no mês"
+        }
+      ]
+    },
+    "operacoes_falsas": [
+      {
+        "tipo": "substituir_elemento",
+        "ref": "elem.1",
+        "trecho": "Está certo assim, pode seguir.",
+        "elemento": {
+          "construto_pretendido": "generico",
+          "descricao": "bônus de R$ 600 para quem vender acima de R$ 10.000 no mês",
+          "trecho": "Está certo assim, pode seguir."
+        }
+      }
+    ],
+    "especificacoes_esperadas": [
+      {
+        "ref": "elem.1",
+        "construto": "generico",
+        "descricao": "bônus de R$ 500 para quem vender acima de R$ 10.000 no mês"
+      }
+    ],
+    "percentual_esperado": 0.025,
+    "orcamento_esperado": 500000,
+    "meta_esperada": 12000000,
+    "motivos_esperados": [
+      "valor_sem_lastro"
+    ],
+    "modelo_real": true
+  },
+  {
+    "id": "bonus_do_historico_nao_aplicado_nao_e_lastro",
+    "texto": "Mantenha os valores atuais.",
+    "historico": [
+      {
+        "conflitos": [
+          {
+            "elementos": [
+              "elem.1"
+            ],
+            "motivo": "revisar bônus"
+          }
+        ],
+        "texto": "Antes pedi bônus de R$ 700."
+      }
+    ],
+    "regra_atual": {
+      "nucleo": {
+        "percentual": 0.025
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "bônus de R$ 500 para quem vender acima de R$ 10.000 no mês"
+        }
+      ]
+    },
+    "operacoes_falsas": [
+      {
+        "tipo": "substituir_elemento",
+        "ref": "elem.1",
+        "trecho": "Mantenha os valores atuais.",
+        "elemento": {
+          "construto_pretendido": "generico",
+          "descricao": "bônus de R$ 700 para quem vender acima de R$ 10.000 no mês",
+          "trecho": "Mantenha os valores atuais."
+        }
+      }
+    ],
+    "especificacoes_esperadas": [
+      {
+        "ref": "elem.1",
+        "construto": "generico",
+        "descricao": "bônus de R$ 500 para quem vender acima de R$ 10.000 no mês"
+      }
+    ],
+    "percentual_esperado": 0.025,
+    "orcamento_esperado": 500000,
+    "meta_esperada": 12000000,
+    "motivos_esperados": [
+      "valor_sem_lastro"
+    ],
+    "modelo_real": true
+  }
+]

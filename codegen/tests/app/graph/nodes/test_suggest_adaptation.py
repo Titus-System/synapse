@@ -72,13 +72,36 @@ def _da_primeira_alternativa() -> AgentState:
     return estado
 
 
+def _detalhamento(simulado: Decimal, fora: Decimal) -> dict[str, Any]:
+    """Uma linha da loja 14, que a regra não alcança, com `fora`, e uma da loja 13, com o resto."""
+
+    def linha(loja: str, comissao: Decimal, contribuicoes: dict[str, Decimal]) -> dict[str, Any]:
+        return {
+            "cod_loja": loja,
+            "cod_marca": "10",
+            "cod_cargo": "100",
+            "comissao_baseline": comissao - sum(contribuicoes.values(), Decimal(0)),
+            "comissao_simulada": comissao,
+            "diferenca": sum(contribuicoes.values(), Decimal(0)),
+            "contribuicoes": contribuicoes,
+        }
+
+    alcancada = simulado - fora
+    return {
+        "2025-11": {
+            "MATRIC-14": linha("14", fora, {}),
+            "MATRIC-13": linha("13", alcancada, {"nucleo.percentual": alcancada}),
+        }
+    }
+
+
 def _totais(
-    monkeypatch: pytest.MonkeyPatch, simulado: str, orcamento: str, baseline: str = "480312"
+    monkeypatch: pytest.MonkeyPatch, simulado: str, orcamento: str, fora: str | None = "480312"
 ) -> AsyncMock:
+    """O resultado como o worker o grava; `fora` None é o resultado anterior ao detalhamento."""
+    linhas = None if fora is None else _detalhamento(Decimal(simulado), Decimal(fora))
     consulta = AsyncMock(
-        return_value=TotaisDaSimulacao(
-            Decimal(simulado), Decimal(orcamento), baseline=Decimal(baseline)
-        )
+        return_value=TotaisDaSimulacao(Decimal(simulado), Decimal(orcamento), linhas=linhas)
     )
     monkeypatch.setattr(modulo, "buscar_totais", consulta)
     return consulta
@@ -126,6 +149,36 @@ async def test_propoe_a_alternativa_calculada_sobre_os_totais_apurados(
     assert contrato["nucleo"]["loja"] == ["13"]
 
 
+async def test_com_comissao_atual_no_escopo_a_primeira_taxa_e_a_que_cabe_no_orcamento(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A regra troca 2% por 2,5% nas vendas de R$ 40.000 da loja 13, e a loja 14, fora dela, fica
+    com R$ 1.000: a comissão é 1000 + 40000 * taxa, e cabe até 2,25% em R$ 1.900. Estimada sobre o
+    baseline inteiro (R$ 1.800), a taxa sairia 1,25%, abaixo da que a loja 13 já recebe."""
+    _totais(monkeypatch, "2000", "1900", fora="1000")
+    producers = _producers()
+
+    await modulo.suggest_adaptation(_estado(), _config(producers))
+
+    [proposta] = producers.sugestao_adaptacao_proposta.await_args.args
+    assert proposta.representacao.para_contrato()["nucleo"]["percentual"] == Decimal("0.0225")
+
+
+async def test_parte_fixa_acima_do_orcamento_ainda_propoe_a_alternativa_pela_sondagem(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A loja que a regra não alcança já custa mais que o orçamento, e nenhuma taxa cabe. A
+    alternativa ainda é simulada, proporcional ao orçamento, para o usuário vê-la e ver o motivo;
+    a reta do refinamento encerra a iteração na tentativa seguinte."""
+    _totais(monkeypatch, "2200", "900", "1000")
+    producers = _producers()
+
+    await modulo.suggest_adaptation(_estado(), _config(producers))
+
+    [proposta] = producers.sugestao_adaptacao_proposta.await_args.args
+    assert proposta.representacao.para_contrato()["nucleo"]["percentual"] == Decimal("0.0102")
+
+
 async def test_a_primeira_proposta_e_a_tentativa_1(monkeypatch: pytest.MonkeyPatch) -> None:
     _totais(monkeypatch, "492100", "485000")
     producers = _producers()
@@ -167,8 +220,8 @@ async def test_a_proposta_sai_no_contrato_oficial_com_a_tentativa(
 async def test_a_segunda_tentativa_refina_a_taxa_pelas_ja_simuladas(
     monkeypatch: pytest.MonkeyPatch, taxas_simuladas: AsyncMock
 ) -> None:
-    """Pelo baseline (1200) a taxa seria 0,0166; a reta das simuladas dá a que cabe."""
-    _totais(monkeypatch, "1800", "1700", baseline="1200")
+    """Pela parte fixa (1200) a taxa seria 0,0166; a reta das simuladas dá a que cabe."""
+    _totais(monkeypatch, "1800", "1700", fora="1200")
     taxas_simuladas.return_value = [ORIGINAL, PRIMEIRA]
     producers = _producers()
 
@@ -184,7 +237,7 @@ async def test_a_segunda_tentativa_refina_a_taxa_pelas_ja_simuladas(
 async def test_a_terceira_alternativa_que_nao_coube_encerra_sem_quarta_proposta(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    totais = _totais(monkeypatch, "1750", "1700", baseline="1200")
+    totais = _totais(monkeypatch, "1750", "1700", fora="1200")
     producers = _producers()
     antes = tentativas_contadas()
 
@@ -235,7 +288,7 @@ async def test_sem_taxa_a_propor_encerra_a_iteracao_sem_alternativa(
     monkeypatch: pytest.MonkeyPatch,
     taxas_simuladas: AsyncMock,
     estado: dict[str, Any],
-    totais: tuple[str, str],
+    totais: tuple[str, ...],
     anteriores: list[TaxaSimulada] | None,
     desfecho: tuple[str, str],
 ) -> None:
@@ -334,7 +387,7 @@ async def test_a_trilha_nao_carrega_a_proposta(monkeypatch: pytest.MonkeyPatch) 
 async def test_registra_a_tentativa_e_o_motivo_sem_taxas_nem_totais(
     monkeypatch: pytest.MonkeyPatch, taxas_simuladas: AsyncMock, caplog: pytest.LogCaptureFixture
 ) -> None:
-    _totais(monkeypatch, "1800", "1700", baseline="1200")
+    _totais(monkeypatch, "1800", "1700", fora="1200")
     taxas_simuladas.return_value = [ORIGINAL, PRIMEIRA]
 
     with caplog.at_level("INFO", logger="app.graph.nodes.suggest_adaptation"):
@@ -342,6 +395,7 @@ async def test_registra_a_tentativa_e_o_motivo_sem_taxas_nem_totais(
 
     [proposta] = [r for r in caplog.records if r.getMessage() == "adaptation proposal published"]
     assert proposta.tentativa == 2
+    assert proposta.metodo == "refinamento"
     [conclusao] = [r for r in caplog.records if r.getMessage() == "node conclusion published"]
     assert conclusao.motivo == "proposta"
     assert conclusao.tentativas_de_taxa == 1
@@ -351,6 +405,36 @@ async def test_registra_a_tentativa_e_o_motivo_sem_taxas_nem_totais(
         [{k: v for k, v in r.__dict__.items() if k not in padrao} for r in caplog.records]
     )
     for valor in ("0.0175", "0.02", "0.025", "1800", "1700", "1200", "2000"):
+        assert valor not in extras
+
+
+async def test_sem_detalhamento_propoe_a_sondagem_e_registra_o_metodo(
+    monkeypatch: pytest.MonkeyPatch, taxas_simuladas: AsyncMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Um resultado gravado antes do detalhamento: 10% na meta, orçamento abaixo do baseline. Sem
+    as linhas, a parte fixa é zero (T-283)."""
+    _totais(monkeypatch, "7400123.65", "5000000", fora=None)
+    taxas_simuladas.return_value = [TaxaSimulada(Decimal("0.1"), Decimal("7400123.65"))]
+    estado = _estado()
+    estado["representacao_regra"]["nucleo"]["percentual"] = Decimal("0.1")
+    producers = _producers()
+
+    with caplog.at_level("INFO", logger="app.graph.nodes.suggest_adaptation"):
+        await modulo.suggest_adaptation(estado, _config(producers))
+
+    [proposta] = producers.sugestao_adaptacao_proposta.await_args.args
+    assert proposta.tentativa == 1
+    assert proposta.representacao.para_contrato()["nucleo"]["percentual"] == Decimal("0.0675")
+    assert [e.status for e in (c.args[0] for c in producers.etapa_alterada.await_args_list)] == [
+        "iniciada"
+    ]
+    [registro] = [r for r in caplog.records if r.getMessage() == "adaptation proposal published"]
+    assert (registro.tentativa, registro.metodo) == (1, "sondagem")
+    padrao = logging.makeLogRecord({}).__dict__.keys()
+    extras = repr(
+        [{k: v for k, v in r.__dict__.items() if k not in padrao} for r in caplog.records]
+    )
+    for valor in ("0.0675", "0.1", "7400123", "5000000", "5730771"):
         assert valor not in extras
 
 
@@ -385,16 +469,78 @@ async def test_nao_propoe_quando_o_resultado_nao_tem_totais(
     producers.sugestao_adaptacao_proposta.assert_not_awaited()
 
 
-async def test_regra_com_especificacao_encerra_sem_publicar_alternativa(
+def _com_taxas_por_cargo_e_bonus() -> AgentState:
+    """A forma do caso relatado: taxas por cargo e um bônus condicionado, em texto livre."""
+    nucleo = {chave: valor for chave, valor in NUCLEO.items() if chave != "percentual"}
+    return _estado(
+        representacao_regra={
+            "nucleo": {
+                **nucleo,
+                "cargo": ["100", "150"],
+                "taxas_por_cargo": [
+                    {"cargo": "100", "percentual": Decimal("0.03")},
+                    {"cargo": "150", "percentual": Decimal("0.05")},
+                ],
+            },
+            "especificacoes": [
+                {
+                    "ref": "elem.1",
+                    "construto": "generico",
+                    "descricao": "Bônus de R$ 350 para quem vender R$ 40.000 no mês.",
+                }
+            ],
+        }
+    )
+
+
+async def test_propoe_para_regra_com_taxas_por_cargo_e_bonus_no_contrato_oficial(
+    monkeypatch: pytest.MonkeyPatch, taxas_simuladas: AsyncMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    _totais(monkeypatch, "492100", "485000")
+    taxas_simuladas.return_value = [TaxaSimulada(Decimal("0.03"), Decimal("492100"))]
+    estado = _com_taxas_por_cargo_e_bonus()
+    producers = _producers()
+    antes = tentativas_contadas()
+
+    with caplog.at_level("INFO", logger="app.graph.nodes.suggest_adaptation"):
+        await modulo.suggest_adaptation(estado, _config(producers))
+
+    [proposta] = producers.sugestao_adaptacao_proposta.await_args.args
+    payload = simplejson.loads(serializar(proposta), use_decimal=True)
+    oficial("sugestao-adaptacao-proposta").validate(payload)
+    assert payload["representacao"]["nucleo"]["taxas_por_cargo"] == [
+        {"cargo": "100", "percentual": Decimal("0.0119")},
+        {"cargo": "150", "percentual": Decimal("0.0198")},
+    ]
+    assert (
+        payload["representacao"]["especificacoes"]
+        == (estado["representacao_regra"]["especificacoes"])
+    )
+    [registro] = [r for r in caplog.records if r.getMessage() == "adaptation proposal published"]
+    assert (registro.no, registro.tentativa, registro.metodo, registro.taxas_ajustadas) == (
+        "sugestao_adaptacao",
+        1,
+        "estimativa",
+        2,
+    )
+    padrao = logging.makeLogRecord({}).__dict__.keys()
+    extras = repr(
+        [{k: v for k, v in r.__dict__.items() if k not in padrao} for r in caplog.records]
+    )
+    for valor in ("0.0119", "0.0198", "0.03", "0.05", "R$ 350", "492100", "485000"):
+        assert valor not in extras
+    # A proposta ainda não é desfecho: quem conta o veredito dela é a decisão.
+    assert variacao_das_tentativas(antes) == {}
+
+
+async def test_regra_sem_taxa_positiva_encerra_sem_publicar_alternativa(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A decisão já não a manda para cá; se chegar, a iteração termina sem alternativa."""
     _totais(monkeypatch, "492100", "485000")
     estado = _estado()
-    estado["representacao_regra"]["especificacoes"] = [
-        {"ref": "elem.1", "construto": "bonus_fixo", "valor": Decimal("250")}
-    ]
+    estado["representacao_regra"]["nucleo"]["percentual"] = Decimal("0")
     producers = _producers()
+    antes = tentativas_contadas()
 
     atualizacao = await modulo.suggest_adaptation(estado, _config(producers))
 
@@ -404,3 +550,4 @@ async def test_regra_com_especificacao_encerra_sem_publicar_alternativa(
     [conclusao] = producers.no_concluido.await_args.args
     assert conclusao.regra_id == UUID(REGRA_ID)
     assert conclusao.conclusao.resumo == modulo.RESUMOS["nao_suportada"]
+    assert variacao_das_tentativas(antes) == {("1", "nao_suportada"): 1.0}

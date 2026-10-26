@@ -1,0 +1,1823 @@
+[
+  {
+    "id": "limiar_loja",
+    "texto": "Se a loja vender no mínimo R$ 50 mil no mês, a comissão é de 3%",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {
+        "percentual": {
+          "valor": 0.03,
+          "trecho": "3%"
+        }
+      },
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "Se a loja vender no mínimo R$ 50 mil no mês, a comissão é de 3%",
+          "trecho": "Se a loja vender no mínimo R$ 50 mil no mês, a comissão é de 3%",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {
+        "percentual": 0.03
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_quem",
+    "texto": "Só vale para quem vender mais de R$ 20 mil por mês",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "Só vale para quem vender mais de R$ 20 mil por mês",
+          "trecho": "Só vale para quem vender mais de R$ 20 mil por mês",
+          "metrica": "venda_total",
+          "operador": ">",
+          "limiar": {
+            "valor": 20000,
+            "trecho": "R$ 20 mil"
+          },
+          "escopo_agregacao": "matricula"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "matricula",
+          "operador": ">",
+          "limiar": 20000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_individual",
+    "texto": "A regra só vale se a venda individual for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda individual for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se a venda individual for no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "matricula"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "matricula",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_vendedor",
+    "texto": "A regra só vale se a venda por vendedor for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda por vendedor for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se a venda por vendedor for no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "matricula"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "matricula",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_funcionario",
+    "texto": "A regra só vale se a venda por funcionário for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda por funcionário for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se a venda por funcionário for no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "matricula"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "matricula",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_por_loja",
+    "texto": "A regra só vale se a venda por loja for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda por loja for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se a venda por loja for no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_da_loja",
+    "texto": "A regra só vale se a venda total da loja for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda total da loja for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se a venda total da loja for no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_marca",
+    "texto": "A regra só vale se a venda total da marca for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda total da marca for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se a venda total da marca for no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "marca"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "marca",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_empresa",
+    "texto": "A regra só vale se a venda total da empresa for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda total da empresa for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se a venda total da empresa for no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "rede"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "rede",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_rede",
+    "texto": "A regra só vale se a venda total da rede for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda total da rede for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se a venda total da rede for no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "rede"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "rede",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_acima",
+    "texto": "A regra só vale para venda total da loja acima de R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale para venda total da loja acima de R$ 50 mil",
+          "trecho": "A regra só vale para venda total da loja acima de R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": ">",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_superior",
+    "texto": "A regra só vale para venda total da loja superior a R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale para venda total da loja superior a R$ 50 mil",
+          "trecho": "A regra só vale para venda total da loja superior a R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": ">",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_maior",
+    "texto": "A regra só vale para venda total da loja maior que R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale para venda total da loja maior que R$ 50 mil",
+          "trecho": "A regra só vale para venda total da loja maior que R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": ">",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_a_partir",
+    "texto": "A regra só vale para venda total da loja a partir de R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale para venda total da loja a partir de R$ 50 mil",
+          "trecho": "A regra só vale para venda total da loja a partir de R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_pelo_menos",
+    "texto": "A regra só vale para venda total da loja pelo menos R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale para venda total da loja pelo menos R$ 50 mil",
+          "trecho": "A regra só vale para venda total da loja pelo menos R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_abaixo",
+    "texto": "A regra só vale para venda total da loja abaixo de R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale para venda total da loja abaixo de R$ 50 mil",
+          "trecho": "A regra só vale para venda total da loja abaixo de R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": "<",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": "<",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_menor",
+    "texto": "A regra só vale para venda total da loja menor que R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale para venda total da loja menor que R$ 50 mil",
+          "trecho": "A regra só vale para venda total da loja menor que R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": "<",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": "<",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_ate",
+    "texto": "A regra só vale para venda total da loja até R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale para venda total da loja até R$ 50 mil",
+          "trecho": "A regra só vale para venda total da loja até R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": "<=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": "<=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_maximo",
+    "texto": "A regra só vale para venda total da loja no máximo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale para venda total da loja no máximo R$ 50 mil",
+          "trecho": "A regra só vale para venda total da loja no máximo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": "<=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": "<=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_igual",
+    "texto": "A regra só vale para venda total da loja igual a R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale para venda total da loja igual a R$ 50 mil",
+          "trecho": "A regra só vale para venda total da loja igual a R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": "==",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": "==",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_centavos",
+    "texto": "A regra só vale se a venda total da loja for no mínimo R$ 50.000,25",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda total da loja for no mínimo R$ 50.000,25",
+          "trecho": "A regra só vale se a venda total da loja for no mínimo R$ 50.000,25",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000.25,
+            "trecho": "R$ 50.000,25"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": ">=",
+          "limiar": 50000.25
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_milhoes",
+    "texto": "A regra só vale se a venda total da loja for no mínimo R$ 1,5 milhão",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda total da loja for no mínimo R$ 1,5 milhão",
+          "trecho": "A regra só vale se a venda total da loja for no mínimo R$ 1,5 milhão",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 1500000,
+            "trecho": "R$ 1,5 milhão"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": ">=",
+          "limiar": 1500000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_zero",
+    "texto": "A regra só vale se a venda total da loja for no mínimo R$ 0",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda total da loja for no mínimo R$ 0",
+          "trecho": "A regra só vale se a venda total da loja for no mínimo R$ 0",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 0,
+            "trecho": "R$ 0"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": ">=",
+          "limiar": 0
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_negativo",
+    "texto": "A regra só vale se a venda total da loja for no mínimo R$ -100",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda total da loja for no mínimo R$ -100",
+          "trecho": "A regra só vale se a venda total da loja for no mínimo R$ -100",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": -100,
+            "trecho": "R$ -100"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "loja",
+          "operador": ">=",
+          "limiar": -100
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_sem_escopo",
+    "texto": "Só vale se a venda total for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "Só vale se a venda total for no mínimo R$ 50 mil",
+          "trecho": "Só vale se a venda total for no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          }
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "Só vale se a venda total for no mínimo R$ 50 mil",
+          "campos": {
+            "metrica": "venda_total",
+            "operador": ">=",
+            "limiar": 50000
+          }
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "campo_obrigatorio_ausente"
+  },
+  {
+    "id": "limiar_escopo_inventado",
+    "texto": "Só vale se a venda total for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "Só vale se a venda total for no mínimo R$ 50 mil",
+          "trecho": "Só vale se a venda total for no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "Só vale se a venda total for no mínimo R$ 50 mil",
+          "campos": {
+            "metrica": "venda_total",
+            "operador": ">=",
+            "limiar": 50000
+          }
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "campo_obrigatorio_ausente"
+  },
+  {
+    "id": "limiar_meta",
+    "texto": "A regra só vale se o valor de meta de venda da loja for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se o valor de meta de venda da loja for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se o valor de meta de venda da loja for no mínimo R$ 50 mil",
+          "metrica": "meta",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "A regra só vale se o valor de meta de venda da loja for no mínimo R$ 50 mil"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "termo_ambiguo"
+  },
+  {
+    "id": "limiar_cota",
+    "texto": "A regra só vale se o valor de cota de venda da loja for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se o valor de cota de venda da loja for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se o valor de cota de venda da loja for no mínimo R$ 50 mil",
+          "metrica": "cota",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "A regra só vale se o valor de cota de venda da loja for no mínimo R$ 50 mil"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "termo_ambiguo"
+  },
+  {
+    "id": "limiar_quantidade",
+    "texto": "A regra só vale se o valor de quantidade vendida da loja for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se o valor de quantidade vendida da loja for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se o valor de quantidade vendida da loja for no mínimo R$ 50 mil",
+          "metrica": "quantidade",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "A regra só vale se o valor de quantidade vendida da loja for no mínimo R$ 50 mil"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "termo_ambiguo"
+  },
+  {
+    "id": "limiar_ticket",
+    "texto": "A regra só vale se o valor de ticket médio da loja for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se o valor de ticket médio da loja for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se o valor de ticket médio da loja for no mínimo R$ 50 mil",
+          "metrica": "ticket",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "A regra só vale se o valor de ticket médio da loja for no mínimo R$ 50 mil"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "termo_ambiguo"
+  },
+  {
+    "id": "limiar_atingimento",
+    "texto": "A regra só vale se o valor de atingimento de meta da loja for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se o valor de atingimento de meta da loja for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se o valor de atingimento de meta da loja for no mínimo R$ 50 mil",
+          "metrica": "atingimento",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "A regra só vale se o valor de atingimento de meta da loja for no mínimo R$ 50 mil"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "termo_ambiguo"
+  },
+  {
+    "id": "limiar_metrica_inventada",
+    "texto": "A regra só vale se o ticket médio da loja for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se o ticket médio da loja for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se o ticket médio da loja for no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "A regra só vale se o ticket médio da loja for no mínimo R$ 50 mil"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "termo_ambiguo"
+  },
+  {
+    "id": "limiar_operador_ambiguo",
+    "texto": "A regra só vale se a venda total da loja chegar perto de R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda total da loja chegar perto de R$ 50 mil",
+          "trecho": "A regra só vale se a venda total da loja chegar perto de R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "A regra só vale se a venda total da loja chegar perto de R$ 50 mil"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "termo_ambiguo"
+  },
+  {
+    "id": "limiar_operador_inventado",
+    "texto": "A regra só vale se a venda total da loja for acima de R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda total da loja for acima de R$ 50 mil",
+          "trecho": "A regra só vale se a venda total da loja for acima de R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "A regra só vale se a venda total da loja for acima de R$ 50 mil"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "termo_ambiguo",
+    "somente_modelo_falso": true
+  },
+  {
+    "id": "limiar_elemento_especifico",
+    "texto": "O bônus de R$ 500 só vale se a loja vender R$ 100 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "O bônus de R$ 500 só vale se a loja vender R$ 100 mil",
+          "trecho": "O bônus de R$ 500 só vale se a loja vender R$ 100 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 100000,
+            "trecho": "R$ 100 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "O bônus de R$ 500 só vale se a loja vender R$ 100 mil"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "termo_ambiguo"
+  },
+  {
+    "id": "limiar_bonus_meta",
+    "texto": "Bônus de R$ 500 para quem bater a meta",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "Bônus de R$ 500 para quem bater a meta",
+          "trecho": "Bônus de R$ 500 para quem bater a meta",
+          "metrica": "meta",
+          "operador": ">=",
+          "limiar": {
+            "valor": 500,
+            "trecho": "R$ 500"
+          },
+          "escopo_agregacao": "matricula"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "Bônus de R$ 500 para quem bater a meta"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "termo_ambiguo"
+  },
+  {
+    "id": "limiar_sem_lastro",
+    "texto": "Só vale se a loja vender no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "Só vale se a loja vender no mínimo R$ 50 mil",
+          "trecho": "Só vale se a loja vender no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 70000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "Só vale se a loja vender no mínimo R$ 50 mil"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "valor_sem_lastro",
+    "somente_modelo_falso": true
+  },
+  {
+    "id": "limiar_meta_parametro",
+    "texto": "Comissão de 3% com meta de vender R$ 12 milhões no período",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {
+        "percentual": {
+          "valor": 0.03,
+          "trecho": "3%"
+        }
+      },
+      "elementos": [],
+      "parametros": {
+        "meta_venda": {
+          "valor": 12000000,
+          "trecho": "R$ 12 milhões"
+        }
+      }
+    },
+    "representacao_esperada": {
+      "nucleo": {
+        "percentual": 0.03
+      },
+      "especificacoes": []
+    },
+    "parametros_esperados": {
+      "meta_venda": 12000000
+    },
+    "motivo_esperado": null
+  },
+  {
+    "id": "limiar_com_efeito_sem_t208",
+    "texto": "Na faixa de venda individual acima de R$ 50 mil, aplicar comissão de 4%",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "faixa_valor",
+          "descricao": "Na faixa de venda individual acima de R$ 50 mil, aplicar comissão de 4%",
+          "trecho": "Na faixa de venda individual acima de R$ 50 mil, aplicar comissão de 4%"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "Na faixa de venda individual acima de R$ 50 mil, aplicar comissão de 4%"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "construto_nao_habilitado",
+    "construtos_desabilitados": [
+      "faixa_valor"
+    ]
+  },
+  {
+    "id": "limiar_negacao_nao",
+    "texto": "Se a venda da loja não for acima de R$ 50 mil, a comissão é de 3%",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {
+        "percentual": {
+          "valor": 0.03,
+          "trecho": "3%"
+        }
+      },
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "Se a venda da loja não for acima de R$ 50 mil, a comissão é de 3%",
+          "trecho": "Se a venda da loja não for acima de R$ 50 mil, a comissão é de 3%",
+          "metrica": "venda_total",
+          "operador": ">",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {
+        "percentual": 0.03
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "Se a venda da loja não for acima de R$ 50 mil, a comissão é de 3%"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "termo_ambiguo"
+  },
+  {
+    "id": "limiar_negacao_nunca",
+    "texto": "A comissão de 3% vale se a venda da loja nunca ficar abaixo de R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {
+        "percentual": {
+          "valor": 0.03,
+          "trecho": "3%"
+        }
+      },
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A comissão de 3% vale se a venda da loja nunca ficar abaixo de R$ 50 mil",
+          "trecho": "A comissão de 3% vale se a venda da loja nunca ficar abaixo de R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": "<",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "loja"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {
+        "percentual": 0.03
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "A comissão de 3% vale se a venda da loja nunca ficar abaixo de R$ 50 mil"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "termo_ambiguo"
+  },
+  {
+    "id": "limiar_efeito_negado",
+    "texto": "Quem vender abaixo de R$ 20 mil não recebe comissão, os demais recebem 3%",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {
+        "percentual": {
+          "valor": 0.03,
+          "trecho": "3%"
+        }
+      },
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "Quem vender abaixo de R$ 20 mil não recebe comissão, os demais recebem 3%",
+          "trecho": "Quem vender abaixo de R$ 20 mil não recebe comissão, os demais recebem 3%",
+          "metrica": "venda_total",
+          "operador": "<",
+          "limiar": {
+            "valor": 20000,
+            "trecho": "R$ 20 mil"
+          },
+          "escopo_agregacao": "matricula"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {
+        "percentual": 0.03
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "Quem vender abaixo de R$ 20 mil não recebe comissão, os demais recebem 3%"
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": "termo_ambiguo",
+    "somente_modelo_falso": true
+  },
+  {
+    "id": "limiar_vendedor_apelido",
+    "texto": "A regra só vale se a venda por vendedor for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda por vendedor for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se a venda por vendedor for no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "vendedor"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "matricula",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null,
+    "somente_modelo_falso": true
+  },
+  {
+    "id": "limiar_funcionario_apelido",
+    "texto": "A regra só vale se a venda por funcionário for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda por funcionário for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se a venda por funcionário for no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "funcionario"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "matricula",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null,
+    "somente_modelo_falso": true
+  },
+  {
+    "id": "limiar_empresa_apelido",
+    "texto": "A regra só vale se a venda total da empresa for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda total da empresa for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se a venda total da empresa for no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "empresa"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "rede",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null,
+    "somente_modelo_falso": true
+  },
+  {
+    "id": "limiar_individual_apelido",
+    "texto": "A regra só vale se a venda individual for no mínimo R$ 50 mil",
+    "competencias_publicadas": [
+      "2025-11"
+    ],
+    "rascunho": {
+      "nucleo": {},
+      "elementos": [
+        {
+          "construto_pretendido": "condicao_limiar",
+          "descricao": "A regra só vale se a venda individual for no mínimo R$ 50 mil",
+          "trecho": "A regra só vale se a venda individual for no mínimo R$ 50 mil",
+          "metrica": "venda_total",
+          "operador": ">=",
+          "limiar": {
+            "valor": 50000,
+            "trecho": "R$ 50 mil"
+          },
+          "escopo_agregacao": "individual"
+        }
+      ],
+      "parametros": {}
+    },
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "condicao_limiar",
+          "metrica": "venda_total",
+          "escopo_agregacao": "matricula",
+          "operador": ">=",
+          "limiar": 50000
+        }
+      ]
+    },
+    "parametros_esperados": {},
+    "motivo_esperado": null,
+    "somente_modelo_falso": true
+  }
+]

@@ -1,13 +1,14 @@
 """Detalhamento vindo do container é dado não confiável (T-259)."""
 
+import copy
 from dataclasses import replace
 
 import pytest
 
 from app.execucao.coleta import classificar
 from app.execucao.registro import linha_do_julgamento
-from app.execucao.schema import carregar_contratos, validador
-from app.execucao.veredito import Julgamento
+from app.execucao.schema import Problema, carregar_contratos, validador
+from app.execucao.veredito import Julgamento, LinhasJulgadas
 from tests.app.execucao.envelopes import ORCAMENTO, PAYLOAD, envelope, saida
 
 
@@ -25,6 +26,7 @@ from tests.app.execucao.envelopes import ORCAMENTO, PAYLOAD, envelope, saida
         "contribuicao_zero",
         "elemento",
         "chave_hostil",
+        "vendas_do_container",
     ],
 )
 def test_detalhamento_malformado_e_resultado_fora_do_schema(defeito: str) -> None:
@@ -50,6 +52,8 @@ def test_detalhamento_malformado_e_resultado_fora_do_schema(defeito: str) -> Non
         linha["contribuicoes"]["elem.1"] = 0
     elif defeito == "elemento":
         linha["contribuicoes"] = {"CONTEUDO-PRIVADO": 10}
+    elif defeito == "vendas_do_container":
+        linha["vendas"] = 20970.0
     else:
         dados["linhas"]["2025-11"]["CONTEUDO-PRIVADO"] = "CONTEUDO-PRIVADO"
 
@@ -62,18 +66,44 @@ def test_detalhamento_malformado_e_resultado_fora_do_schema(defeito: str) -> Non
     assert "CONTEUDO-PRIVADO" not in repr(desfecho)
 
 
+def test_linha_com_vendas_vinda_do_container_e_recusada_so_pela_classe() -> None:
+    """O total vendido é do worker (T-282). O schema aceita o campo, então a recusa é explícita,
+    e o diagnóstico leva só a raiz e a classe, nunca o valor que o container escolheu."""
+    dados = envelope()
+    dados["linhas"]["2025-11"]["MATRIC-1"]["vendas"] = 987654.32
+
+    desfecho = classificar(saida(dados), PAYLOAD, ORCAMENTO)
+
+    assert (desfecho.classe, desfecho.motivo) == ("erro_codigo", "resultado_fora_do_schema")
+    assert desfecho.problemas == (
+        Problema(caminho="$.linhas", palavra_chave="fornecido_pelo_container"),
+    )
+    assert "987654" not in repr(desfecho)
+
+
 def test_coleta_e_registro_preservam_detalhamento_sem_recompor() -> None:
     dados = envelope()
     # A T-259 confere forma e competências. Valores e cobertura são da T-262.
     dados["linhas"]["2025-11"]["MATRIC-1"]["comissao_simulada"] = 999.99
     desfecho = classificar(saida(dados), PAYLOAD, ORCAMENTO)
-    assert desfecho.classe == "sucesso"
-    julgamento = Julgamento("sucesso", "ok", None, resultado=desfecho.resultado, desfecho=desfecho)
+    assert desfecho.classe == "sucesso" and desfecho.linhas is not None
+    assert desfecho.linhas == dados["linhas"]
+    # O que o julgamento acrescenta é do worker; o registro grava as linhas julgadas como vieram.
+    julgadas: LinhasJulgadas = {
+        competencia: {
+            matricula: {**copy.deepcopy(linha), "vendas": 0.0}
+            for matricula, linha in colaboradores.items()
+        }
+        for competencia, colaboradores in desfecho.linhas.items()
+    }
+    julgamento = Julgamento(
+        "sucesso", "ok", None, resultado=desfecho.resultado, desfecho=desfecho, linhas=julgadas
+    )
 
     linha = linha_do_julgamento(julgamento)
 
-    assert linha.linhas is desfecho.linhas
-    assert linha.linhas == dados["linhas"]
+    assert linha.linhas is julgadas
+    assert linha.linhas["2025-11"]["MATRIC-1"]["comissao_simulada"] == 999.99
     assert "MATRIC-1" not in repr(linha)
     assert "linhas" not in linha.totais
     for status in ("assercao_violada", "erro_codigo", "erro_infra"):

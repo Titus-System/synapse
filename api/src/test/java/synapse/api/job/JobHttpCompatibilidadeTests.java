@@ -44,7 +44,8 @@ class JobHttpCompatibilidadeTests {
 	void preparar() {
 		this.mvc = MockMvcBuilders
 			.standaloneSetup(new JobController(this.service, this.emissores, new CorrelationContext(),
-					org.mockito.Mockito.mock(synapse.api.core.metrics.AppMetrics.class)))
+					new synapse.api.core.metrics.AppMetrics(
+							new io.micrometer.core.instrument.simple.SimpleMeterRegistry())))
 			.setControllerAdvice(new JobAdvice(), new AutorizacaoDeJobAdvice())
 			.build();
 	}
@@ -112,7 +113,8 @@ class JobHttpCompatibilidadeTests {
 		return Stream.of(Arguments.of(CriarJobException.requisicao("criar")),
 				Arguments.of(ConfirmarParametrosException.estadoInvalido()),
 				Arguments.of(ExecutarAcaoException.requisicao("executar")),
-				Arguments.of(ReprocessarJobException.estadoInvalido()), Arguments.of(ListarJobsException.pagina()));
+				Arguments.of(ReprocessarJobException.estadoInvalido()), Arguments.of(ListarJobsException.pagina()),
+				Arguments.of(RenomearJobException.requisicao(RenomearJobException.Motivo.NOME_AUSENTE, "renomear")));
 	}
 
 	@ParameterizedTest
@@ -196,6 +198,7 @@ class JobHttpCompatibilidadeTests {
 			case CONFIRMAR_PARAMETROS -> when(this.service.confirmar(any(), any())).thenThrow(falha);
 			case EXECUTAR_ACAO -> when(this.service.executarAcao(any(), any())).thenThrow(falha);
 			case REPROCESSAR -> when(this.service.reprocessar(any(), any())).thenThrow(falha);
+			case RENOMEAR -> when(this.service.renomear(any(), any())).thenThrow(falha);
 		}
 	}
 
@@ -215,6 +218,8 @@ class JobHttpCompatibilidadeTests {
 			case EXECUTAR_ACAO -> post("/jobs/{id}/actions", JOB).contentType(MediaType.APPLICATION_JSON)
 				.content("{\"acao\":\"cancelar\"}");
 			case REPROCESSAR -> post("/jobs/{id}/reprocessar", JOB);
+			case RENOMEAR ->
+				put("/jobs/{id}/nome", JOB).contentType(MediaType.APPLICATION_JSON).content("{\"nome\":\"Meu nome\"}");
 		};
 		return requisicao.requestAttr(AutorizacaoJobsInterceptor.ACESSO,
 				new AcessoDoUsuario(UUID.randomUUID(), PapelDoUsuario.PROFISSIONAL_RH));

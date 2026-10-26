@@ -359,5 +359,408 @@
       ]
     },
     "parametros_esperados": {}
+  },
+  {
+    "id": "bonus_fixo_lista",
+    "texto": "Conceder bônus fixo de R$ 500 para as matrículas MATRIC-422 e MATRIC-517.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "bonus_fixo",
+          "descricao": "bônus fixo de R$ 500 para as matrículas MATRIC-422 e MATRIC-517",
+          "alvo": {
+            "tipo": "lista",
+            "valor": [
+              "MATRIC-422",
+              "MATRIC-517"
+            ]
+          },
+          "valor": 500
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "bonus_fixo_filtro",
+    "texto": "Os admitidos até o dia 10/10 no cargo 100 terão um bônus de R$ 1.000.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "bonus_fixo",
+          "descricao": "admitidos até 10/10 no cargo 100 terão bônus de R$ 1.000",
+          "alvo": {
+            "tipo": "filtro",
+            "valor": {
+              "cargo": "100",
+              "admitido_ate": "2025-10-10"
+            }
+          },
+          "valor": 1000
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "bonus_fixo_matricula_numero",
+    "texto": "Dar um bônus de R$ 750 para a matrícula 422.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "bonus_fixo",
+          "descricao": "bônus de R$ 750 para a matrícula 422",
+          "alvo": {
+            "tipo": "lista",
+            "valor": [
+              "MATRIC-422"
+            ]
+          },
+          "valor": 750
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "janela_black_friday",
+    "texto": "Todas as vendas no período de 24/11 a 30/11 terão um acréscimo no % de comissionamento de +1% (Black Friday).",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "janela_datas",
+          "descricao": "vendas de 24/11 a 30/11 com acréscimo de +1%",
+          "data_inicial": "2025-11-24",
+          "data_final": "2025-11-30",
+          "efeito": {
+            "tipo": "acrescimo_pct",
+            "valor": 0.01
+          }
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "janela_gerentes",
+    "texto": "Para os Gerentes, todas as vendas de 24/11 a 30/11 terão um acréscimo de +0,5%.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {
+        "cargo": [
+          "150"
+        ]
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "janela_datas",
+          "descricao": "vendas de 24/11 a 30/11 com acréscimo de +0,5%",
+          "data_inicial": "2025-11-24",
+          "data_final": "2025-11-30",
+          "efeito": {
+            "tipo": "acrescimo_pct",
+            "valor": 0.005
+          }
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "janela_dia_unico",
+    "texto": "No dia 28/11, bônus de R$ 200.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "janela_datas",
+          "descricao": "no dia 28/11, bônus de R$ 200",
+          "data_inicial": "2025-11-28",
+          "data_final": "2025-11-28",
+          "efeito": {
+            "tipo": "bonus_fixo",
+            "valor": 200
+          }
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "exclusao_global_inclusive_bonus",
+    "texto": "Comissão de 2%. Bônus de R$ 500 para a matrícula 422. A regra inteira, inclusive o bônus, não se aplica aos gerentes (150).",
+    "competencias_publicadas": ["2025-11"],
+    "representacao_esperada": {
+      "nucleo": {"percentual": 0.02},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "bonus_fixo",
+          "alvo": {"tipo": "lista", "valor": ["MATRIC-422"]},
+          "valor": 500
+        },
+        {"ref": "elem.2", "construto": "exclusao", "dimensao": "cargo", "valores": ["150"]}
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "exclusao_global_clausulas",
+    "texto": "Comissão de 2%; bônus de R$ 500 para a matrícula 422; a regra inteira não se aplica aos gerentes (150).",
+    "competencias_publicadas": ["2025-11"],
+    "representacao_esperada": {
+      "nucleo": {"percentual": 0.02},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "bonus_fixo",
+          "alvo": {"tipo": "lista", "valor": ["MATRIC-422"]},
+          "valor": 500
+        },
+        {"ref": "elem.2", "construto": "exclusao", "dimensao": "cargo", "valores": ["150"]}
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "exclusao_bonus_retomado",
+    "texto": "Comissão de 2%. Bônus de R$ 500 para a matrícula 422. Ele não se aplica aos gerentes (150).",
+    "competencias_publicadas": ["2025-11"],
+    "representacao_esperada": {
+      "nucleo": {"percentual": 0.02},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "Bônus de R$ 500 para a matrícula 422. Ele não se aplica aos gerentes (150)"
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "exclusao_bonus_sem_valor",
+    "texto": "Comissão de 2%. Este bônus não se aplica aos cargos de gerente.",
+    "competencias_publicadas": ["2025-11"],
+    "representacao_esperada": {
+      "nucleo": {"percentual": 0.02},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "Este bônus não se aplica aos cargos de gerente"
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "exclusao_matricula",
+    "texto": "Exceto a matrícula MATRIC-422",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "exceção da matrícula MATRIC-422"
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "exclusao_so_de_uma_regra",
+    "texto": "Comissão de 2% para a marca 10. Para a marca 20, comissão de 3%, exceto para os gerentes (150).",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {
+        "percentual": 0.02,
+        "marca": [
+          "10"
+        ]
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "Para a marca 20, comissão de 3%, exceto para os gerentes (150)"
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "faixa_escada_de_bonus",
+    "texto": "Todas as vendas individuais das marcas 10 e 20 acima de R$ 40 mil fazem jus a um bônus: 40.000 até 50.000, R$ 3.500; 50.001 até 60.000, R$ 4.000; acima de 60.001, R$ 4.500.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {
+        "marca": [
+          "10",
+          "20"
+        ]
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "faixa_valor",
+          "descricao": "40.000 até 50.000, R$ 3.500",
+          "limite_inferior": 40000,
+          "limite_superior": 50000,
+          "efeito": {
+            "tipo": "bonus_fixo",
+            "valor": 3500
+          }
+        },
+        {
+          "ref": "elem.2",
+          "construto": "faixa_valor",
+          "descricao": "50.001 até 60.000, R$ 4.000",
+          "limite_inferior": 50001,
+          "limite_superior": 60000,
+          "efeito": {
+            "tipo": "bonus_fixo",
+            "valor": 4000
+          }
+        },
+        {
+          "ref": "elem.3",
+          "construto": "faixa_valor",
+          "descricao": "acima de 60.001, R$ 4.500",
+          "limite_inferior": 60001,
+          "limite_superior": 1000000000,
+          "efeito": {
+            "tipo": "bonus_fixo",
+            "valor": 4500
+          }
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "faixa_limiar_unico",
+    "texto": "Acima de R$ 40 mil, bônus de R$ 3.500.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {},
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "faixa_valor",
+          "descricao": "acima de R$ 40 mil, bônus de R$ 3.500",
+          "limite_inferior": 40000,
+          "limite_superior": 1000000000,
+          "efeito": {
+            "tipo": "bonus_fixo",
+            "valor": 3500
+          }
+        }
+      ]
+    },
+    "parametros_esperados": {}
+  },
+  {
+    "id": "faixa_loja_generico",
+    "texto": "Para os gerentes, vendas totais de loja acima de R$ 120 mil fazem jus a bônus de R$ 5.000.",
+    "competencias_publicadas": [
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "representacao_esperada": {
+      "nucleo": {
+        "cargo": [
+          "150"
+        ]
+      },
+      "especificacoes": [
+        {
+          "ref": "elem.1",
+          "construto": "generico",
+          "descricao": "vendas totais de loja acima de R$ 120 mil fazem jus a bônus de R$ 5.000"
+        }
+      ]
+    },
+    "parametros_esperados": {}
   }
 ]

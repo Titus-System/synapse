@@ -6,8 +6,9 @@ import TheSidebar from '@/components/TheSidebar.vue'
 import type { JobResumo, StatusJob } from '@/types/api'
 import { apiClient } from '@/services/api'
 import { regraMaisRecente } from '@/services/job'
-import { transformarRegra } from '../../finish/composables/transformarRegra'
+import { transformarRegra } from '@/composables/transformarRegra'
 import { listarTodosOsJobs } from '../services/historicoJobs.api'
+import NomeEditavelDaRegra from '../components/NomeEditavelDaRegra.vue'
 import type { TipoDeHistorico } from '../types'
 
 const tamanhoDaPagina = 6
@@ -35,17 +36,6 @@ const jobsDaPagina = computed(() => {
   const inicio = paginaAtual.value * tamanhoDaPagina
   return jobsDoHistorico.value.slice(inicio, inicio + tamanhoDaPagina)
 })
-const regrasRecentes = computed(() =>
-  resumosDosJobs.value.slice(0, 6).map((resumoDoJob) => ({
-    identificador: resumoDoJob.id,
-    rotulo: criarRotuloDaRegra(resumoDoJob),
-  })),
-)
-
-function criarRotuloDaRegra(resumoDoJob: JobResumo): string {
-  const data = new Date(resumoDoJob.criado_em).toLocaleDateString('pt-BR')
-  return `Regra · ${data}`
-}
 
 function nomearStatus(status: StatusJob): string {
   const nomes: Record<StatusJob, string> = {
@@ -149,7 +139,6 @@ watch(
       :secao-ativa="tipoDoHistorico"
       :quantidade-arquivadas="jobsArquivados.length"
       :quantidade-salvas="jobsSalvos.length"
-      :regras-recentes="regrasRecentes"
     />
 
     <main class="min-w-0 bg-[radial-gradient(circle_at_top,#fffdfb_0%,#fdf7f3_48%,#f8eee8_100%)] lg:min-h-0 lg:overflow-y-auto">
@@ -213,10 +202,7 @@ watch(
         <div v-else class="mt-8 grid gap-5 xl:grid-cols-2">
           <article v-for="resumoDoJob in jobsDaPagina" :key="resumoDoJob.id" class="flex min-h-56 flex-col rounded-2xl border border-[#eadbd2] bg-white p-4 shadow-[0_16px_40px_-26px_rgba(60,30,15,0.5)] sm:p-6">
             <div class="flex items-start justify-between gap-4 border-b border-[#f0e2da] pb-4">
-              <div>
-                <h2 class="font-serif text-2xl font-semibold">Regra {{ resumoDoJob.id.slice(0, 8) }}</h2>
-                <p class="mt-1 text-sm text-[#9c571e]">Criada em {{ new Date(resumoDoJob.criado_em).toLocaleDateString('pt-BR') }}</p>
-              </div>
+              <NomeEditavelDaRegra :resumo="resumoDoJob" />
               <button
                 v-if="tipoDoHistorico === 'arquivadas'"
                 type="button"

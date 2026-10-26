@@ -67,7 +67,7 @@ class ExecutarAcaoControllerTests {
 	void aplicaAcaoEEncerraOStream(String acao, JobStatus origem, JobStatus destino) throws Exception {
 		EventoEstadoDto evento = EventoEstadoDto.transicao(JOB_ID, origem, destino, null);
 		when(this.service.executarAcao(eq(JOB_ID), eq(AcaoJob.deColuna(acao))))
-			.thenReturn(new AcaoAplicada(evento, jobComStatus(destino.paraColuna())));
+			.thenReturn(new AcaoAplicada(evento, jobComStatus(destino.paraColuna()), 0));
 
 		this.mvc
 			.perform(post("/jobs/{id}/actions", JOB_ID).contentType(MediaType.APPLICATION_JSON)

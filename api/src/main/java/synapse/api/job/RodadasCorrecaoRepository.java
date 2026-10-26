@@ -8,12 +8,18 @@ import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
 class RodadasCorrecaoRepository {
+
+	private static final JsonMapper JSON = JsonMapper.builder()
+		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+		.build();
 
 	private final JdbcTemplate jdbc;
 
@@ -38,12 +44,16 @@ class RodadasCorrecaoRepository {
 
 	List<TentativaDeCorrecao> buscarPorSubmissao(UUID jobId, UUID submissaoId) {
 		return this.jdbc.query("""
-				SELECT id, regra_analisada_id, conflitos::text, estado FROM rodadas_correcao
+				SELECT id, regra_analisada_id, conflitos::text, estado, regra_resultante_id,
+				       proposta_nao_aplicada::text FROM rodadas_correcao
 				WHERE job_id = ? AND submissao_correcao_id = ?
-				""", (rs, numero) -> new TentativaDeCorrecao(Objects.requireNonNull(rs.getObject("id", UUID.class)),
-				Objects.requireNonNull(rs.getObject("regra_analisada_id", UUID.class)),
-				this.mapper.readTree(rs.getString("conflitos")), Objects.requireNonNull(rs.getString("estado"))), jobId,
-				submissaoId);
+				""",
+				(rs, numero) -> new TentativaDeCorrecao(Objects.requireNonNull(rs.getObject("id", UUID.class)),
+						Objects.requireNonNull(rs.getObject("regra_analisada_id", UUID.class)),
+						JSON.readTree(rs.getString("conflitos")), Objects.requireNonNull(rs.getString("estado")),
+						rs.getObject("regra_resultante_id", UUID.class), rs.getString("proposta_nao_aplicada") == null
+								? null : JSON.readTree(rs.getString("proposta_nao_aplicada"))),
+				jobId, submissaoId);
 	}
 
 	boolean regraPertenceAVersaoAtual(UUID jobId, UUID regraId) {
@@ -67,7 +77,25 @@ class RodadasCorrecaoRepository {
 				agora, rodadaId);
 	}
 
-	record TentativaDeCorrecao(UUID id, UUID regraId, JsonNode conflitos, String estado) {
+	void encerrarTranscricao(UUID rodadaId, EstadoRodada destino, Timestamp agora) {
+		int alteradas = this.jdbc.update(
+				"UPDATE rodadas_correcao SET estado = ?, atualizada_em = ? WHERE id = ? AND estado = 'em_transcricao'",
+				destino.paraColuna(), agora, rodadaId);
+		if (alteradas != 1)
+			throw new IllegalStateException("A rodada não está mais em transcrição.");
+	}
+
+	void fecharProposta(UUID jobId, UUID rodadaId, UUID submissaoId, JsonNode corpo, Timestamp agora) {
+		int alteradas = this.jdbc.update("""
+				UPDATE rodadas_correcao SET estado = 'reextracao_falhou', proposta_nao_aplicada = ?::jsonb,
+				atualizada_em = ? WHERE id = ? AND job_id = ? AND submissao_correcao_id = ? AND estado = 'em_reextracao'
+				""", corpo.toString(), agora, rodadaId, jobId, submissaoId);
+		if (alteradas != 1)
+			throw new IllegalStateException("Tentativa de correção não disponível");
+	}
+
+	record TentativaDeCorrecao(UUID id, UUID regraId, JsonNode conflitos, String estado, @Nullable UUID resultanteId,
+			@Nullable JsonNode propostaNaoAplicada) {
 	}
 
 }

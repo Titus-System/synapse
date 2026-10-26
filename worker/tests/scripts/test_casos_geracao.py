@@ -42,6 +42,7 @@ IDS = [
     "generico-aniversario-loja",
     "janela-datas-black-friday",
     "nucleo-controle",
+    "taxas-por-cargo",
 ]
 
 
@@ -96,6 +97,7 @@ def test_o_generico_impossivel_espera_a_falha_da_regra() -> None:
         ("generico-admissao", ["nucleo.percentual", "elem.1"]),
         ("generico-aniversario-loja", ["nucleo.percentual", "elem.1"]),
         ("nucleo-controle", ["nucleo.percentual"]),
+        ("taxas-por-cargo", ["nucleo.taxas_por_cargo"]),
         ("exclusao-gerente", ["nucleo.percentual", "elem.1"]),
         ("bonus-fixo-lista-e-filtro", ["nucleo.percentual", "elem.1", "elem.2"]),
         ("janela-datas-black-friday", ["nucleo.percentual", "elem.1"]),

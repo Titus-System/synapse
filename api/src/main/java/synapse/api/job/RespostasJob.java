@@ -29,12 +29,30 @@ record RegraCriadaDto(UUID id, int versao, String origem, RepresentacaoRegraDto 
 }
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
+record SimulacaoAnteriorDto(UUID resultado_id, Instant criado_em, String status, @Nullable String veredito,
+		@Nullable BigDecimal meta_venda, ResultadoSimulacaoDto resultado) {
+}
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
 record SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, String status, @Nullable String veredito,
-		boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado,
-		@Nullable BigDecimal meta_venda) {
+		boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado, @Nullable BigDecimal meta_venda,
+		@Nullable Instant meta_sugerida_aceita_em, @Nullable SimulacaoAnteriorDto anterior_a_meta_sugerida) {
+	SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, String status, @Nullable String veredito,
+			boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado,
+			@Nullable BigDecimal meta_venda, @Nullable Instant meta_sugerida_aceita_em) {
+		this(id, regra_id, criado_em, status, veredito, flag_baixa_rastreabilidade, resultado, meta_venda,
+				meta_sugerida_aceita_em, null);
+	}
+
+	SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, String status, @Nullable String veredito,
+			boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado,
+			@Nullable BigDecimal meta_venda) {
+		this(id, regra_id, criado_em, status, veredito, flag_baixa_rastreabilidade, resultado, meta_venda, null);
+	}
+
 	SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, String status, @Nullable String veredito,
 			boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado) {
-		this(id, regra_id, criado_em, status, veredito, flag_baixa_rastreabilidade, resultado, null);
+		this(id, regra_id, criado_em, status, veredito, flag_baixa_rastreabilidade, resultado, null, null);
 	}
 }
 
@@ -42,20 +60,31 @@ record SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, String status, @N
  * Forma de {@code JobDetalhado} no contrato HTTP. {@code orcamento} e {@code meta_venda}
  * são os parâmetros da simulação deste job: ficam ausentes do JSON quando o job não os
  * tem, que é o caso antes da extração e quando o usuário não os disse.
+ * {@code busca_meta_em_curso} é {@code true} ou ausente, nunca {@code false}.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 record JobDetalhadoDto(UUID id, String status, String origem, List<String> competencias, @Nullable BigDecimal orcamento,
 		@Nullable BigDecimal meta_venda, Instant criado_em, @Nullable Instant iniciado_em,
 		@Nullable Instant finalizado_em, @Nullable UUID submissao_id, @Nullable UUID job_origem_id,
 		@Nullable String motivo, List<RegraCriadaDto> regras, @Nullable SimulacaoDto simulacao,
-		List<SimulacaoDto> simulacoes, @Nullable MetaSugeridaDto meta_sugerida) {
+		List<SimulacaoDto> simulacoes, @Nullable MetaSugeridaDto meta_sugerida, @Nullable String nome,
+		@Nullable Boolean busca_meta_em_curso) {
+	JobDetalhadoDto(UUID id, String status, String origem, List<String> competencias, @Nullable BigDecimal orcamento,
+			@Nullable BigDecimal meta_venda, Instant criado_em, @Nullable Instant iniciado_em,
+			@Nullable Instant finalizado_em, @Nullable UUID submissao_id, @Nullable UUID job_origem_id,
+			@Nullable String motivo, List<RegraCriadaDto> regras, @Nullable SimulacaoDto simulacao,
+			List<SimulacaoDto> simulacoes, @Nullable MetaSugeridaDto meta_sugerida) {
+		this(id, status, origem, competencias, orcamento, meta_venda, criado_em, iniciado_em, finalizado_em,
+				submissao_id, job_origem_id, motivo, regras, simulacao, simulacoes, meta_sugerida, null, null);
+	}
+
 	JobDetalhadoDto(UUID id, String status, String origem, List<String> competencias, @Nullable BigDecimal orcamento,
 			@Nullable BigDecimal meta_venda, Instant criado_em, @Nullable Instant iniciado_em,
 			@Nullable Instant finalizado_em, @Nullable UUID submissao_id, @Nullable UUID job_origem_id,
 			@Nullable String motivo, List<RegraCriadaDto> regras, @Nullable SimulacaoDto simulacao,
 			List<SimulacaoDto> simulacoes) {
 		this(id, status, origem, competencias, orcamento, meta_venda, criado_em, iniciado_em, finalizado_em,
-				submissao_id, job_origem_id, motivo, regras, simulacao, simulacoes, null);
+				submissao_id, job_origem_id, motivo, regras, simulacao, simulacoes, null, null, null);
 	}
 }
 
@@ -78,7 +107,12 @@ record DetalhamentoSimulacaoDto(UUID simulacao_id, @JsonRawValue @Nullable Strin
 @JsonInclude(JsonInclude.Include.NON_NULL)
 record JobResumoDto(UUID id, String status, List<String> competencias, @Nullable BigDecimal orcamento,
 		@Nullable BigDecimal meta_venda, @Nullable String veredito, Instant criado_em, @Nullable Instant finalizado_em,
-		@Nullable UUID job_origem_id) {
+		@Nullable UUID job_origem_id, @Nullable String nome) {
+	JobResumoDto(UUID id, String status, List<String> competencias, @Nullable BigDecimal orcamento,
+			@Nullable BigDecimal meta_venda, @Nullable String veredito, Instant criado_em,
+			@Nullable Instant finalizado_em, @Nullable UUID job_origem_id) {
+		this(id, status, competencias, orcamento, meta_venda, veredito, criado_em, finalizado_em, job_origem_id, null);
+	}
 }
 
 /**

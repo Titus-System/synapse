@@ -1,3 +1,4 @@
+import { observarConsulta } from '@/observability/consultasLogging'
 import { http } from '@/services/http'
 import type {
   ConfirmarParametrosRequisicao,
@@ -7,6 +8,7 @@ import type {
   JobCriado,
   ListarJobsParametros,
   PaginaJobs,
+  RenomearJobRequisicao,
   ReprocessarRequisicao,
 } from '@/types/api'
 
@@ -29,7 +31,7 @@ export const apiClient = {
   },
 
   consultarJob(id: string, signal?: AbortSignal) {
-    return http.get<Job>(jobPath(id), signal)
+    return observarConsulta('consultar_job', id, () => http.get<Job>(jobPath(id), signal), signal)
   },
 
   acompanharJob(id: string) {
@@ -45,7 +47,15 @@ export const apiClient = {
   },
 
   executarAcao(id: string, requisicao: ExecutarAcaoRequisicao, signal?: AbortSignal) {
-    return http.post<Job, ExecutarAcaoRequisicao>(`${jobPath(id)}/actions`, requisicao, signal)
+    const executar = () =>
+      http.post<Job, ExecutarAcaoRequisicao>(`${jobPath(id)}/actions`, requisicao, signal)
+    return requisicao.acao === 'aceitar_meta'
+      ? observarConsulta('aceitar_meta', id, executar, signal)
+      : executar()
+  },
+
+  renomearJob(id: string, requisicao: RenomearJobRequisicao, signal?: AbortSignal) {
+    return http.put<Job, RenomearJobRequisicao>(`${jobPath(id)}/nome`, requisicao, signal)
   },
 
   reprocessarJob(id: string, requisicao?: ReprocessarRequisicao, signal?: AbortSignal) {

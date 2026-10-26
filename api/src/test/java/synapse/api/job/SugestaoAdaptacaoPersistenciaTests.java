@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import javax.sql.DataSource;
 
@@ -17,16 +18,20 @@ import liquibase.Liquibase;
 import liquibase.database.DatabaseFactory;
 import liquibase.database.jvm.JdbcConnection;
 import liquibase.resource.ClassLoaderResourceAccessor;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.MDC;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.boot.test.context.TestConfiguration;
@@ -66,6 +71,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class SugestaoAdaptacaoPersistenciaTests {
 
 	private static final UUID USUARIO = CriarJobControllerTests.USUARIO;
+
+	private static final JsonMapper DECIMAIS = JsonMapper.builder()
+		.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+		.build();
 
 	private static PostgreSQLContainer postgres;
 
@@ -130,8 +139,9 @@ class SugestaoAdaptacaoPersistenciaTests {
 
 	@TestConfiguration(proxyBeanMethods = false)
 	@EnableTransactionManagement
-	@Import({ JobRepository.class, JobService.class, JobEventosService.class, MaquinaDeEstadosDoJob.class, Outbox.class,
-			RodadasCorrecaoRepository.class, VersoesDaRegra.class, CorrelationContext.class })
+	@Import({ JobRepository.class, JobService.class, RodadasRepository.class, JobEventosService.class,
+			MaquinaDeEstadosDoJob.class, Outbox.class, RodadasCorrecaoRepository.class, VersoesDaRegra.class,
+			CorrelationContext.class })
 	static class Config {
 
 	}
@@ -446,9 +456,65 @@ class SugestaoAdaptacaoPersistenciaTests {
 		for (ILoggingEvent registroDeLog : logs) {
 			String linha = CapturaDeLog.emJson(registroDeLog);
 			ContratoDeEvento.validarLog(linha);
-			assertThat(new JsonMapper().readTree(linha).path("job_id").asString()).isEqualTo(jobId.toString());
-			assertThat(linha).doesNotContain("486000", "percentual", "0.02");
+			var registroJson = new JsonMapper().readTree(linha);
+			assertThat(registroJson.path("job_id").asString()).isEqualTo(jobId.toString());
+			for (String campo : List.of("message", "extra", "exception")) {
+				assertThat(registroJson.path(campo).toString()).doesNotContain("486000", "percentual", "0.02");
+			}
 		}
+	}
+
+	/**
+	 * As lojas fora da regra ficam no baseline qualquer que seja a taxa: quando só elas
+	 * já custam mais que o orçamento, a razão do fim diz isso, no stream e na consulta.
+	 */
+	@ParameterizedTest(name = "{0}")
+	@MethodSource("pisosDasLojasForaDaRegra")
+	void semAlternativaExplicaOPisoDasLojasForaDaRegra(String caso, @Nullable String decomposicao,
+			boolean regraParaTodasAsLojas, String esperado) {
+		UUID jobId = jobInviavel();
+		VersaoRegra alternativa = iterar(jobId, 1).getFirst();
+		UUID resultado = resultado(jobId, alternativa.id(), "inviavel", "486000");
+		if (decomposicao != null) {
+			artefatos.update("UPDATE resultados_simulacao SET decomposicao = ?::jsonb WHERE id = ?", decomposicao,
+					resultado);
+		}
+		if (regraParaTodasAsLojas) {
+			artefatos.update("UPDATE regras SET nucleo = nucleo || '{\"loja\": []}'::jsonb WHERE id = ?",
+					alternativa.id());
+		}
+		jdbc.update("UPDATE simulacoes SET resultado_id = NULL WHERE resultado_id = ?", resultado);
+		jdbc.update("UPDATE jobs SET status = 'simulando' WHERE id = ?", jobId);
+		List<EventoSse> eventos = new ArrayList<>();
+		EmissoresSse emissores = emissoresQueGuardam(jobId, eventos);
+		SimpleMeterRegistry registro = new SimpleMeterRegistry();
+		var etapas = new EtapaAlteradaConsumidor(sugestaoService, emissores, new CorrelationContext(),
+				new AppMetrics(registro));
+		var conclusoes = new SimulacaoConcluidaConsumidor(sugestaoService, emissores, new CorrelationContext(),
+				new AppMetrics(registro));
+
+		conclusoes.receber(new SimulacaoConcluidaDto(jobId, resultado, "sucesso", "inviavel", null, null, null, null));
+		etapas.receber(new EtapaAlteradaDto(jobId, "sugestao_adaptacao", "sem_alternativa", null, null, null));
+
+		assertThat(eventos).contains(EventoSse.de("estado",
+				EventoEstadoDto.transicao(jobId, JobStatus.SIMULANDO, JobStatus.SIMULACAO_INVIAVEL, esperado)));
+		JobDetalhadoDto job = contexto.getBean(JobService.class).buscar(jobId);
+		assertThat(job.status()).isEqualTo("simulacao_inviavel");
+		assertThat(job.motivo()).isEqualTo(esperado);
+	}
+
+	static Stream<Arguments> pisosDasLojasForaDaRegra() {
+		String explicito = "O orçamento de R$ 485.000,00 é menor que as comissões das lojas fora da regra (R$ 550.000,00), que a sugestão não altera. Nenhuma redução de taxa faz a regra caber: aumente o orçamento ou revise o alcance da regra.";
+		String lojas = "{\"loja_absoluto\": {\"13\": 40000.00, \"98\": 250000.50, \"99\": 299999.50}}";
+		return Stream.of(Arguments.of("piso acima do orçamento", lojas, false, explicito),
+				Arguments.of("piso abaixo do orçamento", "{\"loja_absoluto\": {\"13\": 40000.00, \"99\": 299999.50}}",
+						false, MotivoDaParada.NENHUMA_TAXA_COUBE),
+				Arguments.of("piso igual ao orçamento", "{\"loja_absoluto\": {\"13\": 1.00, \"99\": 485000.00}}", false,
+						MotivoDaParada.NENHUMA_TAXA_COUBE),
+				Arguments.of("regra para todas as lojas", lojas, true, MotivoDaParada.NENHUMA_TAXA_COUBE),
+				Arguments.of("sem quebra absoluta por loja", "{\"loja\": {\"13\": 10.00}}", false,
+						MotivoDaParada.NENHUMA_TAXA_COUBE),
+				Arguments.of("sem decomposição", null, false, MotivoDaParada.NENHUMA_TAXA_COUBE));
 	}
 
 	/**
@@ -537,11 +603,15 @@ class SugestaoAdaptacaoPersistenciaTests {
 		assertThat(Objects.requireNonNull(job.simulacao()).regra_id()).isEqualTo(alternativa.id());
 	}
 
+	/**
+	 * No último código da versão, a falha da alternativa encerra o job sem outra taxa.
+	 */
 	@Test
 	void alternativaComErroDeExecucaoEncerraOJobEmErro() {
 		UUID jobId = jobInviavel();
 		VersaoRegra alternativa = iterar(jobId, 2).getLast();
-		UUID resultado = resultadoComFalha(jobId, alternativa.id(), "erro_codigo");
+		UUID resultado = resultadoComFalha(jobId, alternativa.id(), "erro_codigo",
+				CorrecaoDoCodigo.LIMITE_DE_CODIGOS_POR_VERSAO);
 
 		sugestaoService.concluirSimulacao(jobId, resultado, DesfechoDaSimulacao.ERRO_CODIGO);
 
@@ -549,6 +619,25 @@ class SugestaoAdaptacaoPersistenciaTests {
 		assertThat(sugestaoService.aplicarEtapaAlterada(jobId, EtapaDoGrafo.SUGESTAO_ADAPTACAO, "sem_alternativa", null)
 			.transicao()).isNull();
 		assertThat(status(jobId)).isEqualTo("erro");
+	}
+
+	/**
+	 * Antes do limite, a alternativa com erro espera o código corrigido, como a original.
+	 */
+	@Test
+	void alternativaComErroDeExecucaoAntesDoLimiteAguardaOCodigoCorrigido() {
+		UUID jobId = jobInviavel();
+		VersaoRegra alternativa = iterar(jobId, 2).getLast();
+		UUID resultado = resultadoComFalha(jobId, alternativa.id(), "erro_codigo");
+
+		JobEventosService.DesfechoAplicado aplicado = Objects
+			.requireNonNull(sugestaoService.concluirSimulacao(jobId, resultado, DesfechoDaSimulacao.ERRO_CODIGO));
+
+		// A proposta deixou o job em gerando_regra, e o resultado chega antes da etapa
+		// que o levaria a simulando.
+		assertThat(aplicado.emCorrecao()).isTrue();
+		assertThat(aplicado.avancouDeGerandoRegra()).isTrue();
+		assertThat(status(jobId)).isEqualTo("simulando");
 	}
 
 	@ParameterizedTest
@@ -676,7 +765,7 @@ class SugestaoAdaptacaoPersistenciaTests {
 	}
 
 	@Test
-	void naoAceitaResultadoDeOutroJobOuAlteracaoAlemDoPercentual() {
+	void naoAceitaResultadoDeOutroJobOuAlteracaoAlemDasTaxas() {
 		UUID jobId = jobInviavel();
 		UUID outro = jobInviavel();
 		UUID origem = versaoId(jobId, 1);
@@ -691,6 +780,87 @@ class SugestaoAdaptacaoPersistenciaTests {
 		assertThat(sugestaoService.aplicarSugestaoAdaptacao(jobId, origem, resultado, representacao("0.025"), 1))
 			.isNull();
 		assertThat(versoes(jobId)).isEqualTo(1);
+	}
+
+	@Test
+	void gravaAlternativaQueReduzTaxasPorCargoEEfeitosPercentuaisPreservandoAsEspecificacoes() throws Exception {
+		UUID jobId = jobInviavel();
+		UUID origem = versaoComEspecificacoes(jobId);
+		UUID resultado = resultado(jobId, origem, "inviavel", "492100");
+		RepresentacaoRegraDto proposta = DECIMAIS.readValue(ReducaoDasTaxasTests.PROPOSTA, RepresentacaoRegraDto.class);
+
+		SugestaoAplicada aplicada = Objects
+			.requireNonNull(sugestaoService.aplicarSugestaoAdaptacao(jobId, origem, resultado, proposta, 1));
+
+		assertThat(aplicada.versao().versao()).isEqualTo(3);
+		assertThat(status(jobId)).isEqualTo("gerando_regra");
+		assertThat(jdbc.queryForObject("""
+				SELECT nucleo = ?::jsonb AND especificacoes = ?::jsonb AND regra_origem_id = ? AND tentativa = 1
+				FROM regras WHERE id = ?
+				""", Boolean.class, DECIMAIS.writeValueAsString(proposta.nucleo()),
+				DECIMAIS.writeValueAsString(proposta.especificacoes()), origem, aplicada.versao().id()))
+			.isTrue();
+		String payload = Objects.requireNonNull(jdbc.queryForObject("""
+				SELECT payload::text FROM outbox_events
+				WHERE job_id = ? AND tipo = 'regra-submetida' AND payload->>'regra_id' = ?
+				""", String.class, jobId, aplicada.versao().id().toString()));
+		ContratoDeEvento.validar("regra-submetida", payload);
+	}
+
+	@Test
+	void recusaAlternativaDeRegraComEspecificacoesQueMudaAlemDasTaxas() {
+		UUID jobId = jobInviavel();
+		UUID origem = versaoComEspecificacoes(jobId);
+		UUID resultado = resultado(jobId, origem, "inviavel", "492100");
+		String proposta = ReducaoDasTaxasTests.PROPOSTA;
+
+		for (String alterada : List.of(proposta.replace("\"valor\":350.00", "\"valor\":300"),
+				proposta.replace("\"percentual\":0.0243", "\"percentual\":0.031"),
+				proposta.replace("acima de R$ 40.000", "acima de R$ 30.000"))) {
+			assertThat(sugestaoService.aplicarSugestaoAdaptacao(jobId, origem, resultado,
+					DECIMAIS.readValue(alterada, RepresentacaoRegraDto.class), 1))
+				.isNull();
+		}
+		assertThat(status(jobId)).isEqualTo("simulacao_inviavel");
+		assertThat(versoes(jobId)).isEqualTo(2);
+	}
+
+	@Test
+	void consumidorContaELogaAAlternativaComTaxasPorCargoSemValores() throws Exception {
+		UUID jobId = jobInviavel();
+		UUID origem = versaoComEspecificacoes(jobId);
+		UUID resultado = resultado(jobId, origem, "inviavel", "492100");
+		SimpleMeterRegistry registro = new SimpleMeterRegistry();
+		var consumidor = new SugestaoAdaptacaoConsumidor(sugestaoService, mock(EmissoresSse.class),
+				new CorrelationContext(), new AppMetrics(registro));
+		RepresentacaoRegraDto alterada = DECIMAIS.readValue(
+				ReducaoDasTaxasTests.PROPOSTA.replace("\"valor\":350.00", "\"valor\":300"),
+				RepresentacaoRegraDto.class);
+		RepresentacaoRegraDto reduzida = DECIMAIS.readValue(ReducaoDasTaxasTests.PROPOSTA, RepresentacaoRegraDto.class);
+
+		try (var captura = new CapturaDeLog(SugestaoAdaptacaoConsumidor.class)) {
+			consumidor.receber(new SugestaoAdaptacaoPropostaDto(jobId, origem, resultado, alterada, 1));
+			consumidor.receber(new SugestaoAdaptacaoPropostaDto(jobId, origem, resultado, reduzida, 1));
+
+			assertThat(captura.eventos()).hasSize(2);
+			List<String> mensagens = new ArrayList<>();
+			for (ILoggingEvent evento : captura.eventos()) {
+				String linha = CapturaDeLog.emJson(evento);
+				ContratoDeEvento.validarLog(linha);
+				assertThat(new JsonMapper().readTree(linha).path("job_id").asString()).isEqualTo(jobId.toString());
+				assertThat(linha).doesNotContain("0.0243", "0.0324", "0.0405", "taxas_por_cargo", "limiar",
+						"acima de R$", "representacao");
+				mensagens.add(evento.getFormattedMessage());
+			}
+			assertThat(mensagens).containsExactly("sugestão descartada: origem inválida ou proposta já aplicada",
+					"sugestao-adaptacao-proposta aplicada; ciclo do codegen reaberto");
+		}
+		assertThat(
+				contagem(registro, "sugestao.adaptacao.proposta.consumo", "tentativa", "1", "resultado", "descartada"))
+			.isEqualTo(1.0);
+		assertThat(contagem(registro, "sugestao.adaptacao.proposta.consumo", "tentativa", "1", "resultado", "aplicada"))
+			.isEqualTo(1.0);
+		assertThat(status(jobId)).isEqualTo("gerando_regra");
 	}
 
 	@Test
@@ -940,17 +1110,27 @@ class SugestaoAdaptacaoPersistenciaTests {
 	}
 
 	private static UUID resultadoComFalha(UUID jobId, UUID regraId, String status) {
-		UUID prompt = UUID.randomUUID();
+		return resultadoComFalha(jobId, regraId, status, 1);
+	}
+
+	/**
+	 * A falha do código na {@code posicao} da versão, depois dos que a correção gerou
+	 * antes dele. Os instantes são explícitos para a ordem não depender de empate.
+	 */
+	private static UUID resultadoComFalha(UUID jobId, UUID regraId, String status, int posicao) {
 		UUID codigo = UUID.randomUUID();
 		UUID resultado = UUID.randomUUID();
-		artefatos.update("""
-				INSERT INTO prompts (id, job_id, no, conteudo, modelo, criado_em)
-				VALUES (?, ?, 'geracao_codigo', 'fixture', '{}'::jsonb, now())
-				""", prompt, jobId);
-		artefatos.update("""
-				INSERT INTO codigos_gerados (id, job_id, regra_id, linguagem, fonte, prompt_id, criado_em)
-				VALUES (?, ?, ?, 'python', 'fixture', ?, now())
-				""", codigo, jobId, regraId, prompt);
+		for (int atual = 1; atual <= posicao; atual++) {
+			UUID prompt = UUID.randomUUID();
+			artefatos.update("""
+					INSERT INTO prompts (id, job_id, no, conteudo, modelo, criado_em)
+					VALUES (?, ?, 'geracao_codigo', 'fixture', '{}'::jsonb, now())
+					""", prompt, jobId);
+			artefatos.update("""
+					INSERT INTO codigos_gerados (id, job_id, regra_id, linguagem, fonte, prompt_id, criado_em)
+					VALUES (?, ?, ?, 'python', 'fixture', ?, now() - make_interval(mins => ?))
+					""", (atual == posicao) ? codigo : UUID.randomUUID(), jobId, regraId, prompt, posicao - atual);
+		}
 		artefatos.update("""
 				INSERT INTO resultados_simulacao (id, job_id, codigo_gerado_id, status, assercoes, criado_em)
 				VALUES (?, ?, ?, ?, '[]'::jsonb, now())
@@ -965,6 +1145,16 @@ class SugestaoAdaptacaoPersistenciaTests {
 	private static RepresentacaoRegraDto representacao(String percentual) {
 		return new RepresentacaoRegraDto(new NucleoRegraDto(new VigenciaDto("2025-11", "2025-11"), List.of("13"),
 				List.of("10", "20"), List.of("100", "300"), new java.math.BigDecimal(percentual)), List.of());
+	}
+
+	/** A versão 2 do job, com taxas por cargo e especificações, vira a versão atual. */
+	private static UUID versaoComEspecificacoes(UUID jobId) {
+		RepresentacaoRegraDto regra = DECIMAIS.readValue(ReducaoDasTaxasTests.ORIGEM, RepresentacaoRegraDto.class);
+		var agora = java.time.Instant.now();
+		return contexto.getBean(VersoesDaRegra.class)
+			.resolver(jobId, regra, null, HashDaRegra.calcular(regra), "confirmacao_usuario", versaoId(jobId, 1),
+					java.sql.Timestamp.from(agora), agora)
+			.id();
 	}
 
 	private static UUID versaoId(UUID jobId, int versao) {

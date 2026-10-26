@@ -151,7 +151,7 @@ caminhos que falharam no schema. O `repr` de `DesfechoClassificado` omite `resul
   grava e publica `erro_infra` antes de enviar o comando à DLQ.
 - **T-259** (feita, `docs/t259-detalhamento-do-resultado.md`): o envelope passa à versão 3, com o
   detalhamento em `linhas`, e a coleta o valida.
-- **T-262**: conferir os valores do detalhamento e das quebras absolutas contra o baseline e os
+- **T-262** (feita, `docs/t066-veredito.md`): conferir os valores do detalhamento e das quebras contra o baseline e os
   totais. Esta entrega confere forma e período, não aritmética.
 
 ## Verificação

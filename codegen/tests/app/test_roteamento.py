@@ -8,6 +8,7 @@ import pytest
 
 from app.codigo_gerado import CodigoInvalidoError
 from app.contratos.mensagens import (
+    CorrecaoSubmetida,
     EtapaAlterada,
     JobEncerrado,
     OrigemJob,
@@ -21,6 +22,7 @@ from app.contratos.mensagens import (
 from app.falhas import JobEncerradoDuranteEsperaError
 from app.graph.entrypoint import ResumeOutcome
 from app.graph.nodes.code_generation import ProvedorIndisponivelGeracaoError
+from app.graph.nodes.reextract_rule import ProvedorIndisponivelReextracaoError
 from app.mensageria import roteamento as modulo
 from app.mensageria.roteamento import (
     ContextoAusenteError,
@@ -30,7 +32,9 @@ from app.mensageria.roteamento import (
     RetomadaIndisponivelError,
 )
 from app.repositorio.encerramentos import EstadoDoEncerramento, JobInexistenteError
+from app.repositorio.regras import RegraInvalidaError
 from app.repositorio.resultados import ResultadoDesconhecidoError
+from app.repositorio.submissoes import TranscricaoIndisponivelError
 from tests.app.limpeza_falsa import LimpezaFalsa
 
 JOB_ID = uuid4()
@@ -417,6 +421,112 @@ async def test_entregar_cai_no_job_quando_a_submissao_ainda_nao_tem_regra(
     await roteador.entregar(JOB_ID, _regra_submetida(origem=OrigemJob.VOZ, regra_id=None))
 
     assert run.call_args.args[0] == str(JOB_ID)
+
+
+# ---- a correção (T-221) ----
+
+
+def _correcao(**sobrescritas: object) -> CorrecaoSubmetida:
+    valores: dict[str, object] = {
+        "job_id": JOB_ID,
+        "regra_origem_id": REGRA_ID,
+        "submissao_id": SUBMISSAO_ID,
+        "competencias": ["2025-08", "2025-11"],
+        "orcamento": Decimal("485000.00"),
+        "meta_venda": Decimal("-5"),
+    }
+    valores.update(sobrescritas)
+    return CorrecaoSubmetida.model_validate(valores)
+
+
+async def test_entregar_abre_o_ciclo_da_correcao_na_thread_da_submissao(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_to_completion = AsyncMock()
+    monkeypatch.setattr(modulo, "run_to_completion", run_to_completion)
+    sessoes, producers = object(), object()
+    roteador = GraphRouter(sessoes=sessoes, producers=producers, limpeza=LimpezaFalsa())
+
+    await roteador.entregar(JOB_ID, _correcao())
+
+    argumentos, nomeados = run_to_completion.call_args
+    assert argumentos[0] == f"{JOB_ID}:correcao:{SUBMISSAO_ID}"
+    assert nomeados == {"sessoes": sessoes, "producers": producers}
+    assert argumentos[1] == {
+        "job_id": str(JOB_ID),
+        "regra_origem_id": str(REGRA_ID),
+        "submissao_correcao_id": str(SUBMISSAO_ID),
+        "competencias": ["2025-08", "2025-11"],
+        "orcamento": "485000.00",
+        "meta_venda": "-5",
+    }
+
+
+async def test_entregar_omite_os_parametros_que_a_correcao_nao_traz(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_to_completion = AsyncMock()
+    monkeypatch.setattr(modulo, "run_to_completion", run_to_completion)
+    roteador = GraphRouter(sessoes=object(), producers=object(), limpeza=LimpezaFalsa())
+
+    await roteador.entregar(JOB_ID, _correcao(competencias=None, orcamento=None, meta_venda=None))
+
+    assert set(run_to_completion.call_args.args[1]) == {
+        "job_id",
+        "regra_origem_id",
+        "submissao_correcao_id",
+    }
+
+
+@pytest.mark.parametrize(
+    ("falha", "causa"),
+    [
+        (TranscricaoIndisponivelError("segredo"), None),
+        (ProvedorIndisponivelReextracaoError("segredo"), "provedor_indisponivel"),
+        # Reportada em `validacao_dominio` no ciclo de regra; na reextração, a api só a
+        # reconhece em `extracao_parametros`.
+        (RegraInvalidaError("segredo"), None),
+    ],
+)
+async def test_falha_da_reextracao_avisa_na_etapa_dela_com_a_versao_e_a_correcao(
+    monkeypatch: pytest.MonkeyPatch, falha: Exception, causa: str | None
+) -> None:
+    monkeypatch.setattr(modulo, "run_to_completion", AsyncMock(side_effect=falha))
+    producers = MagicMock(etapa_alterada=AsyncMock())
+    roteador = GraphRouter(sessoes=object(), producers=producers, limpeza=LimpezaFalsa())
+
+    with pytest.raises(type(falha)):
+        await roteador.entregar(JOB_ID, _correcao())
+
+    [evento] = producers.etapa_alterada.await_args.args
+    esperado = EtapaAlterada(
+        job_id=JOB_ID,
+        etapa="extracao_parametros",
+        status="erro",
+        regra_id=REGRA_ID,
+        submissao_id=SUBMISSAO_ID,
+    )
+    if causa is not None:
+        esperado.causa = causa
+    assert evento == esperado
+
+
+@pytest.mark.parametrize(
+    "encerramento", [EstadoDoEncerramento.REGISTRADO, EstadoDoEncerramento.LIMPO]
+)
+async def test_correcao_de_job_encerrado_nao_abre_ciclo(
+    monkeypatch: pytest.MonkeyPatch, encerramento: EstadoDoEncerramento
+) -> None:
+    run_to_completion = AsyncMock()
+    monkeypatch.setattr(modulo, "run_to_completion", run_to_completion)
+    roteador = GraphRouter(
+        sessoes=object(), producers=MagicMock(), limpeza=LimpezaFalsa(encerramento)
+    )
+
+    with pytest.raises(JobEncerradoError):
+        await roteador.entregar(JOB_ID, _correcao())
+
+    run_to_completion.assert_not_awaited()
 
 
 # ---- o encerramento do job ----

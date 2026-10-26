@@ -1,6 +1,7 @@
 package synapse.api.job;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -87,6 +88,11 @@ class ConfirmarParametrosException extends RuntimeException {
 	static ConfirmarParametrosException estadoInvalido() {
 		return new ConfirmarParametrosException(HttpStatus.CONFLICT, "estado_invalido",
 				"Este job não está aguardando confirmação de parâmetros.", List.of());
+	}
+
+	static ConfirmarParametrosException versaoJaAnalisada() {
+		return new ConfirmarParametrosException(HttpStatus.CONFLICT, "estado_invalido",
+				"Esta versão já foi analisada. Altere a regra ou os parâmetros antes de confirmar.", List.of());
 	}
 
 	HttpStatus status() {
@@ -219,6 +225,50 @@ class SimulacaoNaoEncontradaException extends RuntimeException {
 
 	SimulacaoNaoEncontradaException(UUID simulacaoId) {
 		super("Simulação não encontrada: " + simulacaoId);
+	}
+
+}
+
+/**
+ * Recusa de PUT /jobs/{id}/nome. O motivo vai para o log; a resposta é sempre
+ * requisicao_invalida.
+ */
+class RenomearJobException extends RuntimeException {
+
+	enum Motivo {
+
+		NOME_AUSENTE, NOME_VAZIO, NOME_MUITO_LONGO;
+
+		String paraLog() {
+			return name().toLowerCase(Locale.ROOT);
+		}
+
+	}
+
+	private final Motivo motivo;
+
+	private final ErroDto erro;
+
+	private RenomearJobException(Motivo motivo, String mensagem) {
+		super(mensagem);
+		this.motivo = motivo;
+		this.erro = new ErroDto("requisicao_invalida", mensagem);
+	}
+
+	static RenomearJobException requisicao(Motivo motivo, String mensagem) {
+		return new RenomearJobException(motivo, mensagem);
+	}
+
+	HttpStatus status() {
+		return HttpStatus.BAD_REQUEST;
+	}
+
+	Motivo motivo() {
+		return this.motivo;
+	}
+
+	ErroDto erro() {
+		return this.erro;
 	}
 
 }

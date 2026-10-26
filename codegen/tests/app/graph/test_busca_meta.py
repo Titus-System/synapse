@@ -244,7 +244,7 @@ async def test_encerramento_na_espera_impede_outro_candidato(ambiente: Ambiente)
 
 
 @pytest.mark.parametrize(
-    "caso", ["desabilitada", "igual", "sem_orcamento", "especificacoes", "candidata", "inviavel"]
+    "caso", ["desabilitada", "igual", "sem_orcamento", "candidata", "inviavel"]
 )
 async def test_decisao_nao_abre_busca_fora_dos_criterios(
     ambiente: Ambiente, caso: str, monkeypatch: pytest.MonkeyPatch
@@ -256,8 +256,6 @@ async def test_decisao_nao_abre_busca_fora_dos_criterios(
     elif caso == "sem_orcamento":
         del ambiente.estado["orcamento"]
         ambiente.estado.pop("veredito")
-    elif caso == "especificacoes":
-        ambiente.estado["representacao_regra"]["especificacoes"] = [{"ref": "elem.1"}]
     elif caso == "candidata":
         ambiente.resultados[ambiente.original].proposito = "busca_meta"
     else:
@@ -355,6 +353,23 @@ async def test_republicacao_do_desfecho_preserva_meta_resultado_e_identidade(
     propostas = ambiente.producers.de("meta-venda-sugerida")
     assert len(propostas) == 2 and propostas[0] == propostas[1]
     assert len(ambiente.producers.de("executar-codigo")) == 1
+
+
+async def test_regra_com_especificacoes_tambem_busca_meta(ambiente: Ambiente) -> None:
+    """A busca simula o mesmo código, com todos os elementos da regra, nas metas candidatas."""
+    ambiente.estado["representacao_regra"]["especificacoes"] = [
+        {"ref": "elem.1", "construto": "generico", "descricao": "Bônus condicionado a vendas."}
+    ]
+
+    await ambiente.iniciar()
+    evento = await ambiente.completar()
+
+    assert evento["meta_venda"] == Decimal("2000")
+    assert all(
+        comando["proposito"] == "busca_meta"
+        and comando["elementos_exigidos"] == ["nucleo.percentual", "elem.1"]
+        for comando in ambiente.producers.de("executar-codigo")
+    )
 
 
 async def test_alternativa_de_taxa_viavel_tambem_busca_meta(

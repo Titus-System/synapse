@@ -2,11 +2,14 @@ package synapse.api.job;
 
 import java.net.URI;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -71,8 +74,10 @@ class JobController {
 
 	@AutorizarJob(OperacaoJob.CONSULTAR)
 	@GetMapping(path = "/jobs/{id}/simulacoes/{simulacaoId}/linhas", produces = "application/json")
-	DetalhamentoSimulacaoDto detalharSimulacao(@PathVariable UUID id, @PathVariable UUID simulacaoId) {
-		return this.service.detalharSimulacao(id, simulacaoId);
+	DetalhamentoSimulacaoDto detalharSimulacao(@PathVariable UUID id, @PathVariable UUID simulacaoId,
+			@RequestParam(required = false) @Nullable UUID resultado_anterior_id) {
+		return resultado_anterior_id == null ? this.service.detalharSimulacao(id, simulacaoId)
+				: this.service.detalharSimulacao(id, simulacaoId, resultado_anterior_id);
 	}
 
 	@AutorizarJob(OperacaoJob.ACOMPANHAR)
@@ -87,8 +92,32 @@ class JobController {
 	@AutorizarJob(OperacaoJob.CONFIRMAR_PARAMETROS)
 	@PostMapping(path = "/jobs/{id}/parameters", consumes = "application/json", produces = "application/json")
 	ResponseEntity<JobCriadoDto> confirmar(@PathVariable("id") UUID id, @RequestBody String corpo) {
-		JobCriadoDto job = this.service.confirmar(id, ConfirmarParametrosRequisicao.deJson(corpo));
-		return ResponseEntity.status(HttpStatus.ACCEPTED).body(job);
+		long inicio = System.nanoTime();
+		String resultado = "falha";
+		try (var escopo = this.correlacao.abrir(id.toString(), null)) {
+			this.metricas.jobRuns("confirmacao_parametros").increment();
+			log.atInfo().log("confirmação de parâmetros iniciada");
+			try {
+				JobCriadoDto job = this.service.confirmar(id, ConfirmarParametrosRequisicao.deJson(corpo));
+				resultado = "confirmada";
+				return ResponseEntity.status(HttpStatus.ACCEPTED).body(job);
+			}
+			catch (RuntimeException ex) {
+				if (ex instanceof ConfirmarParametrosException || ex instanceof TransicaoDeStatusInvalidaException
+						|| ex instanceof JobNaoEncontradoException) {
+					resultado = "recusada";
+				}
+				this.metricas.jobFailures("confirmacao_parametros").increment();
+				throw ex;
+			}
+			finally {
+				this.metricas.jobDuration("confirmacao_parametros")
+					.record(System.nanoTime() - inicio, TimeUnit.NANOSECONDS);
+				Level nivel = "confirmada".equals(resultado) ? Level.INFO
+						: ("recusada".equals(resultado) ? Level.WARN : Level.ERROR);
+				log.atLevel(nivel).addKeyValue("resultado", resultado).log("confirmação de parâmetros encerrada");
+			}
+		}
 	}
 
 	@AutorizarJob(OperacaoJob.EXECUTAR_ACAO)
@@ -96,6 +125,15 @@ class JobController {
 	JobDetalhadoDto executar(@PathVariable UUID id, @RequestBody String corpo) {
 		AcaoJob acao = ExecutarAcaoRequisicao.deJson(corpo).acao();
 		AcaoAplicada aplicada = this.service.executarAcao(id, acao);
+		if (aplicada.rodadasAbandonadas() > 0) {
+			this.metricas.rodadasAbandonadas().increment(aplicada.rodadasAbandonadas());
+			try (var escopo = this.correlacao.abrir(id.toString(), null)) {
+				log.atInfo()
+					.addKeyValue("acao", acao.paraColuna())
+					.addKeyValue("rodadas_abandonadas", aplicada.rodadasAbandonadas())
+					.log("rodadas abertas abandonadas pelo encerramento do job");
+			}
+		}
 		// Os três destinos das ações de finalização (liberado, cancelado, arquivado) são
 		// terminais: emitir depois do commit fecha o stream do job, como a skill sse
 		// pede.
@@ -115,6 +153,24 @@ class JobController {
 			this.emissores.emitir(id, EventoSse.ultimo("estado", aplicada.evento()));
 		}
 		return aplicada.job();
+	}
+
+	@AutorizarJob(OperacaoJob.RENOMEAR)
+	@PutMapping(path = "/jobs/{id}/nome", consumes = "application/json", produces = "application/json")
+	JobDetalhadoDto renomear(@PathVariable UUID id, @RequestBody(required = false) @Nullable String corpo) {
+		try (var escopo = this.correlacao.abrir(id.toString(), null)) {
+			RenomearJobRequisicao requisicao;
+			try {
+				requisicao = RenomearJobRequisicao.deJson(corpo);
+			}
+			catch (RenomearJobException ex) {
+				log.atWarn().addKeyValue("motivo", ex.motivo().paraLog()).log("renomeação recusada: nome inválido");
+				throw ex;
+			}
+			JobDetalhadoDto job = this.service.renomear(id, requisicao);
+			log.atInfo().log("regra renomeada");
+			return job;
+		}
 	}
 
 	@AutorizarJob(OperacaoJob.REPROCESSAR)
