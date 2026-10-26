@@ -28,9 +28,9 @@ O **Synapse** é uma aplicação web inteligente criada para solucionar esse pro
 ## ⏱️ Etapas
 | X | Acesso |
 | ------ | :----: |
-| **Sprint 1** | [sprint-1.md](.\sprints\sprint-1.md) |
-| **Sprint 2** | [sprint-2.md](.\sprints\sprint-2.md) |
-| **Sprint 3** | [sprint-3.md](.\sprints\sprint-3.md) |
+| **Sprint 1** | [sprint-1.md](https://github.com/Titus-System/synapse/blob/main/sprints/sprint-1.md) |
+| **Sprint 2** | [sprint-2.md](https://github.com/Titus-System/synapse/blob/main/sprints/sprint-2.md) |
+| **Sprint 3** | [sprint-3.md](https://github.com/Titus-System/synapse/blob/main/sprints/sprint-3.md) |
 
 ## 🚀 Product Backlog
 
