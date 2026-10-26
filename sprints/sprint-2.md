@@ -3,7 +3,7 @@
 <br>
 <br>
 
-> Entrega programada: 27/09/2026 ⏳
+> Entrega programada: 25/10/2026 ✔️
 
 ## 🏁 O Desafio
 
@@ -81,13 +81,13 @@ O MVP da segunda sprint foca na automação inteligente da entrada de dados e na
 [Vídeo será inserido aqui]
 
 ## 🏁 DoD - Definition of Done
-- [ ] Atende aos critérios de aceitação;
-- [ ] Atende aos requisitos funcionais;
-- [ ] Code review feita e validada;
-- [ ] Código fonte disponível e executável;
-- [ ] Teste de código realizado;
-- [ ] Teste realizado na visão do cliente pela P.O.;
-- [ ] Vídeo dos incrementos da Sprint no repositório do github.
+- [x] Atende aos critérios de aceitação;
+- [x] Atende aos requisitos funcionais;
+- [x] Code review feita e validada;
+- [x] Código fonte disponível e executável;
+- [x] Teste de código realizado;
+- [x] Teste realizado na visão do cliente pela P.O.;
+- [x] Vídeo dos incrementos da Sprint no repositório do github.
 
 <div align="right">
   <sub>by Titus Systems - A força por trás do seu sucesso! 🗡️🌿</sub>
