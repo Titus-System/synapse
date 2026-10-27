@@ -77,8 +77,7 @@ O MVP da segunda sprint foca na automação inteligente da entrada de dados e na
 - [x] Os dados de treinamento estão disponíveis;
 
 ## 🎥 Demonstração Sprint 2
-
-[Vídeo será inserido aqui]
+https://github.com/user-attachments/assets/5c50876b-64d8-44c6-9050-4d9dfb758745
 
 ## 🏁 DoD - Definition of Done
 - [x] Atende aos critérios de aceitação;
