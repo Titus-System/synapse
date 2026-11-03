@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://synapse.local/contracts/domain/trilha-conclusao.schema.json",
   "title": "Conclusão de um nó do grafo",
-  "description": "Coluna trilhas_auditoria.conclusao. O que o nó concluiu, numa forma que varia por nó. Só resumo é comum a todos; os demais campos dependem do nó, que é lido na coluna no da mesma linha e por isso não se repete aqui. Também não se repetem o veredito, que vive em resultados_simulacao, nem a razão de uma parada, que vive em job_transicoes.motivo.",
+  "description": "Coluna trilhas_auditoria.conclusao. O que a etapa concluiu, com resumo obrigatório e campos opcionais que descrevem sua variante e seu desfecho. O nó é lido na coluna no da mesma linha e não se repete aqui. Também não se repetem o veredito, que vive em resultados_simulacao, nem a razão de uma parada, que vive em job_transicoes.motivo. A meta e a tentativa também não se repetem: a linha as alcança pelo resultado e pela versão da regra.",
   "type": "object",
   "required": ["resumo"],
   "properties": {
@@ -32,7 +32,7 @@
 
     "no_dominio": {
       "type": "boolean",
-      "description": "Nó validacao_dominio: se o enunciado trata de regra de comissionamento."
+      "description": "Nó validacao_dominio: se o enunciado trata de regra de comissionamento. O fluxo atual não produz este campo."
     },
 
     "editado_pelo_usuario": {
@@ -49,20 +49,40 @@
     "elementos_implementados": {
       "type": "array",
       "items": { "$ref": "comum.schema.json#/$defs/elemento_ref" },
-      "description": "Nó geracao_codigo: o que o código gerado declara implementar. É contra esta lista que a cobertura é conferida; elemento sem implementação correspondente é erro de geração."
+      "description": "Nó geracao_codigo: o que o código gerado declara implementar. O fluxo atual não produz este campo na trilha. A declaração de cobertura acontece na execução do código e fica no resultado da simulação; elemento sem implementação correspondente é erro de geração."
     },
 
     "diagnostico": {
       "type": "string",
-      "description": "Nó interpretacao_resultado: o que puxou a diferença em relação ao baseline."
+      "description": "Nó interpretacao_resultado: o que puxou a diferença em relação ao baseline. O fluxo atual não produz este campo."
     },
     "concentracao": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Nó interpretacao_resultado: onde o efeito se concentra, por código de dimensão ou por identificador de elemento.",
+      "description": "Nó interpretacao_resultado: onde o efeito se concentra, por código de dimensão ou por identificador de elemento. O fluxo atual não produz este campo.",
       "examples": [["13", "elem.1"]]
     },
 
+    "modo_geracao": {
+      "type": "string",
+      "enum": ["gerado", "derivado", "correcao"],
+      "description": "Nó geracao_codigo. gerado é o código produzido pelo modelo a partir da regra. derivado é o código da alternativa derivado do código já simulado da versão de origem, sem chamar o modelo; por isso o prompt_id da linha é o da versão de origem. correcao é o código produzido pelo modelo a partir do código que falhou no worker."
+    },
+    "motivo_sugestao": {
+      "type": "string",
+      "enum": ["proposta", "sem_margem", "incoerente", "nao_suportada", "limite"],
+      "description": "Nó sugestao_adaptacao. Motivo da conclusão da análise do resultado inviável. Só proposta leva a uma versão nova, que a API grava com regras.origem = 'sugestao_adaptacao'."
+    },
+    "desfecho_busca": {
+      "type": "string",
+      "enum": ["encontrada", "nao_monotonica", "intervalo_esgotado", "falha_execucao"],
+      "description": "Nó decisao, na linha que encerra a busca da meta maior. A presença de desfecho_busca distingue esta linha da decisão sobre o resultado. As execuções candidatas não têm linha própria na trilha e ficam em resultados_simulacao com proposito = 'busca_meta'."
+    },
+    "candidatas_simuladas": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Nó decisao, na linha que encerra a busca da meta maior. Quantidade de candidatas simuladas na busca. A presença de desfecho_busca distingue esta linha da decisão sobre o resultado. As execuções candidatas não têm linha própria na trilha e ficam em resultados_simulacao com proposito = 'busca_meta'."
+    },
     "encaminhamento": {
       "type": "string",
       "description": "Nó decisao: para onde o fluxo seguiu.",

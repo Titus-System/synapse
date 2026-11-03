@@ -1,0 +1,13 @@
+{
+  "evento_id": "fb4a0d91-7e65-4c2b-91a3-8d0e6f7b254c",
+  "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+  "no": "decisao",
+  "concluido_em": "2025-11-28T14:40:10Z",
+  "conclusao": {
+    "resumo": "busca encerrada com uma meta maior encontrada",
+    "desfecho_busca": "encontrada",
+    "candidatas_simuladas": 3
+  },
+  "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
+  "resultado_id": "0192d4a3-1b7f-7c42-8e6d-2a3b4c5d6e7f"
+}

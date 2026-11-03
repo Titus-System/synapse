@@ -84,7 +84,7 @@
         "sugestao_adaptacao",
         "explicacao"
       ],
-      "description": "Nó do grafo do codegen. Os oito primeiros são a sequência de 1 a 8; sugestao_adaptacao é o desvio que o nó de decisão aciona quando a simulação é inviável por orçamento (US03, cenário 1), e que volta à geração de código com a alternativa."
+      "description": "Vocabulário das etapas da trilha no grafo atual. extracao_parametros registra a extração dos parâmetros da regra e validacao_dominio registra sua validação de domínio. confirmacao é gravado pela API quando o usuário corrige a regra. geracao_codigo cobre geração, derivação e correção do código. delegacao_worker grava uma linha por código; as execuções candidatas da busca da meta não geram linha. decisao cobre a decisão sobre o resultado e o encerramento da busca da meta maior. sugestao_adaptacao grava uma linha por resultado inviável analisado. interpretacao_resultado e explicacao estão reservados e nenhum nó os produz hoje."
     }
   }
 }

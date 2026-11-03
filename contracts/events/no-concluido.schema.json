@@ -33,7 +33,7 @@
     },
     "conclusao": {
       "$ref": "../domain/trilha-conclusao.schema.json",
-      "description": "O que o nó concluiu, no formato da coluna trilhas_auditoria.conclusao. A forma varia por nó: resumo é comum a todos, e os demais campos dependem de qual nó concluiu. É por aqui que elementos_implementados chega à trilha, a lista contra a qual a cobertura do código gerado é conferida."
+      "description": "O que o nó concluiu, no formato da coluna trilhas_auditoria.conclusao. A forma varia por nó: resumo é obrigatório, e os demais campos descrevem a variante e o desfecho da etapa. A declaração de cobertura acontece na execução do código e fica no resultado da simulação; o fluxo atual não produz elementos_implementados na trilha."
     },
     "regra_id": {
       "type": "string",
@@ -43,12 +43,17 @@
     "simulacao_id": {
       "type": "string",
       "format": "uuid",
-      "description": "Simulação à qual o nó pertence. Ausente nos nós que rodam antes de existir simulação."
+      "description": "Simulação à qual o código gerado pertence. Só a linha de geracao_codigo traz esta referência; as demais chegam à simulação pelo código do resultado apontado em resultado_id."
+    },
+    "resultado_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Referência ao resultado sobre o qual a etapa agiu. Na decisao, é o resultado decidido. Na sugestao_adaptacao, é o resultado inviável analisado. Na linha decisao que encerra a busca da meta maior, é a candidata vencedora; fica ausente quando a busca termina sem solução. Na geracao_codigo com modo_geracao igual a correcao, é o resultado que falhou. Na geracao_codigo com modo_geracao igual a derivado, é o resultado de sucesso da versão de origem. Nas demais etapas, fica ausente."
     },
     "prompt_id": {
       "type": "string",
       "format": "uuid",
-      "description": "Linha de prompts usada pelo nó. Ausente nos nós que não chamam modelo. A resposta do modelo é alcançada por ela, que é um para um com o prompt."
+      "description": "Linha de prompts usada pelo nó. Na geracao_codigo com modo_geracao igual a derivado, referencia o prompt da versão de origem, sem nova chamada ao modelo. Ausente nas demais etapas que não usam prompt. A resposta do modelo é alcançada por ela, que é um para um com o prompt."
     },
     "codigo_gerado_id": {
       "type": "string",
