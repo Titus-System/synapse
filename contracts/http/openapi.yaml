@@ -224,6 +224,13 @@ paths:
 
         Lista os jobs do próprio usuário, e não os do sistema: histórico é do fluxo
         operacional, que é do papel `PROFISSIONAL DE RH` (DEC-087).
+
+        O parâmetro opcional `situacao` restringe a listagem às regras de uma das
+        telas de regras salvas e arquivadas. A `api` aplica o filtro antes de paginar,
+        de modo que a tela pede só a página que mostra e `total` já é a quantidade da
+        lista. Um valor fora de `salvas` e `arquivadas` responde `400` com
+        `requisicao_invalida`, como `pagina` e `tamanho`. Sem o parâmetro, a
+        listagem é a de sempre.
       parameters:
         - name: pagina
           in: query
@@ -242,9 +249,26 @@ paths:
             minimum: 1
             maximum: 100
             default: 20
+        - name: situacao
+          in: query
+          required: false
+          description: |
+            Restringe a listagem às regras de uma tela. `salvas` devolve os jobs em
+            `liberado`; `arquivadas` devolve os jobs em `arquivado`. Ausente, a
+            listagem não filtra por estado.
+
+            O valor usa o vocabulário da tela, e não o estado do job, para que a regra
+            "salva é `liberado`" fique na `api`, dona do estado. Não existe estado
+            "salvo": `salvar` e `confirmar_liberar` levam o job a `liberado`.
+
+            O filtro só alcança os jobs do próprio usuário, e a paginação vale depois
+            dele.
+          schema:
+            type: string
+            enum: [salvas, arquivadas]
       responses:
         "200":
-          description: Página do histórico.
+          description: Página do histórico, filtrada por `situacao` quando informada.
           content:
             application/json:
               schema:
@@ -272,6 +296,53 @@ paths:
                     pagina: 0
                     tamanho: 20
                     total: 3
+                somenteSalvas:
+                  summary: "`situacao=salvas`: só os jobs em `liberado`"
+                  value:
+                    itens:
+                      - id: "d4e6f8a0-2b3c-4d5e-9f1a-3b5c7d9e1f23"
+                        nome: Comissão de 3% para a marca 20
+                        status: liberado
+                        competencias: ["2025-09", "2025-10", "2025-11"]
+                        orcamento: 520000.0
+                        criado_em: "2025-11-20T16:45:00Z"
+                      - id: "e5f7a9b1-3c4d-4e6f-8a2b-4c6d8e0f2a34"
+                        nome: Comissão de novembro para o cargo 300
+                        status: liberado
+                        competencias: ["2025-11"]
+                        criado_em: "2025-11-18T11:20:00Z"
+                    pagina: 0
+                    tamanho: 20
+                    total: 2
+                somenteArquivadas:
+                  summary: "`situacao=arquivadas`: só os jobs em `arquivado`"
+                  value:
+                    itens:
+                      - id: "f6a8b0c2-4d5e-4f7a-9b3c-5d7e9f1a3b45"
+                        nome: Comissão de 4% para a loja 13
+                        status: arquivado
+                        competencias: ["2025-10", "2025-11"]
+                        orcamento: 410000.0
+                        criado_em: "2025-11-12T09:30:00Z"
+                    pagina: 0
+                    tamanho: 20
+                    total: 1
+                paginaDeUmaListaFiltrada:
+                  summary: "`situacao=salvas&pagina=1&tamanho=2`: `total` é o do filtro, não o da página"
+                  value:
+                    itens:
+                      - id: "a7b9c1d3-5e6f-4a8b-8c4d-6e8f0a2b4c56"
+                        nome: Comissão de 2% para a loja 7
+                        status: liberado
+                        competencias: ["2025-08", "2025-09"]
+                        criado_em: "2025-11-10T13:05:00Z"
+                      - id: "b8c0d2e4-6f7a-4b9c-9d5e-7f9a1b3c5d67"
+                        status: liberado
+                        competencias: ["2025-08"]
+                        criado_em: "2025-11-05T10:00:00Z"
+                    pagina: 1
+                    tamanho: 2
+                    total: 5
         "400":
           $ref: "#/components/responses/RequisicaoInvalida"
         "401":
@@ -2947,7 +3018,9 @@ components:
         total:
           type: integer
           minimum: 0
-          description: Total de jobs do usuário, não da página.
+          description: |
+            Total de jobs do usuário que atendem ao filtro `situacao`, não da página.
+            Sem o filtro, é o total de jobs do usuário.
 
     EventoProgresso:
       title: Evento do stream de progresso
