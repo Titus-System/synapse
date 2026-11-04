@@ -215,8 +215,7 @@ class ReprocessarJobPersistenciaTests {
 			.isEqualTo(JSON.readTree(ESPECIFICACOES));
 		assertThat(JSON.readTree(Objects.requireNonNull(regra.get("especificacoes")).toString()))
 			.isEqualTo(JSON.readTree(ESPECIFICACOES));
-		verificarEvento(novoId, UUID.fromString(novo.path("regra").path("id").asString()), List.of("2025-11"),
-				"485000.1234567890123456789");
+		assertThat(eventos(novoId)).isEmpty();
 		assertThat(retrato(origem)).isEqualTo(antes);
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM submissoes", Integer.class)).isEqualTo(1);
 	}
@@ -233,8 +232,7 @@ class ReprocessarJobPersistenciaTests {
 		assertThat(jdbc.queryForObject("SELECT orcamento FROM jobs WHERE id = ?", BigDecimal.class, novoId))
 			.isEqualByComparingTo("600000.1234567890123456789");
 		assertThat(competencias(novoId)).containsExactly("2025-08", "2025-09", "2025-12");
-		verificarEvento(novoId, UUID.fromString(novo.path("regra").path("id").asString()), competencias(novoId),
-				"600000.1234567890123456789");
+		assertThat(eventos(novoId)).isEmpty();
 		assertThat(retrato(origem)).isEqualTo(antes);
 	}
 
@@ -442,6 +440,7 @@ class ReprocessarJobPersistenciaTests {
 		assertThat(regras.size()).isEqualTo(editado ? 2 : 1);
 		assertThat(regras.path(0).path("representacao")).isEqualTo(representacaoOriginal);
 		assertThat(regras.path(editado ? 1 : 0).path("representacao")).isEqualTo(enviada);
+		assertThat(eventos(novoId)).containsExactly("parametros-confirmados");
 		String payload = Objects.requireNonNull(jdbc.queryForObject(
 				"SELECT payload::text FROM outbox_events WHERE job_id = ? AND tipo = 'parametros-confirmados'",
 				String.class, novoId));
@@ -477,18 +476,17 @@ class ReprocessarJobPersistenciaTests {
 	}
 
 	@Test
-	void falhaNoOutboxReverteJobRegraETransicao() {
+	void falhaNaCopiaDaRegraReverteJobETransicao() {
 		UUID origem = criarOrigem(true);
 		Map<String, Object> antes = contagens();
 		String original = retrato(origem);
-		dono.execute("REVOKE INSERT ON outbox_events FROM synapse_api");
+		dono.execute("REVOKE INSERT ON regras FROM synapse_api");
 		try {
 			assertThatThrownBy(() -> service.reprocessar(origem, ReprocessarJobRequisicao.deJson(null)))
-				.isInstanceOf(DataAccessException.class)
-				.hasMessageContaining("INSERT INTO outbox_events");
+				.isInstanceOf(DataAccessException.class);
 		}
 		finally {
-			dono.execute("GRANT INSERT ON outbox_events TO synapse_api");
+			dono.execute("GRANT INSERT ON regras TO synapse_api");
 		}
 		assertThat(contagens()).isEqualTo(antes);
 		assertThat(retrato(origem)).isEqualTo(original);
@@ -530,21 +528,8 @@ class ReprocessarJobPersistenciaTests {
 		return novo;
 	}
 
-	private static void verificarEvento(UUID jobId, UUID regraId, List<String> competencias, String orcamento)
-			throws Exception {
-		Map<String, Object> evento = jdbc
-			.queryForMap("SELECT tipo, payload::text AS payload FROM outbox_events WHERE job_id = ?", jobId);
-		assertThat(evento).containsEntry("tipo", "regra-submetida");
-		String payload = Objects.requireNonNull((String) evento.get("payload"));
-		ContratoDeEvento.validar("regra-submetida", payload);
-		ObjectNode arvore = (ObjectNode) JSON.readTree(payload);
-		// Fora da comparação estrita: um valor monetário se confere por precisão, não por
-		// tipo de nó JSON.
-		assertThat(arvore.path("orcamento").isNumber()).isTrue();
-		assertThat(arvore.path("orcamento").decimalValue()).isEqualByComparingTo(orcamento);
-		arvore.remove("orcamento");
-		assertThat(arvore).isEqualTo(JSON.valueToTree(Map.of("job_id", jobId.toString(), "origem", "reprocessamento",
-				"competencias", competencias, "regra_id", regraId.toString())));
+	private static List<String> eventos(UUID jobId) {
+		return jdbc.queryForList("SELECT tipo FROM outbox_events WHERE job_id = ? ORDER BY id", String.class, jobId);
 	}
 
 	private static List<String> competencias(UUID jobId) {
