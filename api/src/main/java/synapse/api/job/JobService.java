@@ -448,7 +448,8 @@ class JobService {
 		}
 		this.maquina.registrarCriacao(jobId, status, "usuario");
 		RegraCriadaDto regra = this.repository.copiarRegra(jobId, regras.getFirst(), timestamp, agora);
-		// Nenhum evento é publicado aqui: o job espera em aguardando_confirmacao_parametros e o
+		// Nenhum evento é publicado aqui: o job espera em
+		// aguardando_confirmacao_parametros e o
 		// único ciclo de simulação é aberto por parametros-confirmados, na confirmação.
 		return new JobCriadoDto(jobId, status.paraColuna(), "reprocessamento", competencias, orcamento, agora, null,
 				origemId, regra);
