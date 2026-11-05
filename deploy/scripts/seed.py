@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Popula um banco synapse_db local com dados de demonstração:
-#   - as contas develop@synapse.pro e staging@synapse.pro no Keycloak e em usuarios;
+#   - develop@synapse.pro (profissional-rh), staging@synapse.pro (auditor) e
+#     auditor@synapse.pro (auditor) no Keycloak e em usuarios;
 #   - quatro jobs de ponta a ponta (submissao -> regra -> código gerado ->
 #     resultado -> simulação), um para cada desfecho de resultados_simulacao:
 #     viável, inviável, inviável com sugestão de adaptação e assercao_violada;
@@ -75,6 +76,12 @@ USUARIOS = (
     {
         "login": "staging@synapse.pro",
         "nome": "Staging",
+        "papel": "auditor",
+        "papel_keycloak": "auditor",
+    },
+    {
+        "login": "auditor@synapse.pro",
+        "nome": "Auditoria",
         "papel": "auditor",
         "papel_keycloak": "auditor",
     },
@@ -200,7 +207,7 @@ class KeycloakAdmin:
                 f"/admin/realms/{self.realm}/users/{usuario_id}/role-mappings/realm",
                 json_body=[representacao],
             )
-        # Estas duas identidades são fixtures locais, não cadastros de pessoas.
+        # As identidades do seed são fixtures locais, não cadastros de pessoas.
         self.requisitar(
             "PUT", f"/admin/realms/{self.realm}/users/{usuario_id}",
             json_body={"emailVerified": True},
@@ -1017,7 +1024,8 @@ def main() -> None:
         connection.close()
 
     print(
-        "seed: contas Keycloak e locais (develop@synapse.pro, staging@synapse.pro) e pipeline de "
+        "seed: contas Keycloak e locais (develop@synapse.pro, staging@synapse.pro, "
+        "auditor@synapse.pro) e pipeline de "
         "demonstração prontos (7 jobs: viável, inviável, inviável com sugestão, "
         "assercao_violada e 3 aguardando_decisao_usuario para staging@synapse.pro)"
     )

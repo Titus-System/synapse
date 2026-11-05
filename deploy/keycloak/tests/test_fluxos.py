@@ -512,6 +512,7 @@ class FluxosTests(unittest.TestCase):
             self.env.get("KEYCLOAK_ADMIN_USERNAME", "admin"),
             self.env["KEYCLOAK_ADMIN_PASSWORD"],
         )
+        auditor = next(user for user in seed.USUARIOS if user["nome"] == "Auditoria")
         for user in seed.USUARIOS:
             user_id = admin.provisionar_usuario(user, PASSWORD)
             self.assertEqual(
@@ -519,6 +520,22 @@ class FluxosTests(unittest.TestCase):
                 self.roles(user_id) & {"profissional-rh", "auditor"},
             )
             self.assertEqual(user_id, admin.provisionar_usuario(user, PASSWORD))
+            if user is auditor:
+                account = self.admin.call("GET", f"/users/{user_id}")
+                self.assertTrue(account["emailVerified"])
+                self.assertEqual("Auditoria", account["firstName"])
+                groups = self.admin.call("GET", f"/users/{user_id}/groups")
+                self.assertNotIn(
+                    "/synapse-autocadastro", {group["path"] for group in groups}
+                )
+                claims = self.token(self.login(user["login"], PASSWORD))
+                self.assertEqual(user_id, claims["sub"])
+                self.assertTrue(claims["email_verified"])
+                self.assertEqual(
+                    {"auditor"},
+                    set(claims["realm_access"]["roles"])
+                    & {"profissional-rh", "auditor"},
+                )
 
     def test_renovacao_e_logout_preservam_contrato_oidc(self):
         email = "sessao@example.test"
