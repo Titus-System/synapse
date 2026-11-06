@@ -76,13 +76,14 @@ class JobRepository {
 		this.jdbc = jdbc;
 	}
 
-	long contarJobs(UUID usuarioId) {
+	long contarJobs(UUID usuarioId, @Nullable String status) {
 		return Objects.requireNonNull(this.jdbc.queryForObject("""
 				SELECT count(*) FROM jobs WHERE usuario_id = ?
-				""", Long.class, usuarioId));
+				AND (CAST(? AS text) IS NULL OR status = ?)
+				""", Long.class, usuarioId, status, status));
 	}
 
-	List<JobResumoDto> listarJobs(UUID usuarioId, int tamanho, long deslocamento) {
+	List<JobResumoDto> listarJobs(UUID usuarioId, int tamanho, long deslocamento, @Nullable String status) {
 		return this.jdbc.query("""
 				SELECT j.id, j.status, j.competencias, j.orcamento, j.meta_venda, j.criado_em, j.finalizado_em,
 				       j.job_origem_id, rs.veredito,
@@ -97,9 +98,10 @@ class JobRepository {
 				) corrente ON true
 				LEFT JOIN resultados_simulacao rs ON rs.id = corrente.resultado_id AND rs.status = 'sucesso'
 				WHERE j.usuario_id = ?
+				AND (CAST(? AS text) IS NULL OR j.status = ?)
 				ORDER BY j.criado_em DESC, j.id DESC
 				LIMIT ? OFFSET ?
-				""", (linha, numero) -> resumo(linha), usuarioId, tamanho, deslocamento);
+				""", (linha, numero) -> resumo(linha), usuarioId, status, status, tamanho, deslocamento);
 	}
 
 	private static JobResumoDto resumo(ResultSet linha) throws SQLException {
