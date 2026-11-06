@@ -9,7 +9,7 @@ info:
     deste arquivo: `frontend` e `api` são escritos em paralelo contra ele e só se
     encontram na integração.
 
-    Onze operações. Dez são sobre o recurso `job`, que é a unidade de trabalho do
+    Além das duas consultas de auditoria, dez operações são sobre o recurso `job`, que é a unidade de trabalho do
     sistema e o que a `api` possui de ponta a ponta, e uma recebe as submissões do
     usuário: a descrição de uma regra nova, digitada ou falada, e a correção
     enviada pelo chatbot. O ciclo é assíncrono: a criação devolve o job em
@@ -77,10 +77,8 @@ info:
     nem renomeado sem decisão explícita. Nenhum schema fecha o objeto com
     `additionalProperties: false`, e um cliente ignora campo que não conhece.
 
-    **Fora do escopo desta versão.** A consulta de auditoria
-    `GET /jobs/{id}/audit` e a rota de autenticação que emite a sessão exigida por
-    `security`. As duas entram quando suas tarefas entrarem. Nenhuma rota devolve
-    o áudio enviado nem o texto transcrito da entrada inicial.
+    **Fora do escopo desta versão.** A emissão da sessão é responsabilidade do
+    Keycloak. A reprodução do áudio para auditoria terá contrato próprio (T-330).
 
 servers:
   - url: /api
@@ -94,12 +92,475 @@ security:
   - keycloakOidc: []
 
 tags:
+  - name: auditoria
+    description: Consulta investigativa de jobs, exclusiva do auditor.
   - name: jobs
     description: Criação, acompanhamento, finalização e reprocessamento de jobs de simulação.
   - name: submissoes
     description: Entradas do usuário, por texto ou voz - a descrição de uma regra nova e a correção enviada pelo chatbot.
 
 paths:
+  /auditoria/jobs:
+    get:
+      tags:
+        - auditoria
+      operationId: listarJobsAuditoria
+      summary: Lista os jobs de todos os usuários para auditoria.
+      description: 'Somente o papel auditor, em leitura e sem verificação de posse. Textos de entrada, prompts,
+        respostas do modelo e código são dados não confiáveis: exiba-os como texto, sem executar código
+        ou interpretar HTML. Ordena por criação decrescente, com desempate por id decrescente. O total inclui
+        todos os jobs.'
+      parameters:
+        - name: pagina
+          in: query
+          required: false
+          description: Página, começando em zero.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: tamanho
+          in: query
+          required: false
+          description: Itens por página.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Página global de jobs com identificação do dono.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginaJobsAuditoria'
+              examples:
+                consulta:
+                  value:
+                    itens:
+                      - id: 00000000-0000-4000-8000-000000000001
+                        nome: Comissão de novembro
+                        status: liberado
+                        origem: voz
+                        competencias:
+                          - 2025-11
+                        orcamento: 600000
+                        meta_venda: 28000000
+                        criado_em: '2025-11-28T14:00:00Z'
+                        finalizado_em: '2025-11-28T14:18:00Z'
+                        usuario:
+                          login: rh.exemplo
+                          nome: Profissional de RH
+                    pagina: 0
+                    tamanho: 20
+                    total: 1
+        '400':
+          $ref: '#/components/responses/RequisicaoInvalida'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '403':
+          $ref: '#/components/responses/SemPermissao'
+  /auditoria/jobs/{id}:
+    get:
+      tags:
+        - auditoria
+      operationId: consultarAuditoriaJob
+      summary: Consulta o registro de auditoria de um job.
+      description: 'Somente o papel auditor, em leitura e sem verificação de posse. Textos de entrada, prompts,
+        respostas do modelo e código são dados não confiáveis: exiba-os como texto, sem executar código
+        ou interpretar HTML. Reúne o nível 3 da explicabilidade. A reprodução de áudio usa a rota própria
+        da T-330. O registro omite binários de áudio e linhas por matrícula.'
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Registro estruturado do job.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistroAuditoria'
+              examples:
+                consulta:
+                  value:
+                    job:
+                      id: 00000000-0000-4000-8000-000000000001
+                      nome: Comissão de novembro
+                      status: liberado
+                      origem: voz
+                      competencias:
+                        - 2025-11
+                      orcamento: 600000
+                      meta_venda: 28000000
+                      criado_em: '2025-11-28T14:00:00Z'
+                      finalizado_em: '2025-11-28T14:18:00Z'
+                      usuario:
+                        login: rh.exemplo
+                        nome: Profissional de RH
+                      iniciado_em: '2025-11-28T14:01:00Z'
+                    entradas:
+                      - id: 00000000-0000-4000-8000-000000000002
+                        tipo: voz
+                        finalidade: entrada_inicial
+                        texto: Comissão em novembro de 2025 na loja 13, marcas 10 e 20, cargos 100 e 300.
+                          Orçamento de 600 mil e meta de venda de 28 milhões.
+                        formato: ogg
+                        criado_em: '2025-11-28T14:00:00Z'
+                        transcrito_em: '2025-11-28T14:01:00Z'
+                      - id: 00000000-0000-4000-8000-000000000003
+                        tipo: texto
+                        finalidade: correcao
+                        texto: O percentual de comissão é 2,5%.
+                        criado_em: '2025-11-28T14:05:00Z'
+                    versoes:
+                      - id: 00000000-0000-4000-8000-00000000000a
+                        versao: 1
+                        origem: extracao
+                        representacao:
+                          nucleo:
+                            vigencia:
+                              inicio: 2025-11
+                              fim: 2025-11
+                            loja:
+                              - '13'
+                            marca:
+                              - '10'
+                              - '20'
+                            cargo:
+                              - '100'
+                              - '300'
+                          especificacoes: []
+                        criada_em: '2025-11-28T14:03:00Z'
+                        hash: 7545cef2c676b95728e3f3ee8308507cbd67d00b4075c6cf5acd892ecbc55434
+                        parametros:
+                          competencias:
+                            - 2025-11
+                          orcamento: 600000
+                          meta_venda: 28000000
+                      - id: 00000000-0000-4000-8000-00000000000b
+                        versao: 2
+                        origem: correcao
+                        representacao:
+                          nucleo:
+                            vigencia:
+                              inicio: 2025-11
+                              fim: 2025-11
+                            loja:
+                              - '13'
+                            marca:
+                              - '10'
+                              - '20'
+                            cargo:
+                              - '100'
+                              - '300'
+                            percentual: 0.025
+                          especificacoes: []
+                        criada_em: '2025-11-28T14:07:00Z'
+                        hash: 1e7a6b003ca4b6123c3c13dd06f0c36dbdd01d6f7a9c81200d564237a50f3435
+                        parametros:
+                          competencias:
+                            - 2025-11
+                          orcamento: 600000
+                          meta_venda: 28000000
+                        regra_origem_id: 00000000-0000-4000-8000-00000000000a
+                    etapas:
+                      - id: 00000000-0000-4000-8000-00000000001e
+                        'no': extracao_parametros
+                        concluido_em: '2025-11-28T14:03:00Z'
+                        conclusao:
+                          resumo: Regra extraída.
+                        regra_id: 00000000-0000-4000-8000-00000000000a
+                        submissao_id: 00000000-0000-4000-8000-000000000002
+                        prompt_id: 00000000-0000-4000-8000-000000000014
+                      - id: 00000000-0000-4000-8000-00000000001f
+                        'no': validacao_dominio
+                        concluido_em: '2025-11-28T14:04:00Z'
+                        conclusao:
+                          resumo: Percentual ausente.
+                        regra_id: 00000000-0000-4000-8000-00000000000a
+                      - id: 00000000-0000-4000-8000-000000000020
+                        'no': confirmacao
+                        concluido_em: '2025-11-28T14:05:00Z'
+                        conclusao:
+                          resumo: Correção recebida.
+                        regra_id: 00000000-0000-4000-8000-00000000000a
+                      - id: 00000000-0000-4000-8000-000000000021
+                        'no': extracao_parametros
+                        concluido_em: '2025-11-28T14:07:00Z'
+                        conclusao:
+                          resumo: Percentual corrigido.
+                        regra_id: 00000000-0000-4000-8000-00000000000b
+                        submissao_id: 00000000-0000-4000-8000-000000000003
+                        prompt_id: 00000000-0000-4000-8000-000000000015
+                      - id: 00000000-0000-4000-8000-000000000022
+                        'no': geracao_codigo
+                        concluido_em: '2025-11-28T14:09:00Z'
+                        conclusao:
+                          resumo: Código gerado.
+                          modo_geracao: gerado
+                        regra_id: 00000000-0000-4000-8000-00000000000b
+                        simulacao_id: 00000000-0000-4000-8000-00000000000d
+                        codigo_gerado_id: 00000000-0000-4000-8000-00000000000c
+                        prompt_id: 00000000-0000-4000-8000-000000000016
+                      - id: 00000000-0000-4000-8000-000000000023
+                        'no': decisao
+                        concluido_em: '2025-11-28T14:12:00Z'
+                        conclusao:
+                          resumo: Resultado dentro do orçamento.
+                        regra_id: 00000000-0000-4000-8000-00000000000b
+                        resultado_id: 00000000-0000-4000-8000-00000000000e
+                        simulacao_id: 00000000-0000-4000-8000-00000000000d
+                      - id: 00000000-0000-4000-8000-000000000024
+                        'no': decisao
+                        concluido_em: '2025-11-28T14:16:00Z'
+                        conclusao:
+                          resumo: Busca encerrada sem meta maior.
+                          desfecho_busca: intervalo_esgotado
+                          candidatas_simuladas: 1
+                        regra_id: 00000000-0000-4000-8000-00000000000b
+                    chamadas_modelo:
+                      - id: 00000000-0000-4000-8000-000000000014
+                        'no': extracao_parametros
+                        modelo:
+                          provedor: openai
+                          modelo: gpt-4.1
+                          versao: '2025-04-14'
+                          parametros:
+                            temperature: 0
+                            top_p: 1
+                            seed: 42
+                        prompt: Comissão em novembro de 2025 na loja 13, marcas 10 e 20, cargos 100 e 300.
+                          Orçamento de 600 mil e meta de venda de 28 milhões.
+                        criado_em: '2025-11-28T14:01:00Z'
+                        resposta:
+                          id: 00000000-0000-4000-8000-000000000046
+                          texto: '{"nucleo": {"vigencia": {"inicio": "2025-11", "fim": "2025-11"}, "loja":
+                            ["13"], "marca": ["10", "20"], "cargo": ["100", "300"]}, "especificacoes": []}'
+                          consumo_tokens:
+                            tokens_in: 3120
+                            tokens_out: 480
+                            custo_usd: 0.0212
+                          criado_em: '2025-11-28T14:02:00Z'
+                      - id: 00000000-0000-4000-8000-000000000015
+                        'no': extracao_parametros
+                        modelo:
+                          provedor: openai
+                          modelo: gpt-4.1
+                          versao: '2025-04-14'
+                          parametros:
+                            temperature: 0
+                            top_p: 1
+                            seed: 42
+                        prompt: O percentual de comissão é 2,5%.
+                        criado_em: '2025-11-28T14:05:00Z'
+                        resposta:
+                          id: 00000000-0000-4000-8000-000000000047
+                          texto: '{"nucleo": {"vigencia": {"inicio": "2025-11", "fim": "2025-11"}, "loja":
+                            ["13"], "marca": ["10", "20"], "cargo": ["100", "300"], "percentual": 0.025},
+                            "especificacoes": []}'
+                          consumo_tokens:
+                            tokens_in: 3120
+                            tokens_out: 480
+                            custo_usd: 0.0212
+                          criado_em: '2025-11-28T14:06:00Z'
+                      - id: 00000000-0000-4000-8000-000000000016
+                        'no': geracao_codigo
+                        modelo:
+                          provedor: openai
+                          modelo: gpt-4.1
+                          versao: '2025-04-14'
+                          parametros:
+                            temperature: 0
+                            top_p: 1
+                            seed: 42
+                        prompt: Gere o cálculo da regra corrigida.
+                        criado_em: '2025-11-28T14:07:00Z'
+                        resposta:
+                          id: 00000000-0000-4000-8000-000000000048
+                          texto: |
+                            def aplicar_regra(bases, apuracao_base, competencias):
+                                chaves = ['matricula', 'competencia']
+                                vendas = bases['vendas'].groupby(chaves)['vlr_venda'].sum()
+                                simulada = apuracao_base.copy()
+                                venda = simulada.set_index(chaves).index.map(vendas).fillna(0)
+                                alvo = (simulada.cod_loja == 13) & simulada.cod_marca.isin([10, 20]) & simulada.cod_cargo.isin([100, 300]) & simulada.competencia.isin(competencias)
+                                simulada['comissao'] = simulada.comissao.where(~alvo, venda * 0.025)
+                                efeitos = simulada[['matricula', 'competencia', 'cod_loja', 'cod_marca', 'cod_cargo']].copy()
+                                efeitos['delta'] = simulada.comissao - apuracao_base.comissao
+                                efeitos['elemento_ref'] = 'nucleo.percentual'
+                                return {'apuracao_simulada': simulada, 'contribuicoes': efeitos[efeitos.delta != 0], 'elementos_implementados': ['nucleo.percentual']}
+                          consumo_tokens:
+                            tokens_in: 3120
+                            tokens_out: 480
+                            custo_usd: 0.0212
+                          criado_em: '2025-11-28T14:08:00Z'
+                    codigos:
+                      - id: 00000000-0000-4000-8000-00000000000c
+                        regra_id: 00000000-0000-4000-8000-00000000000b
+                        linguagem: python
+                        fonte: |
+                          def aplicar_regra(bases, apuracao_base, competencias):
+                              chaves = ['matricula', 'competencia']
+                              vendas = bases['vendas'].groupby(chaves)['vlr_venda'].sum()
+                              simulada = apuracao_base.copy()
+                              venda = simulada.set_index(chaves).index.map(vendas).fillna(0)
+                              alvo = (simulada.cod_loja == 13) & simulada.cod_marca.isin([10, 20]) & simulada.cod_cargo.isin([100, 300]) & simulada.competencia.isin(competencias)
+                              simulada['comissao'] = simulada.comissao.where(~alvo, venda * 0.025)
+                              efeitos = simulada[['matricula', 'competencia', 'cod_loja', 'cod_marca', 'cod_cargo']].copy()
+                              efeitos['delta'] = simulada.comissao - apuracao_base.comissao
+                              efeitos['elemento_ref'] = 'nucleo.percentual'
+                              return {'apuracao_simulada': simulada, 'contribuicoes': efeitos[efeitos.delta != 0], 'elementos_implementados': ['nucleo.percentual']}
+                        prompt_id: 00000000-0000-4000-8000-000000000016
+                        criado_em: '2025-11-28T14:09:00Z'
+                    resultados:
+                      - id: 00000000-0000-4000-8000-00000000000e
+                        codigo_gerado_id: 00000000-0000-4000-8000-00000000000c
+                        status: sucesso
+                        proposito: simulacao
+                        veredito: viavel
+                        meta_venda: 28000000
+                        totais:
+                          baseline: 529520.0
+                          simulado: 541900.0
+                          diferenca_abs: 12380.0
+                          diferenca_pct: 0.0234
+                          orcamento: 600000.0
+                          vendas_historicas: 23583194.87
+                        assercoes:
+                          - nome: sem_comissao_negativa
+                            resultado: ok
+                            detalhe: null
+                          - nome: sem_comissao_sem_venda
+                            resultado: ok
+                            detalhe: null
+                          - nome: soma_loja_igual_soma_matricula
+                            resultado: ok
+                            detalhe: null
+                        decomposicao:
+                          elemento:
+                            nucleo.percentual: 12380
+                          loja:
+                            '13': 12380
+                          marca:
+                            '10': 12380
+                          cargo:
+                            '100': 12380
+                          competencia:
+                            2025-11: 12380
+                        criado_em: '2025-11-28T14:11:00Z'
+                      - id: 00000000-0000-4000-8000-00000000000f
+                        codigo_gerado_id: 00000000-0000-4000-8000-00000000000c
+                        status: sucesso
+                        proposito: busca_meta
+                        veredito: inviavel
+                        meta_venda: 28500000
+                        totais:
+                          baseline: 529520.0
+                          simulado: 607500
+                          diferenca_abs: 77980
+                          diferenca_pct: 0.1473
+                          orcamento: 600000.0
+                          vendas_historicas: 23583194.87
+                        assercoes:
+                          - nome: sem_comissao_negativa
+                            resultado: ok
+                            detalhe: null
+                          - nome: sem_comissao_sem_venda
+                            resultado: ok
+                            detalhe: null
+                          - nome: soma_loja_igual_soma_matricula
+                            resultado: ok
+                            detalhe: null
+                        decomposicao:
+                          elemento:
+                            nucleo.percentual: 77980
+                          loja:
+                            '13': 77980
+                          marca:
+                            '10': 77980
+                          cargo:
+                            '100': 77980
+                          competencia:
+                            2025-11: 77980
+                        criado_em: '2025-11-28T14:15:00Z'
+                    simulacoes:
+                      - id: 00000000-0000-4000-8000-00000000000d
+                        regra_id: 00000000-0000-4000-8000-00000000000b
+                        codigo_gerado_id: 00000000-0000-4000-8000-00000000000c
+                        resultado_id: 00000000-0000-4000-8000-00000000000e
+                        flag_baixa_rastreabilidade: false
+                        criado_em: '2025-11-28T14:09:00Z'
+                    transicoes:
+                      - id: 00000000-0000-4000-8000-000000000050
+                        status_novo: aguardando_transcricao
+                        ocorrido_em: '2025-11-28T14:00:00Z'
+                        ator: usuario
+                      - id: 00000000-0000-4000-8000-000000000051
+                        status_novo: gerando_regra
+                        ocorrido_em: '2025-11-28T14:01:00Z'
+                        ator: sistema
+                        status_anterior: aguardando_transcricao
+                      - id: 00000000-0000-4000-8000-000000000052
+                        status_novo: aguardando_confirmacao_parametros
+                        ocorrido_em: '2025-11-28T14:04:00Z'
+                        ator: evento
+                        status_anterior: gerando_regra
+                      - id: 00000000-0000-4000-8000-000000000053
+                        status_novo: gerando_regra
+                        ocorrido_em: '2025-11-28T14:07:00Z'
+                        ator: evento
+                        status_anterior: aguardando_confirmacao_parametros
+                      - id: 00000000-0000-4000-8000-000000000054
+                        status_novo: simulando
+                        ocorrido_em: '2025-11-28T14:10:00Z'
+                        ator: evento
+                        status_anterior: gerando_regra
+                      - id: 00000000-0000-4000-8000-000000000055
+                        status_novo: aguardando_decisao_usuario
+                        ocorrido_em: '2025-11-28T14:12:00Z'
+                        ator: evento
+                        status_anterior: simulando
+                      - id: 00000000-0000-4000-8000-000000000056
+                        status_novo: liberado
+                        ocorrido_em: '2025-11-28T14:18:00Z'
+                        ator: usuario
+                        status_anterior: aguardando_decisao_usuario
+                    acoes:
+                      - id: 00000000-0000-4000-8000-000000000028
+                        acao: salvar
+                        executado_em: '2025-11-28T14:18:00Z'
+                    rodadas:
+                      - id: 00000000-0000-4000-8000-000000000029
+                        rodada_anterior_id: null
+                        regra_analisada_id: 00000000-0000-4000-8000-00000000000a
+                        conflitos:
+                          - elementos:
+                              - nucleo.percentual
+                            motivo: percentual ausente
+                        correcao:
+                          tipo: texto
+                          texto: O percentual de comissão é 2,5%.
+                          enviada_em: '2025-11-28T14:05:00Z'
+                        regra_resultante_id: 00000000-0000-4000-8000-00000000000b
+                        estado: corrigida
+                        criada_em: '2025-11-28T14:04:00Z'
+                    sugestoes_meta:
+                      - regra_id: 00000000-0000-4000-8000-00000000000b
+                        motivo_sem_solucao: intervalo_esgotado
+                        criada_em: '2025-11-28T14:16:00Z'
+                    explicacoes:
+                      - id: 00000000-0000-4000-8000-00000000002a
+                        resultado_id: 00000000-0000-4000-8000-00000000000e
+                        texto: A comissão simulada de R$ 541.900 está dentro do orçamento de R$ 600.000.
+                        aderencia_conferida: true
+                        criado_em: '2025-11-28T14:17:00Z'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '403':
+          $ref: '#/components/responses/SemPermissao'
+        '404':
+          $ref: '#/components/responses/JobNaoEncontrado'
+
   /jobs:
     post:
       tags: [jobs]
@@ -112,8 +573,7 @@ paths:
 
         **O corpo tem forma de submissão, mas a rota fica sob /jobs** porque o
         recurso com ciclo de vida neste contrato é o job: é o `id` dele, não o da
-        submissão, que as outras seis operações rastreiam, e a submissão em si nunca
-        é lida de volta por nenhuma rota daqui. A rota nomeia o que o cliente vai
+        submissão, que as outras seis operações rastreiam, e os dados da submissão ficam disponíveis na consulta de auditoria. A rota nomeia o que o cliente vai
         acompanhar, não a forma literal do que envia.
 
         A resposta chega antes de a simulação terminar: o processamento leva minutos
@@ -773,8 +1233,7 @@ paths:
         vem somado pelo worker, fora do container; o frontend só apresenta.
 
         Exige a mesma autenticação, papel e posse da consulta do job: o
-        solicitante deve ser dono do job ou ter o papel `auditor` que autoriza
-        a consulta. A simulação precisa pertencer ao job informado.
+        solicitante deve ter o papel `profissional-rh` e ser dono do job. A simulação precisa pertencer ao job informado.
 
         Sem detalhamento, responde 200 e omite `linhas`: isso inclui simulações
         ainda sem resultado, resultados com status diferente de `sucesso` e
@@ -1796,9 +2255,9 @@ components:
       description: |
         Autenticação OIDC emitida pelo Keycloak. O cliente envia o access token como
         `Authorization: Bearer <token>`; a API valida emissor, assinatura e expiração.
-        A conta local é associada ao claim `sub`, e o acesso a um job confere posse,
-        não apenas autenticação. O papel `auditor` no realm autoriza consulta além da
-        própria conta.
+        A conta local é associada ao claim `sub`. As rotas operacionais de jobs exigem
+        `profissional-rh` e restringem a consulta aos próprios jobs. Somente o papel
+        `auditor` consulta jobs de qualquer dono pelas rotas de leitura em /auditoria/.
 
   parameters:
     JobId:
@@ -1838,8 +2297,8 @@ components:
 
     SemPermissao:
       description: |
-        A sessão é válida, mas o solicitante não é dono do job nem tem papel que
-        autorize a operação sobre ele.
+        A sessão é válida, mas o papel não permite a operação ou falta a posse
+        exigida pela rota operacional.
       content:
         application/json:
           schema:
@@ -1863,6 +2322,471 @@ components:
                 mensagem: Job não encontrado.
 
   schemas:
+    JobAuditoria:
+      type: object
+      required:
+        - id
+        - status
+        - origem
+        - competencias
+        - criado_em
+        - usuario
+      properties:
+        id:
+          type: string
+          format: uuid
+        nome:
+          $ref: '#/components/schemas/JobResumo/properties/nome'
+        status:
+          $ref: '#/components/schemas/StatusJob'
+        origem:
+          $ref: '#/components/schemas/OrigemJob'
+        competencias:
+          $ref: '#/components/schemas/Competencias'
+        orcamento:
+          $ref: ../domain/comum.schema.json#/$defs/brl
+        meta_venda:
+          $ref: '#/components/schemas/JobResumo/properties/meta_venda'
+        criado_em:
+          type: string
+          format: date-time
+        finalizado_em:
+          type: string
+          format: date-time
+        job_origem_id:
+          type: string
+          format: uuid
+        usuario:
+          type: object
+          required:
+            - login
+            - nome
+          properties:
+            login:
+              type: string
+            nome:
+              type: string
+    PaginaJobsAuditoria:
+      type: object
+      required:
+        - itens
+        - pagina
+        - tamanho
+        - total
+      properties:
+        itens:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobAuditoria'
+        pagina:
+          type: integer
+          minimum: 0
+        tamanho:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+          description: Quantidade de jobs de todos os usuários, inclusive fora da página.
+    EntradaAuditoria:
+      type: object
+      not: {required: [binario]}
+      required:
+        - id
+        - tipo
+        - finalidade
+        - criado_em
+      properties:
+        id:
+          type: string
+          format: uuid
+        tipo:
+          type: string
+          enum:
+            - formulario
+            - texto
+            - voz
+        finalidade:
+          $ref: '#/components/schemas/FinalidadeSubmissao'
+        criado_em:
+          type: string
+          format: date-time
+        conteudo:
+          $ref: ../domain/submissao-conteudo.schema.json
+        texto:
+          type: string
+          description: Texto digitado ou transcrição. Ausente em formulário e enquanto a transcrição está
+            pendente.
+        formato:
+          type: string
+          enum:
+            - webm
+            - ogg
+            - wav
+            - mp4
+        transcrito_em:
+          type: string
+          format: date-time
+    VersaoAuditoria:
+      allOf:
+        - $ref: '#/components/schemas/RegraVersionada'
+        - type: object
+          required:
+            - hash
+          properties:
+            regra_origem_id:
+              type: string
+              format: uuid
+            hash:
+              type: string
+              pattern: ^[0-9a-f]{64}$
+            tentativa:
+              type: integer
+              minimum: 1
+              maximum: 3
+            parametros:
+              $ref: ../domain/parametros-simulacao.schema.json
+    EtapaAuditoria:
+      type: object
+      required:
+        - id
+        - 'no'
+        - concluido_em
+        - conclusao
+      properties:
+        id:
+          type: string
+          format: uuid
+        'no':
+          $ref: ../domain/comum.schema.json#/$defs/no_grafo
+        concluido_em:
+          type: string
+          format: date-time
+        conclusao:
+          $ref: ../domain/trilha-conclusao.schema.json
+        regra_id:
+          type: string
+          format: uuid
+        resultado_id:
+          type: string
+          format: uuid
+        prompt_id:
+          type: string
+          format: uuid
+        codigo_gerado_id:
+          type: string
+          format: uuid
+        explicacao_id:
+          type: string
+          format: uuid
+        simulacao_id:
+          type: string
+          format: uuid
+          description: Se a linha não traz a simulação, a API a identifica pelo código do resultado referenciado.
+        submissao_id:
+          type: string
+          format: uuid
+          description: Nas etapas de extração, a API identifica a submissão pela extração ou pela rodada de
+            correção.
+    ChamadaModeloAuditoria:
+      type: object
+      required:
+        - id
+        - 'no'
+        - modelo
+        - prompt
+        - criado_em
+      properties:
+        id:
+          type: string
+          format: uuid
+        'no':
+          $ref: ../domain/comum.schema.json#/$defs/no_grafo
+        modelo:
+          $ref: ../domain/modelo-llm.schema.json
+        prompt:
+          type: string
+        criado_em:
+          type: string
+          format: date-time
+        resposta:
+          type: object
+          required:
+            - id
+            - texto
+            - criado_em
+          properties:
+            id:
+              type: string
+              format: uuid
+            texto:
+              type: string
+            consumo_tokens:
+              $ref: ../domain/consumo-tokens.schema.json
+            criado_em:
+              type: string
+              format: date-time
+    CodigoAuditoria:
+      type: object
+      required:
+        - id
+        - regra_id
+        - linguagem
+        - fonte
+        - prompt_id
+        - criado_em
+      properties:
+        id:
+          type: string
+          format: uuid
+        regra_id:
+          type: string
+          format: uuid
+        linguagem:
+          type: string
+        fonte:
+          type: string
+        prompt_id:
+          type: string
+          format: uuid
+        criado_em:
+          type: string
+          format: date-time
+    ResultadoAuditoria:
+      type: object
+      not: {required: [linhas]}
+      required:
+        - id
+        - codigo_gerado_id
+        - status
+        - proposito
+        - criado_em
+      properties:
+        id:
+          type: string
+          format: uuid
+        codigo_gerado_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/StatusResultado'
+        proposito:
+          type: string
+          enum:
+            - simulacao
+            - busca_meta
+        veredito:
+          $ref: '#/components/schemas/Veredito'
+        meta_venda:
+          $ref: ../domain/comum.schema.json#/$defs/brl
+        totais:
+          $ref: ../domain/resultado-totais.schema.json
+        assercoes:
+          $ref: ../domain/resultado-assercoes.schema.json
+        decomposicao:
+          $ref: ../domain/resultado-decomposicao.schema.json
+        diagnostico:
+          $ref: ../domain/resultado-diagnostico.schema.json
+        criado_em:
+          type: string
+          format: date-time
+    SimulacaoAuditoria:
+      type: object
+      required:
+        - id
+        - regra_id
+        - codigo_gerado_id
+        - flag_baixa_rastreabilidade
+        - criado_em
+      properties:
+        id:
+          type: string
+          format: uuid
+        regra_id:
+          type: string
+          format: uuid
+        codigo_gerado_id:
+          type: string
+          format: uuid
+        resultado_id:
+          type: string
+          format: uuid
+        flag_baixa_rastreabilidade:
+          type: boolean
+        criado_em:
+          type: string
+          format: date-time
+    TransicaoAuditoria:
+      type: object
+      required:
+        - id
+        - status_novo
+        - ocorrido_em
+        - ator
+      properties:
+        id:
+          type: string
+          format: uuid
+        status_anterior:
+          $ref: '#/components/schemas/StatusJob'
+        status_novo:
+          $ref: '#/components/schemas/StatusJob'
+        ocorrido_em:
+          type: string
+          format: date-time
+        ator:
+          type: string
+          enum:
+            - usuario
+            - sistema
+            - evento
+        motivo:
+          type: string
+    AcaoAuditoria:
+      type: object
+      required:
+        - id
+        - acao
+        - executado_em
+      properties:
+        id:
+          type: string
+          format: uuid
+        acao:
+          $ref: '#/components/schemas/AcaoJob'
+        executado_em:
+          type: string
+          format: date-time
+    SugestaoMetaAuditoria:
+      type: object
+      oneOf:
+        - required: [resultado_id]
+        - required: [motivo_sem_solucao]
+      required:
+        - regra_id
+        - criada_em
+      properties:
+        regra_id:
+          type: string
+          format: uuid
+        resultado_id:
+          type: string
+          format: uuid
+        resultado_anterior_id:
+          type: string
+          format: uuid
+        motivo_sem_solucao:
+          type: string
+          enum:
+            - nao_monotonica
+            - intervalo_esgotado
+            - falha_execucao
+        criada_em:
+          type: string
+          format: date-time
+        aceita_em:
+          type: string
+          format: date-time
+    ExplicacaoAuditoria:
+      type: object
+      required:
+        - id
+        - resultado_id
+        - texto
+        - aderencia_conferida
+        - criado_em
+      properties:
+        id:
+          type: string
+          format: uuid
+        resultado_id:
+          type: string
+          format: uuid
+        texto:
+          type: string
+        aderencia_conferida:
+          type: boolean
+        criado_em:
+          type: string
+          format: date-time
+    RegistroAuditoria:
+      type: object
+      required:
+        - job
+        - entradas
+        - versoes
+        - etapas
+        - chamadas_modelo
+        - codigos
+        - resultados
+        - simulacoes
+        - transicoes
+        - acoes
+        - rodadas
+        - sugestoes_meta
+        - explicacoes
+      properties:
+        job:
+          allOf:
+            - $ref: '#/components/schemas/JobAuditoria'
+            - type: object
+              properties:
+                iniciado_em:
+                  type: string
+                  format: date-time
+        entradas:
+          type: array
+          items:
+            $ref: '#/components/schemas/EntradaAuditoria'
+        versoes:
+          type: array
+          items:
+            $ref: '#/components/schemas/VersaoAuditoria'
+        etapas:
+          type: array
+          items:
+            $ref: '#/components/schemas/EtapaAuditoria'
+        chamadas_modelo:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChamadaModeloAuditoria'
+        codigos:
+          type: array
+          items:
+            $ref: '#/components/schemas/CodigoAuditoria'
+        resultados:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResultadoAuditoria'
+        simulacoes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SimulacaoAuditoria'
+        transicoes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransicaoAuditoria'
+        acoes:
+          type: array
+          items:
+            $ref: '#/components/schemas/AcaoAuditoria'
+        rodadas:
+          type: array
+          items:
+            $ref: '#/components/schemas/Rodada'
+        sugestoes_meta:
+          type: array
+          items:
+            $ref: '#/components/schemas/SugestaoMetaAuditoria'
+        explicacoes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExplicacaoAuditoria'
+      description: As listas seguem o instante do registro em ordem crescente. Listas sem ocorrências são
+        vazias. Referências entre seções são IDs. Campos opcionais sem valor são omitidos, respeitando a nulidade
+        dos schemas referenciados.
+
     Erro:
       type: object
       title: Erro
