@@ -242,9 +242,12 @@ export interface PaginaJobs {
   total: number
 }
 
+export type SituacaoListagem = 'salvas' | 'arquivadas'
+
 export interface ListarJobsParametros {
   pagina?: number
   tamanho?: number
+  situacao?: SituacaoListagem
 }
 
 export interface Conflito {
