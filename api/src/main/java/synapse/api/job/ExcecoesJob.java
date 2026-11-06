@@ -151,7 +151,7 @@ class ExecutarAcaoException extends RuntimeException {
 
 }
 
-/** Parâmetro de paginação de {@code GET /jobs} fora do que o contrato aceita. */
+/** Parâmetro de {@code GET /jobs} fora do que o contrato aceita. */
 class ListarJobsException extends RuntimeException {
 
 	private final String mensagem;
@@ -167,6 +167,10 @@ class ListarJobsException extends RuntimeException {
 
 	static ListarJobsException tamanho() {
 		return new ListarJobsException("O parâmetro tamanho precisa ser um inteiro entre 1 e 100.");
+	}
+
+	static ListarJobsException situacao() {
+		return new ListarJobsException("O parâmetro situacao precisa ser salvas ou arquivadas.");
 	}
 
 	String mensagem() {

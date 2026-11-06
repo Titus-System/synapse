@@ -117,9 +117,10 @@ class JobService {
 	 */
 	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 	PaginaJobsDto listar(ListarJobsRequisicao requisicao, AcessoDoUsuario acesso) {
-		long total = this.repository.contarJobs(acesso.usuarioId());
+		String status = requisicao.situacao() == null ? null : requisicao.situacao().status().paraColuna();
+		long total = this.repository.contarJobs(acesso.usuarioId(), status);
 		List<JobResumoDto> itens = this.repository.listarJobs(acesso.usuarioId(), requisicao.tamanho(),
-				requisicao.deslocamento());
+				requisicao.deslocamento(), status);
 		return new PaginaJobsDto(itens, requisicao.pagina(), requisicao.tamanho(), total);
 	}
 

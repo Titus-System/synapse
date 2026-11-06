@@ -44,6 +44,31 @@ enum AcaoJob {
 
 }
 
+enum SituacaoDaListagem {
+
+	SALVAS(JobStatus.LIBERADO), ARQUIVADAS(JobStatus.ARQUIVADO);
+
+	private final JobStatus status;
+
+	SituacaoDaListagem(JobStatus status) {
+		this.status = status;
+	}
+
+	JobStatus status() {
+		return this.status;
+	}
+
+	static SituacaoDaListagem deParametro(String valor) {
+		for (SituacaoDaListagem situacao : values()) {
+			if (situacao.name().toLowerCase(Locale.ROOT).equals(valor)) {
+				return situacao;
+			}
+		}
+		throw ListarJobsException.situacao();
+	}
+
+}
+
 /**
  * Os nós do grafo do codegen, no mesmo vocabulário fechado de
  * {@code comum.schema.json#/$defs/no_grafo}. Único lugar da api que os declara.
