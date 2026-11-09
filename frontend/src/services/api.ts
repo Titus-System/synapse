@@ -25,6 +25,7 @@ export const apiClient = {
     const query = new URLSearchParams()
     if (parametros.pagina !== undefined) query.set('pagina', String(parametros.pagina))
     if (parametros.tamanho !== undefined) query.set('tamanho', String(parametros.tamanho))
+    if (parametros.situacao !== undefined) query.set('situacao', parametros.situacao)
     const suffix = query.size > 0 ? `?${query.toString()}` : ''
 
     return http.get<PaginaJobs>(`/jobs${suffix}`, signal)
