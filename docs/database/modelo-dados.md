@@ -239,7 +239,7 @@ A coluna `codigo_gerado_id` existe porque uma mesma versão da regra pode ser tr
 
 ### `trilhas_auditoria`
 
-Uma linha por nó do grafo concluído, montada pela API a partir do evento que o codegen publica ao terminar cada nó. As colunas de referência apontam o prompt, o código e a explicação produzidos naquele nó.
+Uma linha por etapa concluída, montada pela API a partir do evento que o codegen publica ao terminar cada nó. As colunas de referência apontam o prompt, o código e a explicação produzidos naquele nó, e `resultado_id` aponta o resultado sobre o qual a etapa agiu.
 
 A coluna `conclusao` guarda o que o nó concluiu, e a forma muda de nó para nó.
 
@@ -260,9 +260,15 @@ A coluna `conclusao` guarda o que o nó concluiu, e a forma muda de nó para nó
   "concentracao": ["13", "elem.1"] }
 ```
 
-Só `resumo` é comum aos três. Achatar essa variação em colunas produziria dezenas delas quase sempre nulas. O objeto não repete o que a linha já alcança: o nome do nó está na coluna `no`, o veredito em `resultados_simulacao` e a razão de uma parada em `job_transicoes.motivo`.
+```json
+{ "resumo": "busca encerrada com uma meta maior encontrada",
+  "desfecho_busca": "encontrada",
+  "candidatas_simuladas": 3 }
+```
 
-A coluna `evento_id` é a chave de idempotência, com índice único. O codegen usa UUIDv5 derivado do job, nó e referência do artefato em `id_do_evento_de_trilha`. Reentregas e republicações do mesmo evento lógico conservam a identidade; a API grava o identificador recebido e evita duplicação da trilha.
+O último é a conclusão da linha `decisao` que encerra a busca da meta maior; nela, `resultado_id` aponta a candidata vencedora. Só `resumo` é comum aos quatro. Achatar essa variação em colunas produziria dezenas delas quase sempre nulas. O objeto não repete o que a linha já alcança: o nome do nó está na coluna `no`, o veredito em `resultados_simulacao` e a razão de uma parada em `job_transicoes.motivo`.
+
+A coluna `evento_id` é a chave de idempotência, com índice único. O codegen usa UUIDv5 derivado do job, nó e referência do artefato em `id_do_evento_de_trilha`. Reentregas e republicações do mesmo evento lógico conservam a identidade; a API grava o identificador recebido e evita duplicação da trilha. Há duas exceções: a API gera a chave das linhas `confirmacao`, que ela mesma grava na confirmação, e a linha `decisao` que encerra a busca da meta maior usa chave própria, derivada do job e da versão da regra.
 
 ### `prompts`
 
