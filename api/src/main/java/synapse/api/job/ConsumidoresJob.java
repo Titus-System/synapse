@@ -255,16 +255,21 @@ class NoConcluidoConsumidor {
 
 	private final CorrelationContext correlacao;
 
-	NoConcluidoConsumidor(JobEventosService servico, EmissoresSse emissores, CorrelationContext correlacao) {
+	private final AppMetrics metricas;
+
+	NoConcluidoConsumidor(JobEventosService servico, EmissoresSse emissores, CorrelationContext correlacao,
+			AppMetrics metricas) {
 		this.servico = servico;
 		this.emissores = emissores;
 		this.correlacao = correlacao;
+		this.metricas = metricas;
 	}
 
 	@RabbitListener(queues = RabbitTopologyConfig.NO_CONCLUIDO)
 	void receber(NoConcluidoDto evento) {
 		UUID jobId = evento.job_id();
 		if (jobId == null) {
+			this.metricas.noConcluidoConsumido("descartado").increment();
 			log.atWarn().log("no-concluido sem job_id; evento descartado");
 			return;
 		}
@@ -274,11 +279,13 @@ class NoConcluidoConsumidor {
 			EtapaDoGrafo no = EtapaDoGrafo.deEvento(evento.no());
 			if (eventoId == null || no == null || evento.concluido_em() == null || evento.conclusao() == null
 					|| !temResumo(evento.conclusao())) {
+				this.metricas.noConcluidoConsumido("descartado").increment();
 				log.atWarn().addKeyValue("no", evento.no()).log("no-concluido inválido; evento descartado");
 				return;
 			}
 
 			if (no == EtapaDoGrafo.CONFIRMACAO) {
+				this.metricas.noConcluidoConsumido("descartado").increment();
 				// JobService já grava essa linha na mesma transação da
 				// confirmação; gravar de novo aqui duplicaria a trilha.
 				log.atInfo().log("no-concluido do nó confirmacao descartado; trilha já gravada pela confirmação");
@@ -290,10 +297,25 @@ class NoConcluidoConsumidor {
 				busca = this.servico.registrarNoConcluido(jobId, eventoId, no, evento);
 			}
 			catch (EmptyResultDataAccessException ex) {
-				log.atWarn().setCause(ex).log("no-concluido de job desconhecido; evento descartado");
+				this.metricas.noConcluidoConsumido("descartado").increment();
+				log.atWarn().log("no-concluido de job desconhecido; evento descartado");
 				return;
 			}
-			log.atDebug().addKeyValue("no", no.paraEvento()).log("no-concluido gravado na trilha");
+			catch (org.springframework.dao.DataAccessException
+					| org.springframework.transaction.TransactionException ex) {
+				this.metricas.noConcluidoConsumido("falha").increment();
+				log.atWarn()
+					.addKeyValue("no", no.paraEvento())
+					.addKeyValue("resultado", "falha")
+					.log("falha na gravação da trilha; mensagem será reentregue");
+				throw new FalhaPersistenciaTrilhaException();
+			}
+			String resultado = busca == JobEventosService.BuscaMetaAnunciada.DUPLICADA ? "duplicado" : "gravado";
+			this.metricas.noConcluidoConsumido(resultado).increment();
+			log.atDebug()
+				.addKeyValue("no", no.paraEvento())
+				.addKeyValue("resultado", resultado)
+				.log("no-concluido processado na trilha");
 			String status = busca.status();
 			if (status != null) {
 				// Depois do commit: quem buscar o job agora encontra o campo, ou não o

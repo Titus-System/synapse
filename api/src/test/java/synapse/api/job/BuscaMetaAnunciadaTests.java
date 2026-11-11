@@ -52,7 +52,9 @@ class BuscaMetaAnunciadaTests {
 	void oComecoEOFimDaBuscaSaoAnunciadosDepoisDeGravados(BuscaMetaAnunciada busca) throws Exception {
 		var servico = mock(JobEventosService.class);
 		var emissores = mock(EmissoresSse.class);
-		var consumidor = new NoConcluidoConsumidor(servico, emissores, new CorrelationContext());
+		var consumidor = new NoConcluidoConsumidor(servico, emissores, new CorrelationContext(),
+				new synapse.api.core.metrics.AppMetrics(
+						new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
 		UUID jobId = UUID.randomUUID();
 		NoConcluidoDto evento = decisao(jobId);
 		when(servico.registrarNoConcluido(eq(jobId), any(), eq(EtapaDoGrafo.DECISAO), eq(evento))).thenReturn(busca);
@@ -105,7 +107,9 @@ class BuscaMetaAnunciadaTests {
 	void semBuscaAbertaNadaVaiAoSse() throws Exception {
 		var servico = mock(JobEventosService.class);
 		var emissores = mock(EmissoresSse.class);
-		var consumidor = new NoConcluidoConsumidor(servico, emissores, new CorrelationContext());
+		var consumidor = new NoConcluidoConsumidor(servico, emissores, new CorrelationContext(),
+				new synapse.api.core.metrics.AppMetrics(
+						new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
 		UUID jobId = UUID.randomUUID();
 		NoConcluidoDto evento = decisao(jobId);
 		when(servico.registrarNoConcluido(eq(jobId), any(), eq(EtapaDoGrafo.DECISAO), eq(evento)))

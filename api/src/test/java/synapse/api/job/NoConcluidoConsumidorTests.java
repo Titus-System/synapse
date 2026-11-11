@@ -73,7 +73,7 @@ class NoConcluidoConsumidorTests {
 	static void subirAplicacao() throws Exception {
 		postgres = new PostgreSQLContainer("postgres:18-alpine");
 		postgres.start();
-		rabbitmq = new RabbitMQContainer("rabbitmq:3.13-management-alpine");
+		rabbitmq = new RabbitMQContainer("rabbitmq:3.13-management-alpine").withStartupTimeout(Duration.ofMinutes(2));
 		rabbitmq.start();
 
 		contexto = new SpringApplicationBuilder(ApiApplication.class).web(WebApplicationType.SERVLET)
@@ -120,6 +120,96 @@ class NoConcluidoConsumidorTests {
 	}
 
 	// --- Cenários -----------------------------------------------------------------
+
+	@Test
+	void falhaDaTrilhaNaoInterrompeSimulacaoEReentregaGravaUmaUnicaVez() throws Exception {
+		UUID jobId = criarJob();
+		UUID regraId = criarRegra(jobId);
+		UUID codigoId = criarCodigoGerado(jobId, regraId);
+		UUID resultadoId = criarResultado(jobId, codigoId);
+		UUID eventoId = UUID.randomUUID();
+		double falhas = consumos("falha");
+		double gravados = consumos("gravado");
+		double duplicados = consumos("duplicado");
+		try (CapturaDeLog captura = new CapturaDeLog(NoConcluidoConsumidor.class)) {
+			try (Connection connection = comoDono(); Statement statement = connection.createStatement()) {
+				statement.execute("REVOKE INSERT ON trilhas_auditoria FROM synapse_api");
+			}
+			try {
+				publicar(eventoId, jobId, "geracao_codigo", regraId, codigoId, null, null);
+				await().atMost(Duration.ofSeconds(15))
+					.untilAsserted(() -> assertThat(consumos("falha")).isGreaterThan(falhas));
+				String corpo = """
+						{"job_id":"%s","resultado_id":"%s","status":"sucesso","veredito":"viavel"}
+						""".formatted(jobId, resultadoId);
+				ContratoDeEvento.validar("simulacao-concluida", corpo);
+				rabbitTemplate.send("", RabbitTopologyConfig.SIMULACAO_CONCLUIDA_API,
+						MessageBuilder.withBody(corpo.getBytes(StandardCharsets.UTF_8))
+							.setContentType(MessageProperties.CONTENT_TYPE_JSON)
+							.setDeliveryMode(MessageDeliveryMode.PERSISTENT)
+							.build());
+				await().atMost(Duration.ofSeconds(15))
+					.untilAsserted(() -> assertThat(contexto.getBean(JobService.class).buscar(jobId).status())
+						.isEqualTo("aguardando_decisao_usuario"));
+				assertThat(contarTrilhas(jobId)).isZero();
+				assertThat(consumos("gravado")).isEqualTo(gravados);
+			}
+			finally {
+				try (Connection connection = comoDono(); Statement statement = connection.createStatement()) {
+					statement.execute("GRANT INSERT ON trilhas_auditoria TO synapse_api");
+				}
+			}
+			await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
+				assertThat(contarTrilhas(jobId)).isEqualTo(1);
+				assertThat(consumos("gravado")).isEqualTo(gravados + 1);
+				assertThat(resultadoDaSimulacao(codigoId)).isEqualTo(resultadoId);
+			});
+			publicar(eventoId, jobId, "geracao_codigo", regraId, codigoId, null, null);
+			await().atMost(Duration.ofSeconds(10))
+				.untilAsserted(() -> assertThat(consumos("duplicado")).isEqualTo(duplicados + 1));
+			assertThat(contarTrilhas(jobId)).isEqualTo(1);
+			assertThat(consumos("gravado")).isEqualTo(gravados + 1);
+			var falha = captura.eventos()
+				.stream()
+				.filter(e -> e.getMessage().equals("falha na gravação da trilha; mensagem será reentregue"))
+				.findFirst()
+				.orElseThrow();
+			String linha = CapturaDeLog.emJson(falha);
+			ContratoDeEvento.validarLog(linha);
+			var json = new JsonMapper().readTree(linha);
+			assertThat(json.path("job_id").asString()).isEqualTo(jobId.toString());
+			assertThat(json.path("extra").path("no").asString()).isEqualTo("geracao_codigo");
+			assertThat(linha).doesNotContain("conclusao", "exception", "INSERT", "senha-de-teste");
+		}
+		int porta = Objects
+			.requireNonNull(
+					((org.springframework.boot.web.server.context.WebServerApplicationContext) contexto).getWebServer())
+			.getPort();
+		var resposta = java.net.http.HttpClient.newHttpClient()
+			.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create("http://localhost:" + porta + "/metrics"))
+				.GET()
+				.build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+		assertThat(resposta.statusCode()).isEqualTo(200);
+		for (String resultado : List.of("gravado", "duplicado", "falha")) {
+			var amostras = resposta.body()
+				.lines()
+				.filter(l -> l.startsWith("no_concluido_consumo_total{")
+						&& l.contains("resultado=\"" + resultado + "\""))
+				.toList();
+			assertThat(amostras).hasSize(1);
+			assertThat(Double.parseDouble(amostras.getFirst().substring(amostras.getFirst().lastIndexOf(' ') + 1)))
+				.isEqualTo(consumos(resultado))
+				.isPositive();
+		}
+	}
+
+	private static double consumos(String resultado) {
+		var contador = contexto.getBean(io.micrometer.core.instrument.MeterRegistry.class)
+			.find("no.concluido.consumo")
+			.tag("resultado", resultado)
+			.counter();
+		return contador == null ? 0 : contador.count();
+	}
 
 	@Test
 	void noDeGeracaoDeCodigoGravaATrilhaEASimulacao() throws Exception {
@@ -296,11 +386,11 @@ class NoConcluidoConsumidorTests {
 		assertThat(registrarDecisao(servico, abertura, jobId, regraId, "busca_meta"))
 			.isEqualTo(JobEventosService.BuscaMetaAnunciada.INICIADA);
 		assertThat(registrarDecisao(servico, abertura, jobId, regraId, "busca_meta"))
-			.isEqualTo(JobEventosService.BuscaMetaAnunciada.NENHUMA);
+			.isEqualTo(JobEventosService.BuscaMetaAnunciada.DUPLICADA);
 		assertThat(registrarDecisao(servico, fecho, jobId, regraId, null))
 			.isEqualTo(JobEventosService.BuscaMetaAnunciada.ENCERRADA);
 		assertThat(registrarDecisao(servico, fecho, jobId, regraId, null))
-			.isEqualTo(JobEventosService.BuscaMetaAnunciada.NENHUMA);
+			.isEqualTo(JobEventosService.BuscaMetaAnunciada.DUPLICADA);
 	}
 
 	@Test

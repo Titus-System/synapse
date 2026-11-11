@@ -8,6 +8,15 @@ import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
 
+class FalhaPersistenciaTrilhaException extends RuntimeException {
+
+	FalhaPersistenciaTrilhaException() {
+		// O container registra a cadeia inteira; não retenha a exceção com artefatos.
+		super("falha de persistência ao consumir no-concluido", null, false, true);
+	}
+
+}
+
 class FalhaPersistenciaEtapaException extends RuntimeException {
 
 	FalhaPersistenciaEtapaException() {

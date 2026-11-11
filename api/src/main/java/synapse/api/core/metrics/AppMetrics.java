@@ -187,6 +187,15 @@ public class AppMetrics {
 			.register(this.registry);
 	}
 
+	/** Resultados fechados: gravado, duplicado, descartado e falha. */
+	public Counter noConcluidoConsumido(String resultado) {
+		return Counter.builder("no.concluido.consumo")
+			.description(
+					"Tentativas de consumo de no-concluido; reentrega já gravada conta como duplicado, não gravado")
+			.tag("resultado", resultado)
+			.register(this.registry);
+	}
+
 	/**
 	 * Entregas de {@code simulacao-concluida} consumidas, por desfecho e resultado do
 	 * consumo. Conta entregas, não jobs: a reentrega de um desfecho já aplicado sai como
