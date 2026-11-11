@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/resultado-fontes.schema.json",
+  "title": "Fontes de dados do resultado da simulação",
+  "description": "Coluna resultados_simulacao.fontes. Identifica as bases que o worker conferiu contra o manifesto antes de executar. As imagens do worker e do sandbox copiam os dados do mesmo diretório do repositório, worker/sandbox/data/domrock. O registro contém somente referências e identificação das bases, sem seu conteúdo. A linha imutável do resultado o vincula ao código, à versão da regra, à simulação e ao horário da execução.",
+  "type": "object",
+  "required": ["manifesto", "competencias", "arquivos", "baselines"],
+  "properties": {
+    "manifesto": {
+      "type": "object",
+      "description": "Identificação do manifesto dos baselines usado na conferência.",
+      "required": ["versao", "congelamento"],
+      "properties": {
+        "versao": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Versão registrada no manifesto."
+        },
+        "congelamento": {
+          "type": "string",
+          "format": "date",
+          "description": "Data de congelamento registrada no manifesto."
+        }
+      }
+    },
+    "competencias": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "comum.schema.json#/$defs/competencia" },
+      "description": "Competências históricas processadas pela execução."
+    },
+    "arquivos": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Arquivos de base conferidos pelo worker contra fontes_sha256 do manifesto.",
+      "items": {
+        "type": "object",
+        "required": ["nome", "sha256"],
+        "properties": {
+          "nome": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Nome relativo ao diretório das bases, como registrado em fontes_sha256."
+          },
+          "sha256": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    },
+    "baselines": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Referências dos baselines congelados das competências processadas, com arquivo e sha256 registrados no manifesto.",
+      "items": {
+        "type": "object",
+        "required": ["competencia", "arquivo", "sha256"],
+        "properties": {
+          "competencia": { "$ref": "comum.schema.json#/$defs/competencia" },
+          "arquivo": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Caminho do baseline relativo ao diretório das bases, como registrado no manifesto."
+          },
+          "sha256": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 com 64 caracteres hexadecimais minúsculos."
+    }
+  }
+}
