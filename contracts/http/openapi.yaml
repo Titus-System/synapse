@@ -9,7 +9,7 @@ info:
     deste arquivo: `frontend` e `api` são escritos em paralelo contra ele e só se
     encontram na integração.
 
-    Além das duas consultas de auditoria, dez operações são sobre o recurso `job`, que é a unidade de trabalho do
+    Além das cinco consultas de auditoria, dez operações são sobre o recurso `job`, que é a unidade de trabalho do
     sistema e o que a `api` possui de ponta a ponta, e uma recebe as submissões do
     usuário: a descrição de uma regra nova, digitada ou falada, e a correção
     enviada pelo chatbot. O ciclo é assíncrono: a criação devolve o job em
@@ -561,6 +561,254 @@ paths:
         '404':
           $ref: '#/components/responses/JobNaoEncontrado'
 
+  /auditoria/eventos:
+    get:
+      tags:
+        - auditoria
+      operationId: listarEventosAuditoria
+      summary: Lista os eventos de todas as regras para o painel de operações do auditor.
+      description: 'Somente o papel auditor, em leitura e sem verificação de posse. Evento é um registro gravado
+        com instante: entradas, rodadas de correção abertas, versões da regra, códigos gerados, resultados
+        de simulação, sugestões de meta criadas e aceitas, ações do usuário e a parada do job em erro. Renomear
+        a regra e as execuções candidatas da busca da meta não são eventos. Cada evento é atribuído ao dono do job.
+        Loja, marca e cargo são os do núcleo da versão mais recente da regra do job; um job sem versão não os tem
+        e não aparece quando um desses filtros é usado. O mês é o do instante no fuso America/Sao_Paulo. Os filtros
+        se combinam com E. O filtro `regra` acha o job pelo id exato quando o valor é um UUID e, nos outros casos,
+        pela presença do texto no nome resolvido, sem diferenciar maiúsculas de minúsculas. Ordena pelo instante
+        decrescente, com desempate por `origem_id` decrescente. Os contadores valem para todas as páginas, com os
+        mesmos filtros. Textos são dados não confiáveis: exiba-os como texto. A resposta não traz áudio, linhas
+        por matrícula, prompt, resposta do modelo nem código.'
+      parameters:
+        - name: pagina
+          in: query
+          required: false
+          description: Página, começando em zero.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: tamanho
+          in: query
+          required: false
+          description: Itens por página.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: usuario
+          in: query
+          required: false
+          description: Login do dono do job (`usuarios.login`).
+          schema:
+            type: string
+            minLength: 1
+        - name: mes
+          in: query
+          required: false
+          description: Mês do evento, no formato AAAA-MM, no fuso America/Sao_Paulo.
+          schema:
+            $ref: ../domain/comum.schema.json#/$defs/competencia
+        - name: loja
+          in: query
+          required: false
+          description: Código da loja da versão mais recente da regra.
+          schema:
+            $ref: ../domain/comum.schema.json#/$defs/codigo
+        - name: marca
+          in: query
+          required: false
+          description: Código da marca da versão mais recente da regra.
+          schema:
+            $ref: ../domain/comum.schema.json#/$defs/codigo
+        - name: cargo
+          in: query
+          required: false
+          description: Código do cargo da versão mais recente da regra.
+          schema:
+            $ref: ../domain/comum.schema.json#/$defs/codigo
+        - name: regra
+          in: query
+          required: false
+          description: Id exato do job, quando UUID, ou texto contido no nome da regra.
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Página de eventos com os contadores do painel.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginaEventosAuditoria'
+              examples:
+                consulta:
+                  value:
+                    itens:
+                      - instante: '2025-11-28T14:18:00Z'
+                        tipo: acao_usuario
+                        autor: usuario
+                        usuario_login: rh.exemplo
+                        job:
+                          id: 00000000-0000-4000-8000-000000000001
+                          nome: Comissão de novembro
+                          status: liberado
+                        origem_id: 00000000-0000-4000-8000-0000000000a1
+                        loja: '13'
+                        marca: '10'
+                        cargo: '100'
+                        acao: confirmar_liberar
+                      - instante: '2025-11-28T14:10:00Z'
+                        tipo: resultado_simulacao
+                        autor: sistema
+                        usuario_login: rh.exemplo
+                        job:
+                          id: 00000000-0000-4000-8000-000000000001
+                          nome: Comissão de novembro
+                          status: liberado
+                        origem_id: 00000000-0000-4000-8000-0000000000b1
+                        loja: '13'
+                        marca: '10'
+                        cargo: '100'
+                        status: sucesso
+                        veredito: viavel
+                      - instante: '2025-11-27T16:30:00Z'
+                        tipo: resultado_simulacao
+                        autor: sistema
+                        usuario_login: gestor.exemplo
+                        job:
+                          id: 00000000-0000-4000-8000-000000000003
+                          nome: Bônus de outubro
+                          status: erro
+                        origem_id: 00000000-0000-4000-8000-0000000000b2
+                        loja: '21'
+                        marca: '20'
+                        cargo: '300'
+                        status: erro_codigo
+                        veredito: indeterminado
+                    pagina: 0
+                    tamanho: 20
+                    total: 3
+                    contadores:
+                      eventos: 3
+                      usuarios: 2
+                      regras: 2
+                      simulacoes_com_falha: 1
+        '400':
+          $ref: '#/components/responses/RequisicaoInvalida'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '403':
+          $ref: '#/components/responses/SemPermissao'
+  /auditoria/eventos/filtros:
+    get:
+      tags:
+        - auditoria
+      operationId: consultarFiltrosEventosAuditoria
+      summary: Lista as opções de cada filtro do painel de eventos.
+      description: 'Somente o papel auditor, em leitura. Devolve os logins dos donos de jobs, os meses (AAAA-MM,
+        fuso America/Sao_Paulo) com evento e os códigos de loja, marca e cargo presentes nas versões mais
+        recentes das regras. Loja, marca e cargo são referenciados pelo código, sem nome.'
+      responses:
+        '200':
+          description: Opções de cada filtro.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FiltrosEventosAuditoria'
+              examples:
+                consulta:
+                  value:
+                    usuarios:
+                      - gestor.exemplo
+                      - rh.exemplo
+                    meses:
+                      - 2025-10
+                      - 2025-11
+                    lojas:
+                      - '13'
+                      - '21'
+                    marcas:
+                      - '10'
+                      - '20'
+                    cargos:
+                      - '100'
+                      - '300'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '403':
+          $ref: '#/components/responses/SemPermissao'
+  /auditoria/jobs/{id}/resumo:
+    get:
+      tags:
+        - auditoria
+      operationId: consultarResumoAuditoriaJob
+      summary: Consulta o resumo do dossiê de um job.
+      description: 'Somente o papel auditor, em leitura e sem verificação de posse. Os valores vêm calculados da
+        API; o frontend só formata. As alterações de cada versão são comparadas com a versão de origem
+        (`regra_origem_id`); a versão raiz não tem alterações. Uma simulação é comparada com a simulação do
+        mesmo job concluída com `sucesso` imediatamente antes, pela ordem de criação; só simulações com
+        `sucesso` são comparadas. A exportação do dossiê é o JSON de `GET /auditoria/jobs/{id}`.'
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Contadores, alterações por versão e comparação entre simulações.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumoDossieAuditoria'
+              examples:
+                consulta:
+                  value:
+                    simulacoes:
+                      registradas: 2
+                      sucesso: 2
+                      falha: 0
+                    versao_vigente: 2
+                    versoes:
+                      - id: 00000000-0000-4000-8000-0000000000c2
+                        numero: 2
+                        regra_origem_id: 00000000-0000-4000-8000-0000000000c1
+                        alteracoes:
+                          - elemento_ref: nucleo.orcamento
+                            anterior: 600000
+                            novo: 650000
+                    comparacoes:
+                      - resultado_id: 00000000-0000-4000-8000-0000000000b4
+                        resultado_anterior_id: 00000000-0000-4000-8000-0000000000b3
+                        baseline:
+                          anterior: 540000
+                          atual: 540000
+                          variacao: 0
+                        simulado:
+                          anterior: 598000
+                          atual: 640000
+                          variacao: 42000
+                        diferenca_abs:
+                          anterior: 58000
+                          atual: 100000
+                          variacao: 42000
+                        diferenca_pct:
+                          anterior: 0.1074
+                          atual: 0.1852
+                          variacao: 0.0778
+                        orcamento:
+                          anterior: 600000
+                          atual: 650000
+                          variacao: 50000
+                        meta_venda:
+                          anterior: 28000000
+                          atual: 28000000
+                          variacao: 0
+        '400':
+          $ref: '#/components/responses/RequisicaoInvalida'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '403':
+          $ref: '#/components/responses/SemPermissao'
+        '404':
+          $ref: '#/components/responses/JobNaoEncontrado'
   /jobs:
     post:
       tags: [jobs]
@@ -2389,6 +2637,252 @@ components:
           type: integer
           minimum: 0
           description: Quantidade de jobs de todos os usuários, inclusive fora da página.
+    EventoAuditoria:
+      type: object
+      required:
+        - instante
+        - tipo
+        - autor
+        - usuario_login
+        - job
+        - origem_id
+      description: Registro gravado com instante. Os campos de situação dependem do tipo.
+      properties:
+        instante:
+          type: string
+          format: date-time
+        tipo:
+          type: string
+          enum:
+            - entrada
+            - rodada_correcao
+            - versao_regra
+            - codigo_gerado
+            - resultado_simulacao
+            - sugestao_meta_criada
+            - sugestao_meta_aceita
+            - acao_usuario
+            - job_erro
+        autor:
+          type: string
+          enum: [usuario, sistema]
+          description: Se o evento foi ato do usuário ou do sistema.
+        usuario_login:
+          type: string
+          description: Login do dono do job.
+        job:
+          type: object
+          required: [id, nome, status]
+          properties:
+            id:
+              type: string
+              format: uuid
+            nome:
+              $ref: '#/components/schemas/JobResumo/properties/nome'
+            status:
+              $ref: '#/components/schemas/StatusJob'
+        origem_id:
+          type: string
+          format: uuid
+          description: Id do registro de origem do evento.
+        loja:
+          $ref: ../domain/comum.schema.json#/$defs/codigo
+        marca:
+          $ref: ../domain/comum.schema.json#/$defs/codigo
+        cargo:
+          $ref: ../domain/comum.schema.json#/$defs/codigo
+        finalidade:
+          $ref: '#/components/schemas/FinalidadeSubmissao'
+        tipo_entrada:
+          $ref: '#/components/schemas/TipoSubmissao'
+        origem_versao:
+          type: string
+          description: Origem da versão da regra (`regras.origem`).
+        versao:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/StatusResultado'
+        veredito:
+          $ref: '#/components/schemas/Veredito'
+        acao:
+          $ref: '#/components/schemas/AcaoJob'
+    PaginaEventosAuditoria:
+      type: object
+      required:
+        - itens
+        - pagina
+        - tamanho
+        - total
+        - contadores
+      properties:
+        itens:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventoAuditoria'
+        pagina:
+          type: integer
+          minimum: 0
+        tamanho:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+          description: Quantidade de eventos com os mesmos filtros, inclusive fora da página.
+        contadores:
+          type: object
+          required: [eventos, usuarios, regras, simulacoes_com_falha]
+          description: Calculados sobre todas as páginas, com os mesmos filtros.
+          properties:
+            eventos:
+              type: integer
+              minimum: 0
+            usuarios:
+              type: integer
+              minimum: 0
+              description: Usuários com evento.
+            regras:
+              type: integer
+              minimum: 0
+              description: Regras (jobs) com evento.
+            simulacoes_com_falha:
+              type: integer
+              minimum: 0
+              description: Resultados de simulação com `status` diferente de `sucesso`.
+    FiltrosEventosAuditoria:
+      type: object
+      required: [usuarios, meses, lojas, marcas, cargos]
+      properties:
+        usuarios:
+          type: array
+          items:
+            type: string
+        meses:
+          type: array
+          items:
+            $ref: ../domain/comum.schema.json#/$defs/competencia
+        lojas:
+          type: array
+          items:
+            $ref: ../domain/comum.schema.json#/$defs/codigo
+        marcas:
+          type: array
+          items:
+            $ref: ../domain/comum.schema.json#/$defs/codigo
+        cargos:
+          type: array
+          items:
+            $ref: ../domain/comum.schema.json#/$defs/codigo
+    VariacaoBrl:
+      type: object
+      required: [anterior, atual, variacao]
+      description: Valor monetário na simulação anterior e na atual, e a variação (atual menos anterior).
+      properties:
+        anterior:
+          $ref: ../domain/comum.schema.json#/$defs/brl
+        atual:
+          $ref: ../domain/comum.schema.json#/$defs/brl
+        variacao:
+          $ref: ../domain/comum.schema.json#/$defs/brl
+    VariacaoFracao:
+      type: object
+      required: [anterior, atual, variacao]
+      description: Proporção na simulação anterior e na atual, e a variação (atual menos anterior).
+      properties:
+        anterior:
+          $ref: ../domain/comum.schema.json#/$defs/fracao
+        atual:
+          $ref: ../domain/comum.schema.json#/$defs/fracao
+        variacao:
+          $ref: ../domain/comum.schema.json#/$defs/fracao
+    AlteracaoVersao:
+      type: object
+      required: [elemento_ref]
+      description: Parte alterada em relação à versão de origem. A parte incluída não tem `anterior`, e a removida não tem `novo`.
+      properties:
+        elemento_ref:
+          $ref: ../domain/comum.schema.json#/$defs/elemento_ref
+        anterior: {}
+        novo: {}
+    VersaoResumoAuditoria:
+      type: object
+      required: [id, numero, alteracoes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        numero:
+          type: integer
+          minimum: 1
+        regra_origem_id:
+          type: string
+          format: uuid
+          description: Ausente na versão raiz.
+        alteracoes:
+          type: array
+          description: Vazia na versão raiz.
+          items:
+            $ref: '#/components/schemas/AlteracaoVersao'
+    ComparacaoSimulacao:
+      type: object
+      required:
+        - resultado_id
+        - resultado_anterior_id
+        - baseline
+        - simulado
+        - diferenca_abs
+        - diferenca_pct
+      properties:
+        resultado_id:
+          type: string
+          format: uuid
+        resultado_anterior_id:
+          type: string
+          format: uuid
+        baseline:
+          $ref: '#/components/schemas/VariacaoBrl'
+        simulado:
+          $ref: '#/components/schemas/VariacaoBrl'
+        diferenca_abs:
+          $ref: '#/components/schemas/VariacaoBrl'
+        diferenca_pct:
+          $ref: '#/components/schemas/VariacaoFracao'
+        orcamento:
+          $ref: '#/components/schemas/VariacaoBrl'
+        meta_venda:
+          $ref: '#/components/schemas/VariacaoBrl'
+    ResumoDossieAuditoria:
+      type: object
+      required: [simulacoes, versoes, comparacoes]
+      properties:
+        simulacoes:
+          type: object
+          required: [registradas, sucesso, falha]
+          properties:
+            registradas:
+              type: integer
+              minimum: 0
+            sucesso:
+              type: integer
+              minimum: 0
+            falha:
+              type: integer
+              minimum: 0
+        versao_vigente:
+          type: integer
+          minimum: 1
+          description: Número da versão da regra da simulação vigente. Ausente sem simulação vigente.
+        versoes:
+          type: array
+          items:
+            $ref: '#/components/schemas/VersaoResumoAuditoria'
+        comparacoes:
+          type: array
+          description: Uma por simulação com `sucesso` que tem anterior com `sucesso`.
+          items:
+            $ref: '#/components/schemas/ComparacaoSimulacao'
     EntradaAuditoria:
       type: object
       not: {required: [binario]}
