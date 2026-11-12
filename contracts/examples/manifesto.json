@@ -68,6 +68,15 @@
     "events/meta-venda-sugerida.json": "events/meta-venda-sugerida.schema.json",
     "events/meta-venda-sugerida-sem-solucao.json": "events/meta-venda-sugerida.schema.json",
     "events/sugestao-adaptacao-proposta-tentativa.json": "events/sugestao-adaptacao-proposta.schema.json",
-    "events/etapa-alterada-sem-alternativa.json": "events/etapa-alterada.schema.json"
+    "events/etapa-alterada-sem-alternativa.json": "events/etapa-alterada.schema.json",
+    "domain/resultado-fontes.json": "domain/resultado-fontes.schema.json",
+    "domain/trilha-conclusao-explicacao-conferida.json": "domain/trilha-conclusao.schema.json",
+    "events/no-concluido-explicacao-conferida.json": "events/no-concluido.schema.json",
+    "domain/trilha-conclusao-explicacao-reprovada.json": "domain/trilha-conclusao.schema.json",
+    "events/no-concluido-explicacao-reprovada.json": "events/no-concluido.schema.json",
+    "domain/trilha-conclusao-explicacao-sem-resposta.json": "domain/trilha-conclusao.schema.json",
+    "events/no-concluido-explicacao-sem-resposta.json": "events/no-concluido.schema.json",
+    "domain/trilha-conclusao-explicacao-provedor-indisponivel.json": "domain/trilha-conclusao.schema.json",
+    "events/no-concluido-explicacao-provedor-indisponivel.json": "events/no-concluido.schema.json"
   }
 }

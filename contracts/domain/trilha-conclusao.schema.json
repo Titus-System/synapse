@@ -83,6 +83,11 @@
       "minimum": 0,
       "description": "Nó decisao, na linha que encerra a busca da meta maior. Quantidade de candidatas simuladas na busca. A presença de desfecho_busca distingue esta linha da decisão sobre o resultado. As execuções candidatas não têm linha própria na trilha e ficam em resultados_simulacao com proposito = 'busca_meta'."
     },
+    "desfecho_explicacao": {
+      "type": "string",
+      "enum": ["conferida", "reprovada", "sem_resposta", "provedor_indisponivel"],
+      "description": "Nó explicacao. conferida significa que o texto foi gravado e seus números correspondem aos valores apurados. reprovada significa que o texto foi gravado para auditoria, mas algum número citado não corresponde ao apurado. sem_resposta significa que o modelo não devolveu texto. provedor_indisponivel significa que a indisponibilidade do provedor impediu obter o texto. Só conferida produz narrativa exibível ao profissional de RH. Nos demais desfechos, a falha de explicação degrada a rastreabilidade sem invalidar o resultado da simulação."
+    },
     "encaminhamento": {
       "type": "string",
       "description": "Nó decisao: para onde o fluxo seguiu.",

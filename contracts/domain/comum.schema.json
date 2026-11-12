@@ -84,7 +84,7 @@
         "sugestao_adaptacao",
         "explicacao"
       ],
-      "description": "Vocabulário das etapas da trilha no grafo atual. extracao_parametros registra a extração dos parâmetros da regra e validacao_dominio registra sua validação de domínio. confirmacao é gravado pela API quando o usuário corrige a regra. geracao_codigo cobre geração, derivação e correção do código. delegacao_worker grava uma linha por código; as execuções candidatas da busca da meta não geram linha. decisao cobre a decisão sobre o resultado e o encerramento da busca da meta maior. sugestao_adaptacao grava uma linha por resultado inviável analisado. interpretacao_resultado e explicacao estão reservados e nenhum nó os produz hoje."
+      "description": "Vocabulário das etapas da trilha no grafo atual. extracao_parametros registra a extração dos parâmetros da regra e validacao_dominio registra sua validação de domínio. confirmacao é gravado pela API quando o usuário corrige a regra. geracao_codigo cobre geração, derivação e correção do código. delegacao_worker grava uma linha por código; as execuções candidatas da busca da meta não geram linha. decisao cobre a decisão sobre o resultado e o encerramento da busca da meta maior. sugestao_adaptacao grava uma linha por resultado inviável analisado. explicacao roda depois da decisão, somente em simulação com sucesso, e registra o desfecho da geração e da conferência da narrativa. interpretacao_resultado está reservado e nenhum nó o produz hoje."
     }
   }
 }

@@ -1582,7 +1582,12 @@ paths:
         `regras` traz as representações estruturadas já formadas.
 
         **Depois vêm os eventos conforme acontecem**: `etapa` a cada passo iniciado,
-        `estado` a cada transição do job e `resultado` quando a simulação termina. O
+        `estado` a cada transição do job, `resultado` quando a simulação termina e
+        `explicacao` quando a etapa de explicação termina. A explicação pode chegar
+        alguns segundos depois do resultado: o evento traz `job_id`, `simulacao_id`
+        e `disponivel`, nunca o texto. `disponivel` é verdadeiro somente quando a
+        narrativa foi conferida. Ao recebê-lo, o cliente busca `GET /jobs/{id}`
+        novamente para atualizar a narrativa e a flag de baixa rastreabilidade. O
         stream fecha logo após o evento de estado que anuncia um estado terminal;
         abrir o stream de um job já terminal devolve a fotografia e fecha em
         seguida.
@@ -1617,7 +1622,7 @@ paths:
                 $ref: "#/components/schemas/EventoProgresso"
               examples:
                 streamDeUmJob:
-                  summary: Sequência típica, da conexão ao resultado
+                  summary: Sequência típica, da conexão ao resultado e à explicação
                   description: |
                     O corpo inteiro da resposta, e não um evento isolado. O primeiro
                     evento é a fotografia recebida ao conectar; os demais chegam
@@ -1645,6 +1650,10 @@ paths:
                     event: estado
                     id: 5
                     data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","status":"simulacao_inviavel","status_anterior":"simulando"}
+
+                    event: explicacao
+                    id: 6
+                    data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","simulacao_id":"b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93","disponivel":true}
         "401":
           $ref: "#/components/responses/NaoAutenticado"
         "403":
@@ -3082,6 +3091,13 @@ components:
           $ref: ../domain/resultado-decomposicao.schema.json
         diagnostico:
           $ref: ../domain/resultado-diagnostico.schema.json
+        fontes:
+          $ref: ../domain/resultado-fontes.schema.json
+          description: |
+            Identificação das bases conferidas pelo worker para esta execução.
+            Campo opcional para compatibilidade: ausente nos resultados gravados
+            antes de sua introdução e nos resultados com status `erro_infra`.
+            Contém referências e hashes, nunca o conteúdo das bases.
         criado_em:
           type: string
           format: date-time
@@ -4233,10 +4249,33 @@ components:
         flag_baixa_rastreabilidade:
           type: boolean
           description: |
-            Verdadeiro quando o modelo não devolveu justificativa utilizável ou quando
-            a narrativa reprovou na conferência numérica. Falha de
-            explicação degrada a rastreabilidade e não invalida o número; falha de
-            cobertura ou de asserção invalida.
+            Verdadeiro quando a etapa de explicação terminou sem texto, inclusive
+            por indisponibilidade do provedor, ou com o texto reprovado na
+            conferência numérica. Falso enquanto a explicação não chegou e quando
+            a narrativa foi conferida. Falha de explicação degrada a
+            rastreabilidade e não invalida o número; falha de cobertura ou de
+            asserção invalida.
+        explicacao:
+          type: object
+          description: |
+            Narrativa conferida do resultado vigente desta simulação. Campo
+            opcional, presente somente quando a explicação desse resultado foi
+            conferida. Ausente enquanto a explicação não chegou, quando não houve
+            texto, quando a narrativa foi reprovada na conferência numérica e
+            quando o resultado vigente é uma meta aceita. Nunca nulo.
+          required: [texto, criada_em]
+          properties:
+            texto:
+              type: string
+              minLength: 1
+              description: Narrativa com aderência numérica conferida contra o resultado explicado.
+            criada_em:
+              type: string
+              format: date-time
+              description: Instante de criação da explicação, de explicacoes.criado_em.
+          examples:
+            - texto: "A simulação aplicou a regra às bases históricas e foi considerada inviável para o orçamento informado."
+              criada_em: "2025-11-24T15:30:05Z"
         resultado:
           $ref: "../domain/resultado-simulacao.schema.json"
           description: |
@@ -4444,9 +4483,9 @@ components:
       title: Evento do stream de progresso
       description: |
         JSON de uma linha `data:` do stream. O nome do evento vai na linha `event:` e
-        diz qual das três formas chegou: `etapa`, `estado` ou `resultado`.
+        diz qual das quatro formas chegou: `etapa`, `estado`, `resultado` ou `explicacao`.
 
-        Os três têm `job_id`, que é redundante com o caminho e existe assim mesmo -
+        Os quatro têm `job_id`, que é redundante com o caminho e existe assim mesmo -
         um cliente que mantém mais de um stream aberto não precisa se apoiar em qual
         conexão entregou a mensagem.
 
@@ -4458,6 +4497,7 @@ components:
         - $ref: "#/components/schemas/EventoEtapa"
         - $ref: "#/components/schemas/EventoEstado"
         - $ref: "#/components/schemas/EventoResultado"
+        - $ref: "#/components/schemas/EventoExplicacao"
 
     EventoEtapa:
       type: object
@@ -4572,6 +4612,36 @@ components:
         - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
           status: simulacao_inviavel
           status_anterior: simulando
+
+    EventoExplicacao:
+      type: object
+      title: Evento `explicacao`
+      description: |
+        Anuncia a conclusão da etapa de explicação da simulação. Publicado pela
+        API a partir da conclusão produzida pelo codegen, carrega referências e
+        disponibilidade, nunca o texto. A tela busca `GET /jobs/{id}` novamente
+        para atualizar a narrativa e a flag de baixa rastreabilidade.
+      required: [job_id, simulacao_id, disponivel]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        simulacao_id:
+          type: string
+          format: uuid
+        disponivel:
+          type: boolean
+          description: |
+            Verdadeiro quando a explicação foi conferida. Falso quando a etapa
+            terminou com narrativa reprovada, sem resposta ou com o provedor
+            indisponível. Não carrega a narrativa reprovada.
+      examples:
+        - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          simulacao_id: "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"
+          disponivel: true
+        - job_id: "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021"
+          simulacao_id: "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93"
+          disponivel: false
 
     EventoResultado:
       type: object

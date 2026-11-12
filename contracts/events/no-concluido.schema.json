@@ -48,7 +48,7 @@
     "resultado_id": {
       "type": "string",
       "format": "uuid",
-      "description": "Referência ao resultado sobre o qual a etapa agiu. Na decisao, é o resultado decidido. Na sugestao_adaptacao, é o resultado inviável analisado. Na linha decisao que encerra a busca da meta maior, é a candidata vencedora; fica ausente quando a busca termina sem solução. Na geracao_codigo com modo_geracao igual a correcao, é o resultado que falhou. Na geracao_codigo com modo_geracao igual a derivado, é o resultado de sucesso da versão de origem. Nas demais etapas, fica ausente."
+      "description": "Referência ao resultado sobre o qual a etapa agiu. Na decisao, é o resultado decidido. Na sugestao_adaptacao, é o resultado inviável analisado. Na linha decisao que encerra a busca da meta maior, é a candidata vencedora; fica ausente quando a busca termina sem solução. Na geracao_codigo com modo_geracao igual a correcao, é o resultado que falhou. Na geracao_codigo com modo_geracao igual a derivado, é o resultado de sucesso da versão de origem. Na explicacao, é o resultado explicado, inclusive quando a etapa termina sem texto ou com o texto reprovado. Nas demais etapas, fica ausente."
     },
     "prompt_id": {
       "type": "string",
@@ -63,7 +63,7 @@
     "explicacao_id": {
       "type": "string",
       "format": "uuid",
-      "description": "Linha de explicacoes produzida pelo nó de explicação. Ausente nos demais nós, e também quando não houve narrativa utilizável (US05, cenário 2)."
+      "description": "Linha de explicacoes produzida pelo nó explicacao. Presente sempre que a etapa gravou uma linha, tanto com narrativa conferida quanto reprovada na conferência numérica. Ausente nos demais nós e, na explicacao, quando o modelo não devolveu texto, inclusive por indisponibilidade do provedor. A linha da etapa também traz resultado_id com o resultado explicado."
     }
   },
   "examples": [
