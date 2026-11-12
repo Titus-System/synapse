@@ -209,9 +209,20 @@ Table simulacoes {
 
 Table trilhas_auditoria {
   id uuid [pk, default: `uuidv7()`]
-  evento_id uuid [not null, note: 'UUIDv5 deterministico do job, no e referencia do artefato, gerado pelo codegen; a API grava o recebido. Idempotencia contra reentrega e republicacao do mesmo evento logico.']
+  evento_id uuid [not null, note: 'UUIDv5 deterministico do job, no e referencia do artefato, gerado pelo codegen; a API grava o recebido. Idempotencia contra reentrega e republicacao do mesmo evento logico. Duas excecoes: a API gera a chave das linhas confirmacao, e a linha decisao que encerra a busca da meta maior usa chave propria, derivada do job e da versao da regra.']
   job_id uuid [not null, ref: > jobs.id]
-  simulacao_id uuid [ref: > simulacoes.id, note: 'null p/ nos 1-2 (voz, Sprint 2)']
+  simulacao_id uuid [ref: > simulacoes.id, note: 'so a linha de geracao_codigo o traz; as demais chegam a simulacao pelo codigo do resultado apontado em resultado_id']
+  resultado_id uuid [ref: > resultados_simulacao.id, note: '''
+Resultado sobre o qual a etapa agiu. Na decisao, e o resultado decidido. Na
+sugestao_adaptacao, e o resultado inviavel analisado. Na linha decisao que encerra a
+busca da meta maior, e a candidata vencedora. Na geracao_codigo com modo_geracao igual a
+correcao, e o resultado que falhou; com modo_geracao igual a derivado, e o resultado de
+sucesso da versao de origem.
+Null nas demais etapas, na busca encerrada sem solucao, nas linhas confirmacao e nas
+linhas gravadas antes da coluna (sem backfill).
+Nao substitui simulacao_id: as execucoes candidatas da busca da meta nao tem linha em
+simulacoes, e o aceite da meta troca o resultado para o qual simulacoes.resultado_id aponta.
+''']
   no text [not null, note: 'nome do no concluido, conforme o contrato no-concluido; inclui suggest_adaptation']
   concluido_em timestamptz [not null, note: 'conclusao do no, vinda do evento no-concluido']
   regra_id uuid [ref: > regras.id, note: 'null enquanto a regra nao esta formada']
@@ -230,6 +241,7 @@ Nao repetir aqui o que a linha ja alcanca: o nome do no (coluna no), o veredito
     (evento_id) [unique, note: 'uma linha por mensagem; reentrega e rejeitada no insert']
     (job_id, concluido_em)
     (simulacao_id)
+    (resultado_id)
   }
 }
 

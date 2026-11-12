@@ -49,7 +49,11 @@ class MigrationTests {
 			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras",
 			"rodadas_correcao", "trabalhos_transcricao", "sugestoes_meta_venda");
 
-	private static final int CHANGESETS = 33;
+	private static final int CHANGESETS = 34;
+
+	private static final int CHANGESETS_ANTES_DO_RESULTADO_NA_TRILHA = 33;
+
+	private static final int CHANGESETS_ANTES_DO_RESULTADO_ANTERIOR = 32;
 
 	private static final int CHANGESETS_ANTES_DA_TENTATIVA = 26;
 
@@ -101,6 +105,17 @@ class MigrationTests {
 			     '{"loja": {"13": -10.0}}'::jsonb, now())
 			RETURNING id::text
 			""".formatted(JOB_ID, CODIGO_ID);
+
+	/** Uma linha de trilha como a api a grava sem conhecer a coluna de resultado. */
+	private static final String INSERE_TRILHA_SEM_RESULTADO = """
+			INSERT INTO trilhas_auditoria (evento_id, job_id, no, concluido_em, regra_id, conclusao)
+			VALUES ('%s', '%s', 'decisao', now(), '%s', '{"resumo": "x"}'::jsonb)
+			""";
+
+	private static final String INSERE_TRILHA_COM_RESULTADO = """
+			INSERT INTO trilhas_auditoria (evento_id, job_id, no, concluido_em, regra_id, conclusao, resultado_id)
+			VALUES ('%s', '%s', 'decisao', now(), '%s', '{"resumo": "x"}'::jsonb, '%s')
+			""";
 
 	private static PostgreSQLContainer postgres;
 
@@ -569,7 +584,7 @@ class MigrationTests {
 	@ParameterizedTest
 	@ValueSource(ints = { 0, 1, 2 })
 	void recuperaOriginalDoAceiteLegadoSomenteSemAmbiguidadeEPreservaNoRollback(int originais) throws Exception {
-		atualizar(CHANGESETS - 1);
+		atualizar(CHANGESETS_ANTES_DO_RESULTADO_ANTERIOR);
 		String original = "";
 		try (Connection connection = abrir(); Statement sql = connection.createStatement()) {
 			semearCodigoGerado(sql);
@@ -595,7 +610,7 @@ class MigrationTests {
 			assertThat(rs.getString(1)).isEqualTo(originais == 1 ? original : null);
 		}
 		assertThat(coluna("sugestoes_meta_venda", "resultado_anterior_id")).containsExactly("uuid", "YES", null);
-		reverter(1);
+		reverter(CHANGESETS - CHANGESETS_ANTES_DO_RESULTADO_ANTERIOR);
 		assertThat(nulidadeDasColunas("sugestoes_meta_venda")).doesNotContainKey("resultado_anterior_id");
 		try (Connection connection = abrir();
 				Statement sql = connection.createStatement();
@@ -606,6 +621,95 @@ class MigrationTests {
 		atualizar();
 		atualizar();
 		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS);
+	}
+
+	/**
+	 * A linha gravada antes da coluna fica como estava, sem resultado; o INSERT que não
+	 * conhece a coluna continua valendo; a chave estrangeira recusa um resultado
+	 * inexistente; e o rollback remove só a coluna, junto com a chave e o índice.
+	 */
+	@Test
+	void trilhaGravadaAntesDoResultadoFicaSemEleEORollbackRemoveSoAColuna() throws Exception {
+		atualizar(CHANGESETS_ANTES_DO_RESULTADO_NA_TRILHA);
+		UUID anterior = UUID.randomUUID();
+		String linhaAntes;
+		try (Connection connection = abrir(); Statement sql = connection.createStatement()) {
+			semearCodigoGerado(sql);
+			sql.execute(INSERE_TRILHA_SEM_RESULTADO.formatted(anterior, JOB_ID, REGRA_ID));
+			linhaAntes = linhaDaTrilhaSemResultado(sql, anterior);
+		}
+
+		atualizar();
+
+		assertThat(coluna("trilhas_auditoria", "resultado_id")).containsExactly("uuid", "YES", null);
+		assertThat(definicaoDoIndice("idx_trilhas_auditoria_resultado_id")).contains("(resultado_id)");
+		UUID posterior = UUID.randomUUID();
+		try (Connection connection = abrir(); Statement sql = connection.createStatement()) {
+			assertThat(linhaDaTrilhaSemResultado(sql, anterior)).isEqualTo(linhaAntes);
+			assertThat(resultadoDaTrilha(sql, anterior)).isNull();
+			sql.execute(INSERE_TRILHA_SEM_RESULTADO.formatted(UUID.randomUUID(), JOB_ID, REGRA_ID));
+			String resultado = inserirComoOWorker(sql);
+			sql.execute(INSERE_TRILHA_COM_RESULTADO.formatted(posterior, JOB_ID, REGRA_ID, resultado));
+			assertThat(resultadoDaTrilha(sql, posterior)).isEqualTo(resultado);
+			assertThatExceptionOfType(SQLException.class)
+				.isThrownBy(() -> sql.execute(
+						INSERE_TRILHA_COM_RESULTADO.formatted(UUID.randomUUID(), JOB_ID, REGRA_ID, UUID.randomUUID())))
+				.withMessageContaining("fk_trilhas_auditoria_resultado_id")
+				.satisfies((e) -> assertThat(e.getSQLState()).isEqualTo("23503"));
+			try (ResultSet rs = sql.executeQuery("""
+					SELECT has_column_privilege('synapse_api', 'trilhas_auditoria', 'resultado_id', 'INSERT') AS api,
+					    has_table_privilege('synapse_codegen', 'trilhas_auditoria', 'SELECT') AS codegen,
+					    has_table_privilege('synapse_worker', 'trilhas_auditoria', 'SELECT') AS worker
+					""")) {
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getBoolean("api")).isTrue();
+				assertThat(rs.getBoolean("codegen")).isFalse();
+				assertThat(rs.getBoolean("worker")).isFalse();
+			}
+		}
+
+		reverter(CHANGESETS - CHANGESETS_ANTES_DO_RESULTADO_NA_TRILHA);
+
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DO_RESULTADO_NA_TRILHA);
+		assertThat(nulidadeDasColunas("trilhas_auditoria")).doesNotContainKey("resultado_id")
+			.containsKey("explicacao_id");
+		assertThat(contar("SELECT count(*) FROM trilhas_auditoria")).isEqualTo(3);
+		assertThat(contar("SELECT count(*) FROM pg_indexes WHERE indexname = 'idx_trilhas_auditoria_resultado_id'"))
+			.isZero();
+		assertThat(contar("SELECT count(*) FROM pg_constraint WHERE conname = 'fk_trilhas_auditoria_resultado_id'"))
+			.isZero();
+		try (Connection connection = abrir(); Statement sql = connection.createStatement()) {
+			assertThat(linhaDaTrilhaSemResultado(sql, anterior)).isEqualTo(linhaAntes);
+		}
+		atualizar();
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS);
+	}
+
+	/** A linha da trilha sem a coluna de resultado, para comparar antes e depois dela. */
+	private static String linhaDaTrilhaSemResultado(Statement statement, UUID eventoId) throws Exception {
+		try (ResultSet rs = statement
+			.executeQuery("SELECT (to_jsonb(t) - 'resultado_id')::text FROM trilhas_auditoria t WHERE evento_id = '%s'"
+				.formatted(eventoId))) {
+			assertThat(rs.next()).as("trilha %s não existe", eventoId).isTrue();
+			return rs.getString(1);
+		}
+	}
+
+	private static @Nullable String resultadoDaTrilha(Statement statement, UUID eventoId) throws Exception {
+		try (ResultSet rs = statement.executeQuery(
+				"SELECT resultado_id::text FROM trilhas_auditoria WHERE evento_id = '%s'".formatted(eventoId))) {
+			assertThat(rs.next()).as("trilha %s não existe", eventoId).isTrue();
+			return rs.getString(1);
+		}
+	}
+
+	private static int contar(String consulta) throws Exception {
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery(consulta)) {
+			assertThat(rs.next()).isTrue();
+			return rs.getInt(1);
+		}
 	}
 
 	@Test
