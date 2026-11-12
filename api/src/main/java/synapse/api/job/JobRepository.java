@@ -552,14 +552,14 @@ class JobRepository {
 		return this.jdbc.update(
 				"""
 						INSERT INTO trilhas_auditoria
-							(evento_id, job_id, simulacao_id, no, concluido_em, regra_id, conclusao, prompt_id, codigo_gerado_id, explicacao_id)
-						VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)
+							(evento_id, job_id, simulacao_id, no, concluido_em, regra_id, conclusao, prompt_id, codigo_gerado_id, explicacao_id, resultado_id)
+						VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)
 						ON CONFLICT (evento_id) DO NOTHING
 						""",
 				eventoId, jobId, simulacaoId, no.paraEvento(),
 				Timestamp.from(Objects.requireNonNull(evento.concluido_em())), evento.regra_id(),
 				Objects.requireNonNull(evento.conclusao()).toString(), evento.prompt_id(), evento.codigo_gerado_id(),
-				evento.explicacao_id()) == 1;
+				evento.explicacao_id(), evento.resultado_id()) == 1;
 	}
 
 	void bloquearJob(UUID jobId) {
