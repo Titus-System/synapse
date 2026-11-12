@@ -1399,13 +1399,13 @@ paths:
                     id: 4
                     data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","simulacao_id":"b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93","status":"sucesso","veredito":"inviavel"}
 
-                    event: explicacao
-                    id: 5
-                    data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","simulacao_id":"b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93","disponivel":true}
-
                     event: estado
-                    id: 6
+                    id: 5
                     data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","status":"simulacao_inviavel","status_anterior":"simulando"}
+
+                    event: explicacao
+                    id: 6
+                    data: {"job_id":"3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021","simulacao_id":"b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93","disponivel":true}
         "401":
           $ref: "#/components/responses/NaoAutenticado"
         "403":
