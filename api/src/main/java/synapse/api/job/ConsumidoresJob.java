@@ -307,6 +307,7 @@ class NoConcluidoConsumidor {
 				log.atWarn()
 					.addKeyValue("no", no.paraEvento())
 					.addKeyValue("resultado", "falha")
+					.addKeyValue("classe_falha", ex.getClass().getSimpleName())
 					.log("falha na gravação da trilha; mensagem será reentregue");
 				throw new FalhaPersistenciaTrilhaException();
 			}

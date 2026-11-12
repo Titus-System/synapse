@@ -43,7 +43,7 @@ class NoConcluidoObservabilidadeTests {
 
 	private static NoConcluidoDto evento(String no) {
 		return new NoConcluidoDto(UUID.randomUUID(), UUID.randomUUID(), no, Instant.now(),
-				new JsonMapper().readTree("{\"resumo\":\"conteudo reservado\"}"), null, null, null, null, null);
+				new JsonMapper().readTree("{\"resumo\":\"conteudo reservado\"}"), null, null, null, null, null, null);
 	}
 
 	@ParameterizedTest
@@ -96,6 +96,7 @@ class NoConcluidoObservabilidadeTests {
 			var json = new JsonMapper().readTree(linha);
 			assertThat(json.path("job_id").asString()).isEqualTo(Objects.requireNonNull(evento.job_id()).toString());
 			assertThat(json.path("extra").path("no").asString()).isEqualTo("decisao");
+			assertThat(json.path("extra").path("classe_falha").asString()).isEqualTo(falha.getClass().getSimpleName());
 			verifyNoInteractions(this.emissores);
 		}
 		finally {

@@ -183,6 +183,7 @@ class NoConcluidoConsumidorTests {
 			var json = new JsonMapper().readTree(linha);
 			assertThat(json.path("job_id").asString()).isEqualTo(jobId.toString());
 			assertThat(json.path("extra").path("no").asString()).isEqualTo("geracao_codigo");
+			assertThat(json.path("extra").path("classe_falha").asString()).isEqualTo("BadSqlGrammarException");
 			assertThat(linha).doesNotContain("conclusao", "exception", "INSERT", "senha-de-teste");
 		}
 		int porta = Objects
