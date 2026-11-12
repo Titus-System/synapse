@@ -314,7 +314,7 @@ class JobEventosService {
 		}
 
 		if (!this.repository.inserirTrilhaNo(eventoId, jobId, simulacaoId, no, evento)) {
-			return BuscaMetaAnunciada.NENHUMA;
+			return BuscaMetaAnunciada.DUPLICADA;
 		}
 		if (abreBusca && this.repository.buscaMetaEmCurso(jobId)) {
 			return BuscaMetaAnunciada.INICIADA;
@@ -332,7 +332,7 @@ class JobEventosService {
 	 */
 	enum BuscaMetaAnunciada {
 
-		NENHUMA(null), INICIADA("buscando_meta"), ENCERRADA("busca_meta_encerrada");
+		NENHUMA(null), DUPLICADA(null), INICIADA("buscando_meta"), ENCERRADA("busca_meta_encerrada");
 
 		private final @Nullable String status;
 
