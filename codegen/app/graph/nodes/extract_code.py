@@ -12,6 +12,7 @@ from langchain_core.runnables import RunnableConfig
 from app.codigo_gerado import CodigoInvalidoError, extrair_codigo
 from app.contratos.mensagens import ConclusaoDaTrilha, NoConcluido
 from app.core.logger import get_logger
+from app.correcao_codigo import ENCAMINHAMENTO_CORRECAO
 from app.graph.core.state import AgentState
 from app.graph.nodes.code_generation import NO_GERACAO_CODIGO
 from app.repositorio.artefatos import gravar_codigo, id_do_evento_de_trilha
@@ -23,6 +24,10 @@ logger = get_logger("app.graph.nodes.extract_code")
 RESUMO_DA_TRILHA = (
     "Código Python gerado para a regra confirmada e validado: um único bloco, sintaxe "
     "válida e a função aplicar_regra com a assinatura do contrato."
+)
+RESUMO_DA_CORRECAO = (
+    "Código Python corrigido a partir do código que falhou no worker e validado: um único "
+    "bloco, sintaxe válida e a função aplicar_regra com a assinatura do contrato."
 )
 
 
@@ -52,17 +57,25 @@ async def extract_code(state: AgentState, config: RunnableConfig) -> AgentState:
     # do worker. Se o resultado chegasse primeiro, ela não teria o que amarrar e o cliente
     # nunca receberia o evento SSE `resultado`.
     producers = config["configurable"]["producers"]
-    await producers.no_concluido(
-        NoConcluido(
-            evento_id=id_do_evento_de_trilha(job_id, NO_GERACAO_CODIGO, codigo_gerado_id),
-            job_id=job_id,
-            no=NO_GERACAO_CODIGO,
-            concluido_em=datetime.now(UTC),
-            conclusao=ConclusaoDaTrilha(resumo=RESUMO_DA_TRILHA),
-            regra_id=regra_id,
-            prompt_id=prompt_id,
-            codigo_gerado_id=codigo_gerado_id,
-        )
+    # O mesmo teste de `code_generation`: o prompt de correção é o que gerou esta resposta.
+    corrigido = state.get("encaminhamento") == ENCAMINHAMENTO_CORRECAO
+    trilha = NoConcluido(
+        evento_id=id_do_evento_de_trilha(job_id, NO_GERACAO_CODIGO, codigo_gerado_id),
+        job_id=job_id,
+        no=NO_GERACAO_CODIGO,
+        concluido_em=datetime.now(UTC),
+        conclusao=ConclusaoDaTrilha(
+            resumo=RESUMO_DA_CORRECAO if corrigido else RESUMO_DA_TRILHA,
+            modo_geracao="correcao" if corrigido else "gerado",
+        ),
+        regra_id=regra_id,
+        prompt_id=prompt_id,
+        codigo_gerado_id=codigo_gerado_id,
     )
+    if corrigido:
+        # O resultado `erro_codigo` de que o código corrigido partiu. Atribuído só aqui: um
+        # `resultado_id=None` explícito sairia como `null` e o contrato o recusa.
+        trilha.resultado_id = UUID(state["resultado_id"])
+    await producers.no_concluido(trilha)
     logger.info("node conclusion published", extra={"no": NO_GERACAO_CODIGO})
     return {"codigo_fonte": fonte, "codigo_gerado_id": str(codigo_gerado_id)}

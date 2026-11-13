@@ -7,7 +7,7 @@ publica o resultado de cada simulação.
 """
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -19,6 +19,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from prometheus_client.parser import text_string_to_metric_families
 
 from app.contratos.mensagens import RegraSubmetida, SimulacaoConcluida
+from app.contratos.serializacao import serializar
 from app.core.logger import FormatadorJson, ManipuladorFilaContexto
 from app.mensageria.consumers import Consumer
 from tests.app.confirmacao_falsa import ConfirmacaoFalsa, mensagem
@@ -54,7 +55,7 @@ class Job:
             {"nucleo": dict(NUCLEO), "especificacoes": especificacoes or []}, "extracao"
         )
 
-    async def abrir_ciclo(self, regra_id: UUID) -> None:
+    async def submeter(self, regra_id: UUID) -> Any:
         """O `regra-submetida` que a api publica ao gravar a versão, com os parâmetros do job."""
         payload = exemplo("regra-submetida-parametros") | {
             "job_id": str(self.historico.job_id),
@@ -64,10 +65,32 @@ class Job:
         if not self.com_orcamento:
             del payload["orcamento"]
         recebida = mensagem(payload)
-
         await self.submissao.receber(recebida)
+        return recebida
+
+    async def abrir_ciclo(self, regra_id: UUID) -> None:
+        recebida = await self.submeter(regra_id)
 
         recebida.ack.assert_awaited_once_with()
+
+    def recusar_uma_trilha(self, recusa: Callable[[dict[str, Any]], bool]) -> list[dict[str, Any]]:
+        """O broker recusa a primeira linha da trilha que `recusa` reconhece, uma vez só.
+
+        A lista devolvida recebe o payload recusado, para comparar com o que a reentrega
+        republica.
+        """
+        publicar = self.ambiente.producers.no_concluido.side_effect
+        recusadas: list[dict[str, Any]] = []
+
+        async def recusar_uma_vez(dto: Any) -> None:
+            payload = simplejson.loads(serializar(dto), use_decimal=True)
+            if not recusadas and recusa(payload):
+                recusadas.append(payload)
+                raise RuntimeError("broker fora")
+            await publicar(dto)
+
+        self.ambiente.producers.no_concluido.side_effect = recusar_uma_vez
+        return recusadas
 
     def resultado_do_worker(self, regra_id: UUID, simulado: Decimal) -> dict[str, Any]:
         resultado_id = self.historico.gravar_resultado(regra_id, simulado)
@@ -161,12 +184,24 @@ async def test_tres_taxas_que_nao_cabem_encerram_a_iteracao_sem_alternativa(
     origem, *simuladas = COMISSOES_QUE_NAO_CABEM
 
     versoes_simuladas = [regra]
-    await job.simular(regra, origem)
+    resultados = [(await job.simular(regra, origem))["resultado_id"]]
     for comissao in simuladas:
         alternativa = await job.alternativa(job.propostas()[-1])
         versoes_simuladas.append(alternativa)
-        await job.simular(alternativa, comissao)
+        resultados.append((await job.simular(alternativa, comissao))["resultado_id"])
 
+    # Para cada simulação inviável, a decisão e a sugestão apontam o mesmo resultado, e a
+    # sugestão diz se propôs uma taxa ou parou no limite das três tentativas.
+    trilhas = job.publicadas("no-concluido")
+    assert [t["resultado_id"] for t in trilhas if t["no"] == "decisao"] == resultados
+    sugestoes = [t for t in trilhas if t["no"] == "sugestao_adaptacao"]
+    assert [t["resultado_id"] for t in sugestoes] == resultados
+    assert [t["conclusao"]["motivo_sugestao"] for t in sugestoes] == [
+        "proposta",
+        "proposta",
+        "proposta",
+        "limite",
+    ]
     propostas = job.propostas()
     assert [p["tentativa"] for p in propostas] == [1, 2, 3]
     assert [percentual(p) for p in propostas] == [
@@ -334,6 +369,29 @@ async def test_reentrega_do_resultado_ja_processado_nao_publica_nada(
 
     repetida.ack.assert_awaited_once_with()
     assert job.ambiente.publicacoes == publicadas
+
+
+async def test_a_reentrega_republica_a_trilha_da_sugestao_com_o_mesmo_evento_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A trilha da sugestão falhou no broker; a reentrega do resultado reexecuta o nó, e a
+    linha republicada é a mesma, para a api reconhecer a reentrega pelo `evento_id`."""
+    job = Job(monkeypatch)
+    regra = job.original()
+    await job.abrir_ciclo(regra)
+    recusadas = job.recusar_uma_trilha(lambda p: p["no"] == "sugestao_adaptacao")
+    resultado = job.resultado_do_worker(regra, Decimal("2200"))
+    interrompida = await job.entregar(resultado)
+    interrompida.nack.assert_awaited_once_with(requeue=True)
+
+    repetida = await job.entregar(resultado)
+
+    repetida.ack.assert_awaited_once_with()
+    [recusada] = recusadas
+    [republicada] = [p for p in job.publicadas("no-concluido") if p["no"] == "sugestao_adaptacao"]
+    assert republicada["evento_id"] == recusada["evento_id"]
+    assert republicada["resultado_id"] == recusada["resultado_id"] == resultado["resultado_id"]
+    assert republicada["conclusao"] == recusada["conclusao"]
 
 
 async def test_reentrega_depois_de_a_api_gravar_a_proposta_repete_a_mesma_tentativa(

@@ -11,6 +11,7 @@ import pytest
 import simplejson
 from aio_pika import DeliveryMode
 from jsonschema import Draft202012Validator, FormatChecker
+from pydantic import ValidationError
 from referencing import Registry, Resource
 
 from app.codigo_gerado import CodigoInvalidoError
@@ -75,10 +76,14 @@ ENTRADAS = (
     (SimulacaoConcluida, "simulacao-concluida"),
     (JobEncerrado, "job-encerrado"),
 )
+# (modelo, nome do exemplo, rota, método do producer). O exemplo e a rota só coincidem quando o
+# evento tem um exemplo só: as variantes do `no-concluido` são publicadas na mesma rota.
 SAIDAS = (
-    (ExecutarCodigo, "executar-codigo", "executar_codigo"),
-    (EtapaAlterada, "etapa-alterada", "etapa_alterada"),
-    (NoConcluido, "no-concluido", "no_concluido"),
+    (ExecutarCodigo, "executar-codigo", "executar-codigo", "executar_codigo"),
+    (EtapaAlterada, "etapa-alterada", "etapa-alterada", "etapa_alterada"),
+    (NoConcluido, "no-concluido", "no-concluido", "no_concluido"),
+    (NoConcluido, "no-concluido-geracao-derivada", "no-concluido", "no_concluido"),
+    (NoConcluido, "no-concluido-encerramento-busca", "no-concluido", "no_concluido"),
 )
 
 
@@ -218,6 +223,7 @@ async def test_producer_preserva_decimal_exato_no_corpo_json() -> None:
         {"concluido_em": "2025-11-28T14:32:10"},
         {"conclusao": {"resumo": "ok", "fontes": None}},
         {"explicacao_id": None},
+        {"resultado_id": None},
     ],
 )
 async def test_producer_recusa_data_sem_fuso_e_null_explicito(
@@ -233,10 +239,29 @@ async def test_producer_recusa_data_sem_fuso_e_null_explicito(
     canal.default_exchange.publish.assert_not_awaited()
 
 
-@pytest.mark.parametrize("modelo,nome,metodo", SAIDAS)
+@pytest.mark.parametrize(
+    "conclusao",
+    [
+        {"resumo": "ok", "modo_geracao": "inventado"},
+        {"resumo": "ok", "motivo_sugestao": "inventado"},
+        {"resumo": "ok", "desfecho_busca": "inventado"},
+        {"resumo": "ok", "candidatas_simuladas": -1},
+    ],
+)
+def test_a_conclusao_recusa_variante_fora_do_vocabulario_do_contrato(
+    conclusao: dict[str, Any],
+) -> None:
+    with pytest.raises(ValidationError):
+        NoConcluido.model_validate_json(
+            simplejson.dumps(exemplo("no-concluido") | {"conclusao": conclusao})
+        )
+
+
+@pytest.mark.parametrize("modelo,nome,rota,metodo", SAIDAS)
 async def test_producer_publica_payload_validado_na_rota_correta(
     modelo: type[ModeloContrato],
     nome: str,
+    rota: str,
     metodo: str,
 ) -> None:
     canal = MagicMock()
@@ -246,21 +271,21 @@ async def test_producer_publica_payload_validado_na_rota_correta(
     await getattr(Producers(canal), metodo)(dto)
 
     args = canal.default_exchange.publish.call_args
-    assert args.kwargs == {"routing_key": nome, "mandatory": True}
+    assert args.kwargs == {"routing_key": rota, "mandatory": True}
     mensagem = args.args[0]
-    oficial(nome).validate(simplejson.loads(mensagem.body, use_decimal=True))
+    oficial(rota).validate(simplejson.loads(mensagem.body, use_decimal=True))
     assert mensagem.delivery_mode == DeliveryMode.PERSISTENT
     assert mensagem.correlation_id == str(dto.job_id)
     assert mensagem.content_type == "application/json"
     assert mensagem.content_encoding == "utf-8"
-    assert mensagem.type == nome
+    assert mensagem.type == rota
     assert mensagem.message_id == (str(dto.evento_id) if isinstance(dto, NoConcluido) else None)
     assert simplejson.loads(mensagem.body, use_decimal=True) == exemplo(nome)
 
 
-@pytest.mark.parametrize("modelo,nome,metodo", SAIDAS)
+@pytest.mark.parametrize("modelo,nome,rota,metodo", SAIDAS)
 async def test_producer_nao_publica_dto_adulterado(
-    modelo: type[ModeloContrato], nome: str, metodo: str
+    modelo: type[ModeloContrato], nome: str, rota: str, metodo: str
 ) -> None:
     canal = MagicMock()
     canal.default_exchange.publish = AsyncMock()

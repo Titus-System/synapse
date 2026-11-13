@@ -10,6 +10,7 @@ from langchain_core.runnables import RunnableConfig
 from app.busca_meta import Ponto, escolher
 from app.contratos.mensagens import (
     ConclusaoDaTrilha,
+    DesfechoBusca,
     MetaVendaSugerida,
     NoConcluido,
     SemSolucaoMeta,
@@ -138,6 +139,7 @@ async def _publicar(state: AgentState, config: RunnableConfig) -> AgentState:
         return {"busca_meta": busca}
     job_id, regra_id = UUID(state["job_id"]), UUID(state["regra_id"])
     evento = MetaVendaSugerida(job_id=job_id, regra_id=regra_id)
+    motivo: DesfechoBusca
     if busca["vencedora"] is not None:
         vencedora = next(p for p in busca["pontos"] if p["resultado_id"] == busca["vencedora"])
         evento.meta_venda = Decimal(vencedora["meta"])
@@ -152,20 +154,28 @@ async def _publicar(state: AgentState, config: RunnableConfig) -> AgentState:
             "intervalo_esgotado": "Busca encerrada sem meta maior no intervalo pesquisado.",
             "falha_execucao": "Busca encerrada: uma candidata não produziu resultado válido.",
         }[motivo]
+    # A candidata que falhou não entra em `pontos`, mas foi simulada: a mesma conta alimenta a
+    # métrica e a trilha.
+    candidatas = len(busca["pontos"]) - 1 + (motivo == "falha_execucao")
+    trilha = NoConcluido(
+        evento_id=uuid5(NAMESPACE_URL, f"synapse:{job_id}:{regra_id}:busca_meta"),
+        job_id=job_id,
+        regra_id=regra_id,
+        no="decisao",
+        concluido_em=datetime.now(UTC),
+        conclusao=ConclusaoDaTrilha(
+            resumo=resumo, desfecho_busca=motivo, candidatas_simuladas=candidatas
+        ),
+    )
+    if evento.resultado_id is not None:
+        # A vencedora. Sem solução a linha não aponta resultado, e um `resultado_id=None`
+        # explícito sairia como `null`, que o contrato recusa.
+        trilha.resultado_id = evento.resultado_id
     producers = config["configurable"]["producers"]
     await producers.meta_venda_sugerida(evento)
-    await producers.no_concluido(
-        NoConcluido(
-            evento_id=uuid5(NAMESPACE_URL, f"synapse:{job_id}:{regra_id}:busca_meta"),
-            job_id=job_id,
-            regra_id=regra_id,
-            no="decisao",
-            concluido_em=datetime.now(UTC),
-            conclusao=ConclusaoDaTrilha(resumo=resumo),
-        )
-    )
+    await producers.no_concluido(trilha)
     buscas_meta.labels(desfecho=desfecho, motivo=motivo).inc()
-    busca_meta_candidatos.observe(len(busca["pontos"]) - 1 + (motivo == "falha_execucao"))
+    busca_meta_candidatos.observe(candidatas)
     logger.info(
         "sales target search finished",
         extra={

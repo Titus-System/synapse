@@ -13,6 +13,7 @@ from app.contratos.serializacao import serializar
 from app.correcao_codigo import LIMITE_DE_CODIGOS_POR_VERSAO, FalhaDaExecucao
 from app.graph.core.state import AgentState
 from app.graph.nodes import decision as modulo
+from app.repositorio.artefatos import id_do_evento_de_trilha
 from app.repositorio.regras import TentativasDeTaxa
 from tests.app.graph.nodes.test_suggest_adaptation import (
     tentativas_contadas,
@@ -214,6 +215,22 @@ async def test_o_resumo_da_trilha_nao_repete_o_veredito() -> None:
     [conclusao] = producers.no_concluido.await_args.args
     assert "inviável" not in conclusao.conclusao.resumo.lower()
     assert "viável" not in conclusao.conclusao.resumo.lower()
+
+
+async def test_a_trilha_aponta_o_resultado_decidido_e_a_chave_continua_a_mesma() -> None:
+    """A linha diz sobre qual resultado a decisão agiu; o `evento_id` não muda com isso."""
+    producers = _producers()
+
+    await modulo.decision(_estado(), _config(producers))
+
+    [conclusao] = producers.no_concluido.await_args.args
+    assert conclusao.resultado_id == UUID(RESULTADO_ID)
+    assert conclusao.evento_id == id_do_evento_de_trilha(
+        UUID(JOB_ID), "decisao", UUID(RESULTADO_ID)
+    )
+    payload = simplejson.loads(serializar(conclusao), use_decimal=True)
+    assert payload["resultado_id"] == RESULTADO_ID
+    assert "desfecho_busca" not in payload["conclusao"]
 
 
 async def test_o_mesmo_resultado_rende_sempre_o_mesmo_evento_de_trilha() -> None:

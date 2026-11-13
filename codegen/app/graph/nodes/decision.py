@@ -154,6 +154,7 @@ async def decision(state: AgentState, config: RunnableConfig) -> AgentState:
                 encaminhamento=encaminhamento,
             ),
             regra_id=UUID(state["regra_id"]),
+            resultado_id=UUID(resultado_id),
         )
     )
     if (
