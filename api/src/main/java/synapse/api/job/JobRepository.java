@@ -8,6 +8,8 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -20,6 +22,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.support.SqlArrayValue;
 import org.springframework.stereotype.Repository;
 
@@ -119,6 +122,24 @@ class JobRepository {
 	private static @Nullable Instant instante(ResultSet linha, String coluna) throws SQLException {
 		OffsetDateTime valor = linha.getObject(coluna, OffsetDateTime.class);
 		return valor == null ? null : valor.toInstant();
+	}
+
+	/** Só os jobs com nome resolvido entram no mapa. */
+	Map<UUID, String> resolverNomes(Collection<UUID> jobIds) {
+		Map<UUID, String> nomes = new HashMap<>();
+		this.jdbc.query("""
+				SELECT j.id,
+					""" + NOME_RESOLVIDO + """
+				FROM jobs j
+				""" + JUNCAO_TEXTO_INICIAL + """
+				WHERE j.id = ANY(?)
+				""", (RowCallbackHandler) linha -> {
+			String nome = linha.getString("nome");
+			if (nome != null) {
+				nomes.put(Objects.requireNonNull(linha.getObject("id", UUID.class)), nome);
+			}
+		}, new SqlArrayValue("uuid", jobIds.toArray()));
+		return Map.copyOf(nomes);
 	}
 
 	List<UUID> buscarProprietario(UUID jobId) {
