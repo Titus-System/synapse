@@ -11,9 +11,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.MDC;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.http.MediaType;
@@ -70,7 +72,7 @@ class AcessoAuditoriaTests {
 		UsuarioAtual usuario = new UsuarioAtual(this.jdbc, mock(AppProperties.class));
 		this.mvc = MockMvcBuilders.standaloneSetup(new AuditoriaController(this.service, correlacao))
 			.addInterceptors(new AcessoAuditoriaInterceptor(usuario, correlacao))
-			.setControllerAdvice(new AuditoriaAdvice())
+			.setControllerAdvice(new AuditoriaAdvice(correlacao))
 			.build();
 	}
 
@@ -155,6 +157,63 @@ class AcessoAuditoriaTests {
 			.andExpect(jsonPath("$.codigo").value("requisicao_invalida"))
 			.andExpect(jsonPath("$.mensagem").value(mensagem));
 		verifyNoInteractions(this.service);
+	}
+
+	static Stream<Arguments> tiposInvalidos() {
+		return Stream.of(Arguments.of("/auditoria/jobs?pagina=um", "pagina", "listar_jobs_auditoria"),
+				Arguments.of("/auditoria/jobs?tamanho=vinte", "tamanho", "listar_jobs_auditoria"),
+				Arguments.of("/auditoria/jobs/nao-e-uuid", "id", "consultar_job_auditoria"));
+	}
+
+	@ParameterizedTest(name = "{0}")
+	@MethodSource("tiposInvalidos")
+	void tipoInvalidoLogaWarnComOParametroESemOValorRecebido(String caminho, String parametro, String operacao)
+			throws Exception {
+		autenticar(List.of("auditor"));
+		List<ILoggingEvent> eventos;
+		try (CapturaDeLog captura = new CapturaDeLog(AuditoriaAdvice.class)) {
+			this.mvc.perform(get(caminho)).andExpect(status().isBadRequest());
+			eventos = captura.eventos();
+		}
+		assertThat(eventos).hasSize(1);
+		String linha = CapturaDeLog.emJson(eventos.getFirst());
+		ContratoDeEvento.validarLog(linha);
+		JsonNode json = new JsonMapper().readTree(linha);
+		assertThat(json.path("level").asString()).isEqualTo("WARN");
+		assertThat(json.path("message").asString()).isIn("listagem de auditoria encerrada",
+				"consulta de auditoria encerrada");
+		assertThat(json.path("user_id").asString()).isEqualTo(USUARIO.toString());
+		assertThat(json.has("job_id")).isFalse();
+		assertThat(json.path("extra").path("operacao").asString()).isEqualTo(operacao);
+		assertThat(json.path("extra").path("resultado").asString()).isEqualTo("requisicao_invalida");
+		assertThat(json.path("extra").path("parametro").asString()).isEqualTo(parametro);
+		assertThat(linha).doesNotContain("nao-e-uuid", "vinte", "pagina=um", "subject-a", "login-a");
+		assertThat(MDC.get(CorrelationContext.USER_ID_KEY)).isNull();
+	}
+
+	@ParameterizedTest(name = "pagina={0} tamanho={1}")
+	@CsvSource({ "-1, 20", "0, 0", "0, 101" })
+	void paginacaoForaDoLimiteLogaWarnComPaginaETamanho(int pagina, int tamanho) throws Exception {
+		autenticar(List.of("auditor"));
+		List<ILoggingEvent> eventos;
+		try (CapturaDeLog captura = new CapturaDeLog(AuditoriaController.class)) {
+			this.mvc
+				.perform(get("/auditoria/jobs").param("pagina", Integer.toString(pagina))
+					.param("tamanho", Integer.toString(tamanho)))
+				.andExpect(status().isBadRequest());
+			eventos = captura.eventos();
+		}
+		assertThat(eventos).hasSize(1);
+		String linha = CapturaDeLog.emJson(eventos.getFirst());
+		ContratoDeEvento.validarLog(linha);
+		JsonNode json = new JsonMapper().readTree(linha);
+		assertThat(json.path("level").asString()).isEqualTo("WARN");
+		assertThat(json.path("message").asString()).isEqualTo("listagem de auditoria encerrada");
+		assertThat(json.path("user_id").asString()).isEqualTo(USUARIO.toString());
+		assertThat(json.path("extra").path("resultado").asString()).isEqualTo("requisicao_invalida");
+		assertThat(json.path("extra").path("pagina").asInt()).isEqualTo(pagina);
+		assertThat(json.path("extra").path("tamanho").asInt()).isEqualTo(tamanho);
+		assertThat(MDC.get(CorrelationContext.USER_ID_KEY)).isNull();
 	}
 
 	@Test
