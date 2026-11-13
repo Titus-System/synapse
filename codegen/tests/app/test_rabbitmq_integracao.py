@@ -221,23 +221,24 @@ async def test_fanout_mantem_copia_na_fila_api(broker_real: ConexaoBroker) -> No
     await copia_api.ack()
 
 
-@pytest.mark.parametrize("modelo,nome,metodo", SAIDAS)
+@pytest.mark.parametrize("modelo,nome,rota,metodo", SAIDAS)
 async def test_producer_real_entrega_payload_oficial_na_fila(
     broker_real: ConexaoBroker,
     modelo: type[ModeloContrato],
     nome: str,
+    rota: str,
     metodo: str,
 ) -> None:
     dto = modelo.model_validate_json(simplejson.dumps(exemplo(nome)))
 
     await getattr(broker_real.producers, metodo)(dto)
-    recebido = await broker_real.filas[nome].get(timeout=10)
+    recebido = await broker_real.filas[rota].get(timeout=10)
 
     payload = simplejson.loads(recebido.body, use_decimal=True)
-    oficial(nome).validate(payload)
+    oficial(rota).validate(payload)
     assert payload == exemplo(nome)
     assert recebido.exchange == ""
-    assert recebido.routing_key == nome
+    assert recebido.routing_key == rota
     await recebido.ack()
 
 

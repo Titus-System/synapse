@@ -10,10 +10,11 @@ from langchain_core.runnables import RunnableConfig
 from app.codigo_gerado import CodigoInvalidoError
 from app.contratos.mensagens import EtapaAlterada, ExecutarCodigo
 from app.contratos.serializacao import serializar
+from app.correcao_codigo import ENCAMINHAMENTO_CORRECAO
 from app.falhas import FalhaDoJobError
 from app.graph.core.state import AgentState
 from app.graph.nodes.dispatch_execution import MetaVendaInvalidaError, dispatch_execution
-from app.graph.nodes.extract_code import extract_code
+from app.graph.nodes.extract_code import RESUMO_DA_CORRECAO, RESUMO_DA_TRILHA, extract_code
 from app.graph.nodes.persist_response import persist_response
 from app.representacao_regra import RepresentacaoRegra
 from tests.app.banco_falso import BancoFalso
@@ -97,6 +98,61 @@ async def test_extract_code_anuncia_a_conclusao_do_no_com_as_referencias() -> No
     assert evento.conclusao.elementos_implementados is None
     # Nada de artefato no evento: nem o código, nem o prompt, nem a resposta.
     assert FONTE not in serializar(evento).decode()
+
+
+async def test_extract_code_publica_a_geracao_comum_como_gerado_e_sem_resultado() -> None:
+    producers = _producers()
+
+    await extract_code(
+        _estado(prompt_id=str(uuid4()), resultado_id=str(uuid4())), _config(BancoFalso(), producers)
+    )
+
+    [evento] = producers.no_concluido.await_args.args
+    assert evento.conclusao.modo_geracao == "gerado"
+    assert evento.conclusao.resumo == RESUMO_DA_TRILHA
+    payload = simplejson.loads(serializar(evento), use_decimal=True)
+    assert "resultado_id" not in payload
+    assert payload["conclusao"]["modo_geracao"] == "gerado"
+    oficial("no-concluido").validate(payload)
+
+
+async def test_extract_code_publica_a_correcao_com_o_resultado_que_falhou() -> None:
+    """O código corrigido aponta o resultado `erro_codigo` de que partiu, que o estado guarda
+    desde a decisão que pediu a correção."""
+    producers = _producers()
+    falhou = str(uuid4())
+
+    update = await extract_code(
+        _estado(
+            prompt_id=str(uuid4()), resultado_id=falhou, encaminhamento=ENCAMINHAMENTO_CORRECAO
+        ),
+        _config(BancoFalso(), producers),
+    )
+
+    [evento] = producers.no_concluido.await_args.args
+    assert evento.conclusao.modo_geracao == "correcao"
+    assert evento.conclusao.resumo == RESUMO_DA_CORRECAO
+    assert evento.resultado_id == UUID(falhou)
+    assert evento.codigo_gerado_id == UUID(update["codigo_gerado_id"])
+    payload = simplejson.loads(serializar(evento), use_decimal=True)
+    assert payload["resultado_id"] == falhou
+    oficial("no-concluido").validate(payload)
+    assert FONTE not in serializar(evento).decode()
+
+
+async def test_extract_code_nao_trata_como_correcao_o_encaminhamento_de_outra_etapa() -> None:
+    producers = _producers()
+
+    await extract_code(
+        _estado(
+            prompt_id=str(uuid4()), resultado_id=str(uuid4()), encaminhamento="sugestao_adaptacao"
+        ),
+        _config(BancoFalso(), producers),
+    )
+
+    [evento] = producers.no_concluido.await_args.args
+    assert evento.conclusao.modo_geracao == "gerado"
+    assert evento.resultado_id is None
 
 
 async def test_extract_code_repete_o_mesmo_evento_id_numa_reexecucao() -> None:

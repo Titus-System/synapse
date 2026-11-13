@@ -54,6 +54,10 @@ NoGrafo = Literal[
     "explicacao",
 ]
 
+ModoGeracao = Literal["gerado", "derivado", "correcao"]
+MotivoSugestao = Literal["proposta", "sem_margem", "incoerente", "nao_suportada", "limite"]
+DesfechoBusca = Literal["encontrada", "nao_monotonica", "intervalo_esgotado", "falha_execucao"]
+
 TextoNaoVazio = Annotated[str, Field(min_length=1)]
 ReferenciaDeElemento = Annotated[
     str,
@@ -75,6 +79,10 @@ class ConclusaoDaTrilha(ModeloContrato):
     elementos_implementados: list[ReferenciaDeElemento] | None = None
     diagnostico: str | None = None
     concentracao: list[str] | None = None
+    modo_geracao: ModoGeracao | None = None
+    motivo_sugestao: MotivoSugestao | None = None
+    desfecho_busca: DesfechoBusca | None = None
+    candidatas_simuladas: int | None = Field(default=None, ge=0)
     encaminhamento: str | None = None
 
 
@@ -212,6 +220,7 @@ class NoConcluido(ModeloContrato):
     conclusao: ConclusaoDaTrilha
     regra_id: UUID | None = None
     simulacao_id: UUID | None = None
+    resultado_id: UUID | None = None
     prompt_id: UUID | None = None
     codigo_gerado_id: UUID | None = None
     explicacao_id: UUID | None = None

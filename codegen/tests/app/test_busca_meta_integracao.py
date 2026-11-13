@@ -273,6 +273,17 @@ async def test_busca_com_broker_banco_checkpoint_e_scrape_reais(
     ]
     assert all(t["no"] == "decisao" for t in trilhas)
     assert trilhas[0]["evento_id"] != trilhas[1]["evento_id"]
+    abertura, encerramento = trilhas
+    assert abertura["resultado_id"] == original["resultado_id"]
+    assert "desfecho_busca" not in abertura["conclusao"]
+    assert encerramento["conclusao"]["desfecho_busca"] == (
+        "encontrada" if modo == "sucesso" else modo
+    )
+    assert encerramento["conclusao"]["candidatas_simuladas"] == len(candidatas)
+    if modo == "sucesso":
+        assert encerramento["resultado_id"] == sugerida["resultado_id"]
+    else:
+        assert "resultado_id" not in encerramento
     depois = (await cliente_busca.get("/metrics")).text
     rotulos = {
         "desfecho": "sugerida" if modo == "sucesso" else "sem_solucao",
