@@ -1,7 +1,10 @@
 package synapse.api.core.persistence;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -19,6 +22,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+
+import synapse.api.job.ContratoDeEvento;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -144,6 +149,48 @@ class PermissoesDeBancoTests {
 			assertThatCode(() -> executar(usuario, "SELECT meta_venda, proposito FROM resultados_simulacao"))
 				.doesNotThrowAnyException();
 			assertThat(sqlStateAoFalhar(usuario, insere)).isEqualTo(PERMISSAO_NEGADA);
+		}
+	}
+
+	@Test
+	void oWorkerInsereFontesEApiECodegenSomenteLeem() throws Exception {
+		String fontes = Files.readString(Path.of("../contracts/examples/domain/resultado-fontes.json"));
+		ContratoDeEvento.validarDominio("resultado-fontes.schema.json", fontes);
+		UUID resultadoId;
+		try (Connection connection = como(UsuariosDeBanco.WORKER);
+				PreparedStatement insert = connection.prepareStatement("""
+						INSERT INTO resultados_simulacao
+						    (job_id, codigo_gerado_id, status, assercoes, fontes, criado_em)
+						VALUES (?::uuid, ?::uuid, 'sucesso', '[]'::jsonb, ?::jsonb, now()) RETURNING id
+						""")) {
+			insert.setString(1, JOB_ID);
+			insert.setString(2, CODIGO_ID);
+			insert.setString(3, fontes);
+			try (ResultSet rs = insert.executeQuery()) {
+				assertThat(rs.next()).isTrue();
+				resultadoId = rs.getObject("id", UUID.class);
+			}
+		}
+		for (String usuario : new String[] { UsuariosDeBanco.WORKER, UsuariosDeBanco.API, UsuariosDeBanco.CODEGEN }) {
+			try (Connection connection = como(usuario);
+					PreparedStatement select = connection
+						.prepareStatement("SELECT fontes = ?::jsonb FROM resultados_simulacao WHERE id = ?")) {
+				select.setString(1, fontes);
+				select.setObject(2, resultadoId);
+				try (ResultSet rs = select.executeQuery()) {
+					assertThat(rs.next()).isTrue();
+					assertThat(rs.getBoolean(1)).as(usuario).isTrue();
+				}
+			}
+			assertThat(sqlStateAoFalhar(usuario, "UPDATE resultados_simulacao SET fontes = NULL"))
+				.isEqualTo(PERMISSAO_NEGADA);
+		}
+		for (String usuario : new String[] { UsuariosDeBanco.API, UsuariosDeBanco.CODEGEN }) {
+			assertThat(sqlStateAoFalhar(usuario, """
+					INSERT INTO resultados_simulacao (job_id, codigo_gerado_id, status, assercoes, fontes, criado_em)
+					SELECT job_id, codigo_gerado_id, status, assercoes, fontes, now()
+					FROM resultados_simulacao WHERE id = '%s'
+					""".formatted(resultadoId))).isEqualTo(PERMISSAO_NEGADA);
 		}
 	}
 

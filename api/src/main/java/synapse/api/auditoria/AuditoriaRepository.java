@@ -170,7 +170,7 @@ class AuditoriaRepository {
 		return this.jdbc.query("""
 				SELECT id, codigo_gerado_id, status, proposito, veredito, meta_venda, criado_em,
 				       totais::text AS totais, assercoes::text AS assercoes, decomposicao::text AS decomposicao,
-				       diagnostico::text AS diagnostico
+				       diagnostico::text AS diagnostico, fontes::text AS fontes
 				FROM resultados_simulacao
 				WHERE job_id = ?
 				ORDER BY criado_em, id
@@ -178,7 +178,8 @@ class AuditoriaRepository {
 				(linha, numero) -> new ResultadoAuditoriaDto(uuid(linha, "id"), uuid(linha, "codigo_gerado_id"),
 						texto(linha, "status"), texto(linha, "proposito"), linha.getString("veredito"),
 						linha.getBigDecimal("meta_venda"), linha.getString("totais"), texto(linha, "assercoes"),
-						linha.getString("decomposicao"), linha.getString("diagnostico"), momento(linha, "criado_em")),
+						linha.getString("decomposicao"), linha.getString("diagnostico"), linha.getString("fontes"),
+						momento(linha, "criado_em")),
 				jobId);
 	}
 

@@ -317,6 +317,10 @@ A narrativa em linguagem de negócio sobre o que a simulação mostrou, uma por 
 
 O artefato produzido pela execução e pela verificação do worker, persistido com `INSERT` e sem alteração posterior. No sucesso, contém totais, asserções e decomposição. Falha de execução ou asserção violada não produz valores financeiros válidos. Em `erro_codigo`, a coluna `diagnostico` registra por que a execução falhou.
 
+A coluna `fontes` identifica o manifesto, as competências, os arquivos e os baselines que o worker conferiu antes da execução, com seus hashes, conforme [`resultado-fontes.schema.json`](../../contracts/domain/resultado-fontes.schema.json). Guarda referências e identificação, sem conteúdo das bases. É `jsonb` porque é escrita de uma vez e lida inteira, sem filtros por valor. O worker a grava no mesmo `INSERT` do resultado, vinculando as fontes ao código, à versão da regra, à simulação e ao horário pela mesma linha imutável, sem repetir essas referências na trilha.
+
+`fontes` é opcional, sem valor padrão nem backfill: fica nula nos resultados anteriores ao campo e nos de `erro_infra`. A consulta `GET /auditoria/jobs/{id}` a devolve como objeto e omite o campo quando nulo. A migration `033-adiciona-fontes-em-resultados-simulacao` (T-310) deve ser implantada antes do worker que preenche a coluna (T-311). Os privilégios existentes sobre a tabela já permitem `INSERT` e `SELECT` ao worker e `SELECT` à API e ao codegen, sem novos `GRANT`s.
+
 A coluna `totais` traz os agregados do período inteiro, somando todas as competências do job, e é nula quando `status` não é `sucesso`.
 
 ```json

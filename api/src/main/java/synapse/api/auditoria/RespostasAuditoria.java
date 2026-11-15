@@ -80,7 +80,8 @@ record CodigoAuditoriaDto(UUID id, UUID regra_id, String linguagem, String fonte
 @JsonInclude(JsonInclude.Include.NON_NULL)
 record ResultadoAuditoriaDto(UUID id, UUID codigo_gerado_id, String status, String proposito, @Nullable String veredito,
 		@Nullable BigDecimal meta_venda, @JsonRawValue @Nullable String totais, @JsonRawValue String assercoes,
-		@JsonRawValue @Nullable String decomposicao, @JsonRawValue @Nullable String diagnostico, Instant criado_em) {
+		@JsonRawValue @Nullable String decomposicao, @JsonRawValue @Nullable String diagnostico,
+		@JsonRawValue @Nullable String fontes, Instant criado_em) {
 }
 
 @JsonInclude(JsonInclude.Include.NON_NULL)

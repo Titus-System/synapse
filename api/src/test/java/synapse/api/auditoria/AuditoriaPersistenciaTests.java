@@ -6,6 +6,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -321,6 +323,53 @@ class AuditoriaPersistenciaTests {
 
 		assertThat(resposta.body()).doesNotContain("\"binario\"", "\"linhas\"", "MATRIC-SECRETA")
 			.contains("0.023400", "529520.10", "28000000.00");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "simulacao", "busca_meta" })
+	void registroDevolveFontesComoObjetoEOmiteNosLegadosENoErroInfra(String proposito) throws Exception {
+		JobCompleto j = jobCompleto();
+		String fontes = Files.readString(Path.of("../contracts/examples/domain/resultado-fontes.json"));
+		UUID origem = proposito.equals("simulacao") ? j.resultadoViavel() : j.candidataVencedora();
+		UUID comFontes = inserir("""
+				INSERT INTO resultados_simulacao
+				    (job_id, codigo_gerado_id, status, proposito, totais, veredito, meta_venda, assercoes,
+				     decomposicao, fontes, criado_em)
+				SELECT job_id, codigo_gerado_id, status, proposito, totais, veredito, meta_venda, assercoes,
+				       decomposicao, ?::jsonb, now()
+				FROM resultados_simulacao WHERE id = ? RETURNING id
+				""", fontes, origem);
+		UUID erroInfra = inserir("""
+				INSERT INTO resultados_simulacao (job_id, codigo_gerado_id, status, assercoes, criado_em)
+				SELECT job_id, codigo_gerado_id, 'erro_infra', '[]'::jsonb, now()
+				FROM resultados_simulacao WHERE id = ? RETURNING id
+				""", origem);
+		String antes = snapshotNegocio();
+		HttpResponse<String> resposta;
+		try (CapturaDeLog captura = new CapturaDeLog(AuditoriaController.class)) {
+			resposta = chamar("/auditoria/jobs/" + j.id(), auditor());
+			assertThat(captura.eventos()).hasSize(1);
+			String log = CapturaDeLog.emJson(captura.eventos().get(0));
+			ContratoDeEvento.validarLog(log);
+			assertThat(log).doesNotContain("fontes", "rh.jsonl",
+					JSON.readTree(fontes).path("arquivos").path(0).path("sha256").asString());
+		}
+
+		assertThat(resposta.statusCode()).isEqualTo(200);
+		ContratoDeEvento.validarRespostaHttp("RegistroAuditoria", resposta.body());
+		assertThat(snapshotNegocio()).isEqualTo(antes);
+		JsonNode resultados = JSON.readTree(resposta.body()).path("resultados");
+		assertThat(resultados.size()).isEqualTo(7);
+		JsonNode resultadoComFontes = etapa(resultados, comFontes);
+		assertThat(resultadoComFontes.path("proposito").asString()).isEqualTo(proposito);
+		assertThat(resultadoComFontes.path("fontes").isObject()).isTrue();
+		assertThat(resultadoComFontes.path("fontes")).isEqualTo(JSON.readTree(fontes));
+		assertThat(etapa(resultados, erroInfra).path("status").asString()).isEqualTo("erro_infra");
+		for (JsonNode resultado : resultados) {
+			if (!resultado.path("id").asString().equals(comFontes.toString())) {
+				assertThat(resultado.has("fontes")).as(resultado.path("id").asString()).isFalse();
+			}
+		}
 	}
 
 	@Test
