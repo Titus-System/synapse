@@ -57,4 +57,16 @@ class AuditoriaService {
 				this.repository.listarSugestoesMeta(jobId), this.repository.listarExplicacoes(jobId));
 	}
 
+	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+	AudioAuditoria lerAudio(UUID jobId, UUID entradaId) {
+		if (!this.repository.existeJob(jobId)) {
+			throw new JobNaoEncontradoNaAuditoriaException();
+		}
+		List<AudioAuditoria> lidos = this.repository.lerAudio(jobId, entradaId);
+		if (lidos.isEmpty()) {
+			throw new EntradaNaoEncontradaNaAuditoriaException();
+		}
+		return lidos.getFirst();
+	}
+
 }

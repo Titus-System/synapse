@@ -11,10 +11,13 @@ import java.nio.file.Path;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.StreamSupport;
 
@@ -107,6 +110,10 @@ class AuditoriaPersistenciaTests {
 	private static final String CODIGO_SECRETO = "def aplicar_regra(): return 'CODIGO-CONFIDENCIAL'";
 
 	private static final String TRANSCRICAO_SECRETA = "O percentual é 2,5% TRANSCRICAO-CONFIDENCIAL";
+
+	private static final byte[] AUDIO_OGG = audio("OggS AUDIO-CONFIDENCIAL-DA-CORRECAO");
+
+	private static final byte[] AUDIO_WEBM = audio("webm AUDIO-CONFIDENCIAL-DA-ENTRADA");
 
 	private static final HttpClient HTTP = HttpClient.newHttpClient();
 
@@ -452,6 +459,150 @@ class AuditoriaPersistenciaTests {
 		assertThat(metricas).doesNotContain(job.toString());
 	}
 
+	@Test
+	void auditorOuveOAudioDaEntradaInicialEDaCorrecaoPorVoz() throws Exception {
+		JobCompleto j = jobCompleto();
+		EntradaDeVoz inicial = jobDeVoz(B, AUDIO_WEBM, "webm", T0.plusSeconds(30));
+		String antes = snapshotNegocio();
+
+		HttpResponse<byte[]> correcao = chamarAudio(j.id(), j.correcaoAceita(), auditor());
+		HttpResponse<byte[]> entradaInicial = chamarAudio(inicial.job(), inicial.entrada(), auditor());
+
+		assertThat(correcao.statusCode()).isEqualTo(200);
+		assertThat(correcao.headers().firstValue("Content-Type")).hasValue("audio/ogg");
+		assertThat(correcao.headers().allValues("Cache-Control")).containsExactly("no-store");
+		assertThat(correcao.body()).isEqualTo(AUDIO_OGG);
+		assertThat(entradaInicial.statusCode()).isEqualTo(200);
+		assertThat(entradaInicial.headers().firstValue("Content-Type")).hasValue("audio/webm");
+		assertThat(entradaInicial.headers().allValues("Cache-Control")).containsExactly("no-store");
+		assertThat(entradaInicial.body()).isEqualTo(AUDIO_WEBM);
+		assertThat(snapshotNegocio()).isEqualTo(antes);
+
+		JsonNode entradas = JSON.readTree(chamar("/auditoria/jobs/" + inicial.job(), auditor()).body())
+			.path("entradas");
+		assertThat(ids(entradas)).containsExactly(inicial.entrada());
+		assertThat(entradas.path(0).path("formato").asString()).isEqualTo("webm");
+	}
+
+	@Test
+	void audioSomenteParaOAuditorESemSessaoRecebe401() throws Exception {
+		JobCompleto j = jobCompleto();
+		HttpResponse<byte[]> doDono = chamarAudio(j.id(), j.correcaoAceita(), rh("subject-a"));
+		assertThat(doDono.statusCode()).isEqualTo(403);
+		assertThat(JSON.readTree(doDono.body()).path("codigo").asString()).isEqualTo("sem_permissao");
+		assertThat(doDono.body()).isNotEqualTo(AUDIO_OGG);
+		assertThat(chamarAudio(j.id(), j.correcaoAceita(), rh("subject-b")).statusCode()).isEqualTo(403);
+		HttpResponse<byte[]> semSessao = chamarAudio(j.id(), j.correcaoAceita(), "");
+		assertThat(semSessao.statusCode()).isEqualTo(401);
+		assertThat(semSessao.body()).isNotEqualTo(AUDIO_OGG);
+		assertThat(chamarAudio(j.id(), j.correcaoAceita(), auditor()).statusCode()).isEqualTo(200);
+	}
+
+	@Test
+	void entradaQueNaoEPorVozOuEDeOutroJobRecebe404() throws Exception {
+		JobCompleto j = jobCompleto();
+		UUID formulario = jobDeFormulario(B, null, T0);
+		UUID entradaDoFormulario = Objects
+			.requireNonNull(dono.queryForObject("SELECT submissao_id FROM jobs WHERE id = ?", UUID.class, formulario));
+		EntradaDeVoz deOutroJob = jobDeVoz(B, AUDIO_WEBM, "webm", T0);
+
+		assertErro(chamarAudio(j.id(), j.entradaInicial(), auditor()), 404, "entrada_nao_encontrada");
+		assertErro(chamarAudio(formulario, entradaDoFormulario, auditor()), 404, "entrada_nao_encontrada");
+		assertErro(chamarAudio(j.id(), deOutroJob.entrada(), auditor()), 404, "entrada_nao_encontrada");
+		assertErro(chamarAudio(j.id(), UUID.randomUUID(), auditor()), 404, "entrada_nao_encontrada");
+		assertErro(chamarAudio(UUID.randomUUID(), j.correcaoAceita(), auditor()), 404, "job_nao_encontrado");
+		HttpResponse<String> malformado = chamar("/auditoria/jobs/" + j.id() + "/entradas/nao-e-uuid/audio", auditor());
+		assertThat(malformado.statusCode()).isEqualTo(400);
+		ContratoDeEvento.validarRespostaHttp("Erro", malformado.body());
+		assertThat(JSON.readTree(malformado.body()).path("mensagem").asString())
+			.isEqualTo("O identificador da entrada precisa ser um UUID.");
+	}
+
+	@Test
+	void logsDoAudioLevamEntradaFormatoETamanhoSemOConteudo() throws Exception {
+		JobCompleto j = jobCompleto();
+		List<ILoggingEvent> eventos;
+		try (CapturaDeLog captura = new CapturaDeLog(AuditoriaController.class)) {
+			assertThat(chamarAudio(j.id(), j.correcaoAceita(), auditor()).statusCode()).isEqualTo(200);
+			assertThat(chamarAudio(j.id(), j.entradaInicial(), auditor()).statusCode()).isEqualTo(404);
+			eventos = captura.eventos();
+		}
+		assertThat(eventos).hasSize(2);
+		List<JsonNode> linhas = new ArrayList<>();
+		for (ILoggingEvent evento : eventos) {
+			String linha = CapturaDeLog.emJson(evento);
+			ContratoDeEvento.validarLog(linha);
+			assertThat(linha).doesNotContain("AUDIO-CONFIDENCIAL", Base64.getEncoder().encodeToString(AUDIO_OGG),
+					TRANSCRICAO_SECRETA, "subject-auditor");
+			linhas.add(JSON.readTree(linha));
+		}
+		JsonNode entrega = linhas.get(0);
+		assertThat(entrega.path("level").asString()).isEqualTo("INFO");
+		assertThat(entrega.path("message").asString()).isEqualTo("entrega de áudio da auditoria encerrada");
+		assertThat(entrega.path("job_id").asString()).isEqualTo(j.id().toString());
+		assertThat(entrega.path("user_id").asString()).isEqualTo(AUDITOR.toString());
+		assertThat(entrega.path("extra").path("operacao").asString()).isEqualTo("obter_audio_auditoria");
+		assertThat(entrega.path("extra").path("resultado").asString()).isEqualTo("sucesso");
+		assertThat(entrega.path("extra").path("entrada_id").asString()).isEqualTo(j.correcaoAceita().toString());
+		assertThat(entrega.path("extra").path("formato").asString()).isEqualTo("ogg");
+		assertThat(entrega.path("extra").path("tamanho_bytes").asInt()).isEqualTo(AUDIO_OGG.length);
+		JsonNode recusa = linhas.get(1);
+		assertThat(recusa.path("level").asString()).isEqualTo("WARN");
+		assertThat(recusa.path("job_id").asString()).isEqualTo(j.id().toString());
+		assertThat(recusa.path("extra").path("resultado").asString()).isEqualTo("entrada_nao_encontrada");
+		assertThat(recusa.path("extra").path("entrada_id").asString()).isEqualTo(j.entradaInicial().toString());
+		assertThat(recusa.path("extra").has("formato")).isFalse();
+		assertThat(recusa.path("extra").has("tamanho_bytes")).isFalse();
+	}
+
+	@Test
+	void formatoGravadoForaDaListaFalhaSemVirarTipoDaResposta() throws Exception {
+		EntradaDeVoz voz = jobDeVoz(A, AUDIO_WEBM, "html", T0);
+		List<ILoggingEvent> eventos;
+		HttpResponse<byte[]> resposta;
+		try (CapturaDeLog captura = new CapturaDeLog(AuditoriaController.class)) {
+			resposta = chamarAudio(voz.job(), voz.entrada(), auditor());
+			eventos = captura.eventos();
+		}
+		assertThat(resposta.statusCode()).isEqualTo(500);
+		assertThat(resposta.headers().firstValue("Content-Type")).isNotEqualTo(Optional.of("audio/html"));
+		assertThat(resposta.body()).isNotEqualTo(AUDIO_WEBM);
+		assertThat(eventos).hasSize(1);
+		String linha = CapturaDeLog.emJson(eventos.getFirst());
+		ContratoDeEvento.validarLog(linha);
+		JsonNode json = JSON.readTree(linha);
+		assertThat(json.path("level").asString()).isEqualTo("ERROR");
+		assertThat(json.path("extra").path("resultado").asString()).isEqualTo("falha");
+		assertThat(json.path("extra").has("formato")).isFalse();
+		assertThat(linha).doesNotContain("html");
+	}
+
+	@Test
+	void metricsExpoeARotaDoAudioPeloTemplate() throws Exception {
+		JobCompleto j = jobCompleto();
+		assertThat(chamarAudio(j.id(), j.correcaoAceita(), auditor()).statusCode()).isEqualTo(200);
+		assertThat(chamarAudio(j.id(), j.entradaInicial(), auditor()).statusCode()).isEqualTo(404);
+
+		String metricas = chamar("/metrics", "").body();
+
+		String rota = "uri=\"/auditoria/jobs/{id}/entradas/{entradaId}/audio\"";
+		List<String> contagens = metricas.lines()
+			.filter(linha -> linha.startsWith("http_server_requests_seconds_count{"))
+			.toList();
+		assertThat(contagens).anyMatch(linha -> linha.contains(rota) && linha.contains("status=\"200\""));
+		assertThat(contagens).anyMatch(linha -> linha.contains(rota) && linha.contains("status=\"404\""));
+		assertThat(metricas).doesNotContain(j.id().toString(), j.correcaoAceita().toString(),
+				j.entradaInicial().toString());
+	}
+
+	private static void assertErro(HttpResponse<byte[]> resposta, int status, String codigo) throws Exception {
+		assertThat(resposta.statusCode()).isEqualTo(status);
+		String corpo = new String(resposta.body(), StandardCharsets.UTF_8);
+		ContratoDeEvento.validarRespostaHttp("Erro", corpo);
+		assertThat(JSON.readTree(corpo).path("codigo").asString()).isEqualTo(codigo);
+		assertThat(resposta.headers().firstValue("Content-Type")).hasValue("application/json");
+	}
+
 	private static void assertEtapa(JsonNode etapas, UUID etapaId, @Nullable UUID resultado, @Nullable UUID simulacao,
 			@Nullable UUID submissao) {
 		JsonNode etapa = etapa(etapas, etapaId);
@@ -495,6 +646,18 @@ class AuditoriaPersistenciaTests {
 				    iniciado_em)
 				VALUES ('aguardando_decisao_usuario', ?, ?, '{2025-11}', 600000, 28000000.00, ?, ?) RETURNING id
 				""", usuario, submissao, ts(criadoEm), ts(criadoEm.plusSeconds(60)));
+	}
+
+	private static EntradaDeVoz jobDeVoz(UUID usuario, byte[] audio, String formato, Instant criadoEm) {
+		UUID submissao = inserir("""
+				INSERT INTO submissoes (usuario_id, tipo, binario, formato, criado_em)
+				VALUES (?, 'voz', ?, ?, ?) RETURNING id
+				""", usuario, audio, formato, ts(criadoEm));
+		UUID job = inserir("""
+				INSERT INTO jobs (status, usuario_id, submissao_id, competencias, criado_em)
+				VALUES ('aguardando_transcricao', ?, ?, '{2025-11}', ?) RETURNING id
+				""", usuario, submissao, ts(criadoEm));
+		return new EntradaDeVoz(job, submissao);
 	}
 
 	private static UUID jobDeFormulario(UUID usuario, @Nullable String nome, Instant criadoEm) {
@@ -556,8 +719,7 @@ class AuditoriaPersistenciaTests {
 		UUID correcaoAceita = inserir("""
 				INSERT INTO submissoes (usuario_id, tipo, binario, formato, transcricao, transcrito_em, criado_em)
 				VALUES (?, 'voz', ?, 'ogg', ?, ?, ?) RETURNING id
-				""", A, "AUDIO-BINARIO".getBytes(StandardCharsets.UTF_8), TRANSCRICAO_SECRETA, ts(minuto(6)),
-				ts(minuto(5)));
+				""", A, AUDIO_OGG, TRANSCRICAO_SECRETA, ts(minuto(6)), ts(minuto(5)));
 		UUID promptReextracao = prompt(job, "extracao_parametros", "Reextraia a regra corrigida.", 6);
 		resposta(job, promptReextracao, 7);
 		UUID reextracao = trilha(etapas, job, "extracao_parametros", 7, versaoExtraida, promptReextracao, null, null,
@@ -710,6 +872,16 @@ class AuditoriaPersistenciaTests {
 		return Objects.requireNonNull(dono.queryForObject(sql, UUID.class, parametros));
 	}
 
+	/** Um marcador legível seguido de bytes que não são texto. */
+	private static byte[] audio(String marcador) {
+		byte[] texto = marcador.getBytes(StandardCharsets.US_ASCII);
+		byte[] bytes = Arrays.copyOf(texto, texto.length + 3);
+		bytes[texto.length] = 0x00;
+		bytes[texto.length + 1] = (byte) 0xff;
+		bytes[texto.length + 2] = (byte) 0x80;
+		return bytes;
+	}
+
 	private static Instant minuto(int minutos) {
 		return T0.plusSeconds(60L * minutos);
 	}
@@ -743,6 +915,16 @@ class AuditoriaPersistenciaTests {
 		return HTTP.send(pedido.build(), HttpResponse.BodyHandlers.ofString());
 	}
 
+	private static HttpResponse<byte[]> chamarAudio(UUID job, UUID entrada, String token) throws Exception {
+		HttpRequest.Builder pedido = HttpRequest
+			.newBuilder(URI.create(base + "/auditoria/jobs/" + job + "/entradas/" + entrada + "/audio"))
+			.GET();
+		if (!token.isEmpty()) {
+			pedido.header("Authorization", "Bearer " + token);
+		}
+		return HTTP.send(pedido.build(), HttpResponse.BodyHandlers.ofByteArray());
+	}
+
 	private static String auditor() throws Exception {
 		return token("subject-auditor", "auditoria", List.of("default-roles-synapse", "auditor"));
 	}
@@ -762,6 +944,9 @@ class AuditoriaPersistenciaTests {
 		SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID("teste").build(), claims);
 		jwt.sign(new RSASSASigner(chave));
 		return jwt.serialize();
+	}
+
+	private record EntradaDeVoz(UUID job, UUID entrada) {
 	}
 
 	/** Os ids do job semeado, para as asserções localizarem cada linha. */

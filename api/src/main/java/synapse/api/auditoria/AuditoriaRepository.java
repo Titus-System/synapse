@@ -15,12 +15,23 @@ import org.springframework.stereotype.Repository;
 
 /**
  * Leitura das tabelas do job para o auditor, sem escrita e sem as classes da fatia
- * {@code job}. Nenhuma consulta lê {@code submissoes.binario} nem
+ * {@code job}. Só {@link #lerAudio} lê {@code submissoes.binario}, e nenhuma consulta lê
  * {@code resultados_simulacao.linhas}. Cada seção do registro é uma consulta filtrada
  * pelo job e em ordem cronológica, com o id como desempate.
  */
 @Repository
 class AuditoriaRepository {
+
+	/**
+	 * A submissão inicial do job e as das correções enviadas nas rodadas. O job
+	 * reprocessado não tem submissão própria.
+	 */
+	private static final String ENTRADAS_DO_JOB = """
+			FROM jobs j
+			JOIN submissoes s ON s.id = j.submissao_id
+			    OR s.id IN (SELECT r.submissao_correcao_id FROM rodadas_correcao r WHERE r.job_id = j.id)
+			WHERE j.id = ?
+			""";
 
 	private static final String JOB = """
 			SELECT j.id, j.status,
@@ -51,25 +62,34 @@ class AuditoriaRepository {
 		return this.jdbc.query(JOB + "WHERE j.id = ?", (linha, numero) -> job(linha), jobId);
 	}
 
-	/**
-	 * A submissão inicial do job e as das correções enviadas nas rodadas. O job
-	 * reprocessado não tem submissão própria.
-	 */
+	boolean existeJob(UUID jobId) {
+		return Objects.requireNonNull(
+				this.jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM jobs WHERE id = ?)", Boolean.class, jobId));
+	}
+
 	List<EntradaAuditoriaDto> listarEntradas(UUID jobId) {
 		return this.jdbc.query("""
 				SELECT s.id, s.tipo,
 				       CASE WHEN s.id = j.submissao_id THEN 'entrada_inicial' ELSE 'correcao' END AS finalidade,
 				       s.criado_em, s.conteudo::text AS conteudo, s.transcricao, s.formato, s.transcrito_em
-				FROM jobs j
-				JOIN submissoes s ON s.id = j.submissao_id
-				    OR s.id IN (SELECT r.submissao_correcao_id FROM rodadas_correcao r WHERE r.job_id = j.id)
-				WHERE j.id = ?
-				ORDER BY s.criado_em, s.id
-				""",
+				""" + ENTRADAS_DO_JOB + "ORDER BY s.criado_em, s.id",
 				(linha, numero) -> new EntradaAuditoriaDto(uuid(linha, "id"), texto(linha, "tipo"),
 						texto(linha, "finalidade"), momento(linha, "criado_em"), linha.getString("conteudo"),
 						linha.getString("transcricao"), linha.getString("formato"), instante(linha, "transcrito_em")),
 				jobId);
+	}
+
+	/**
+	 * Procura só entre as entradas que {@link #listarEntradas} lista, para que a
+	 * submissão de outro job não seja encontrada.
+	 */
+	List<AudioAuditoria> lerAudio(UUID jobId, UUID entradaId) {
+		return this.jdbc.query(
+				"SELECT s.binario, s.formato " + ENTRADAS_DO_JOB
+						+ "AND s.id = ? AND s.tipo = 'voz' AND s.binario IS NOT NULL AND s.formato IS NOT NULL",
+				(linha, numero) -> AudioAuditoria.gravado(Objects.requireNonNull(linha.getBytes("binario")),
+						texto(linha, "formato")),
+				jobId, entradaId);
 	}
 
 	/**
