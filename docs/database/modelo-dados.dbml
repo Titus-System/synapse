@@ -491,6 +491,18 @@ jsonb porque e escrito de uma vez, lido inteiro e nunca filtrado por valor.
 Mensagem, traceback e caminhos vieram de codigo nao confiavel: sao dado, nunca vao para
 log nem evento.
 ''']
+  fontes jsonb [note: '''
+Formato: contracts/domain/resultado-fontes.schema.json
+Identifica o manifesto, as competencias, os arquivos e os baselines conferidos pelo
+worker antes da execucao, com seus hashes; nao contem os dados das bases.
+NULL nos resultados gravados antes do campo e nos de erro_infra, sem backfill.
+Escrito pelo worker no mesmo INSERT do resultado e imutavel como o resto da linha.
+Fica no resultado para vincular as bases ao codigo, a versao da regra, a simulacao e
+ao horario pela mesma linha, sem repetir essas referencias na trilha.
+jsonb porque e escrito de uma vez e lido inteiro pela consulta de auditoria,
+GET /auditoria/jobs/{id}, sem filtros por valor. A API omite o campo quando NULL.
+A migration da T-310 deve ser implantada antes do worker da T-311; nao exige novos GRANTs.
+''']
   criado_em timestamptz [not null]
 
   indexes {

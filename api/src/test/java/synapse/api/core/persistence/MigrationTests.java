@@ -1,5 +1,7 @@
 package synapse.api.core.persistence;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -49,7 +51,9 @@ class MigrationTests {
 			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras",
 			"rodadas_correcao", "trabalhos_transcricao", "sugestoes_meta_venda");
 
-	private static final int CHANGESETS = 34;
+	private static final int CHANGESETS = 35;
+
+	private static final int CHANGESETS_ANTES_DAS_FONTES = 34;
 
 	private static final int CHANGESETS_ANTES_DO_RESULTADO_NA_TRILHA = 33;
 
@@ -204,6 +208,53 @@ class MigrationTests {
 		reverter(CHANGESETS);
 
 		assertThat(tabelasExistentes()).isEmpty();
+	}
+
+	@Test
+	void adicionaFontesSemBackfillEReverteSomenteAColuna() throws Exception {
+		atualizar(CHANGESETS_ANTES_DAS_FONTES);
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearCodigoGerado(statement);
+			inserirComoOWorker(statement);
+		}
+		List<String> colunasAnteriores = colunasDeResultados();
+		List<String> resultadosAnteriores = resultadosSemFontes();
+
+		atualizar();
+
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS);
+		assertThat(coluna("resultados_simulacao", "fontes")).containsExactly("jsonb", "YES", null);
+		assertThat(resultadosSemFontes()).containsExactlyElementsOf(resultadosAnteriores);
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			// O INSERT antigo continua válido, mesmo depois de implantar a migration.
+			inserirComoOWorker(statement);
+			try (ResultSet rs = statement.executeQuery("SELECT fontes FROM resultados_simulacao")) {
+				int legados = 0;
+				while (rs.next()) {
+					assertThat(rs.getString("fontes")).isNull();
+					legados++;
+				}
+				assertThat(legados).isEqualTo(2);
+			}
+			try (PreparedStatement insert = connection.prepareStatement("""
+					INSERT INTO resultados_simulacao
+					    (job_id, codigo_gerado_id, status, assercoes, fontes, criado_em)
+					VALUES (?::uuid, ?::uuid, 'sucesso', '[]'::jsonb, ?::jsonb, now())
+					""")) {
+				insert.setString(1, JOB_ID);
+				insert.setString(2, CODIGO_ID);
+				insert.setString(3, Files.readString(Path.of("../contracts/examples/domain/resultado-fontes.json")));
+				assertThat(insert.executeUpdate()).isEqualTo(1);
+			}
+		}
+		List<String> resultadosAntesDoRollback = resultadosSemFontes();
+		assertThat(resultadosAntesDoRollback).hasSize(3);
+
+		reverter(CHANGESETS - CHANGESETS_ANTES_DAS_FONTES);
+
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DAS_FONTES);
+		assertThat(colunasDeResultados()).containsExactlyInAnyOrderElementsOf(colunasAnteriores);
+		assertThat(resultadosSemFontes()).containsExactlyElementsOf(resultadosAntesDoRollback);
 	}
 
 	@Test
@@ -1418,6 +1469,20 @@ class MigrationTests {
 			}
 		}
 		return payloads;
+	}
+
+	private static List<String> resultadosSemFontes() throws Exception {
+		List<String> resultados = new ArrayList<>();
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("""
+						SELECT (to_jsonb(r) - 'fontes')::text FROM resultados_simulacao r ORDER BY id
+						""")) {
+			while (rs.next()) {
+				resultados.add(rs.getString(1));
+			}
+		}
+		return resultados;
 	}
 
 	private static List<String> colunasDeResultados() throws Exception {
