@@ -1,15 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { iniciarLogout, obterTokenDeAcesso } from './keycloak'
+import {
+  iniciarLogout,
+  obterTokenDeAcesso,
+  obterPapelDeNegocio,
+  obterLoginDoUsuario,
+} from './keycloak'
 
 const cliente = vi.hoisted(() => ({
   token: undefined as string | undefined,
+  tokenParsed: undefined as
+    { realm_access?: { roles: string[] }; preferred_username?: string } | undefined,
   updateToken: vi.fn<(minValidity: number) => Promise<boolean>>(),
   clearToken: vi.fn<() => void>(),
   logout: vi.fn<(opcoes: { redirectUri: string }) => Promise<void>>(),
 }))
 
 vi.mock('keycloak-js', () => ({
-  default: vi.fn<() => typeof cliente>(function () { return cliente }),
+  default: vi.fn<() => typeof cliente>(function () {
+    return cliente
+  }),
 }))
 
 beforeEach(() => {
@@ -22,7 +31,9 @@ beforeEach(() => {
 describe('renovação do token', () => {
   it('aguarda a renovação e devolve o novo token', async () => {
     let concluirRenovacao!: (valor: boolean) => void
-    const renovacao = new Promise<boolean>((resolve) => { concluirRenovacao = resolve })
+    const renovacao = new Promise<boolean>((resolve) => {
+      concluirRenovacao = resolve
+    })
     cliente.updateToken.mockReturnValue(renovacao)
 
     const token = obterTokenDeAcesso()
@@ -64,7 +75,24 @@ describe('logout', () => {
 
     expect(cliente.clearToken).toHaveBeenCalledOnce()
     expect(cliente.logout).toHaveBeenCalledWith({
-      redirectUri: new URL('/nova-regra', window.location.origin).toString(),
+      redirectUri: new URL('/', window.location.origin).toString(),
     })
+  })
+})
+
+describe('papel de negócio', () => {
+  it.each(['auditor', 'profissional-rh'] as const)('lê %s e o login do token', (papel) => {
+    cliente.tokenParsed = {
+      realm_access: { roles: ['offline_access', papel] },
+      preferred_username: 'login.teste',
+    }
+    expect(obterPapelDeNegocio()).toBe(papel)
+    expect(obterLoginDoUsuario()).toBe('login.teste')
+  })
+  it('não inventa papel quando ausente ou ambíguo', () => {
+    cliente.tokenParsed = undefined
+    expect(obterPapelDeNegocio()).toBeUndefined()
+    cliente.tokenParsed = { realm_access: { roles: ['auditor', 'profissional-rh'] } }
+    expect(obterPapelDeNegocio()).toBeUndefined()
   })
 })

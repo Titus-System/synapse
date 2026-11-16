@@ -25,7 +25,10 @@ export async function inicializarKeycloak(): Promise<boolean> {
     onLoad: 'check-sso',
     checkLoginIframe: false,
     pkceMethod: 'S256',
-    silentCheckSsoRedirectUri: new URL(`${config.baseUrl}silent-check-sso.html`, window.location.origin).toString(),
+    silentCheckSsoRedirectUri: new URL(
+      `${config.baseUrl}silent-check-sso.html`,
+      window.location.origin,
+    ).toString(),
   })
 }
 
@@ -53,9 +56,19 @@ export async function iniciarLogout(): Promise<void> {
   // Depois de encerrar a sessão, voltamos para uma rota protegida. A guarda
   // do roteador inicia o login novamente, sem deixar o usuário numa tela
   // intermediária da aplicação.
-  await cliente.logout({ redirectUri: urlDeRetorno('/nova-regra') })
+  await cliente.logout({ redirectUri: urlDeRetorno('/') })
 }
 
 export function limparTokenDoKeycloak(): void {
   obterClienteKeycloak().clearToken()
+}
+
+export type PapelDeNegocio = 'auditor' | 'profissional-rh'
+export function obterPapelDeNegocio(): PapelDeNegocio | undefined {
+  const papeis = obterClienteKeycloak().tokenParsed?.realm_access?.roles ?? []
+  const negocios = papeis.filter((papel) => papel === 'auditor' || papel === 'profissional-rh')
+  return negocios.length === 1 ? (negocios[0] as PapelDeNegocio) : undefined
+}
+export function obterLoginDoUsuario(): string | undefined {
+  return obterClienteKeycloak().tokenParsed?.preferred_username
 }
