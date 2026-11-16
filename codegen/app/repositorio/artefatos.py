@@ -76,6 +76,11 @@ def id_do_codigo_derivado(codigo_origem_id: UUID, regra_id: UUID) -> UUID:
     return uuid5(_NAMESPACE, f"codigo-derivado:{codigo_origem_id}:{regra_id}")
 
 
+def id_da_explicacao(resultado_id: UUID) -> UUID:
+    """Uma explicação por resultado: o id vem dele, e a reexecução do nó acha a mesma linha."""
+    return uuid5(_NAMESPACE, f"explicacao:{resultado_id}")
+
+
 def id_do_evento_de_trilha(job_id: UUID, no: str, referencia: UUID) -> UUID:
     """Chave de idempotência do `no-concluido` deste nó.
 

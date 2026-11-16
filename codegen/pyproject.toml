@@ -132,6 +132,7 @@ markers = [
     "rabbitmq: integração com RabbitMQ real do compose oficial",
     "postgres: integração com o Postgres real do compose oficial, com as migrations da api",
     "llm: chamada real ao provedor de LLM; fora do `make test`, rode com `make test-llm`",
+    "com_explicacao: o grafo roda com o nó `explain_result` real; sem a marca, ele é um nó vazio",
 ]
 
 
