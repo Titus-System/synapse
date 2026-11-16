@@ -1,266 +1,261 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { reactive } from 'vue'
 import { createPinia } from 'pinia'
 import { apiClient } from '@/services/api'
 import { jobFixture, regraFixture } from '@/services/job.fixtures'
-import type { JobResumo } from '@/types/api'
+import type { JobResumo, PaginaJobs } from '@/types/api'
 import HistoricoJobsView from './HistoricoJobsView.vue'
 
-const { listarTodosOsJobs, rota, roteador } = vi.hoisted(() => ({
-  listarTodosOsJobs: vi.fn<() => Promise<JobResumo[]>>(),
-  rota: { name: 'regras-salvas' },
-  roteador: { push: vi.fn<(destino: unknown) => Promise<void>>() },
+const { rota, roteador } = vi.hoisted(() => ({
+  rota: { atual: { name: 'regras-salvas' } },
+  roteador: { push: vi.fn<(destino: unknown) => void>() },
 }))
-
-vi.mock('../services/historicoJobs.api', () => ({ listarTodosOsJobs }))
-
 vi.mock('@/services/api', () => ({
   apiClient: {
     consultarJob: vi.fn<typeof apiClient.consultarJob>(),
-    renomearJob: vi.fn<typeof apiClient.renomearJob>(),
     listarJobs: vi.fn<typeof apiClient.listarJobs>(),
   },
 }))
-
-vi.mock('vue-router', () => ({
-  useRoute: () => rota,
-  useRouter: () => roteador,
-}))
-
-beforeEach(() => {
-  vi.resetAllMocks()
-  opcoesDeMontagem = criarOpcoesDeMontagem()
-  rota.name = 'regras-salvas'
-  vi.mocked(apiClient.consultarJob).mockImplementation(async (id) => jobFixture({ id }))
-  vi.mocked(apiClient.listarJobs).mockResolvedValue({ itens: [], pagina: 0, tamanho: 12, total: 0 })
+vi.mock('vue-router', () => ({ useRoute: () => rota.atual, useRouter: () => roteador }))
+let wrapper: VueWrapper | undefined
+let avisos: { mock: { calls: unknown[][] } }
+const idDe = (n: number) => `019a1e43-7a00-7c3b-9d41-8f2c6a1b7e0${n}`
+const resumo = (n: number, status: JobResumo['status'] = 'liberado'): JobResumo => ({
+  id: idDe(n),
+  nome: `Comissão da loja ${n}`,
+  status,
+  competencias: ['2025-11'],
+  criado_em: '2026-10-28T16:40:00Z',
 })
-
-function botaoDeReprocessamento(conteiner: VueWrapper) {
-  return conteiner
-    .findAll('button')
-    .find((botao) => botao.text() === 'Reprocessar regra com novo orçamento')
+function resposta(itens: JobResumo[], total = itens.length, pagina = 0): PaginaJobs {
+  return { itens, pagina, tamanho: 5, total }
 }
-
-function criarResumoDoJob(numero: number, status: JobResumo['status'] = 'liberado'): JobResumo {
-  return {
-    id: `0000000${numero}-1234-4000-8000-000000000000`,
-    nome: `Regra de teste ${numero}`,
-    status,
-    competencias: ['2025-09'],
-    orcamento: 485000,
-    criado_em: '2026-09-19T12:00:00Z',
-    veredito: 'viavel',
-  }
+function servir(itens: JobResumo[], total = itens.length) {
+  vi.mocked(apiClient.listarJobs).mockImplementation(async (parametros = {}) =>
+    parametros.situacao === (rota.atual.name === 'regras-arquivadas' ? 'arquivadas' : 'salvas')
+      ? resposta(itens, total, parametros.pagina)
+      : resposta([], 23),
+  )
 }
-
-function criarOpcoesDeMontagem() {
-  return {
+function montar() {
+  wrapper = mount(HistoricoJobsView, {
     global: {
       plugins: [createPinia()],
       stubs: {
-        RouterLink: {
-          props: ['to'],
-          template: '<a :href="to"><slot /></a>',
-        },
+        RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
       },
     },
-  }
+  })
+  return wrapper
 }
-let opcoesDeMontagem = criarOpcoesDeMontagem()
+beforeEach(() => {
+  vi.resetAllMocks()
+  rota.atual = reactive({ name: 'regras-salvas' })
+  avisos = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  vi.mocked(apiClient.consultarJob).mockImplementation(async (id) => jobFixture({ id }))
+  servir([])
+})
+afterEach(() => {
+  wrapper?.unmount()
+  wrapper = undefined
+  vi.restoreAllMocks()
+})
 
-describe('HistoricoJobsView', () => {
-  it('abre o formulário com a regra do job ao reprocessar com novo orçamento', async () => {
-    rota.name = 'regras-arquivadas'
-    const resumo = criarResumoDoJob(1, 'arquivado')
-    listarTodosOsJobs.mockResolvedValue([resumo])
-
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
-    await flushPromises()
-
-    await botaoDeReprocessamento(conteiner)?.trigger('click')
-
-    expect(roteador.push).toHaveBeenCalledWith({
-      name: 'nova-regra',
-      query: { reprocessar: resumo.id },
-    })
-    conteiner.unmount()
-  })
-
-  it('troca o selo de status pelo botão nas arquivadas', async () => {
-    rota.name = 'regras-arquivadas'
-    listarTodosOsJobs.mockResolvedValue([criarResumoDoJob(1, 'arquivado')])
-
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
-    await flushPromises()
-
-    const cartao = conteiner.get('article')
-    expect(cartao.text()).toContain('Reprocessar regra com novo orçamento')
-    expect(cartao.text()).not.toContain('Arquivado')
-    conteiner.unmount()
-  })
-
-  it.each([
-    ['regras-salvas', 'liberado'],
-    ['regras-arquivadas', 'arquivado'],
-  ] as const)('oferece o botão Editar no cartão em %s', async (nomeDaRota, status) => {
-    rota.name = nomeDaRota
-    listarTodosOsJobs.mockResolvedValue([criarResumoDoJob(1, status)])
-
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
-    await flushPromises()
-
-    const botao = conteiner.get('article button[aria-label^="Editar o nome da regra"]')
-    expect(botao.text()).toBe('Editar')
-    conteiner.unmount()
-  })
-
-  it('renomeia pelo cartão e atualiza o cartão e a barra lateral sem recarregar a lista', async () => {
-    const resumo = criarResumoDoJob(1)
-    listarTodosOsJobs.mockResolvedValue([resumo])
-    vi.mocked(apiClient.listarJobs).mockResolvedValue({
-      itens: [resumo],
-      pagina: 0,
-      tamanho: 12,
-      total: 1,
-    })
-    vi.mocked(apiClient.renomearJob).mockResolvedValue({
-      ...jobFixture({ id: resumo.id }),
-      nome: 'Comissão de dezembro',
-    })
-
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
-    await flushPromises()
-    await conteiner.get('article button[aria-label^="Editar o nome da regra"]').trigger('click')
-    const campo = conteiner.get('article input')
-    await campo.setValue('  Comissão de dezembro ')
-    await campo.trigger('keydown.enter')
-    await flushPromises()
-
-    expect(apiClient.renomearJob).toHaveBeenCalledWith(resumo.id, {
-      nome: '  Comissão de dezembro ',
-    })
-    expect(listarTodosOsJobs).toHaveBeenCalledTimes(1)
-    expect(apiClient.listarJobs).toHaveBeenCalledTimes(1)
-    expect(conteiner.get('article h2').text()).toBe('Comissão de dezembro')
-    expect(conteiner.get('aside').text()).toContain('Comissão de dezembro')
-    expect(conteiner.get('aside').text()).not.toContain('Regra de teste 1')
-    conteiner.unmount()
-  })
-
-  it('não oferece o reprocessamento nas regras salvas', async () => {
-    listarTodosOsJobs.mockResolvedValue([criarResumoDoJob(1)])
-
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
-    await flushPromises()
-
-    expect(conteiner.get('article').text()).toContain('Regra de teste 1')
-    expect(conteiner.get('article').text()).toContain('Liberado')
-    expect(botaoDeReprocessamento(conteiner)).toBeUndefined()
-    conteiner.unmount()
-  })
-
-  it.each([
-    ['regras-salvas', 'liberado'],
-    ['regras-arquivadas', 'arquivado'],
-  ] as const)(
-    'mostra somente a versão mais recente, sem repetir a prévia em %s',
-    async (nome, status) => {
-      rota.name = nome
-      const resumo = criarResumoDoJob(1, status)
-      const anterior = regraFixture(1)
-      anterior.representacao.nucleo.loja = ['Loja anterior']
-      const recente = regraFixture(2)
-      recente.representacao.nucleo.loja = ['Loja atual']
-      recente.representacao.especificacoes = [
-        {
-          ref: 'bonus-1',
-          construto: 'bonus_fixo',
-          alvo: { tipo: 'lista', valor: ['13'] },
-          valor: 250,
-        },
-      ]
-      listarTodosOsJobs.mockResolvedValue([resumo])
-      vi.mocked(apiClient.consultarJob).mockResolvedValue(
-        jobFixture({ ...resumo, regras: [anterior, recente] }),
-      )
-
-      const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
+describe('repositório paginado', () => {
+  it.each(['salvas', 'arquivadas'] as const)(
+    'carrega %s com filtro e totais da API',
+    async (situacao) => {
+      rota.atual.name = `regras-${situacao}`
+      servir([resumo(1, situacao === 'salvas' ? 'liberado' : 'arquivado')], 14)
+      const tela = montar()
       await flushPromises()
-
-      const cartao = conteiner.get('article')
-      expect(cartao.text()).not.toContain('Loja anterior')
-      expect(cartao.findAll('li').map((linha) => linha.text())).toEqual([
-        'vigência = 11/2025',
-        'loja = Nome não disponível (código Loja atual)',
-        'marca = PRETO',
-        'cargo = VENDEDOR LOJA',
-        '% de comissionamento = 2,5%',
-        'bônus fixo = R$ 250,00',
-      ])
-      conteiner.unmount()
+      expect(apiClient.listarJobs).toHaveBeenCalledWith(
+        { situacao, pagina: 0, tamanho: 5 },
+        expect.any(AbortSignal),
+      )
+      expect(apiClient.listarJobs).toHaveBeenCalledTimes(2)
+      expect(apiClient.consultarJob).toHaveBeenCalledTimes(1)
+      expect(tela.get('main').text()).toContain('Total: 14 regras registradas')
+      expect(tela.get('aside').text()).toContain('Total Catalogado14')
+      expect(tela.get('aside').find('a[href="/arquivadas"]').exists()).toBe(false)
+      expect(tela.get('aside').text()).not.toContain('Recentes')
+      expect(tela.get('article').text()).not.toMatch(
+        /Liberado|Arquivado|Processamento|019a1e43|versão/,
+      )
+      expect(tela.find('button[aria-label^="Reprocessar"]').exists()).toBe(
+        situacao === 'arquivadas',
+      )
     },
   )
 
-  it('mantém o cartão e o acesso ao relatório quando o job ainda não possui regras', async () => {
-    const resumo = criarResumoDoJob(1)
-    listarTodosOsJobs.mockResolvedValue([resumo])
-    vi.mocked(apiClient.consultarJob).mockResolvedValue(jobFixture({ ...resumo, regras: [] }))
-
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
-    await flushPromises()
-
-    const cartao = conteiner.get('article')
-    expect(cartao.get('h2').text()).toBe('Regra de teste 1')
-    expect(cartao.findAll('li')).toHaveLength(0)
-    expect(cartao.get('a').attributes('href')).toBe(`/jobs/${resumo.id}`)
-    conteiner.unmount()
+  it.each(['salvas', 'arquivadas'])('mostra carregamento de %s', async (situacao) => {
+    rota.atual.name = `regras-${situacao}`
+    vi.mocked(apiClient.listarJobs).mockReturnValue(new Promise(() => {}))
+    const tela = montar()
+    expect(tela.get('[aria-busy="true"]').text()).toContain('Carregando regras')
+    expect(tela.find('article').exists()).toBe(false)
   })
 
-  it('exibe apenas as regras salvas, com os contadores reais da sidebar', async () => {
-    listarTodosOsJobs.mockResolvedValue([
-      criarResumoDoJob(1),
-      criarResumoDoJob(2),
-      criarResumoDoJob(3, 'arquivado'),
+  it.each(['salvas', 'arquivadas'])('mostra vazio em %s', async (situacao) => {
+    rota.atual.name = `regras-${situacao}`
+    const tela = montar()
+    await flushPromises()
+    expect(tela.text()).toContain(
+      `Nenhuma regra ${situacao === 'salvas' ? 'salva' : 'arquivada'} ainda`,
+    )
+    expect(apiClient.consultarJob).not.toHaveBeenCalled()
+  })
+
+  it.each(['salvas', 'arquivadas'])(
+    'trata falha de %s, sanitiza log e permite tentar novamente',
+    async (situacao) => {
+      rota.atual.name = `regras-${situacao}`
+      vi.mocked(apiClient.listarJobs).mockRejectedValue(new Error('token e regra privados'))
+      const tela = montar()
+      await flushPromises()
+      expect(tela.get('main [role="alert"]').text()).toContain(
+        'Não foi possível carregar as regras',
+      )
+      expect(tela.text()).not.toContain('token e regra privados')
+      expect(avisos).toHaveBeenCalled()
+      const eventos = avisos.mock.calls.map((args) => JSON.parse(args[0] as string))
+      expect(eventos).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            'service.name': 'synapse-frontend',
+            level: 'WARN',
+            extra: expect.objectContaining({
+              operacao: `listar_regras_${situacao}`,
+              resultado: 'falha',
+            }),
+          }),
+        ]),
+      )
+      expect(JSON.stringify(eventos)).not.toContain('token e regra privados')
+      servir([resumo(1)])
+      await tela.get('main [role="alert"] button').trigger('click')
+      await flushPromises()
+      expect(tela.findAll('article')).toHaveLength(1)
+    },
+  )
+
+  it('consulta só os detalhes da nova página e usa o total filtrado', async () => {
+    vi.mocked(apiClient.listarJobs).mockImplementation(async (p = {}) =>
+      p.situacao === 'arquivadas'
+        ? resposta([], 80)
+        : resposta(
+            p.pagina === 1 ? [resumo(6), resumo(7)] : [1, 2, 3, 4, 5].map((n) => resumo(n)),
+            7,
+            p.pagina,
+          ),
+    )
+    const tela = montar()
+    await flushPromises()
+    expect(apiClient.consultarJob).toHaveBeenCalledTimes(5)
+    vi.mocked(apiClient.consultarJob).mockClear()
+    await tela.get('button[aria-label="Próxima página"]').trigger('click')
+    await flushPromises()
+    expect(vi.mocked(apiClient.consultarJob).mock.calls.map((args) => args[0])).toEqual([
+      idDe(6),
+      idDe(7),
     ])
+    expect(tela.get('main').text()).toContain('Mostrando 6–7 de 7')
+    expect(tela.get('button[aria-label="Próxima página"]').attributes('disabled')).toBeDefined()
+    expect(tela.get('aside').text()).toContain('Total Catalogado7')
+  })
 
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
+  it('mantém os demais cartões quando um detalhe falha', async () => {
+    servir([resumo(1), resumo(2)])
+    vi.mocked(apiClient.consultarJob)
+      .mockRejectedValueOnce(new Error('texto privado'))
+      .mockResolvedValueOnce(jobFixture({ nome: 'Regra carregada' }))
+    const tela = montar()
+    await flushPromises()
+    expect(tela.findAll('article')).toHaveLength(2)
+    expect(tela.findAll('article [role="alert"]')).toHaveLength(1)
+    expect(tela.text()).toContain('Regra carregada')
+    expect(avisos.mock.calls.map((args) => JSON.parse(args[0] as string))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          job_id: idDe(1),
+          extra: expect.objectContaining({ operacao: 'consultar_regra_historico' }),
+        }),
+      ]),
+    )
+  })
 
-    await vi.waitFor(() => {
-      expect(conteiner.get('.tela-de-negocio').classes()).toContain('tela-de-negocio')
-      expect(conteiner.text()).toContain('Salvas')
-      expect(conteiner.get('main').text()).toContain('Regra de teste 1')
-      expect(conteiner.get('main').text()).not.toContain('Regra de teste 3')
-      expect(conteiner.text()).toContain('Salvas2')
-      expect(conteiner.text()).toContain('Arquivadas1')
+  it('falha na contagem da outra lista não impede os cartões', async () => {
+    vi.mocked(apiClient.listarJobs).mockImplementation(async (p = {}) => {
+      if (p.situacao === 'arquivadas') throw new Error('falha')
+      return resposta([resumo(1)], 12)
+    })
+    const tela = montar()
+    await flushPromises()
+    expect(tela.findAll('article')).toHaveLength(1)
+    expect(tela.get('aside').text()).toContain('Total Catalogado12')
+  })
+
+  it('leva Detalhes ao cartão finalizado e Reprocessar à entrada pelo roteador', async () => {
+    rota.atual.name = 'regras-arquivadas'
+    servir([resumo(1, 'arquivado')])
+    const tela = montar()
+    await flushPromises()
+    await tela.get('button[aria-label^="Detalhes de"]').trigger('click')
+    expect(roteador.push).toHaveBeenCalledWith({ name: 'finalizar', params: { id: idDe(1) } })
+    await tela.get('button[aria-label^="Reprocessar"]').trigger('click')
+    expect(roteador.push).toHaveBeenCalledWith({
+      name: 'nova-regra',
+      query: { reprocessar: idDe(1) },
     })
   })
 
-  it('pagina a lista quando há mais de seis regras', async () => {
-    listarTodosOsJobs.mockResolvedValue(
-      Array.from({ length: 7 }, (_, indice) => criarResumoDoJob(indice + 1)),
+  it('transforma só a versão mais recente sem exibir identificadores', async () => {
+    const antiga = regraFixture(1)
+    const recente = regraFixture(2)
+    antiga.representacao.nucleo.loja = ['antiga']
+    recente.representacao.nucleo.loja = ['atual']
+    servir([resumo(1)])
+    vi.mocked(apiClient.consultarJob).mockResolvedValue(
+      jobFixture({ regras: [recente, antiga], nome: 'Comissão' }),
     )
-
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
-
-    await vi.waitFor(() => expect(conteiner.text()).toContain('Página 1 de 2'))
-    expect(conteiner.text()).not.toContain('Regra de teste 7')
-
-    const botaoProxima = conteiner.findAll('button').find((botao) => botao.text() === 'Próxima')
-    expect(botaoProxima).toBeDefined()
-    await botaoProxima?.trigger('click')
-
-    expect(conteiner.text()).toContain('Página 2 de 2')
-    expect(conteiner.text()).toContain('Regra de teste 7')
+    const tela = montar()
+    await flushPromises()
+    expect(tela.get('article h2').attributes('title')).toContain('atual')
+    expect(tela.get('article h2').attributes('title')).not.toContain('antiga')
+    expect(tela.get('article').text()).not.toContain(idDe(1))
   })
 
-  it('mantém a busca e o filtro desabilitados enquanto a API não os suporta', async () => {
-    listarTodosOsJobs.mockResolvedValue([])
+  it('numera a regra pelos 6 últimos caracteres do id e omite o nome ausente', async () => {
+    servir([resumo(1), { ...resumo(2), nome: null }])
+    const tela = montar()
+    await flushPromises()
+    expect(tela.findAll('article h2').map((titulo) => titulo.text())).toEqual([
+      'Regra 1B7E01 · Comissão da loja 1',
+      'Regra 1B7E02',
+    ])
+    expect(tela.find('button[aria-label="Detalhes de Regra 1B7E02"]').exists()).toBe(true)
+  })
 
-    const conteiner = mount(HistoricoJobsView, opcoesDeMontagem)
-
-    await vi.waitFor(() => expect(conteiner.find('input[type="search"]').exists()).toBe(true))
-
-    expect(conteiner.get('input[type="search"]').attributes('disabled')).toBeDefined()
-    expect(conteiner.get('button[title*="filtro"]').attributes('disabled')).toBeDefined()
+  it('cancela a página anterior quando a rota muda e ignora resposta atrasada', async () => {
+    let resolver: (p: PaginaJobs) => void = () => {}
+    vi.mocked(apiClient.listarJobs)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolver = resolve
+          }),
+      )
+      .mockResolvedValue(resposta([], 0))
+    const tela = montar()
+    const signal = vi.mocked(apiClient.listarJobs).mock.calls[0]?.[1]
+    rota.atual.name = 'regras-arquivadas'
+    await flushPromises()
+    expect(signal?.aborted).toBe(true)
+    resolver(resposta([resumo(99)]))
+    await flushPromises()
+    expect(tela.get('h1').text()).toContain('Arquivadas')
+    expect(tela.findAll('article')).toHaveLength(0)
+    expect(apiClient.consultarJob).not.toHaveBeenCalled()
   })
 })

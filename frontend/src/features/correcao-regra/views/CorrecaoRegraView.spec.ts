@@ -108,7 +108,7 @@ describe('visual do chatbot', () => {
     expect(wrapper.get('a[href="/jobs/regra-a"]').text()).toContain('08/10/2026')
     expect(wrapper.get('a[href="/jobs/regra-b"]').text()).toContain('07/10/2026')
     expect(wrapper.get('a[href="/salvas"]').text()).toContain('1')
-    expect(wrapper.get('a[href="/arquivadas"]').text()).toContain('1')
+    expect(wrapper.find('a[href="/arquivadas"]').exists()).toBe(false)
     const registro = JSON.parse(log.mock.calls[0]![0])
     expect(registro.extra).toMatchObject({ operacao: 'listar_regras', resultado: 'sucesso' })
     expect(registro.extra.duracao_ms).toBeGreaterThanOrEqual(0)
