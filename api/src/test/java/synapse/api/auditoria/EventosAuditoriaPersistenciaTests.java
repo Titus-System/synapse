@@ -404,6 +404,20 @@ class EventosAuditoriaPersistenciaTests {
 	}
 
 	@Test
+	void buscaDaMetaSemSolucaoNaoViraSugestaoCriada() throws Exception {
+		UUID job = job(A, null, "Texto", OUTUBRO);
+		UUID regra = versao(job, 1, "extracao", NUCLEO_ATUAL, null, OUTUBRO);
+		dono.update("""
+				INSERT INTO sugestoes_meta_venda (job_id, regra_id, motivo_sem_solucao, criada_em)
+				VALUES (?, ?, 'intervalo_esgotado', ?)
+				""", job, regra, ts(Instant.parse("2026-12-10T12:00:00Z")));
+		JsonNode pagina = consultar("tamanho=100");
+		assertContadores(pagina, 2, 1, 1, 0);
+		assertThat(valores(pagina.path("itens"), "tipo")).containsExactlyInAnyOrder("entrada", "versao_regra");
+		assertThat(textos(filtros().path("meses"))).containsExactly("2026-10");
+	}
+
+	@Test
 	void mesExclusivoDeCandidataNaoViraOpcao() throws Exception {
 		UUID job = job(A, null, "Texto", OUTUBRO);
 		UUID regra = versao(job, 1, "extracao", NUCLEO_ATUAL, null, OUTUBRO);

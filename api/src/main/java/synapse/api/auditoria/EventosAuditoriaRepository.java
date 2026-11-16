@@ -54,6 +54,7 @@ class EventosAuditoriaRepository {
 			    SELECT job_id, criada_em, 'sugestao_meta_criada', 'sistema', regra_id,
 			           NULL, NULL, NULL, NULL, NULL, NULL, NULL
 			    FROM sugestoes_meta_venda
+			    WHERE motivo_sem_solucao IS NULL
 			    UNION ALL
 			    SELECT job_id, aceita_em, 'sugestao_meta_aceita', 'usuario', regra_id,
 			           NULL, NULL, NULL, NULL, NULL, NULL, NULL
