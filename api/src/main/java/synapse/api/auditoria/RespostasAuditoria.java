@@ -49,7 +49,7 @@ record RegistroAuditoriaDto(JobRegistradoDto job, List<EntradaAuditoriaDto> entr
 @JsonInclude(JsonInclude.Include.NON_NULL)
 record EntradaAuditoriaDto(UUID id, String tipo, String finalidade, Instant criado_em,
 		@JsonRawValue @Nullable String conteudo, @Nullable String texto, @Nullable String formato,
-		@Nullable Instant transcrito_em) {
+		@Nullable Instant transcrito_em, @JsonRawValue @Nullable String transcricao_modelo) {
 }
 
 @JsonInclude(JsonInclude.Include.NON_NULL)

@@ -51,7 +51,9 @@ class MigrationTests {
 			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras",
 			"rodadas_correcao", "trabalhos_transcricao", "sugestoes_meta_venda");
 
-	private static final int CHANGESETS = 35;
+	private static final int CHANGESETS = 36;
+
+	private static final int CHANGESETS_ANTES_DO_MODELO_DA_TRANSCRICAO = 35;
 
 	private static final int CHANGESETS_ANTES_DAS_FONTES = 34;
 
@@ -208,6 +210,47 @@ class MigrationTests {
 		reverter(CHANGESETS);
 
 		assertThat(tabelasExistentes()).isEmpty();
+	}
+
+	@Test
+	void adicionaOModeloDaTranscricaoSemBackfillEReverteSomenteAColuna() throws Exception {
+		atualizar(CHANGESETS_ANTES_DO_MODELO_DA_TRANSCRICAO);
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearUsuario(statement);
+			statement.execute(
+					"""
+							INSERT INTO submissoes (id, usuario_id, tipo, binario, formato, transcricao, transcrito_em, criado_em)
+							VALUES ('%s', '22222222-2222-4222-8222-222222222222', 'voz', '\\x00'::bytea, 'webm',
+							    'transcrição antiga', now(), now())
+							"""
+						.formatted(SUBMISSAO_ID));
+		}
+		List<String> colunasAnteriores = colunasDe("submissoes");
+		List<String> submissoesAnteriores = submissoesSemModelo();
+
+		atualizar();
+
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS);
+		assertThat(coluna("submissoes", "transcricao_modelo")).containsExactly("jsonb", "YES", null);
+		assertThat(submissoesSemModelo()).containsExactlyElementsOf(submissoesAnteriores);
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			try (ResultSet rs = statement.executeQuery("SELECT transcricao_modelo FROM submissoes")) {
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getString(1)).as("a transcrição antiga fica sem modelo").isNull();
+			}
+			try (PreparedStatement update = connection
+				.prepareStatement("UPDATE submissoes SET transcricao_modelo = ?::jsonb WHERE id = ?")) {
+				update.setString(1, Files.readString(Path.of("../contracts/examples/domain/modelo-transcricao.json")));
+				update.setObject(2, SUBMISSAO_ID);
+				assertThat(update.executeUpdate()).isEqualTo(1);
+			}
+		}
+
+		reverter(CHANGESETS - CHANGESETS_ANTES_DO_MODELO_DA_TRANSCRICAO);
+
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DO_MODELO_DA_TRANSCRICAO);
+		assertThat(colunasDe("submissoes")).containsExactlyInAnyOrderElementsOf(colunasAnteriores);
+		assertThat(submissoesSemModelo()).containsExactlyElementsOf(submissoesAnteriores);
 	}
 
 	@Test
@@ -1210,7 +1253,7 @@ class MigrationTests {
 			for (String tabela : TABELAS) {
 				if (!tabela.equals("sugestoes_meta_venda") && !tabela.equals("trabalhos_transcricao")) {
 					try (ResultSet rs = statement.executeQuery(
-							"SELECT COALESCE(jsonb_agg(to_jsonb(t) - 'tentativa' - 'representacao' - 'proposta_nao_aplicada' ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM "
+							"SELECT COALESCE(jsonb_agg(to_jsonb(t) - 'tentativa' - 'representacao' - 'proposta_nao_aplicada' - 'transcricao_modelo' ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM "
 									+ tabela + " t")) {
 						assertThat(rs.next()).isTrue();
 						dados.put(tabela, rs.getString(1));
@@ -1256,7 +1299,7 @@ class MigrationTests {
 				if (!tabela.equals("sugestoes_meta_venda") && !tabela.equals("rodadas_correcao")
 						&& !tabela.equals("trabalhos_transcricao")) {
 					try (ResultSet rs = statement.executeQuery(
-							"SELECT COALESCE(jsonb_agg(to_jsonb(t) - 'meta_venda' - 'parametros' - 'tentativa' - 'representacao' "
+							"SELECT COALESCE(jsonb_agg(to_jsonb(t) - 'meta_venda' - 'parametros' - 'tentativa' - 'representacao' - 'transcricao_modelo' "
 									+ "ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM " + tabela + " t")) {
 						assertThat(rs.next()).isTrue();
 						dados.put(tabela, rs.getString(1));
@@ -1483,6 +1526,35 @@ class MigrationTests {
 			}
 		}
 		return resultados;
+	}
+
+	private static List<String> submissoesSemModelo() throws Exception {
+		List<String> submissoes = new ArrayList<>();
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("""
+						SELECT (to_jsonb(s) - 'transcricao_modelo')::text FROM submissoes s ORDER BY id
+						""")) {
+			while (rs.next()) {
+				submissoes.add(rs.getString(1));
+			}
+		}
+		return submissoes;
+	}
+
+	private static List<String> colunasDe(String tabela) throws Exception {
+		List<String> colunas = new ArrayList<>();
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("""
+						SELECT column_name FROM information_schema.columns
+						WHERE table_schema = 'public' AND table_name = '%s'
+						""".formatted(tabela))) {
+			while (rs.next()) {
+				colunas.add(rs.getString("column_name"));
+			}
+		}
+		return colunas;
 	}
 
 	private static List<String> colunasDeResultados() throws Exception {

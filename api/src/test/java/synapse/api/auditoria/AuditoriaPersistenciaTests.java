@@ -300,10 +300,13 @@ class AuditoriaPersistenciaTests {
 		assertThat(ids(entradas)).containsExactly(j.entradaInicial(), j.correcaoRecusada(), j.correcaoAceita());
 		assertThat(entradas.path(0).path("finalidade").asString()).isEqualTo("entrada_inicial");
 		assertThat(entradas.path(0).path("texto").asString()).isEqualTo(TEXTO_INICIAL);
+		assertThat(entradas.path(0).has("transcricao_modelo")).as("entrada por texto não tem modelo").isFalse();
 		assertThat(entradas.path(2).path("finalidade").asString()).isEqualTo("correcao");
 		assertThat(entradas.path(2).path("tipo").asString()).isEqualTo("voz");
 		assertThat(entradas.path(2).path("formato").asString()).isEqualTo("ogg");
 		assertThat(entradas.path(2).has("transcrito_em")).isTrue();
+		assertThat(entradas.path(2).path("transcricao_modelo")).isEqualTo(JSON
+			.readTree("{\"provedor\":\"deepgram\",\"modelo\":\"2-general-nova\",\"versao\":\"2024-01-09.29447\"}"));
 
 		JsonNode rodadas = registro.path("rodadas");
 		assertThat(rodadas.path(0).has("regra_resultante_id")).isTrue();
@@ -482,6 +485,7 @@ class AuditoriaPersistenciaTests {
 			.path("entradas");
 		assertThat(ids(entradas)).containsExactly(inicial.entrada());
 		assertThat(entradas.path(0).path("formato").asString()).isEqualTo("webm");
+		assertThat(entradas.path(0).has("transcricao_modelo")).as("voz ainda não transcrita").isFalse();
 	}
 
 	@Test
@@ -717,8 +721,11 @@ class AuditoriaPersistenciaTests {
 				    'reextracao_falhou', ?, ?, ?) RETURNING id
 				""", job, versaoExtraida, correcaoRecusada, ts(minuto(3)), ts(minuto(5)));
 		UUID correcaoAceita = inserir("""
-				INSERT INTO submissoes (usuario_id, tipo, binario, formato, transcricao, transcrito_em, criado_em)
-				VALUES (?, 'voz', ?, 'ogg', ?, ?, ?) RETURNING id
+				INSERT INTO submissoes (usuario_id, tipo, binario, formato, transcricao, transcrito_em,
+				    transcricao_modelo, criado_em)
+				VALUES (?, 'voz', ?, 'ogg', ?, ?,
+				    '{"provedor":"deepgram","modelo":"2-general-nova","versao":"2024-01-09.29447"}'::jsonb, ?)
+				RETURNING id
 				""", A, AUDIO_OGG, TRANSCRICAO_SECRETA, ts(minuto(6)), ts(minuto(5)));
 		UUID promptReextracao = prompt(job, "extracao_parametros", "Reextraia a regra corrigida.", 6);
 		resposta(job, promptReextracao, 7);

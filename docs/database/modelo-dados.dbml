@@ -68,6 +68,10 @@ Entrada original do fluxo; regras.nucleo e a representacao derivada, e trilhas_a
   formato text [null, note: 'null quando tipo != voz. webm | ogg | wav | mp4: o conteiner gravado pelo navegador, declarado no Content-Type da parte audio']
   transcricao text [null, note: 'null quando tipo = formulario, e enquanto a submissao de voz nao foi transcrita. Texto digitado (tipo = texto) ou transcrito (tipo = voz), verbatim; e o insumo da extracao e da reextracao, que o codegen le e nao escreve']
   transcrito_em timestamptz [null, note: 'null ate a transcricao concluir']
+  transcricao_modelo jsonb [null, note: '''
+Formato: contracts/domain/modelo-transcricao.schema.json
+null quando tipo != voz, enquanto a submissao de voz nao foi transcrita e nas transcritas antes da coluna, sem backfill. A API grava no mesmo UPDATE de transcricao e transcrito_em: o nome e a versao do modelo que a resposta do provedor informa ou, sem essa informacao, o provedor e o modelo pedido na chamada, sem versao
+''']
   criado_em timestamptz [not null]
 }
 

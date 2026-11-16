@@ -2999,6 +2999,10 @@ components:
         transcrito_em:
           type: string
           format: date-time
+        transcricao_modelo:
+          $ref: ../domain/modelo-transcricao.schema.json
+          description: Modelo que transcreveu o áudio. Ausente em formulário e texto, enquanto a transcrição
+            está pendente e nas entradas transcritas antes de o modelo ser registrado.
     VersaoAuditoria:
       allOf:
         - $ref: '#/components/schemas/RegraVersionada'

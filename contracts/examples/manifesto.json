@@ -4,6 +4,7 @@
     "domain/conflitos-rodada.json": "domain/conflitos-rodada.schema.json",
     "domain/consumo-tokens.json": "domain/consumo-tokens.schema.json",
     "domain/modelo-llm.json": "domain/modelo-llm.schema.json",
+    "domain/modelo-transcricao.json": "domain/modelo-transcricao.schema.json",
     "domain/regra-especificacoes.json": "domain/regra-especificacoes.schema.json",
     "domain/regra-nucleo.json": "domain/regra-nucleo.schema.json",
     "domain/representacao-regra-elementos.json": "domain/representacao-regra.schema.json",

@@ -71,11 +71,13 @@ class AuditoriaRepository {
 		return this.jdbc.query("""
 				SELECT s.id, s.tipo,
 				       CASE WHEN s.id = j.submissao_id THEN 'entrada_inicial' ELSE 'correcao' END AS finalidade,
-				       s.criado_em, s.conteudo::text AS conteudo, s.transcricao, s.formato, s.transcrito_em
+				       s.criado_em, s.conteudo::text AS conteudo, s.transcricao, s.formato, s.transcrito_em,
+				       s.transcricao_modelo::text AS transcricao_modelo
 				""" + ENTRADAS_DO_JOB + "ORDER BY s.criado_em, s.id",
 				(linha, numero) -> new EntradaAuditoriaDto(uuid(linha, "id"), texto(linha, "tipo"),
 						texto(linha, "finalidade"), momento(linha, "criado_em"), linha.getString("conteudo"),
-						linha.getString("transcricao"), linha.getString("formato"), instante(linha, "transcrito_em")),
+						linha.getString("transcricao"), linha.getString("formato"), instante(linha, "transcrito_em"),
+						linha.getString("transcricao_modelo")),
 				jobId);
 	}
 
