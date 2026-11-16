@@ -29,4 +29,13 @@ class RequisicaoInvalidaNaAuditoriaException extends RuntimeException {
 		return new RequisicaoInvalidaNaAuditoriaException("O identificador do job precisa ser um UUID.");
 	}
 
+	static RequisicaoInvalidaNaAuditoriaException mes() {
+		return new RequisicaoInvalidaNaAuditoriaException("O parâmetro mes precisa estar no formato AAAA-MM.");
+	}
+
+	static RequisicaoInvalidaNaAuditoriaException filtro(String parametro) {
+		return new RequisicaoInvalidaNaAuditoriaException(
+				"O parâmetro " + parametro + " precisa ser um texto não vazio e sem caracteres nulos.");
+	}
+
 }
