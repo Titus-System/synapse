@@ -20,8 +20,9 @@ vi.mock('@/services/api', () => ({
 vi.mock('vue-router', () => ({ useRoute: () => rota.atual, useRouter: () => roteador }))
 let wrapper: VueWrapper | undefined
 let avisos: { mock: { calls: unknown[][] } }
+const idDe = (n: number) => `019a1e43-7a00-7c3b-9d41-8f2c6a1b7e0${n}`
 const resumo = (n: number, status: JobResumo['status'] = 'liberado'): JobResumo => ({
-  id: `job-${n}`,
+  id: idDe(n),
   nome: `Comissão da loja ${n}`,
   status,
   competencias: ['2025-11'],
@@ -80,7 +81,7 @@ describe('repositório paginado', () => {
       expect(tela.get('aside').find('a[href="/arquivadas"]').exists()).toBe(false)
       expect(tela.get('aside').text()).not.toContain('Recentes')
       expect(tela.get('article').text()).not.toMatch(
-        /Liberado|Arquivado|Processamento|job-1|versão/,
+        /Liberado|Arquivado|Processamento|019a1e43|versão/,
       )
       expect(tela.find('button[aria-label^="Reprocessar"]').exists()).toBe(
         situacao === 'arquivadas',
@@ -156,8 +157,8 @@ describe('repositório paginado', () => {
     await tela.get('button[aria-label="Próxima página"]').trigger('click')
     await flushPromises()
     expect(vi.mocked(apiClient.consultarJob).mock.calls.map((args) => args[0])).toEqual([
-      'job-6',
-      'job-7',
+      idDe(6),
+      idDe(7),
     ])
     expect(tela.get('main').text()).toContain('Mostrando 6–7 de 7')
     expect(tela.get('button[aria-label="Próxima página"]').attributes('disabled')).toBeDefined()
@@ -177,7 +178,7 @@ describe('repositório paginado', () => {
     expect(avisos.mock.calls.map((args) => JSON.parse(args[0] as string))).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          job_id: 'job-1',
+          job_id: idDe(1),
           extra: expect.objectContaining({ operacao: 'consultar_regra_historico' }),
         }),
       ]),
@@ -201,11 +202,11 @@ describe('repositório paginado', () => {
     const tela = montar()
     await flushPromises()
     await tela.get('button[aria-label^="Detalhes de"]').trigger('click')
-    expect(roteador.push).toHaveBeenCalledWith({ name: 'finalizar', params: { id: 'job-1' } })
+    expect(roteador.push).toHaveBeenCalledWith({ name: 'finalizar', params: { id: idDe(1) } })
     await tela.get('button[aria-label^="Reprocessar"]').trigger('click')
     expect(roteador.push).toHaveBeenCalledWith({
       name: 'nova-regra',
-      query: { reprocessar: 'job-1' },
+      query: { reprocessar: idDe(1) },
     })
   })
 
@@ -222,7 +223,18 @@ describe('repositório paginado', () => {
     await flushPromises()
     expect(tela.get('article h2').attributes('title')).toContain('atual')
     expect(tela.get('article h2').attributes('title')).not.toContain('antiga')
-    expect(tela.get('article').text()).not.toContain('job-1')
+    expect(tela.get('article').text()).not.toContain(idDe(1))
+  })
+
+  it('numera a regra pelos 6 últimos caracteres do id e omite o nome ausente', async () => {
+    servir([resumo(1), { ...resumo(2), nome: null }])
+    const tela = montar()
+    await flushPromises()
+    expect(tela.findAll('article h2').map((titulo) => titulo.text())).toEqual([
+      'Regra 1B7E01 · Comissão da loja 1',
+      'Regra 1B7E02',
+    ])
+    expect(tela.find('button[aria-label="Detalhes de Regra 1B7E02"]').exists()).toBe(true)
   })
 
   it('cancela a página anterior quando a rota muda e ignora resposta atrasada', async () => {

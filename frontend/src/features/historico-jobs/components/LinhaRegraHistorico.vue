@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { rotuloDaRegra } from '@/services/job'
 import type { CartaoHistorico } from '../composables/useHistoricoPaginado'
 const props = defineProps<{ cartao: CartaoHistorico; arquivada: boolean }>()
 defineEmits<{ detalhes: []; reprocessar: [] }>()
-const nome = computed(() => rotuloDaRegra(props.cartao.resumo))
+// O id do job é UUIDv7: o começo é o carimbo de tempo e repete entre regras próximas;
+// o fim é aleatório e é o que diferencia uma regra da outra.
+const numero = computed(() => props.cartao.resumo.id.slice(-6).toUpperCase())
+const nome = computed(() => {
+  const definido = props.cartao.resumo.nome?.trim()
+  return definido ? `Regra ${numero.value} · ${definido}` : `Regra ${numero.value}`
+})
 const data = computed(() =>
   new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit',
