@@ -10,7 +10,9 @@ const layout = computed(() => layouts[route.meta.layout ?? 'default'])
 </script>
 
 <template>
-  <component :is="layout">
+  <!-- Antes da primeira navegação a rota ainda não tem `meta.layout`, e o layout padrão
+       montaria a barra lateral do RH, que consulta /jobs, para qualquer papel. -->
+  <component :is="layout" v-if="route.matched.length">
     <RouterView />
   </component>
 </template>
