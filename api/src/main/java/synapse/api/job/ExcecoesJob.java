@@ -17,6 +17,19 @@ class FalhaPersistenciaTrilhaException extends RuntimeException {
 
 }
 
+/**
+ * A explicação chegou antes de a simulação do resultado existir, ou o resultado não é do
+ * job. A transação desfaz a trilha e a mensagem volta à fila, como numa falha de banco: a
+ * simulação nasce com o código gerado, antes da execução, então ela aparece.
+ */
+class SimulacaoDaExplicacaoInexistenteException extends RuntimeException {
+
+	SimulacaoDaExplicacaoInexistenteException() {
+		super("simulação do resultado explicado não encontrada", null, false, false);
+	}
+
+}
+
 class FalhaPersistenciaEtapaException extends RuntimeException {
 
 	FalhaPersistenciaEtapaException() {

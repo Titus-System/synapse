@@ -35,6 +35,26 @@ class ContratoDoStreamTests {
 	}
 
 	@Test
+	void aceitaOEventoDeExplicacaoComESemNarrativaDisponivel() {
+		assertThatCode(() -> {
+			ContratoDeEvento.validarEventoDoStream("explicacao",
+					"{\"job_id\":\"%s\",\"simulacao_id\":\"%s\",\"disponivel\":true}".formatted(JOB, JOB));
+			ContratoDeEvento.validarEventoDoStream("explicacao",
+					"{\"job_id\":\"%s\",\"simulacao_id\":\"%s\",\"disponivel\":false}".formatted(JOB, JOB));
+		}).doesNotThrowAnyException();
+	}
+
+	@Test
+	void recusaOEventoDeExplicacaoSemDisponivelOuComOTexto() {
+		assertThatThrownBy(() -> ContratoDeEvento.validarEventoDoStream("explicacao",
+				"{\"job_id\":\"%s\",\"simulacao_id\":\"%s\"}".formatted(JOB, JOB)))
+			.isInstanceOf(AssertionError.class);
+		assertThatThrownBy(() -> ContratoDeEvento.validarEventoDoStream("explicacao",
+				"{\"job_id\":\"%s\",\"simulacao_id\":\"%s\",\"disponivel\":\"sim\"}".formatted(JOB, JOB)))
+			.isInstanceOf(AssertionError.class);
+	}
+
+	@Test
 	void recusaEtapaForaDoVocabularioDosNos() {
 		assertThatThrownBy(() -> ContratoDeEvento.validarEventoDoStream("etapa",
 				"{\"job_id\":\"%s\",\"etapa\":\"inventada\",\"status\":\"iniciada\"}".formatted(JOB)))

@@ -48,3 +48,12 @@ record EventoEtapaDto(UUID job_id, String etapa, String status, @Nullable JsonNo
 @JsonInclude(JsonInclude.Include.NON_NULL)
 record EventoResultadoDto(UUID job_id, UUID simulacao_id, String status, @Nullable String veredito) {
 }
+
+/**
+ * Forma do evento {@code explicacao} do contrato HTTP ({@code EventoExplicacao}),
+ * entregue ao stream SSE quando a etapa de explicação termina. Carrega a referência e a
+ * disponibilidade, nunca o texto: a tela busca {@code GET /jobs/{id}} para lê-lo.
+ * {@code disponivel} é verdadeiro somente quando a narrativa foi conferida.
+ */
+record EventoExplicacaoDto(UUID job_id, UUID simulacao_id, boolean disponivel) {
+}
