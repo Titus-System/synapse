@@ -21,7 +21,7 @@ from prometheus_client import REGISTRY
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.core.logger import ContextQueueHandler, JsonFormatter
-from app.execucao.bases import carregar_bases
+from app.execucao.bases import ARQUIVOS, carregar_bases
 from app.execucao.coleta import DesfechoClassificado
 from app.execucao.container import SaidaBruta, SandboxCanceladoError, SandboxInfraError
 from app.execucao.preparo import PayloadContainer
@@ -957,6 +957,119 @@ async def test_esgotamento_com_a_publicacao_falhando_ainda_envia_a_dlq(
     assert mensagem.aceita is True
 
 
+# ---- as fontes da execução vão na linha (T-311) ----
+
+
+async def test_execucao_de_duas_competencias_grava_as_fontes_validas_no_schema(
+    monkeypatch: pytest.MonkeyPatch, banco: BancoDeResultadosFalso
+) -> None:
+    corpo = _corpo_comando(competencias=["2025-11", "2025-08"])
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=corpo)], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    (linha,) = banco.gravados
+    fontes = linha["fontes"]
+    assert linha["status"] == "sucesso"
+    assert erros_do_dominio("resultado-fontes", fontes) == []
+    assert fontes == carregar_bases().fontes(["2025-11", "2025-08"])
+    assert fontes["manifesto"]["versao"] == 2
+    assert fontes["competencias"] == ["2025-11", "2025-08"]
+    assert [a["nome"] for a in fontes["arquivos"]] == list(ARQUIVOS)
+    assert [b["competencia"] for b in fontes["baselines"]] == ["2025-11", "2025-08"]
+    assert "fontes" not in json.loads(broker.exchange.publicadas[0].body)  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize(
+    ("resposta", "status"),
+    [
+        (lambda p: saida_para(p, "assercao_violada"), "assercao_violada"),
+        (lambda p: saida_para(p, "erro_codigo"), "erro_codigo"),
+        (lambda _p: _saida(b"", 137, estourou_timeout=True), "erro_codigo"),
+        (lambda p: saida_para(p, resultado=_com_baseline_adulterado(p)), "erro_codigo"),
+    ],
+    ids=["assercao_violada", "excecao", "timeout", "baseline_divergente"],
+)
+async def test_desfecho_que_executou_sobre_as_bases_grava_as_fontes(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    resposta: Callable[[PayloadContainer], SaidaBruta],
+    status: str,
+) -> None:
+    sandbox.resposta = resposta
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=_corpo_comando())], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    (linha,) = banco.gravados
+    assert linha["status"] == status
+    assert linha["fontes"] == carregar_bases().fontes(["2025-08"])
+
+
+async def test_erro_infra_esgotado_grava_sem_fontes(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    sandbox.erro = SandboxInfraError("daemon indisponível")
+    mensagem = MensagemFalsa(body=_corpo_comando(), headers={HEADER_RETRY: 2})
+    broker, _ = _preparar(monkeypatch, [mensagem], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    (linha,) = banco.gravados
+    assert (linha["status"], linha["fontes"]) == ("erro_infra", None)
+    (gravado,) = [r for r in linhas_de_log() if r["message"] == "resultado gravado"]
+    assert gravado["extra"]["versao_manifesto"] is None
+
+
+@pytest.mark.parametrize(
+    "competencias", [["2026-01"], ["2025-08", "2025-08"]], ids=["fora", "repetida"]
+)
+async def test_periodo_que_o_harness_recusa_grava_o_erro_sem_fontes(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox: SandboxFalso,
+    banco: BancoDeResultadosFalso,
+    competencias: list[str],
+) -> None:
+    """O harness recusa o período antes de carregar as bases e sai sem envelope: a regra não
+    executou sobre elas, e o worker não conferiu baseline para o período."""
+    sandbox.resposta = lambda _p: _saida(b"", 1)
+    broker, _ = _preparar(
+        monkeypatch, [MensagemFalsa(body=_corpo_comando(competencias=competencias))], _codigo()
+    )
+
+    await consumir_fila_execucao(broker)
+
+    (linha,) = banco.gravados
+    assert (linha["status"], linha["fontes"]) == ("erro_codigo", None)
+
+
+async def test_o_log_da_gravacao_cita_das_fontes_so_a_versao_do_manifesto(
+    monkeypatch: pytest.MonkeyPatch,
+    banco: BancoDeResultadosFalso,
+    linhas_de_log: Callable[[], list[dict[str, Any]]],
+) -> None:
+    corpo = _corpo_comando(competencias=["2025-08", "2025-11"])
+    broker, _ = _preparar(monkeypatch, [MensagemFalsa(body=corpo)], _codigo())
+
+    await consumir_fila_execucao(broker)
+
+    registros = linhas_de_log()
+    assert all(erros_do_log(r) == [] for r in registros)
+    (gravado,) = [r for r in registros if r["message"] == "resultado gravado"]
+    assert gravado["job_id"] == json.loads(corpo)["job_id"]
+    assert gravado["extra"]["versao_manifesto"] == 2
+    serializado = json.dumps(registros)
+    fontes = banco.gravados[0]["fontes"]
+    for item in (*fontes["arquivos"], *fontes["baselines"]):
+        assert item["sha256"] not in serializado
+    assert "baseline-2025-08.jsonl" not in serializado
+    assert fontes["manifesto"]["congelamento"] not in serializado
+
+
 # ---- o log ----
 
 
@@ -1538,6 +1651,9 @@ class BasesQueRegistram:
     def vendas_por_linha(self, competencias: list[str], meta_venda: float | None) -> Any:
         return self._bases.vendas_por_linha(competencias, meta_venda)
 
+    def fontes(self, competencias: list[str]) -> Any:
+        return self._bases.fontes(competencias)
+
 
 @pytest.fixture
 def bases_que_registram(
@@ -1586,6 +1702,8 @@ async def test_na_meta_o_worker_reapura_antes_do_container_e_grava_e_publica_a_m
     assert linha["totais"]["baseline"] == reapurado != 363021.46
     assert linha["totais"]["vendas_historicas"] == VENDAS_2025_08
     assert erros_do_dominio("resultado-totais", linha["totais"]) == []
+    # A meta escala as vendas das mesmas bases: as fontes são as de uma execução sem meta.
+    assert linha["fontes"] == carregar_bases().fontes(["2025-08"])
     # MATRIC-1 vendeu R$ 20.970,00 em agosto; na meta, a linha mostra essa venda escalada (T-282).
     fator = Decimal(str(META)) / Decimal(str(VENDAS_2025_08))
     escalada = (Decimal("20970") * fator).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

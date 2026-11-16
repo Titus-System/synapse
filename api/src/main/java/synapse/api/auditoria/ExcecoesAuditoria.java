@@ -9,6 +9,11 @@ class JobNaoEncontradoNaAuditoriaException extends RuntimeException {
 
 }
 
+/** A entrada não existe, não é do job ou não é por voz. */
+class EntradaNaoEncontradaNaAuditoriaException extends RuntimeException {
+
+}
+
 /** A mensagem é a exposta ao cliente, a mesma de {@code GET /jobs}. */
 class RequisicaoInvalidaNaAuditoriaException extends RuntimeException {
 
@@ -27,6 +32,10 @@ class RequisicaoInvalidaNaAuditoriaException extends RuntimeException {
 
 	static RequisicaoInvalidaNaAuditoriaException idDoJob() {
 		return new RequisicaoInvalidaNaAuditoriaException("O identificador do job precisa ser um UUID.");
+	}
+
+	static RequisicaoInvalidaNaAuditoriaException idDaEntrada() {
+		return new RequisicaoInvalidaNaAuditoriaException("O identificador da entrada precisa ser um UUID.");
 	}
 
 	static RequisicaoInvalidaNaAuditoriaException mes() {

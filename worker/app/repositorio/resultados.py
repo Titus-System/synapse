@@ -17,17 +17,19 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # `criado_em` não tem default no banco. A escrita fica a cargo do chamador: confirmar antes de
-# publicar é o que impede um evento de referenciar uma linha que não existe. O diagnóstico vai no
-# mesmo INSERT porque o worker não tem UPDATE: depois de gravada, a linha não o recebe mais.
+# publicar é o que impede um evento de referenciar uma linha que não existe. O diagnóstico e as
+# fontes vão no mesmo INSERT porque o worker não tem UPDATE: depois de gravada, a linha não os
+# recebe mais.
 _INSERT = text(
     """
     INSERT INTO resultados_simulacao
         (job_id, codigo_gerado_id, status, totais, veredito, assercoes, decomposicao,
-         diagnostico, linhas, meta_venda, proposito, criado_em)
+         diagnostico, linhas, meta_venda, proposito, fontes, criado_em)
     VALUES
         (:job_id, :codigo_gerado_id, :status, CAST(:totais AS jsonb), :veredito,
          CAST(:assercoes AS jsonb), CAST(:decomposicao AS jsonb), CAST(:diagnostico AS jsonb),
-         CAST(:linhas AS jsonb), CAST(:meta_venda AS numeric), :proposito, now())
+         CAST(:linhas AS jsonb), CAST(:meta_venda AS numeric), :proposito,
+         CAST(:fontes AS jsonb), now())
     RETURNING id
     """
 )
@@ -89,8 +91,12 @@ async def gravar_resultado(
     linhas: Mapping[str, object] | None,
     meta_venda: float | None,
     proposito: str,
+    fontes: Mapping[str, object] | None,
 ) -> ResultadoGravado:
-    """Insere a linha. Quem chama abre a transação e a confirma antes de publicar."""
+    """Insere a linha. Quem chama abre a transação e a confirma antes de publicar.
+
+    `fontes` é o registro de `resultado-fontes.schema.json` (T-311). Um `erro_infra` não executou
+    sobre as bases e grava a coluna nula, como grava nulo o detalhamento fora de `sucesso`."""
     resultado = await sessao.execute(
         _INSERT,
         {
@@ -105,6 +111,7 @@ async def gravar_resultado(
             "linhas": _json(linhas) if status == "sucesso" else None,
             "meta_venda": _numeric(meta_venda),
             "proposito": proposito,
+            "fontes": _json(fontes) if status != "erro_infra" else None,
         },
     )
     return ResultadoGravado(
