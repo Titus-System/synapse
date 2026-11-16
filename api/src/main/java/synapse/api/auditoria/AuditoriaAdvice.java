@@ -39,6 +39,11 @@ class AuditoriaAdvice {
 		return erro(HttpStatus.NOT_FOUND, "job_nao_encontrado", "Job não encontrado.");
 	}
 
+	@ExceptionHandler(EntradaNaoEncontradaNaAuditoriaException.class)
+	ResponseEntity<ErroAuditoriaDto> entradaNaoEncontrada() {
+		return erro(HttpStatus.NOT_FOUND, "entrada_nao_encontrada", "Entrada por voz não encontrada neste job.");
+	}
+
 	@ExceptionHandler(RequisicaoInvalidaNaAuditoriaException.class)
 	ResponseEntity<ErroAuditoriaDto> requisicaoInvalida(RequisicaoInvalidaNaAuditoriaException ex) {
 		return erro(HttpStatus.BAD_REQUEST, "requisicao_invalida", String.valueOf(ex.getMessage()));
@@ -46,23 +51,29 @@ class AuditoriaAdvice {
 
 	/**
 	 * O Spring recusa o tipo antes do controller, que então não registra o desfecho. O
-	 * log leva só o nome do parâmetro, nunca o valor recebido.
+	 * log leva só o nome do parâmetro, nunca o valor recebido, com a operação e a
+	 * mensagem que o método do controller usaria.
 	 */
 	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
 	ResponseEntity<ErroAuditoriaDto> parametroComTipoInvalido(MethodArgumentTypeMismatchException ex,
 			HttpServletRequest requisicao) {
-		boolean consulta = ex.getName().equals("id");
+		Desfecho desfecho = switch (ex.getParameter().getExecutable().getName()) {
+			case "consultar" -> new Desfecho("consultar_job_auditoria", "consulta de auditoria encerrada");
+			case "obterAudio" -> new Desfecho("obter_audio_auditoria", "entrega de áudio da auditoria encerrada");
+			default -> new Desfecho("listar_jobs_auditoria", "listagem de auditoria encerrada");
+		};
 		String usuario = requisicao.getAttribute(AcessoAuditoriaInterceptor.ACESSO) instanceof AcessoDoUsuario acesso
 				? acesso.usuarioId().toString() : null;
 		try (var escopo = this.correlacao.abrir(null, usuario)) {
 			log.atWarn()
-				.addKeyValue("operacao", consulta ? "consultar_job_auditoria" : "listar_jobs_auditoria")
+				.addKeyValue("operacao", desfecho.operacao())
 				.addKeyValue("resultado", "requisicao_invalida")
 				.addKeyValue("parametro", ex.getName())
-				.log(consulta ? "consulta de auditoria encerrada" : "listagem de auditoria encerrada");
+				.log(desfecho.mensagem());
 		}
 		return requisicaoInvalida(switch (ex.getName()) {
 			case "id" -> RequisicaoInvalidaNaAuditoriaException.idDoJob();
+			case "entradaId" -> RequisicaoInvalidaNaAuditoriaException.idDaEntrada();
 			case "tamanho" -> RequisicaoInvalidaNaAuditoriaException.tamanho();
 			default -> RequisicaoInvalidaNaAuditoriaException.pagina();
 		});
@@ -78,6 +89,9 @@ class AuditoriaAdvice {
 		return ResponseEntity.status(status)
 			.contentType(MediaType.APPLICATION_JSON)
 			.body(new ErroAuditoriaDto(codigo, mensagem));
+	}
+
+	private record Desfecho(String operacao, String mensagem) {
 	}
 
 }

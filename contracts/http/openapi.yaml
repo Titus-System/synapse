@@ -9,7 +9,7 @@ info:
     deste arquivo: `frontend` e `api` são escritos em paralelo contra ele e só se
     encontram na integração.
 
-    Além das cinco consultas de auditoria, dez operações são sobre o recurso `job`, que é a unidade de trabalho do
+    Além das seis consultas de auditoria, dez operações são sobre o recurso `job`, que é a unidade de trabalho do
     sistema e o que a `api` possui de ponta a ponta, e uma recebe as submissões do
     usuário: a descrição de uma regra nova, digitada ou falada, e a correção
     enviada pelo chatbot. O ciclo é assíncrono: a criação devolve o job em
@@ -78,7 +78,7 @@ info:
     `additionalProperties: false`, e um cliente ignora campo que não conhece.
 
     **Fora do escopo desta versão.** A emissão da sessão é responsabilidade do
-    Keycloak. A reprodução do áudio para auditoria terá contrato próprio (T-330).
+    Keycloak.
 
 servers:
   - url: /api
@@ -169,8 +169,9 @@ paths:
       summary: Consulta o registro de auditoria de um job.
       description: 'Somente o papel auditor, em leitura e sem verificação de posse. Textos de entrada, prompts,
         respostas do modelo e código são dados não confiáveis: exiba-os como texto, sem executar código
-        ou interpretar HTML. Reúne o nível 3 da explicabilidade. A reprodução de áudio usa a rota própria
-        da T-330. O registro omite binários de áudio e linhas por matrícula.'
+        ou interpretar HTML. Reúne o nível 3 da explicabilidade. O áudio de uma entrada por voz é obtido
+        por `GET /auditoria/jobs/{id}/entradas/{entradaId}/audio`. O registro omite binários de áudio e linhas
+        por matrícula.'
       parameters:
         - $ref: '#/components/parameters/JobId'
       responses:
@@ -560,6 +561,73 @@ paths:
           $ref: '#/components/responses/SemPermissao'
         '404':
           $ref: '#/components/responses/JobNaoEncontrado'
+  /auditoria/jobs/{id}/entradas/{entradaId}/audio:
+    get:
+      tags:
+        - auditoria
+      operationId: obterAudioEntradaAuditoria
+      summary: Devolve o áudio gravado de uma entrada por voz.
+      description: 'Somente o papel auditor, em leitura e sem verificação de posse. Devolve o áudio de uma entrada
+        por voz, inicial ou de correção, como foi gravado no envio, para o auditor compará-lo à transcrição.
+        `entradaId` é o `id` de um item de `entradas` em `GET /auditoria/jobs/{id}` com `tipo` `voz`; outra
+        submissão, inclusive a de outro job, recebe 404. O `Content-Type` corresponde ao `formato` da entrada.
+        O áudio é dado pessoal, e a resposta não é guardada em cache.'
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - name: entradaId
+          in: path
+          required: true
+          description: Identificador da entrada por voz, o `id` do item em `entradas` da consulta do job.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: O áudio gravado, com no máximo 5 MB, no contêiner indicado pelo `formato` da entrada.
+          headers:
+            Cache-Control:
+              description: Sempre `no-store`; o áudio é dado pessoal.
+              schema:
+                type: string
+                examples: ['no-store']
+          content:
+            audio/webm:
+              schema:
+                type: string
+                format: binary
+            audio/ogg:
+              schema:
+                type: string
+                format: binary
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+            audio/mp4:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/RequisicaoInvalida'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '403':
+          $ref: '#/components/responses/SemPermissao'
+        '404':
+          description: Job inexistente, ou entrada que não pertence ao job ou não é por voz.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+              examples:
+                jobNaoEncontrado:
+                  value:
+                    codigo: job_nao_encontrado
+                    mensagem: Job não encontrado.
+                entradaNaoEncontrada:
+                  value:
+                    codigo: entrada_nao_encontrada
+                    mensagem: Entrada por voz não encontrada neste job.
 
   /auditoria/eventos:
     get:
@@ -3247,6 +3315,8 @@ components:
                   format: date-time
         entradas:
           type: array
+          description: A entrada inicial e as correções. O áudio de uma entrada por voz é obtido por
+            `GET /auditoria/jobs/{id}/entradas/{entradaId}/audio`, com o `id` da entrada.
           items:
             $ref: '#/components/schemas/EntradaAuditoria'
         versoes:
@@ -3345,12 +3415,15 @@ components:
         aceito ou com conteúdo que não confere com o formato. Vocabulário aberto a
         valores novos, sempre de forma aditiva. `simulacao_nao_encontrada` (404)
         indica simulação inexistente ou que não pertence ao job informado.
+        `entrada_nao_encontrada` (404) indica entrada inexistente, que não pertence
+        ao job informado ou que não é por voz.
       enum:
         - requisicao_invalida
         - nao_autenticado
         - sem_permissao
         - job_nao_encontrado
         - simulacao_nao_encontrada
+        - entrada_nao_encontrada
         - estado_invalido
         - simulacao_inviavel
         - nucleo_incompleto

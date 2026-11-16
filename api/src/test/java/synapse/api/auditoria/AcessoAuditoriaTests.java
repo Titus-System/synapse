@@ -43,6 +43,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -56,6 +57,10 @@ class AcessoAuditoriaTests {
 
 	private static final UUID JOB = UUID.randomUUID();
 
+	private static final UUID ENTRADA = UUID.randomUUID();
+
+	private static final byte[] AUDIO = { 0x4f, 0x67, 0x67, 0x53, 0x00, (byte) 0xff };
+
 	private final AuditoriaService service = mock(AuditoriaService.class);
 
 	private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
@@ -68,6 +73,7 @@ class AcessoAuditoriaTests {
 			.thenReturn(List.of(USUARIO));
 		when(this.jdbc.update(contains("UPDATE usuarios"), any(), any(), any(), eq(USUARIO))).thenReturn(1);
 		when(this.service.listar(any())).thenReturn(new PaginaJobsAuditoriaDto(List.of(), 0, 20, 0));
+		when(this.service.lerAudio(JOB, ENTRADA)).thenReturn(AudioAuditoria.gravado(AUDIO, "ogg"));
 		CorrelationContext correlacao = new CorrelationContext();
 		UsuarioAtual usuario = new UsuarioAtual(this.jdbc, mock(AppProperties.class));
 		this.mvc = MockMvcBuilders.standaloneSetup(new AuditoriaController(this.service, correlacao))
@@ -86,7 +92,7 @@ class AcessoAuditoriaTests {
 		return Stream
 			.of(List.of("profissional-rh"), List.of("offline_access", "profissional-rh"), List.<String>of(),
 					List.of("offline_access"), List.of("profissional-rh", "auditor"))
-			.flatMap(papeis -> Stream.of("listar", "consultar").map(rota -> Arguments.of(rota, papeis)));
+			.flatMap(papeis -> Stream.of("listar", "consultar", "audio").map(rota -> Arguments.of(rota, papeis)));
 	}
 
 	@ParameterizedTest(name = "{0} recusada para {1}")
@@ -105,16 +111,61 @@ class AcessoAuditoriaTests {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "listar", "consultar" })
+	@ValueSource(strings = { "listar", "consultar", "audio" })
 	void auditorPassaSemConferirPosse(String rota) throws Exception {
 		autenticar(List.of("default-roles-synapse", "auditor"));
 		this.mvc.perform(pedido(rota)).andExpect(status().isOk());
-		if (rota.equals("listar")) {
-			verify(this.service).listar(new PaginaAuditoria(0, 20));
+		switch (rota) {
+			case "listar" -> verify(this.service).listar(new PaginaAuditoria(0, 20));
+			case "consultar" -> verify(this.service).consultar(JOB);
+			default -> verify(this.service).lerAudio(JOB, ENTRADA);
 		}
-		else {
-			verify(this.service).consultar(JOB);
-		}
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "webm", "ogg", "wav", "mp4" })
+	void audioSaiComOTipoDoFormatoGravadoESemCache(String formato) throws Exception {
+		autenticar(List.of("auditor"));
+		when(this.service.lerAudio(JOB, ENTRADA)).thenReturn(AudioAuditoria.gravado(AUDIO, formato));
+		this.mvc.perform(pedido("audio"))
+			.andExpect(status().isOk())
+			.andExpect(header().string("Content-Type", "audio/" + formato))
+			.andExpect(header().string("Cache-Control", "no-store"))
+			.andExpect(content().bytes(AUDIO));
+	}
+
+	@Test
+	void entradaQueNaoEPorVozDoJobRecebe404ComCodigoProprio() throws Exception {
+		autenticar(List.of("auditor"));
+		when(this.service.lerAudio(JOB, ENTRADA)).thenThrow(new EntradaNaoEncontradaNaAuditoriaException());
+		this.mvc.perform(pedido("audio"))
+			.andExpect(status().isNotFound())
+			.andExpect(content().contentType(MediaType.APPLICATION_JSON))
+			.andExpect(header().doesNotExist("Cache-Control"))
+			.andExpect(jsonPath("$.codigo").value("entrada_nao_encontrada"))
+			.andExpect(jsonPath("$.mensagem").value("Entrada por voz não encontrada neste job."));
+	}
+
+	@Test
+	void audioDeJobInexistenteRecebe404DoJob() throws Exception {
+		autenticar(List.of("auditor"));
+		when(this.service.lerAudio(JOB, ENTRADA)).thenThrow(new JobNaoEncontradoNaAuditoriaException());
+		this.mvc.perform(pedido("audio"))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.codigo").value("job_nao_encontrado"));
+	}
+
+	@Test
+	void idDaEntradaMalformadoRecebe400ComAMensagemDaEntrada() throws Exception {
+		autenticar(List.of("auditor"));
+		this.mvc.perform(get("/auditoria/jobs/{id}/entradas/{entradaId}/audio", JOB, "nao-e-uuid"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.codigo").value("requisicao_invalida"))
+			.andExpect(jsonPath("$.mensagem").value("O identificador da entrada precisa ser um UUID."));
+		this.mvc.perform(get("/auditoria/jobs/{id}/entradas/{entradaId}/audio", "nao-e-uuid", ENTRADA))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.mensagem").value("O identificador do job precisa ser um UUID."));
+		verifyNoInteractions(this.service);
 	}
 
 	@Test
@@ -162,7 +213,11 @@ class AcessoAuditoriaTests {
 	static Stream<Arguments> tiposInvalidos() {
 		return Stream.of(Arguments.of("/auditoria/jobs?pagina=um", "pagina", "listar_jobs_auditoria"),
 				Arguments.of("/auditoria/jobs?tamanho=vinte", "tamanho", "listar_jobs_auditoria"),
-				Arguments.of("/auditoria/jobs/nao-e-uuid", "id", "consultar_job_auditoria"));
+				Arguments.of("/auditoria/jobs/nao-e-uuid", "id", "consultar_job_auditoria"),
+				Arguments.of("/auditoria/jobs/nao-e-uuid/entradas/" + ENTRADA + "/audio", "id",
+						"obter_audio_auditoria"),
+				Arguments.of("/auditoria/jobs/" + JOB + "/entradas/nao-e-uuid/audio", "entradaId",
+						"obter_audio_auditoria"));
 	}
 
 	@ParameterizedTest(name = "{0}")
@@ -181,7 +236,7 @@ class AcessoAuditoriaTests {
 		JsonNode json = new JsonMapper().readTree(linha);
 		assertThat(json.path("level").asString()).isEqualTo("WARN");
 		assertThat(json.path("message").asString()).isIn("listagem de auditoria encerrada",
-				"consulta de auditoria encerrada");
+				"consulta de auditoria encerrada", "entrega de áudio da auditoria encerrada");
 		assertThat(json.path("user_id").asString()).isEqualTo(USUARIO.toString());
 		assertThat(json.has("job_id")).isFalse();
 		assertThat(json.path("extra").path("operacao").asString()).isEqualTo(operacao);
@@ -269,8 +324,37 @@ class AcessoAuditoriaTests {
 		assertThat(MDC.get(CorrelationContext.USER_ID_KEY)).isNull();
 	}
 
+	@Test
+	void falhaAoLerOAudioLogaErroSemFormatoEFechaACorrelacao() throws Exception {
+		autenticar(List.of("auditor"));
+		when(this.service.lerAudio(JOB, ENTRADA)).thenThrow(
+				new org.springframework.dao.DataAccessResourceFailureException("SELECT s.binario FROM submissoes s"));
+		List<ILoggingEvent> eventos;
+		try (CapturaDeLog captura = new CapturaDeLog(AuditoriaController.class)) {
+			this.mvc.perform(pedido("audio")).andExpect(status().isInternalServerError());
+			eventos = captura.eventos();
+		}
+		assertThat(eventos).hasSize(1);
+		String linha = CapturaDeLog.emJson(eventos.getFirst());
+		ContratoDeEvento.validarLog(linha);
+		JsonNode json = new JsonMapper().readTree(linha);
+		assertThat(json.path("level").asString()).isEqualTo("ERROR");
+		assertThat(json.path("job_id").asString()).isEqualTo(JOB.toString());
+		assertThat(json.path("extra").path("resultado").asString()).isEqualTo("falha");
+		assertThat(json.path("extra").path("entrada_id").asString()).isEqualTo(ENTRADA.toString());
+		assertThat(json.path("extra").has("formato")).isFalse();
+		assertThat(json.path("extra").has("tamanho_bytes")).isFalse();
+		assertThat(linha).doesNotContain("SELECT", "binario");
+		assertThat(MDC.get(CorrelationContext.JOB_ID_KEY)).isNull();
+		assertThat(MDC.get(CorrelationContext.USER_ID_KEY)).isNull();
+	}
+
 	private static MockHttpServletRequestBuilder pedido(String rota) {
-		return rota.equals("listar") ? get("/auditoria/jobs") : get("/auditoria/jobs/{id}", JOB);
+		return switch (rota) {
+			case "listar" -> get("/auditoria/jobs");
+			case "consultar" -> get("/auditoria/jobs/{id}", JOB);
+			default -> get("/auditoria/jobs/{id}/entradas/{entradaId}/audio", JOB, ENTRADA);
+		};
 	}
 
 	private static void autenticar(List<String> papeis) {
