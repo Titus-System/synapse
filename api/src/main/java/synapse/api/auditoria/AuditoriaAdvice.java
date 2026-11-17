@@ -60,6 +60,8 @@ class AuditoriaAdvice {
 		Desfecho desfecho = switch (ex.getParameter().getExecutable().getName()) {
 			case "consultar" -> new Desfecho("consultar_job_auditoria", "consulta de auditoria encerrada");
 			case "obterAudio" -> new Desfecho("obter_audio_auditoria", "entrega de áudio da auditoria encerrada");
+			case "consultarResumo" ->
+				new Desfecho("consultar_resumo_auditoria", "consulta de resumo de auditoria encerrada");
 			default -> new Desfecho("listar_jobs_auditoria", "listagem de auditoria encerrada");
 		};
 		String usuario = requisicao.getAttribute(AcessoAuditoriaInterceptor.ACESSO) instanceof AcessoDoUsuario acesso

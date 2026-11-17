@@ -814,7 +814,13 @@ paths:
       summary: Consulta o resumo do dossiê de um job.
       description: 'Somente o papel auditor, em leitura e sem verificação de posse. Os valores vêm calculados da
         API; o frontend só formata. As alterações de cada versão são comparadas com a versão de origem
-        (`regra_origem_id`); a versão raiz não tem alterações. Uma simulação é comparada com a simulação do
+        (`regra_origem_id`); a versão raiz não tem alterações. Orçamento, meta de venda e competências de
+        `regras.parametros` aparecem como `nucleo.<campo>`, e só quando as duas versões registram
+        parâmetros. Competências ausentes nos parâmetros da versão de origem não contam como incluídas: a
+        versão de extração grava só o que o texto disse, e a de correção grava o conjunto completo do job.
+        Os elementos são casados pelo `ref`; como a correção renumera os elementos pela posição,
+        a remoção de um elemento que não é o último aparece como alteração dos seguintes e remoção do
+        último. Uma simulação é comparada com a simulação do
         mesmo job concluída com `sucesso` imediatamente antes, pela ordem de criação; só simulações com
         `sucesso` são comparadas. A exportação do dossiê é o JSON de `GET /auditoria/jobs/{id}`.'
       parameters:
