@@ -3,8 +3,12 @@ import { createPinia, setActivePinia } from 'pinia'
 import { usarStoreSessao } from '@/stores/session'
 import routes, { exigirAuditor } from './routes'
 beforeEach(() => setActivePinia(createPinia()))
-it('isola as duas rotas do layout operacional', () => {
-  expect(routes).toHaveLength(2)
+it('isola as rotas do painel e dos dossiês do layout operacional', () => {
+  expect(routes.map((rota) => rota.path)).toEqual([
+    '/auditoria',
+    '/auditoria/dossies',
+    '/auditoria/dossies/:id',
+  ])
   for (const rota of routes) {
     expect(rota.meta.layout).toBe('blank')
     expect(rota.beforeEnter).toBe(exigirAuditor)

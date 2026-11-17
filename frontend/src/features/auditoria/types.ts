@@ -1,4 +1,11 @@
-import type { JobResumo, RegraVersionada } from '@/types/api'
+import type {
+  AcaoJob,
+  JobResumo,
+  RegraVersionada,
+  StatusJob,
+  StatusResultado,
+  Veredito,
+} from '@/types/api'
 export interface JobAuditoria extends Omit<JobResumo, 'veredito'> {
   origem: 'formulario' | 'texto' | 'voz' | 'reprocessamento'
   usuario: { login: string; nome: string }
@@ -57,3 +64,56 @@ export interface RegistroAuditoria {
   explicacoes: Record<string, unknown>[]
 }
 export type AbaDossie = 'regra' | 'conversa' | 'simulacoes'
+export type TipoEventoAuditoria =
+  | 'entrada'
+  | 'rodada_correcao'
+  | 'versao_regra'
+  | 'codigo_gerado'
+  | 'resultado_simulacao'
+  | 'sugestao_meta_criada'
+  | 'sugestao_meta_aceita'
+  | 'acao_usuario'
+  | 'job_erro'
+export interface EventoAuditoria {
+  instante: string
+  tipo: TipoEventoAuditoria
+  autor: 'usuario' | 'sistema'
+  usuario_login: string
+  job: { id: string; nome?: string | null; status: StatusJob }
+  origem_id: string
+  loja?: string | null
+  marca?: string | null
+  cargo?: string | null
+  finalidade?: string | null
+  tipo_entrada?: string | null
+  origem_versao?: string | null
+  versao?: number | null
+  status?: StatusResultado | null
+  veredito?: Veredito | null
+  acao?: AcaoJob | null
+}
+export interface ContadoresEventosAuditoria {
+  eventos: number
+  usuarios: number
+  regras: number
+  simulacoes_com_falha: number
+}
+export interface PaginaEventosAuditoria {
+  itens: EventoAuditoria[]
+  pagina: number
+  tamanho: number
+  total: number
+  contadores: ContadoresEventosAuditoria
+}
+export interface FiltrosEventosAuditoria {
+  usuarios: string[]
+  meses: string[]
+  lojas: string[]
+  marcas: string[]
+  cargos: string[]
+}
+export type CampoFiltroEventos = 'usuario' | 'mes' | 'loja' | 'marca' | 'cargo' | 'regra'
+/** Parâmetros de `GET /auditoria/eventos`; campo ausente não filtra. */
+export type FiltroEventos = Partial<Record<CampoFiltroEventos, string>>
+/** O formulário do painel: texto vazio é "todos", e o mês aceita também `todos`. */
+export type FiltroPainel = Record<CampoFiltroEventos, string>
