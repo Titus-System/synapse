@@ -5,6 +5,13 @@ export function exigirAuditor() {
 }
 export default [
   {
+    path: '/auditoria',
+    name: 'auditoria-operacoes',
+    component: () => import('./views/OperacoesView.vue'),
+    meta: { layout: 'blank' },
+    beforeEnter: exigirAuditor,
+  },
+  {
     path: '/auditoria/dossies',
     name: 'auditoria-dossies',
     component: () => import('./views/DossiesView.vue'),

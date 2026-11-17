@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import simboloSynapse from '@/assets/imagens/synapse-simbolo.png'
-defineProps<{ login?: string; regra?: string }>()
+withDefaults(defineProps<{ login?: string; regra?: string; secao?: 'operacoes' | 'dossies' }>(), {
+  secao: 'dossies',
+})
 defineEmits<{ sair: [] }>()
 </script>
 <template>
@@ -37,8 +39,26 @@ defineEmits<{ sair: [] }>()
       <nav aria-label="Auditoria">
         <p class="mb-3 hidden text-xs tracking-wide text-[#c7afa3] lg:block">CONSULTA GLOBAL</p>
         <RouterLink
+          to="/auditoria"
+          :aria-current="secao === 'operacoes' ? 'page' : undefined"
+          :class="secao === 'operacoes' ? 'bg-[#4d3125] text-white' : ''"
+          class="mb-2 flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition hover:bg-[#5a3b2c] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f26b0f]"
+          ><svg
+            class="size-5 shrink-0 text-[#f26b0f]"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            aria-hidden="true"
+          >
+            <path d="M4 6h16M4 12h16M4 18h10" /></svg
+          >Todas as operações</RouterLink
+        >
+        <RouterLink
           to="/auditoria/dossies"
-          class="flex items-center gap-3 rounded-lg bg-[#4d3125] px-3 py-3 text-sm font-medium text-white transition hover:bg-[#5a3b2c] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f26b0f]"
+          :aria-current="secao === 'dossies' ? 'page' : undefined"
+          :class="secao === 'dossies' ? 'bg-[#4d3125] text-white' : ''"
+          class="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition hover:bg-[#5a3b2c] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f26b0f]"
           ><svg
             class="size-5 shrink-0 text-[#f26b0f]"
             viewBox="0 0 24 24"
@@ -81,7 +101,8 @@ defineEmits<{ sair: [] }>()
         class="flex min-h-20 flex-wrap items-center justify-between gap-4 border-b border-[#dec0b1] px-6 py-4 text-[#644b3e] lg:px-8"
       >
         <span class="min-w-0 break-words text-sm sm:text-base"
-          >Portal de Auditoria / Dossiês<span v-if="regra"> / {{ regra }}</span></span
+          >Portal de Auditoria / {{ secao === 'operacoes' ? 'Todas as operações' : 'Dossiês'
+          }}<span v-if="regra"> / {{ regra }}</span></span
         ><span class="flex shrink-0 items-center gap-3 text-sm font-semibold"
           ><svg
             class="size-5 text-[#a74700]"
