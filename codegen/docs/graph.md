@@ -22,6 +22,7 @@ graph TD;
 	dispatch_execution(dispatch_execution)
 	await_execution(await_execution)
 	decision(decision)
+	explain_result(explain_result)
 	suggest_adaptation(suggest_adaptation)
 	search_sales_target(search_sales_target)
 	publish_sales_target(publish_sales_target)
@@ -34,12 +35,14 @@ graph TD;
 	code_generation --> persist_response;
 	decision -.-> __end__;
 	decision -.-> code_generation;
-	decision -.-> search_sales_target;
-	decision -.-> suggest_adaptation;
+	decision -.-> explain_result;
 	derive_code -.-> code_generation;
 	derive_code -.-> dispatch_execution;
 	dispatch_execution -.-> __end__;
 	dispatch_execution -.-> await_execution;
+	explain_result -.-> __end__;
+	explain_result -.-> search_sales_target;
+	explain_result -.-> suggest_adaptation;
 	extract_code --> dispatch_execution;
 	load_rule --> validate_domain;
 	persist_response --> extract_code;

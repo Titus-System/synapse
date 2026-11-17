@@ -57,6 +57,7 @@ NoGrafo = Literal[
 ModoGeracao = Literal["gerado", "derivado", "correcao"]
 MotivoSugestao = Literal["proposta", "sem_margem", "incoerente", "nao_suportada", "limite"]
 DesfechoBusca = Literal["encontrada", "nao_monotonica", "intervalo_esgotado", "falha_execucao"]
+DesfechoExplicacao = Literal["conferida", "reprovada", "sem_resposta", "provedor_indisponivel"]
 
 TextoNaoVazio = Annotated[str, Field(min_length=1)]
 ReferenciaDeElemento = Annotated[
@@ -83,6 +84,7 @@ class ConclusaoDaTrilha(ModeloContrato):
     motivo_sugestao: MotivoSugestao | None = None
     desfecho_busca: DesfechoBusca | None = None
     candidatas_simuladas: int | None = Field(default=None, ge=0)
+    desfecho_explicacao: DesfechoExplicacao | None = None
     encaminhamento: str | None = None
 
 
