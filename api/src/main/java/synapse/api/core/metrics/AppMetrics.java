@@ -187,6 +187,17 @@ public class AppMetrics {
 			.register(this.registry);
 	}
 
+	/**
+	 * Desfechos fechados: conferida, reprovada e ausente. Conta só a primeira gravação de
+	 * cada evento da etapa de explicação; a reentrega já gravada não passa por aqui.
+	 */
+	public Counter explicacaoRegistrada(String desfecho) {
+		return Counter.builder("explicacao.registrada")
+			.description("Explicações registradas na trilha por desfecho; a reentrega do evento não conta")
+			.tag("desfecho", desfecho)
+			.register(this.registry);
+	}
+
 	/** Resultados fechados: gravado, duplicado, descartado e falha. */
 	public Counter noConcluidoConsumido(String resultado) {
 		return Counter.builder("no.concluido.consumo")

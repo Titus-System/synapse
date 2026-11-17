@@ -24,6 +24,7 @@ import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
 import synapse.api.job.JobEventosService.DesfechoAplicado;
 import synapse.api.job.JobEventosService.DesfechoDaExtracao;
+import synapse.api.job.JobEventosService.ExplicacaoRegistrada;
 import synapse.api.job.JobEventosService.ExtracaoAplicada;
 import synapse.api.job.JobEventosService.FimDaIteracao;
 import synapse.api.job.JobEventosService.SugestaoAplicada;
@@ -292,6 +293,11 @@ class NoConcluidoConsumidor {
 				return;
 			}
 
+			if (no == EtapaDoGrafo.EXPLICACAO) {
+				receberExplicacao(jobId, eventoId, evento);
+				return;
+			}
+
 			JobEventosService.BuscaMetaAnunciada busca;
 			try {
 				busca = this.servico.registrarNoConcluido(jobId, eventoId, no, evento);
@@ -303,13 +309,7 @@ class NoConcluidoConsumidor {
 			}
 			catch (org.springframework.dao.DataAccessException
 					| org.springframework.transaction.TransactionException ex) {
-				this.metricas.noConcluidoConsumido("falha").increment();
-				log.atWarn()
-					.addKeyValue("no", no.paraEvento())
-					.addKeyValue("resultado", "falha")
-					.addKeyValue("classe_falha", ex.getClass().getSimpleName())
-					.log("falha na gravação da trilha; mensagem será reentregue");
-				throw new FalhaPersistenciaTrilhaException();
+				throw falhaDePersistencia(no, ex);
 			}
 			String resultado = busca == JobEventosService.BuscaMetaAnunciada.DUPLICADA ? "duplicado" : "gravado";
 			this.metricas.noConcluidoConsumido(resultado).increment();
@@ -326,6 +326,67 @@ class NoConcluidoConsumidor {
 				log.atInfo().addKeyValue("status", status).log("busca da meta maior anunciada");
 			}
 		}
+	}
+
+	/**
+	 * A trilha da explicação e a flag de baixa rastreabilidade saem na mesma transação. O
+	 * evento do stream e o desfecho contado só saem depois do commit, e só na primeira
+	 * gravação do evento: a reentrega não anuncia nem conta de novo.
+	 */
+	private void receberExplicacao(UUID jobId, UUID eventoId, NoConcluidoDto evento) {
+		UUID resultadoId = evento.resultado_id();
+		if (resultadoId == null) {
+			this.metricas.noConcluidoConsumido("descartado").increment();
+			log.atWarn().log("no-concluido da explicação sem resultado_id; evento descartado");
+			return;
+		}
+		ExplicacaoRegistrada registrada;
+		try {
+			registrada = this.servico.registrarExplicacao(jobId, eventoId, evento);
+		}
+		catch (EmptyResultDataAccessException ex) {
+			this.metricas.noConcluidoConsumido("descartado").increment();
+			log.atWarn().log("no-concluido de job desconhecido; evento descartado");
+			return;
+		}
+		catch (SimulacaoDaExplicacaoInexistenteException ex) {
+			this.metricas.noConcluidoConsumido("falha").increment();
+			log.atWarn()
+				.addKeyValue("no", EtapaDoGrafo.EXPLICACAO.paraEvento())
+				.addKeyValue("resultado_id", resultadoId)
+				.addKeyValue("resultado", "falha")
+				.log("simulação do resultado explicado não encontrada; mensagem será reentregue");
+			throw new FalhaPersistenciaTrilhaException();
+		}
+		catch (org.springframework.dao.DataAccessException | org.springframework.transaction.TransactionException ex) {
+			throw falhaDePersistencia(EtapaDoGrafo.EXPLICACAO, ex);
+		}
+		if (registrada == null) {
+			this.metricas.noConcluidoConsumido("duplicado").increment();
+			log.atDebug()
+				.addKeyValue("no", EtapaDoGrafo.EXPLICACAO.paraEvento())
+				.addKeyValue("resultado", "duplicado")
+				.log("no-concluido processado na trilha");
+			return;
+		}
+		this.metricas.noConcluidoConsumido("gravado").increment();
+		this.metricas.explicacaoRegistrada(registrada.desfecho().rotulo()).increment();
+		this.emissores.emitir(jobId, EventoSse.de("explicacao",
+				new EventoExplicacaoDto(jobId, registrada.simulacaoId(), registrada.desfecho().disponivel())));
+		log.atInfo()
+			.addKeyValue("desfecho", registrada.desfecho().rotulo())
+			.addKeyValue("simulacao_id", registrada.simulacaoId())
+			.log("explicação registrada na trilha");
+	}
+
+	private FalhaPersistenciaTrilhaException falhaDePersistencia(EtapaDoGrafo no, RuntimeException ex) {
+		this.metricas.noConcluidoConsumido("falha").increment();
+		log.atWarn()
+			.addKeyValue("no", no.paraEvento())
+			.addKeyValue("resultado", "falha")
+			.addKeyValue("classe_falha", ex.getClass().getSimpleName())
+			.log("falha na gravação da trilha; mensagem será reentregue");
+		return new FalhaPersistenciaTrilhaException();
 	}
 
 	private static boolean temResumo(JsonNode conclusao) {

@@ -228,9 +228,11 @@ class JobRepository {
 				       a.id AS anterior_id, a.criado_em AS anterior_criado_em, a.status AS anterior_status,
 				       a.veredito AS anterior_veredito, a.meta_venda AS anterior_meta_venda,
 				       a.totais AS anterior_totais, a.assercoes AS anterior_assercoes,
-				       a.decomposicao AS anterior_decomposicao
+				       a.decomposicao AS anterior_decomposicao,
+				       e.texto AS explicacao_texto, e.criado_em AS explicacao_criada_em
 				FROM simulacoes s
 				JOIN resultados_simulacao r ON r.id = s.resultado_id
+				LEFT JOIN explicacoes e ON e.resultado_id = s.resultado_id AND e.aderencia_conferida
 				LEFT JOIN sugestoes_meta_venda m ON m.job_id = s.job_id AND m.regra_id = s.regra_id
 				    AND m.resultado_id = s.resultado_id AND m.aceita_em IS NOT NULL
 				LEFT JOIN resultados_simulacao a ON a.id = m.resultado_anterior_id
@@ -248,10 +250,13 @@ class JobRepository {
 				: new SimulacaoAnteriorDto(anteriorId, rs.getTimestamp("anterior_criado_em").toInstant(),
 						rs.getString("anterior_status"), rs.getString("anterior_veredito"),
 						rs.getBigDecimal("anterior_meta_venda"), resultado(rs, "anterior_"));
+		String textoDaExplicacao = rs.getString("explicacao_texto");
+		ExplicacaoDto explicacao = (sucesso && textoDaExplicacao != null)
+				? new ExplicacaoDto(textoDaExplicacao, rs.getTimestamp("explicacao_criada_em").toInstant()) : null;
 		return new SimulacaoDto(rs.getObject("id", UUID.class), rs.getObject("regra_id", UUID.class),
 				rs.getTimestamp("criado_em").toInstant(), status, sucesso ? rs.getString("veredito") : null,
 				rs.getBoolean("flag_baixa_rastreabilidade"), sucesso ? resultado(rs, "") : null,
-				rs.getBigDecimal("meta_venda"), aceitaEm == null ? null : aceitaEm.toInstant(), anterior);
+				rs.getBigDecimal("meta_venda"), aceitaEm == null ? null : aceitaEm.toInstant(), anterior, explicacao);
 	}
 
 	private ResultadoSimulacaoDto resultado(ResultSet rs, String prefixo) throws SQLException {
@@ -854,6 +859,34 @@ class JobRepository {
 				          AND (outra.versao > r.versao OR outra.hash = ?))
 				)
 				""", Boolean.class, regraOrigemId, jobId, resultadoId, hash);
+	}
+
+	/**
+	 * A simulação cujo código produziu o resultado: {@code simulacoes.codigo_gerado_id} é
+	 * único, e a linha nasce com o código gerado, antes da execução. Vazio quando o
+	 * resultado não é do job.
+	 */
+	List<UUID> buscarSimulacaoDoCodigoDoResultado(UUID jobId, UUID resultadoId) {
+		return this.jdbc.query("""
+				SELECT s.id FROM simulacoes s
+				JOIN resultados_simulacao r ON r.codigo_gerado_id = s.codigo_gerado_id AND r.job_id = s.job_id
+				WHERE r.id = ? AND r.job_id = ?
+				""", (rs, numero) -> rs.getObject("id", UUID.class), resultadoId, jobId);
+	}
+
+	/**
+	 * Se a narrativa {@code explicacaoId} foi conferida contra o resultado; vazio quando
+	 * a explicação não é desse resultado.
+	 */
+	List<Boolean> buscarAderenciaDaExplicacao(UUID explicacaoId, UUID resultadoId) {
+		return this.jdbc.query("SELECT aderencia_conferida FROM explicacoes WHERE id = ? AND resultado_id = ?",
+				(rs, numero) -> rs.getBoolean("aderencia_conferida"), explicacaoId, resultadoId);
+	}
+
+	/** Ligar de novo não muda nada, então a reentrega é segura. */
+	void ligarFlagDeBaixaRastreabilidade(UUID jobId, UUID simulacaoId) {
+		this.jdbc.update("UPDATE simulacoes SET flag_baixa_rastreabilidade = true WHERE id = ? AND job_id = ?",
+				simulacaoId, jobId);
 	}
 
 	List<UUID> buscarSimulacaoPorResultado(UUID jobId, UUID resultadoId) {

@@ -326,6 +326,77 @@ class JobEventosService {
 	}
 
 	/**
+	 * Grava a trilha da etapa {@code explicacao} e, na mesma transação, liga a flag de
+	 * baixa rastreabilidade da simulação do resultado quando a etapa terminou sem
+	 * narrativa ou com a narrativa reprovada. {@code null} quando a linha já existia: a
+	 * reentrega não liga a flag de novo, e quem chama não anuncia nem conta de novo.
+	 * <p>
+	 * A simulação é achada pelo código do resultado, e a ausência dela desfaz a
+	 * transação: o consumidor propaga a falha e a mensagem volta à fila.
+	 */
+	@Transactional
+	@Nullable ExplicacaoRegistrada registrarExplicacao(UUID jobId, UUID eventoId, NoConcluidoDto evento) {
+		this.repository.exigirJobExistente(jobId);
+		UUID resultadoId = Objects.requireNonNull(evento.resultado_id());
+		List<UUID> simulacoes = this.repository.buscarSimulacaoDoCodigoDoResultado(jobId, resultadoId);
+		if (simulacoes.isEmpty()) {
+			throw new SimulacaoDaExplicacaoInexistenteException();
+		}
+		if (!this.repository.inserirTrilhaNo(eventoId, jobId, evento.simulacao_id(), EtapaDoGrafo.EXPLICACAO, evento)) {
+			return null;
+		}
+		UUID simulacaoId = simulacoes.getFirst();
+		DesfechoDaExplicacao desfecho = desfechoDaExplicacao(evento.explicacao_id(), resultadoId);
+		if (desfecho != DesfechoDaExplicacao.CONFERIDA) {
+			this.repository.ligarFlagDeBaixaRastreabilidade(jobId, simulacaoId);
+		}
+		return new ExplicacaoRegistrada(simulacaoId, desfecho);
+	}
+
+	/**
+	 * Uma narrativa que não é a do resultado do evento não pode ser exibida, e conta como
+	 * ausente: é o mesmo que a consulta faz ao ligá-las pelo resultado.
+	 */
+	private DesfechoDaExplicacao desfechoDaExplicacao(@Nullable UUID explicacaoId, UUID resultadoId) {
+		if (explicacaoId == null) {
+			return DesfechoDaExplicacao.AUSENTE;
+		}
+		List<Boolean> aderencia = this.repository.buscarAderenciaDaExplicacao(explicacaoId, resultadoId);
+		if (aderencia.isEmpty()) {
+			return DesfechoDaExplicacao.AUSENTE;
+		}
+		return aderencia.getFirst() ? DesfechoDaExplicacao.CONFERIDA : DesfechoDaExplicacao.REPROVADA;
+	}
+
+	record ExplicacaoRegistrada(UUID simulacaoId, DesfechoDaExplicacao desfecho) {
+	}
+
+	/**
+	 * Como a etapa de explicação terminou para a simulação: o {@code desfecho} que vai
+	 * para log e métrica, de conjunto fechado. Só {@code conferida} deixa a flag falsa e
+	 * a explicação disponível.
+	 */
+	enum DesfechoDaExplicacao {
+
+		CONFERIDA("conferida"), REPROVADA("reprovada"), AUSENTE("ausente");
+
+		private final String rotulo;
+
+		DesfechoDaExplicacao(String rotulo) {
+			this.rotulo = rotulo;
+		}
+
+		String rotulo() {
+			return this.rotulo;
+		}
+
+		boolean disponivel() {
+			return this == CONFERIDA;
+		}
+
+	}
+
+	/**
 	 * O status do evento {@code etapa} na etapa {@code sugestao_adaptacao} que a gravação
 	 * de uma decisão anuncia. O fim com a meta registrada é anunciado por quem a
 	 * registra.
