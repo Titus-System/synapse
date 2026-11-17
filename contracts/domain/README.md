@@ -27,6 +27,7 @@ Os exemplos válidos estão em [`contracts/examples/domain/`](../examples/domain
 | [regra-especificacoes.schema.json](regra-especificacoes.schema.json) | `regras.especificacoes` |
 | [trilha-conclusao.schema.json](trilha-conclusao.schema.json) | `trilhas_auditoria.conclusao` |
 | [modelo-llm.schema.json](modelo-llm.schema.json) | `prompts.modelo` |
+| [modelo-transcricao.schema.json](modelo-transcricao.schema.json) | `submissoes.transcricao_modelo` |
 | [consumo-tokens.schema.json](consumo-tokens.schema.json) | `respostas_modelo.consumo_tokens` |
 | [resultado-totais.schema.json](resultado-totais.schema.json) | `resultados_simulacao.totais` |
 | [resultado-assercoes.schema.json](resultado-assercoes.schema.json) | `resultados_simulacao.assercoes` |

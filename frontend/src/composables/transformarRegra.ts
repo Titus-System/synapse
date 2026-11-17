@@ -55,11 +55,14 @@ interface Generico extends EspecificacaoRegra {
   campos?: Record<string, unknown>
 }
 
-export function transformarRegra(representacao: RepresentacaoRegra): RegraFormatada {
+export function transformarRegra(
+  representacao: RepresentacaoRegra,
+  opcoes: { manterCodigos?: boolean } = {},
+): RegraFormatada {
   const se: string[] = []
   const entao: string[] = []
 
-  adicionarNucleo(se, representacao)
+  adicionarNucleo(se, representacao, opcoes.manterCodigos)
 
   for (const elemento of representacao.especificacoes) {
     switch (elemento.construto) {
@@ -76,7 +79,7 @@ export function transformarRegra(representacao: RepresentacaoRegra): RegraFormat
         break
 
       case 'exclusao':
-        adicionarExclusao(elemento as Exclusao, se)
+        adicionarExclusao(elemento as Exclusao, se, opcoes.manterCodigos)
         break
 
       case 'bonus_fixo':
@@ -114,7 +117,11 @@ export function transformarResultado(resultado: ResultadoSimulacao): string[] {
   ]
 }
 
-function adicionarNucleo(se: string[], representacao: RepresentacaoRegra): void {
+function adicionarNucleo(
+  se: string[],
+  representacao: RepresentacaoRegra,
+  manterCodigos = false,
+): void {
   const { nucleo } = representacao
 
   if (nucleo.vigencia) {
@@ -128,15 +135,21 @@ function adicionarNucleo(se: string[], representacao: RepresentacaoRegra): void 
   }
 
   if (nucleo.loja != null) {
-    se.push(`loja = ${nomesDoEscopo('loja', nucleo.loja)}`)
+    se.push(
+      `loja = ${manterCodigos && nucleo.loja.length ? nucleo.loja.join(', ') : nomesDoEscopo('loja', nucleo.loja)}`,
+    )
   }
 
   if (nucleo.marca != null) {
-    se.push(`marca = ${nomesDoEscopo('marca', nucleo.marca)}`)
+    se.push(
+      `marca = ${manterCodigos && nucleo.marca.length ? nucleo.marca.join(', ') : nomesDoEscopo('marca', nucleo.marca)}`,
+    )
   }
 
   if (nucleo.cargo != null) {
-    se.push(`cargo = ${nomesDoEscopo('cargo', nucleo.cargo)}`)
+    se.push(
+      `cargo = ${manterCodigos && nucleo.cargo.length ? nucleo.cargo.join(', ') : nomesDoEscopo('cargo', nucleo.cargo)}`,
+    )
   }
 
   if (nucleo.percentual != null || nucleo.taxas_por_cargo?.length) {
@@ -166,9 +179,9 @@ function adicionarJanelaDatas(elemento: JanelaDatas, se: string[], entao: string
   entao.push(formatarEfeito(elemento.efeito))
 }
 
-function adicionarExclusao(elemento: Exclusao, se: string[]): void {
+function adicionarExclusao(elemento: Exclusao, se: string[], manterCodigos = false): void {
   se.push(
-    `excluir ${elemento.dimensao} = ${elemento.valores.map((codigo) => nomeDaEntidade(elemento.dimensao, codigo)).join(', ')}`,
+    `excluir ${elemento.dimensao} = ${elemento.valores.map((codigo) => (manterCodigos ? codigo : nomeDaEntidade(elemento.dimensao, codigo))).join(', ')}`,
   )
 }
 

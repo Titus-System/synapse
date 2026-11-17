@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.dao.DataIntegrityViolationException;
@@ -154,9 +155,31 @@ class ListarJobsControllerTests {
 
 	@Test
 	void falhaDePersistenciaResponde500SemCorpo() throws Exception {
-		when(this.service.listar(any(), any())).thenThrow(new DataIntegrityViolationException("falha"));
+		when(this.service.listar(any(), any())).thenThrow(new DataIntegrityViolationException("segredo-do-banco-t324"));
+		try (var logs = new CapturaDeLog(JobController.class)) {
+			this.mvc.perform(get("/jobs").param("situacao", "salvas")).andExpect(status().isInternalServerError());
+			assertThat(logs.eventos()).hasSize(1);
+			String linha = CapturaDeLog.emJson(logs.eventos().getFirst());
+			ContratoDeEvento.validarLog(linha);
+			assertThat(linha).doesNotContain("segredo-do-banco-t324", "salvas");
+			assertThat(new JsonMapper().readTree(linha).path("extra").path("resultado").asString()).isEqualTo("falha");
+		}
+	}
 
-		this.mvc.perform(get("/jobs")).andExpect(status().isInternalServerError());
+	@ParameterizedTest
+	@ValueSource(strings = { "liberado", "arquivado", "SALVAS", "salvas ", "", "desconhecida", "' OR 1=1 --" })
+	void situacaoDesconhecidaResponde400SemExporOValorNemConsultar(String situacao) throws Exception {
+		when(this.service.listar(any(), any())).thenReturn(new PaginaJobsDto(List.of(), 0, 20, 0));
+		String resposta = this.mvc.perform(get("/jobs").param("situacao", situacao))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.codigo").value("requisicao_invalida"))
+			.andExpect(jsonPath("$.mensagem").value("O parâmetro situacao precisa ser salvas ou arquivadas."))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		ContratoDeEvento.validarRespostaHttp("Erro", resposta);
+		assertThat(new JsonMapper().readTree(resposta).propertyNames()).containsExactlyInAnyOrder("codigo", "mensagem");
+		verifyNoInteractions(this.service);
 	}
 
 	private static String mensagemEsperada(String nome) {

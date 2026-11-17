@@ -68,6 +68,10 @@ Entrada original do fluxo; regras.nucleo e a representacao derivada, e trilhas_a
   formato text [null, note: 'null quando tipo != voz. webm | ogg | wav | mp4: o conteiner gravado pelo navegador, declarado no Content-Type da parte audio']
   transcricao text [null, note: 'null quando tipo = formulario, e enquanto a submissao de voz nao foi transcrita. Texto digitado (tipo = texto) ou transcrito (tipo = voz), verbatim; e o insumo da extracao e da reextracao, que o codegen le e nao escreve']
   transcrito_em timestamptz [null, note: 'null ate a transcricao concluir']
+  transcricao_modelo jsonb [null, note: '''
+Formato: contracts/domain/modelo-transcricao.schema.json
+null quando tipo != voz, enquanto a submissao de voz nao foi transcrita e nas transcritas antes da coluna, sem backfill. A API grava no mesmo UPDATE de transcricao e transcrito_em: o nome e a versao do modelo que a resposta do provedor informa ou, sem essa informacao, o provedor e o modelo pedido na chamada, sem versao
+''']
   criado_em timestamptz [not null]
 }
 
@@ -209,9 +213,20 @@ Table simulacoes {
 
 Table trilhas_auditoria {
   id uuid [pk, default: `uuidv7()`]
-  evento_id uuid [not null, note: 'UUIDv5 deterministico do job, no e referencia do artefato, gerado pelo codegen; a API grava o recebido. Idempotencia contra reentrega e republicacao do mesmo evento logico.']
+  evento_id uuid [not null, note: 'UUIDv5 deterministico do job, no e referencia do artefato, gerado pelo codegen; a API grava o recebido. Idempotencia contra reentrega e republicacao do mesmo evento logico. Duas excecoes: a API gera a chave das linhas confirmacao, e a linha decisao que encerra a busca da meta maior usa chave propria, derivada do job e da versao da regra.']
   job_id uuid [not null, ref: > jobs.id]
-  simulacao_id uuid [ref: > simulacoes.id, note: 'null p/ nos 1-2 (voz, Sprint 2)']
+  simulacao_id uuid [ref: > simulacoes.id, note: 'so a linha de geracao_codigo o traz; as demais chegam a simulacao pelo codigo do resultado apontado em resultado_id']
+  resultado_id uuid [ref: > resultados_simulacao.id, note: '''
+Resultado sobre o qual a etapa agiu. Na decisao, e o resultado decidido. Na
+sugestao_adaptacao, e o resultado inviavel analisado. Na linha decisao que encerra a
+busca da meta maior, e a candidata vencedora. Na geracao_codigo com modo_geracao igual a
+correcao, e o resultado que falhou; com modo_geracao igual a derivado, e o resultado de
+sucesso da versao de origem.
+Null nas demais etapas, na busca encerrada sem solucao, nas linhas confirmacao e nas
+linhas gravadas antes da coluna (sem backfill).
+Nao substitui simulacao_id: as execucoes candidatas da busca da meta nao tem linha em
+simulacoes, e o aceite da meta troca o resultado para o qual simulacoes.resultado_id aponta.
+''']
   no text [not null, note: 'nome do no concluido, conforme o contrato no-concluido; inclui suggest_adaptation']
   concluido_em timestamptz [not null, note: 'conclusao do no, vinda do evento no-concluido']
   regra_id uuid [ref: > regras.id, note: 'null enquanto a regra nao esta formada']
@@ -230,6 +245,7 @@ Nao repetir aqui o que a linha ja alcanca: o nome do no (coluna no), o veredito
     (evento_id) [unique, note: 'uma linha por mensagem; reentrega e rejeitada no insert']
     (job_id, concluido_em)
     (simulacao_id)
+    (resultado_id)
   }
 }
 
@@ -478,6 +494,18 @@ Separado de totais e decomposicao, que so existem em sucesso: o diagnostico nao 
 jsonb porque e escrito de uma vez, lido inteiro e nunca filtrado por valor.
 Mensagem, traceback e caminhos vieram de codigo nao confiavel: sao dado, nunca vao para
 log nem evento.
+''']
+  fontes jsonb [note: '''
+Formato: contracts/domain/resultado-fontes.schema.json
+Identifica o manifesto, as competencias, os arquivos e os baselines conferidos pelo
+worker antes da execucao, com seus hashes; nao contem os dados das bases.
+NULL nos resultados gravados antes do campo e nos de erro_infra, sem backfill.
+Escrito pelo worker no mesmo INSERT do resultado e imutavel como o resto da linha.
+Fica no resultado para vincular as bases ao codigo, a versao da regra, a simulacao e
+ao horario pela mesma linha, sem repetir essas referencias na trilha.
+jsonb porque e escrito de uma vez e lido inteiro pela consulta de auditoria,
+GET /auditoria/jobs/{id}, sem filtros por valor. A API omite o campo quando NULL.
+A migration da T-310 deve ser implantada antes do worker da T-311; nao exige novos GRANTs.
 ''']
   criado_em timestamptz [not null]
 

@@ -1,0 +1,44 @@
+{
+  "manifesto": {
+    "versao": 2,
+    "congelamento": "2026-09-17"
+  },
+  "competencias": [
+    "2025-10",
+    "2025-11"
+  ],
+  "arquivos": [
+    {
+      "nome": "rh.jsonl",
+      "sha256": "c52c5955e534e95664239e68ced2e1ca8c649fec8c57a96f4f5195cb112046b9"
+    },
+    {
+      "nome": "vendas.jsonl",
+      "sha256": "1a77fb4fd30315cd2acb63a5b09703f0ba74c358efe1a705f685f4f8617fd39a"
+    },
+    {
+      "nome": "comissoes.jsonl",
+      "sha256": "602601c76c51fefd1a022c60a29c5c963d1b7996232f5030f454b7e8b10ba3ec"
+    },
+    {
+      "nome": "eventos_rh.jsonl",
+      "sha256": "ba3fac163ef6fe98c18a74847dda0b9061fb3fbf8c4610c683d2f64e41af595b"
+    },
+    {
+      "nome": "regras_competencia.jsonl",
+      "sha256": "e8d5a18d0d2d0513e18d318cd0b215804595aa49191e82f73fa63ba9b976631f"
+    }
+  ],
+  "baselines": [
+    {
+      "competencia": "2025-10",
+      "arquivo": "baselines/baseline-2025-10.jsonl",
+      "sha256": "ce040f196eddcbd5cde89e135f3a06a1250267c0ad81d6bbfe18be2d971f7ee6"
+    },
+    {
+      "competencia": "2025-11",
+      "arquivo": "baselines/baseline-2025-11.jsonl",
+      "sha256": "f8ca7380bd494a455453f847bdbae70f0be4b80034d6cd0430093a3193f7c848"
+    }
+  ]
+}

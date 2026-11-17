@@ -151,9 +151,18 @@ record CriarJobRequisicao(String origem, List<String> competencias, BigDecimal o
 	}
 }
 
-record ListarJobsRequisicao(int pagina, int tamanho) {
+record ListarJobsRequisicao(int pagina, int tamanho, @Nullable SituacaoDaListagem situacao) {
 
 	static final int TAMANHO_MAXIMO = 100;
+
+	ListarJobsRequisicao(int pagina, int tamanho) {
+		this(pagina, tamanho, null);
+	}
+
+	static ListarJobsRequisicao deParametros(int pagina, int tamanho, @Nullable String situacao) {
+		return new ListarJobsRequisicao(pagina, tamanho,
+				situacao == null ? null : SituacaoDaListagem.deParametro(situacao));
+	}
 
 	ListarJobsRequisicao {
 		if (pagina < 0) {

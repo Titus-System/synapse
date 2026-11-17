@@ -16,16 +16,23 @@ Só stdlib: o motor de apuração (``app/sandbox/regras_competencia.py`` e o que
 usa pandas, e o processo do worker não o carrega (``test_isolamento_harness.py``). Cada arquivo é
 conferido contra o sha256 que o manifesto dos baselines registra em ``fontes_sha256``: são as
 mesmas bases de que os baselines congelados e a imagem do sandbox saíram.
+
+Da mesma conferência sai o registro das fontes de cada execução (T-311), gravado em
+``resultados_simulacao.fontes``: a versão e o congelamento do manifesto, o sha256 de cada arquivo
+de ``ARQUIVOS`` e o arquivo e o sha256 do baseline de cada competência. São referências; o
+conteúdo das bases não entra no registro.
 """
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, TypedDict
 
 from app.execucao.baseline import (
     BaselineIndisponivelError,
@@ -57,6 +64,8 @@ ARQUIVOS = (
     "regras_competencia.jsonl",
 )
 
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+
 
 class BasesIndisponiveisError(RuntimeError):
     """As bases não estão ao alcance do worker, ou não são as que o manifesto registra."""
@@ -65,6 +74,46 @@ class BasesIndisponiveisError(RuntimeError):
 class ReapuracaoNaMetaError(ValueError):
     """O baseline na meta não pôde ser reapurado: o comando pede uma competência sem bases, ou a
     meta não se aplica às vendas do período. Não é falha da regra, que nem chegou a rodar."""
+
+
+class ManifestoDaExecucao(TypedDict):
+    versao: int
+    congelamento: str
+
+
+class ArquivoDaExecucao(TypedDict):
+    nome: str
+    sha256: str
+
+
+class BaselineDaExecucao(TypedDict):
+    competencia: str
+    arquivo: str
+    sha256: str
+
+
+class FontesDaExecucao(TypedDict):
+    """``resultado-fontes.schema.json``: as bases que o worker conferiu, por referência."""
+
+    manifesto: ManifestoDaExecucao
+    competencias: list[str]
+    arquivos: list[ArquivoDaExecucao]
+    baselines: list[BaselineDaExecucao]
+
+
+@dataclass(frozen=True)
+class ManifestoDasBases:
+    """O que o manifesto dos baselines registra das bases conferidas na subida."""
+
+    versao: int
+    # Data ISO, como o manifesto a registra.
+    congelamento: str
+    # Nome e sha256 de cada arquivo de ``ARQUIVOS``, na ordem de ``ARQUIVOS``. O sha256 é o que a
+    # carga conferiu contra o conteúdo do arquivo.
+    arquivos: tuple[tuple[str, str], ...]
+    # Arquivo e sha256 do baseline de cada competência, como o manifesto os registra. Quem confere
+    # o arquivo contra o sha256 é ``app/execucao/baseline.py``, que a subida também carrega.
+    baselines: Mapping[str, tuple[str, str]]
 
 
 @dataclass(frozen=True)
@@ -79,6 +128,30 @@ class BasesDoWorker:
     comissoes: tuple[Registro, ...]
     eventos_rh: tuple[Registro, ...]
     regras: tuple[Registro, ...]
+    manifesto: ManifestoDasBases = field(repr=False)
+
+    def fontes(self, competencias: Sequence[str]) -> FontesDaExecucao:
+        """O registro das fontes de uma execução nestas competências, na ordem do comando: o
+        manifesto, os arquivos de base e o baseline de cada competência."""
+        self._conferir(competencias)
+        return FontesDaExecucao(
+            manifesto=ManifestoDaExecucao(
+                versao=self.manifesto.versao, congelamento=self.manifesto.congelamento
+            ),
+            competencias=list(competencias),
+            arquivos=[
+                ArquivoDaExecucao(nome=nome, sha256=sha256)
+                for nome, sha256 in self.manifesto.arquivos
+            ],
+            baselines=[
+                BaselineDaExecucao(
+                    competencia=competencia,
+                    arquivo=self.manifesto.baselines[competencia][0],
+                    sha256=self.manifesto.baselines[competencia][1],
+                )
+                for competencia in competencias
+            ],
+        )
 
     def vendas_historicas(self, competencias: Sequence[str]) -> Decimal:
         """O total de vendas das competências, em centavos, antes de qualquer escala."""
@@ -170,6 +243,7 @@ def ler_bases(diretorio: Path) -> BasesDoWorker:
     baselines = manifesto.get("baselines") if isinstance(manifesto, dict) else None
     if not isinstance(fontes, dict) or not isinstance(baselines, dict) or not baselines:
         raise BasesIndisponiveisError("manifesto.json não registra as fontes e os baselines")
+    versao, congelamento = _identificacao(manifesto)
 
     registros = {nome: _ler(diretorio / nome, fontes.get(nome)) for nome in ARQUIVOS}
     return BasesDoWorker(
@@ -179,7 +253,50 @@ def ler_bases(diretorio: Path) -> BasesDoWorker:
         comissoes=registros["comissoes.jsonl"],
         eventos_rh=registros["eventos_rh.jsonl"],
         regras=registros["regras_competencia.jsonl"],
+        manifesto=ManifestoDasBases(
+            versao=versao,
+            congelamento=congelamento,
+            # Só chega aqui o sha256 que `_ler` conferiu contra o arquivo.
+            arquivos=tuple((nome, str(fontes[nome])) for nome in ARQUIVOS),
+            baselines={
+                competencia: _baseline_registrado(competencia, registro)
+                for competencia, registro in baselines.items()
+            },
+        ),
     )
+
+
+def _identificacao(manifesto: Mapping[str, object]) -> tuple[int, str]:
+    """A versão e a data de congelamento, recusadas na subida se não couberem no registro."""
+    versao = manifesto.get("versao")
+    if isinstance(versao, bool) or not isinstance(versao, int) or versao < 1:
+        raise BasesIndisponiveisError("manifesto.json sem versão válida")
+    congelamento = manifesto.get("congelamento")
+    if not isinstance(congelamento, str) or not _data_iso(congelamento):
+        raise BasesIndisponiveisError("manifesto.json sem data de congelamento válida")
+    return versao, congelamento
+
+
+def _data_iso(texto: str) -> bool:
+    try:
+        return date.fromisoformat(texto).isoformat() == texto
+    except ValueError:
+        return False
+
+
+def _baseline_registrado(competencia: object, registro: object) -> tuple[str, str]:
+    arquivo = registro.get("arquivo") if isinstance(registro, dict) else None
+    sha256 = registro.get("sha256") if isinstance(registro, dict) else None
+    if (
+        not isinstance(arquivo, str)
+        or not arquivo
+        or not isinstance(sha256, str)
+        or not _SHA256.fullmatch(sha256)
+    ):
+        raise BasesIndisponiveisError(
+            f"{competencia}: o manifesto não registra o arquivo e o sha256 do baseline"
+        )
+    return arquivo, sha256
 
 
 def _ler(arquivo: Path, sha256: object) -> tuple[Registro, ...]:

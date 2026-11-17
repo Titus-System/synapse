@@ -100,6 +100,65 @@ async def buscar_totais(
     )
 
 
+async def buscar_totais_apurados(
+    sessoes: async_sessionmaker[AsyncSession], job_id: UUID, resultado_id: UUID
+) -> dict[str, Decimal]:
+    """Todos os totais que o worker gravou no resultado, por nome, sem recompor nenhum.
+
+    `buscar_totais` serve a quem precisa do simulado e do orçamento e exige os dois; a explicação
+    narra também o baseline e a diferença, e o resultado sem orçamento continua tendo o que
+    narrar, então aqui o orçamento é só mais um total que pode faltar.
+    Raises `ResultadoDesconhecidoError` when the row is missing for that job or has no totals.
+    """
+    consulta = text(
+        "SELECT totais::text AS totais FROM resultados_simulacao"
+        " WHERE id = :resultado_id AND job_id = :job_id"
+    )
+    async with sessoes() as sessao:
+        resultado = await sessao.execute(
+            consulta, {"resultado_id": str(resultado_id), "job_id": str(job_id)}
+        )
+        linha = resultado.mappings().one_or_none()
+    totais = _objeto(linha["totais"]) if linha is not None else None
+    if not isinstance(totais, dict):
+        raise ResultadoDesconhecidoError("Simulation result has no totals for this job")
+    apurados = {nome: _decimal(valor) for nome, valor in totais.items()}
+    return {nome: valor for nome, valor in apurados.items() if valor is not None}
+
+
+async def buscar_decomposicao(
+    sessoes: async_sessionmaker[AsyncSession], job_id: UUID, resultado_id: UUID
+) -> dict[str, dict[str, Decimal]]:
+    """A decomposição do resultado sem a quebra por matrícula, que identifica pessoas.
+
+    A matrícula é retirada na própria consulta: ela não chega a este processo, e nenhum prompt
+    nem log tem como carregá-la.
+    Raises `ResultadoDesconhecidoError` when the row is missing for that job or has no breakdown.
+    """
+    consulta = text(
+        "SELECT (decomposicao - 'matricula')::text AS decomposicao FROM resultados_simulacao"
+        " WHERE id = :resultado_id AND job_id = :job_id"
+    )
+    async with sessoes() as sessao:
+        resultado = await sessao.execute(
+            consulta, {"resultado_id": str(resultado_id), "job_id": str(job_id)}
+        )
+        linha = resultado.mappings().one_or_none()
+    decomposicao = _objeto(linha["decomposicao"]) if linha is not None else None
+    if not isinstance(decomposicao, dict):
+        raise ResultadoDesconhecidoError("Simulation result has no breakdown for this job")
+    quebras: dict[str, dict[str, Decimal]] = {}
+    for dimensao, valores in decomposicao.items():
+        if not isinstance(valores, dict):
+            continue
+        quebras[dimensao] = {
+            chave: valor
+            for chave, bruto in valores.items()
+            if (valor := _decimal(bruto)) is not None
+        }
+    return quebras
+
+
 async def buscar_taxas_simuladas(
     sessoes: async_sessionmaker[AsyncSession], job_id: UUID, regra_id: UUID
 ) -> list[TaxaSimulada]:

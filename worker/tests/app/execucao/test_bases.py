@@ -6,10 +6,13 @@ conferência confirmar o que devia denunciar, então cada arquivo é conferido c
 manifesto, e qualquer divergência derruba a carga.
 """
 
+import hashlib
 import json
 import shutil
+from collections.abc import Callable
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -25,6 +28,7 @@ from app.execucao.bases import (
     carregar_bases,
     ler_bases,
 )
+from tests.app.esquemas import erros_do_dominio
 
 COMPETENCIAS = ("2025-08", "2025-09", "2025-10", "2025-11", "2025-12")
 VENDAS_2025_11 = Decimal("13271681.51")
@@ -119,6 +123,7 @@ def test_vendas_por_linha_com_meta_que_nao_se_aplica_sai_so_com_a_classe() -> No
         comissoes=(),
         eventos_rh=(),
         regras=(),
+        manifesto=carregar_bases().manifesto,
     )
 
     with pytest.raises(ReapuracaoNaMetaError) as erro:
@@ -201,12 +206,64 @@ def test_periodo_sem_vendas_nao_e_reapurado() -> None:
         comissoes=(),
         eventos_rh=(),
         regras=(),
+        manifesto=carregar_bases().manifesto,
     )
 
     with pytest.raises(ReapuracaoNaMetaError) as erro:
         bases.baseline_na_meta(["2025-11"], 1000.0)
 
     assert str(erro.value) == "MetaVendaError"
+
+
+# ---- as fontes de uma execução (T-311) ----
+
+
+def _manifesto() -> dict[str, Any]:
+    texto = (localizar() / "manifesto.json").read_text(encoding="utf-8")
+    return dict(json.loads(texto))
+
+
+def test_fontes_de_duas_competencias_sao_as_do_manifesto_na_ordem_do_comando() -> None:
+    """Os cinco arquivos com o sha256 conferido na carga, o baseline de cada competência na ordem
+    do comando, e a versão e o congelamento do manifesto, válidos no schema."""
+    manifesto = _manifesto()
+
+    fontes = carregar_bases().fontes(["2025-11", "2025-08"])
+
+    assert erros_do_dominio("resultado-fontes", fontes) == []
+    assert fontes["manifesto"] == {
+        "versao": manifesto["versao"],
+        "congelamento": manifesto["congelamento"],
+    }
+    assert fontes["competencias"] == ["2025-11", "2025-08"]
+    assert fontes["arquivos"] == [
+        {"nome": nome, "sha256": manifesto["fontes_sha256"][nome]} for nome in ARQUIVOS
+    ]
+    assert fontes["baselines"] == [
+        {
+            "competencia": competencia,
+            "arquivo": manifesto["baselines"][competencia]["arquivo"],
+            "sha256": manifesto["baselines"][competencia]["sha256"],
+        }
+        for competencia in ("2025-11", "2025-08")
+    ]
+
+
+def test_o_sha256_dos_arquivos_nas_fontes_e_o_do_conteudo_carregado() -> None:
+    fontes = carregar_bases().fontes(["2025-08"])
+
+    diretorio = localizar().parent
+    assert {a["nome"]: a["sha256"] for a in fontes["arquivos"]} == {
+        nome: hashlib.sha256((diretorio / nome).read_bytes()).hexdigest() for nome in ARQUIVOS
+    }
+
+
+@pytest.mark.parametrize(
+    "competencias", [["2026-01"], ["2025-11", "2025-11"], []], ids=["fora", "repetida", "vazia"]
+)
+def test_fontes_de_periodo_fora_das_bases_sao_recusadas(competencias: list[str]) -> None:
+    with pytest.raises(CompetenciaSemBaselineError):
+        carregar_bases().fontes(competencias)
 
 
 # ---- adulteração: cada uma derruba a carga ----
@@ -228,6 +285,7 @@ def test_a_copia_sem_alteracao_carrega(copia: Path) -> None:
 
     assert bases.competencias == frozenset(COMPETENCIAS)
     assert bases.vendas_historicas(["2025-11"]) == VENDAS_2025_11
+    assert bases.manifesto == carregar_bases().manifesto
 
 
 @pytest.mark.parametrize("nome", ARQUIVOS)
@@ -255,6 +313,70 @@ def test_manifesto_sem_as_fontes_ou_os_baselines(copia: Path, chave: str) -> Non
     caminho.write_text(json.dumps(manifesto), encoding="utf-8")
 
     with pytest.raises(BasesIndisponiveisError, match="manifesto"):
+        ler_bases(copia)
+
+
+def _alterar_manifesto(copia: Path, alterar: Callable[[dict[str, Any]], None]) -> None:
+    caminho = copia / "baselines" / "manifesto.json"
+    manifesto = json.loads(caminho.read_text(encoding="utf-8"))
+    alterar(manifesto)
+    caminho.write_text(json.dumps(manifesto), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("chave", "valor"),
+    [
+        ("versao", None),
+        ("versao", 0),
+        ("versao", "2"),
+        ("versao", True),
+        ("congelamento", None),
+        ("congelamento", "17/09/2026"),
+        ("congelamento", "20260917"),
+        ("congelamento", "2026-02-30"),
+    ],
+)
+def test_manifesto_sem_versao_ou_congelamento_validos(
+    copia: Path, chave: str, valor: object
+) -> None:
+    """A versão e o congelamento vão para o registro de cada execução: um valor que não cabe no
+    schema derruba a carga na subida, e não a gravação de um resultado."""
+
+    def alterar(manifesto: dict[str, Any]) -> None:
+        if valor is None:
+            del manifesto[chave]
+        else:
+            manifesto[chave] = valor
+
+    _alterar_manifesto(copia, alterar)
+
+    with pytest.raises(BasesIndisponiveisError, match="manifesto.json sem"):
+        ler_bases(copia)
+
+
+@pytest.mark.parametrize(
+    ("chave", "valor"),
+    [
+        ("arquivo", None),
+        ("arquivo", ""),
+        ("sha256", None),
+        ("sha256", "B0B6F7A6E1894FB3303E294277AF2C35195DE507BA48E5EF6448443466784D36"),
+        ("sha256", "b0b6f7a6"),
+    ],
+)
+def test_baseline_sem_arquivo_ou_sha256_validos_no_manifesto(
+    copia: Path, chave: str, valor: object
+) -> None:
+    def alterar(manifesto: dict[str, Any]) -> None:
+        registro = manifesto["baselines"]["2025-08"]
+        if valor is None:
+            del registro[chave]
+        else:
+            registro[chave] = valor
+
+    _alterar_manifesto(copia, alterar)
+
+    with pytest.raises(BasesIndisponiveisError, match="2025-08: o manifesto não registra"):
         ler_bases(copia)
 
 

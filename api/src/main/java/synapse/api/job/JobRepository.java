@@ -8,6 +8,8 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -20,6 +22,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.support.SqlArrayValue;
 import org.springframework.stereotype.Repository;
 
@@ -76,13 +79,14 @@ class JobRepository {
 		this.jdbc = jdbc;
 	}
 
-	long contarJobs(UUID usuarioId) {
+	long contarJobs(UUID usuarioId, @Nullable String status) {
 		return Objects.requireNonNull(this.jdbc.queryForObject("""
 				SELECT count(*) FROM jobs WHERE usuario_id = ?
-				""", Long.class, usuarioId));
+				AND (CAST(? AS text) IS NULL OR status = ?)
+				""", Long.class, usuarioId, status, status));
 	}
 
-	List<JobResumoDto> listarJobs(UUID usuarioId, int tamanho, long deslocamento) {
+	List<JobResumoDto> listarJobs(UUID usuarioId, int tamanho, long deslocamento, @Nullable String status) {
 		return this.jdbc.query("""
 				SELECT j.id, j.status, j.competencias, j.orcamento, j.meta_venda, j.criado_em, j.finalizado_em,
 				       j.job_origem_id, rs.veredito,
@@ -97,9 +101,10 @@ class JobRepository {
 				) corrente ON true
 				LEFT JOIN resultados_simulacao rs ON rs.id = corrente.resultado_id AND rs.status = 'sucesso'
 				WHERE j.usuario_id = ?
+				AND (CAST(? AS text) IS NULL OR j.status = ?)
 				ORDER BY j.criado_em DESC, j.id DESC
 				LIMIT ? OFFSET ?
-				""", (linha, numero) -> resumo(linha), usuarioId, tamanho, deslocamento);
+				""", (linha, numero) -> resumo(linha), usuarioId, status, status, tamanho, deslocamento);
 	}
 
 	private static JobResumoDto resumo(ResultSet linha) throws SQLException {
@@ -117,6 +122,24 @@ class JobRepository {
 	private static @Nullable Instant instante(ResultSet linha, String coluna) throws SQLException {
 		OffsetDateTime valor = linha.getObject(coluna, OffsetDateTime.class);
 		return valor == null ? null : valor.toInstant();
+	}
+
+	/** Só os jobs com nome resolvido entram no mapa. */
+	Map<UUID, String> resolverNomes(Collection<UUID> jobIds) {
+		Map<UUID, String> nomes = new HashMap<>();
+		this.jdbc.query("""
+				SELECT j.id,
+					""" + NOME_RESOLVIDO + """
+				FROM jobs j
+				""" + JUNCAO_TEXTO_INICIAL + """
+				WHERE j.id = ANY(?)
+				""", (RowCallbackHandler) linha -> {
+			String nome = linha.getString("nome");
+			if (nome != null) {
+				nomes.put(Objects.requireNonNull(linha.getObject("id", UUID.class)), nome);
+			}
+		}, new SqlArrayValue("uuid", jobIds.toArray()));
+		return Map.copyOf(nomes);
 	}
 
 	List<UUID> buscarProprietario(UUID jobId) {
@@ -205,9 +228,11 @@ class JobRepository {
 				       a.id AS anterior_id, a.criado_em AS anterior_criado_em, a.status AS anterior_status,
 				       a.veredito AS anterior_veredito, a.meta_venda AS anterior_meta_venda,
 				       a.totais AS anterior_totais, a.assercoes AS anterior_assercoes,
-				       a.decomposicao AS anterior_decomposicao
+				       a.decomposicao AS anterior_decomposicao,
+				       e.texto AS explicacao_texto, e.criado_em AS explicacao_criada_em
 				FROM simulacoes s
 				JOIN resultados_simulacao r ON r.id = s.resultado_id
+				LEFT JOIN explicacoes e ON e.resultado_id = s.resultado_id AND e.aderencia_conferida
 				LEFT JOIN sugestoes_meta_venda m ON m.job_id = s.job_id AND m.regra_id = s.regra_id
 				    AND m.resultado_id = s.resultado_id AND m.aceita_em IS NOT NULL
 				LEFT JOIN resultados_simulacao a ON a.id = m.resultado_anterior_id
@@ -225,10 +250,13 @@ class JobRepository {
 				: new SimulacaoAnteriorDto(anteriorId, rs.getTimestamp("anterior_criado_em").toInstant(),
 						rs.getString("anterior_status"), rs.getString("anterior_veredito"),
 						rs.getBigDecimal("anterior_meta_venda"), resultado(rs, "anterior_"));
+		String textoDaExplicacao = rs.getString("explicacao_texto");
+		ExplicacaoDto explicacao = (sucesso && textoDaExplicacao != null)
+				? new ExplicacaoDto(textoDaExplicacao, rs.getTimestamp("explicacao_criada_em").toInstant()) : null;
 		return new SimulacaoDto(rs.getObject("id", UUID.class), rs.getObject("regra_id", UUID.class),
 				rs.getTimestamp("criado_em").toInstant(), status, sucesso ? rs.getString("veredito") : null,
 				rs.getBoolean("flag_baixa_rastreabilidade"), sucesso ? resultado(rs, "") : null,
-				rs.getBigDecimal("meta_venda"), aceitaEm == null ? null : aceitaEm.toInstant(), anterior);
+				rs.getBigDecimal("meta_venda"), aceitaEm == null ? null : aceitaEm.toInstant(), anterior, explicacao);
 	}
 
 	private ResultadoSimulacaoDto resultado(ResultSet rs, String prefixo) throws SQLException {
@@ -550,14 +578,14 @@ class JobRepository {
 		return this.jdbc.update(
 				"""
 						INSERT INTO trilhas_auditoria
-							(evento_id, job_id, simulacao_id, no, concluido_em, regra_id, conclusao, prompt_id, codigo_gerado_id, explicacao_id)
-						VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)
+							(evento_id, job_id, simulacao_id, no, concluido_em, regra_id, conclusao, prompt_id, codigo_gerado_id, explicacao_id, resultado_id)
+						VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)
 						ON CONFLICT (evento_id) DO NOTHING
 						""",
 				eventoId, jobId, simulacaoId, no.paraEvento(),
 				Timestamp.from(Objects.requireNonNull(evento.concluido_em())), evento.regra_id(),
 				Objects.requireNonNull(evento.conclusao()).toString(), evento.prompt_id(), evento.codigo_gerado_id(),
-				evento.explicacao_id()) == 1;
+				evento.explicacao_id(), evento.resultado_id()) == 1;
 	}
 
 	void bloquearJob(UUID jobId) {
@@ -831,6 +859,34 @@ class JobRepository {
 				          AND (outra.versao > r.versao OR outra.hash = ?))
 				)
 				""", Boolean.class, regraOrigemId, jobId, resultadoId, hash);
+	}
+
+	/**
+	 * A simulação cujo código produziu o resultado: {@code simulacoes.codigo_gerado_id} é
+	 * único, e a linha nasce com o código gerado, antes da execução. Vazio quando o
+	 * resultado não é do job.
+	 */
+	List<UUID> buscarSimulacaoDoCodigoDoResultado(UUID jobId, UUID resultadoId) {
+		return this.jdbc.query("""
+				SELECT s.id FROM simulacoes s
+				JOIN resultados_simulacao r ON r.codigo_gerado_id = s.codigo_gerado_id AND r.job_id = s.job_id
+				WHERE r.id = ? AND r.job_id = ?
+				""", (rs, numero) -> rs.getObject("id", UUID.class), resultadoId, jobId);
+	}
+
+	/**
+	 * Se a narrativa {@code explicacaoId} foi conferida contra o resultado; vazio quando
+	 * a explicação não é desse resultado.
+	 */
+	List<Boolean> buscarAderenciaDaExplicacao(UUID explicacaoId, UUID resultadoId) {
+		return this.jdbc.query("SELECT aderencia_conferida FROM explicacoes WHERE id = ? AND resultado_id = ?",
+				(rs, numero) -> rs.getBoolean("aderencia_conferida"), explicacaoId, resultadoId);
+	}
+
+	/** Ligar de novo não muda nada, então a reentrega é segura. */
+	void ligarFlagDeBaixaRastreabilidade(UUID jobId, UUID simulacaoId) {
+		this.jdbc.update("UPDATE simulacoes SET flag_baixa_rastreabilidade = true WHERE id = ? AND job_id = ?",
+				simulacaoId, jobId);
 	}
 
 	List<UUID> buscarSimulacaoPorResultado(UUID jobId, UUID resultadoId) {

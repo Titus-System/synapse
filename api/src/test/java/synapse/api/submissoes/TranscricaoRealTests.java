@@ -30,9 +30,11 @@ class TranscricaoRealTests {
 		String esperado = System.getenv("TRANSCRIPTION_TEST_EXPECTED_TEXT");
 		assumeTrue(arquivo != null && formato != null && esperado != null,
 				"Informe a fixture local, o formato e a frase de núcleo esperada.");
-		String texto = this.cliente.transcrever(Files.readAllBytes(Path.of(arquivo)), formato);
+		TranscricaoObtida obtida = this.cliente.transcrever(Files.readAllBytes(Path.of(arquivo)), formato);
 		// Evita que uma asserção malsucedida exponha a transcrição nos relatórios.
-		assertThat(texto.toLowerCase(Locale.ROOT).contains(esperado.toLowerCase(Locale.ROOT))).isTrue();
+		assertThat(obtida.texto().toLowerCase(Locale.ROOT).contains(esperado.toLowerCase(Locale.ROOT))).isTrue();
+		assertThat(obtida.modelo().provedor()).isEqualTo("deepgram");
+		assertThat(obtida.modelo().versao()).as("a resposta real informa o modelo em metadata.model_info").isNotNull();
 	}
 
 }

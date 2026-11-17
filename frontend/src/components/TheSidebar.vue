@@ -5,16 +5,18 @@ import simboloSynapse from '@/assets/imagens/synapse-simbolo.png'
 import { usarStoreRenomearRegra, limiteDoNome } from '@/stores/renomearRegra'
 import { usarStoreRegrasRecentes, type RegraRecente } from '@/stores/regrasRecentes'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
+    repositorio?: boolean
     secaoAtiva?: 'salvas' | 'arquivadas'
     quantidadeArquivadas?: number
     quantidadeSalvas?: number
   }>(),
   {
     secaoAtiva: undefined,
-    quantidadeArquivadas: 0,
-    quantidadeSalvas: 0,
+    repositorio: false,
+    quantidadeArquivadas: undefined,
+    quantidadeSalvas: undefined,
   },
 )
 
@@ -35,6 +37,7 @@ function observarFimDaLista(): void {
 }
 
 onMounted(() => {
+  if (props.repositorio) return
   observador = new IntersectionObserver(
     (entradas) => {
       if (entradas.some((entrada) => entrada.isIntersecting)) void regrasRecentes.carregarMais()
@@ -89,13 +92,25 @@ function aoSair(): void {
       to="/nova-regra"
       class="mt-6 flex h-11 items-center justify-center gap-2 rounded-[.625rem] bg-[#f26b0f] text-sm font-medium text-white transition hover:bg-[#d95c08]"
     >
-      <svg class="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+      <svg
+        class="size-4"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        aria-hidden="true"
+      >
         <path d="M8 3.5v9M3.5 8h9" />
       </svg>
       Nova Regra
     </RouterLink>
 
-    <section class="mt-4 flex min-h-0 flex-1 flex-col" aria-labelledby="titulo-recentes">
+    <section
+      v-if="!repositorio"
+      class="mt-4 flex min-h-0 flex-1 flex-col"
+      aria-labelledby="titulo-recentes"
+    >
       <h2 id="titulo-recentes" class="text-sm font-normal text-[#c7afa3]">Recentes</h2>
       <!-- O Chrome ignora ::-webkit-scrollbar quando scrollbar-width/scrollbar-color estão
            definidos e volta a desenhar as setas; por isso as propriedades padrão ficam só para o Firefox. -->
@@ -140,7 +155,16 @@ function aoSair(): void {
               @mousedown.prevent
               @click="editar(regra)"
             >
-              <svg class="size-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <svg
+                class="size-4"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
                 <path d="M13.5 3.5l3 3L7 16H4v-3l9.5-9.5z" />
               </svg>
             </button>
@@ -170,23 +194,40 @@ function aoSair(): void {
       </ul>
     </section>
 
-    <nav class="mt-auto border-t border-[#5a3e31] pt-3" aria-label="Organização de regras">
-      <RouterLink to="/salvas" class="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-[#d6bdb0] transition hover:bg-[#4d3125]" :class="{ 'bg-[#4d3125] text-white': secaoAtiva === 'salvas' }">
-        <svg class="size-[1.125rem] shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+    <nav
+      :class="repositorio ? 'mt-10' : 'mt-auto border-t border-[#5a3e31] pt-3'"
+      aria-label="Organização de regras"
+    >
+      <RouterLink
+        to="/salvas"
+        class="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-[#d6bdb0] transition hover:bg-[#4d3125]"
+        :class="{ 'bg-[#4d3125] text-white': secaoAtiva === 'salvas' }"
+      >
+        <svg
+          class="size-[1.125rem] shrink-0"
+          viewBox="0 0 20 20"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          aria-hidden="true"
+        >
           <rect x="2.75" y="3.75" width="14.5" height="12.5" rx="2.25" />
           <path d="M2.75 8h14.5M7.5 8v8.25" />
         </svg>
-        <span class="flex-1">Salvas</span>
-        <span class="rounded-full bg-[#4d3125] px-2 py-0.5 text-xs text-[#d6bdb0]">{{ quantidadeSalvas }}</span>
-      </RouterLink>
-      <RouterLink to="/arquivadas" class="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-[#d6bdb0] transition hover:bg-[#4d3125]" :class="{ 'bg-[#4d3125] text-white': secaoAtiva === 'arquivadas' }">
-        <svg class="size-[1.125rem] shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-          <rect x="2.75" y="3.75" width="14.5" height="12.5" rx="2.25" />
-          <path d="M2.75 8h14.5M7.5 8v8.25" />
-        </svg>
-        <span class="flex-1">Arquivadas</span>
-        <span class="rounded-full bg-[#4d3125] px-2 py-0.5 text-xs text-[#d6bdb0]">{{ quantidadeArquivadas }}</span>
+        <span class="flex-1">Regras Salvas</span>
+        <span class="rounded-full bg-[#4d3125] px-2 py-0.5 text-xs text-[#d6bdb0]">{{
+          quantidadeSalvas ?? '—'
+        }}</span>
       </RouterLink>
     </nav>
+    <div v-if="repositorio" class="mt-auto border-t border-[#604636] pt-8 text-[#c7afa3]">
+      <p class="text-xs uppercase text-[#ab8d7b]">Resumo</p>
+      <p class="mt-7 flex items-center justify-between gap-3 text-sm">
+        <span>Total Catalogado</span
+        ><strong>{{
+          (secaoAtiva === 'arquivadas' ? quantidadeArquivadas : quantidadeSalvas) ?? '—'
+        }}</strong>
+      </p>
+    </div>
   </aside>
 </template>

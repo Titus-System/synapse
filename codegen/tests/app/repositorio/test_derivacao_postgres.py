@@ -55,7 +55,7 @@ async def test_o_codigo_simulado_e_o_ultimo_da_versao_com_sucesso_na_simulacao(
     job = await historico.job()
     regra = await historico.versao(job, 1, "extracao", "0.03")
     que_passou = await historico.codigo(job, regra)
-    await historico.resultado(job, regra, "1000", codigo=que_passou)
+    resultado_que_passou = await historico.resultado(job, regra, "1000", codigo=que_passou)
     que_falhou = await historico.codigo(job, regra)
     await historico.resultado(job, regra, None, status="erro_codigo", codigo=que_falhou)
     da_busca = await historico.codigo(job, regra)
@@ -66,6 +66,26 @@ async def test_o_codigo_simulado_e_o_ultimo_da_versao_com_sucesso_na_simulacao(
     assert simulado is not None
     assert simulado.id == que_passou
     assert simulado.fonte == "f"
+    # O resultado da simulação que passou, e não o da falha nem o da execução da busca.
+    assert simulado.resultado_id == resultado_que_passou
+
+
+async def test_com_dois_sucessos_do_mesmo_codigo_a_origem_e_o_resultado_mais_recente(
+    banco: tuple[async_sessionmaker[AsyncSession], Historico],
+) -> None:
+    """O mesmo resultado que a api liga à simulação do código, e não um qualquer dos dois."""
+    sessoes, historico = banco
+    job = await historico.job()
+    regra = await historico.versao(job, 1, "extracao", "0.03")
+    codigo = await historico.codigo(job, regra)
+    await historico.resultado(job, regra, "1000", codigo=codigo)
+    mais_recente = await historico.resultado(job, regra, "1000", codigo=codigo)
+
+    simulado = await buscar_codigo_simulado(sessoes, job, regra)
+
+    assert simulado is not None
+    assert simulado.id == codigo
+    assert simulado.resultado_id == mais_recente
 
 
 async def test_versao_sem_codigo_simulado_com_sucesso_nao_tem_origem(
