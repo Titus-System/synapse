@@ -18,12 +18,18 @@ from app.numeros import extrair_numeros, normalizar
 # Duas casas, como o worker grava e como o usuário lê dinheiro e percentual.
 _CENTAVOS = Decimal("0.01")
 # Fração e múltiplo escritos por palavra são a razão entre dois apurados, e nenhuma razão está na
-# lista. "Meio" só conta antes de "por cento", porque "por meio de" não é número; "quarto" e
-# "quinto" só depois de uma quantidade, porque "o quarto mês" é ordinal.
+# lista. Cada razão é identificada pelo radical ou pelo nome da fração, para que "dobrou" e "dobro"
+# sejam a mesma. "Meio" só conta antes de "por cento", porque "por meio de" não é número; "quarto"
+# e "quinto" só depois de uma quantidade, porque "o quarto mês" é ordinal.
 _RAZAO_POR_PALAVRA = re.compile(
-    r"\b(?:metades?|tercos?|dobr\w*|duplic\w*|tripl\w*|quadrupl\w*|quintupl\w*|"
-    r"meio por cento|(?:um|uma|dois|duas|tres) (?:quartos?|quintos?|decimos?))\b"
+    r"\b(?:(?P<radical>metade|terco|dobr|dupl|tripl|quadrupl|quintupl)\w*"
+    r"|(?:um|uma|dois|duas|tres) (?P<fracao>quarto|quinto|decimo)s?"
+    r"|(?P<meio>meio) por cento)\b"
 )
+# "Vezes" só é razão depois de um número: "dez vezes o custo", e não "às vezes". O número em si
+# pode estar na lista, como a marca 10, e por isso não basta conferi-lo.
+_ANTES_DE_VEZES = re.compile(r"(\S+) vezes\b")
+_VEZES = "vezes"
 _CODIGO_OU_DATA = re.compile(r"\d+|\d{4}-\d{2}(?:-\d{2})?")
 _PERCENTUAIS_NO_EFEITO = "_pct"
 
@@ -67,18 +73,21 @@ def formatar_percentual(fracao: Decimal) -> str:
 
 @dataclass(frozen=True, slots=True)
 class NumerosCitaveis:
-    """As linhas que o prompt mostra e os valores que elas autorizam.
+    """As linhas que o prompt mostra, os valores que elas autorizam e as razões da regra.
 
     Os valores saem das próprias linhas, lidas pelo mesmo extrator que lê a narrativa: o que a
-    lista diz e o que a conferência aceita não têm como divergir.
+    lista diz e o que a conferência aceita não têm como divergir. `razoes` são as razões que o
+    texto da regra escreve por palavra, como "dobrar a comissão no aniversário da loja": repeti-las
+    é descrever a regra, e não fazer conta.
     """
 
     linhas: tuple[str, ...]
     valores: frozenset[Decimal]
     fracoes: frozenset[Decimal]
+    razoes: frozenset[str]
 
     @classmethod
-    def de_linhas(cls, linhas: Sequence[str]) -> "NumerosCitaveis":
+    def de_linhas(cls, linhas: Sequence[str], *, razoes: frozenset[str]) -> "NumerosCitaveis":
         # Só dígitos: as linhas são rótulos fixos e valores formatados, e uma palavra como "um" ou
         # "mil" num rótulo não pode autorizar número nenhum.
         citados = [n for linha in linhas for n in extrair_numeros(linha, por_extenso=False)]
@@ -86,7 +95,30 @@ class NumerosCitaveis:
             linhas=tuple(linhas),
             valores=frozenset(n.valor for n in citados if not n.percentual),
             fracoes=frozenset(n.valor for n in citados if n.percentual),
+            razoes=razoes,
         )
+
+
+def _razoes_por_palavra(texto: str) -> set[str]:
+    """As razões que o texto escreve por palavra, cada uma pelo radical ou pelo nome da fração."""
+    normalizado = normalizar(texto)
+    razoes = {
+        next(grupo for grupo in ocorrencia.groups() if grupo is not None)
+        for ocorrencia in _RAZAO_POR_PALAVRA.finditer(normalizado)
+    }
+    if any(extrair_numeros(anterior[1]) for anterior in _ANTES_DE_VEZES.finditer(normalizado)):
+        razoes.add(_VEZES)
+    return razoes
+
+
+def _textos(valor: object) -> list[str]:
+    if isinstance(valor, str):
+        return [valor]
+    if isinstance(valor, Mapping):
+        return [texto for filho in valor.values() for texto in _textos(filho)]
+    if isinstance(valor, list):
+        return [texto for item in valor for texto in _textos(item)]
+    return []
 
 
 def _percorrer_regra(
@@ -167,7 +199,9 @@ def montar_numeros_citaveis(
         for chave, valor in decomposicao.get(dimensao, {}).items():
             linhas.append(f"{rotulo} {chave}: {formatar_reais(valor)}")
     linhas.extend(_linhas_da_regra(regra))
-    return NumerosCitaveis.de_linhas(linhas)
+    textos_da_regra = _textos([regra.get("nucleo", {}), regra.get("especificacoes", [])])
+    razoes = frozenset(razao for texto in textos_da_regra for razao in _razoes_por_palavra(texto))
+    return NumerosCitaveis.de_linhas(linhas, razoes=razoes)
 
 
 def narrativa_confere(texto: str, citaveis: NumerosCitaveis) -> bool:
@@ -175,9 +209,10 @@ def narrativa_confere(texto: str, citaveis: NumerosCitaveis) -> bool:
 
     Um percentual é comparado como fração com as frações da lista, e os demais números com os
     valores dela. O sinal não conta, porque "queda de 2%" e "-2%" falam do mesmo número. Fração
-    ou múltiplo por palavra, como "o dobro" ou "metade", reprova o texto: é número calculado.
+    ou múltiplo por palavra, como "o dobro", "metade" ou "dez vezes", reprova o texto, porque é
+    número calculado, salvo a razão que o próprio texto da regra escreve.
     """
-    if _RAZAO_POR_PALAVRA.search(normalizar(texto)):
+    if not _razoes_por_palavra(texto) <= citaveis.razoes:
         return False
     return all(
         (numero.valor in citaveis.fracoes)

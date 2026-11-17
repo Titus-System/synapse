@@ -118,6 +118,11 @@ def test_qualquer_numero_fora_da_lista_reprova_a_narrativa(
         "A marca 10 concentra três quartos da diferença.",
         "A loja 58 ficou com um quarto da diferença.",
         "O acréscimo foi de meio por cento.",
+        # 10 é a marca 10, e 11 a competência: o número está na lista, a razão não.
+        "O efeito na loja 13 foi dez vezes o da loja 58.",
+        "O custo da competência 2025-11 foi 11 vezes o de 2025-08.",
+        "O bônus é duplo na loja 13.",
+        "A loja 58 teve uma comissão dupla.",
     ],
 )
 def test_fracao_ou_multiplo_escrito_por_palavra_reprova_a_narrativa(
@@ -128,9 +133,34 @@ def test_fracao_ou_multiplo_escrito_por_palavra_reprova_a_narrativa(
 
 
 def test_palavra_que_nao_e_fracao_nao_reprova_a_narrativa(citaveis: NumerosCitaveis) -> None:
-    texto = "A loja 13 concentrou o efeito por meio do bônus de R$ 3.500,00."
+    texto = (
+        "A loja 13 concentrou o efeito por meio do bônus de R$ 3.500,00, pago uma vez por "
+        "competência, e às vezes a faixa não se aplica."
+    )
 
     assert narrativa_confere(texto, citaveis)
+
+
+def test_a_razao_que_a_propria_regra_usa_pode_ser_repetida() -> None:
+    dobra_no_aniversario = {
+        "ref": "elem.3",
+        "construto": "generico",
+        "descricao": "dobrar a comissão no aniversário da loja",
+        "campos": {"evento": "aniversario_loja"},
+    }
+    regra = {**REGRA, "especificacoes": [*REGRA["especificacoes"], dobra_no_aniversario]}
+    citaveis = montar_numeros_citaveis(
+        totais=TOTAIS,
+        decomposicao=DECOMPOSICAO,
+        regra=regra,
+        competencias=["2025-11"],
+        meta_venda=None,
+    )
+
+    assert narrativa_confere("A regra dobra a comissão no aniversário da loja.", citaveis)
+    # Só a palavra que a regra usa: outra razão continua sendo conta do modelo.
+    assert not narrativa_confere("A regra triplica a comissão no aniversário.", citaveis)
+    assert not narrativa_confere("A loja 13 ficou com metade da diferença.", citaveis)
 
 
 def test_percentual_e_comparado_como_fracao_e_nao_como_valor(citaveis: NumerosCitaveis) -> None:
