@@ -4,7 +4,7 @@ A narrativa cita os números da simulação e nunca os calcula (`AGENTS.md` - Se
 monta, a partir do que o worker apurou e da regra, a lista fechada de números permitidos, já
 formatados em português para o prompt; e se confere, sem modelo, que todo número do texto devolvido
 corresponde a um deles. O que a conferência reprova é o número que não é nenhum dos apurados, como
-a participação de uma loja na diferença, que ninguém calculou.
+a participação de uma loja na diferença, que ninguém calculou, escrita em dígitos ou por palavra.
 """
 
 import re
@@ -13,10 +13,17 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from app.numeros import extrair_numeros
+from app.numeros import extrair_numeros, normalizar
 
 # Duas casas, como o worker grava e como o usuário lê dinheiro e percentual.
 _CENTAVOS = Decimal("0.01")
+# Fração e múltiplo escritos por palavra são a razão entre dois apurados, e nenhuma razão está na
+# lista. "Meio" só conta antes de "por cento", porque "por meio de" não é número; "quarto" e
+# "quinto" só depois de uma quantidade, porque "o quarto mês" é ordinal.
+_RAZAO_POR_PALAVRA = re.compile(
+    r"\b(?:metades?|tercos?|dobr\w*|duplic\w*|tripl\w*|quadrupl\w*|quintupl\w*|"
+    r"meio por cento|(?:um|uma|dois|duas|tres) (?:quartos?|quintos?|decimos?))\b"
+)
 _CODIGO_OU_DATA = re.compile(r"\d+|\d{4}-\d{2}(?:-\d{2})?")
 _PERCENTUAIS_NO_EFEITO = "_pct"
 
@@ -167,8 +174,11 @@ def narrativa_confere(texto: str, citaveis: NumerosCitaveis) -> bool:
     """Todo número do texto, em dígitos ou por extenso, é um dos citáveis.
 
     Um percentual é comparado como fração com as frações da lista, e os demais números com os
-    valores dela. O sinal não conta, porque "queda de 2%" e "-2%" falam do mesmo número.
+    valores dela. O sinal não conta, porque "queda de 2%" e "-2%" falam do mesmo número. Fração
+    ou múltiplo por palavra, como "o dobro" ou "metade", reprova o texto: é número calculado.
     """
+    if _RAZAO_POR_PALAVRA.search(normalizar(texto)):
+        return False
     return all(
         (numero.valor in citaveis.fracoes)
         if numero.percentual

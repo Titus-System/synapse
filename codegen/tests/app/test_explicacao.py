@@ -107,6 +107,32 @@ def test_qualquer_numero_fora_da_lista_reprova_a_narrativa(
     assert not narrativa_confere(texto, citaveis)
 
 
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "O custo na loja 13 é o dobro do da loja 58.",
+        "A loja 13 respondeu por mais da metade da diferença.",
+        "O cargo 150 ficou com um terço do efeito.",
+        "A regra triplicou a comissão da loja 58.",
+        "A loja 58 dobrou o custo da competência 2025-11.",
+        "A marca 10 concentra três quartos da diferença.",
+        "A loja 58 ficou com um quarto da diferença.",
+        "O acréscimo foi de meio por cento.",
+    ],
+)
+def test_fracao_ou_multiplo_escrito_por_palavra_reprova_a_narrativa(
+    citaveis: NumerosCitaveis, texto: str
+) -> None:
+    # Dobro, metade e terço são a razão entre dois apurados, que ninguém calculou.
+    assert not narrativa_confere(texto, citaveis)
+
+
+def test_palavra_que_nao_e_fracao_nao_reprova_a_narrativa(citaveis: NumerosCitaveis) -> None:
+    texto = "A loja 13 concentrou o efeito por meio do bônus de R$ 3.500,00."
+
+    assert narrativa_confere(texto, citaveis)
+
+
 def test_percentual_e_comparado_como_fracao_e_nao_como_valor(citaveis: NumerosCitaveis) -> None:
     # 2.450% teria o valor 24,5, que nenhum dos números apurados tem.
     assert narrativa_confere("diferença de 2,45%", citaveis)
