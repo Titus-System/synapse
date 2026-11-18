@@ -57,4 +57,15 @@ describe('montarConversa', () => {
         .map((i) => (i.tipo === 'chamada' ? i.chamada.no : i.tipo))
     expect(nos).toEqual(['extracao_parametros', 'versao', 'geracao_codigo'])
   })
+  it('mostra a correção que só existe na rodada', () => {
+    const registro = structuredClone(registroExemplo)
+    registro.entradas = registro.entradas.filter((e) => e.finalidade !== 'correcao')
+    const itens = montarConversa(registro)
+    expect(itens.some((i) => i.tipo === 'correcao_rodada')).toBe(true)
+  })
+
+  it('não duplica a correção que já tem entrada', () => {
+    const itens = montarConversa(registroExemplo)
+    expect(itens.some((i) => i.tipo === 'correcao_rodada')).toBe(false)
+  })
 })

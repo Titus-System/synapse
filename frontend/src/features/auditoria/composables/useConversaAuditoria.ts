@@ -14,6 +14,7 @@ export type ItemConversa =
   | { tipo: 'chamada'; instante: string; chamada: ChamadaModeloAuditoria }
   | { tipo: 'versao'; instante: string; versao: VersaoAuditoria }
   | { tipo: 'codigo'; instante: string; codigo: CodigoAuditoria; versao?: number }
+  | { tipo: 'correcao_rodada'; instante: string; rodada: RodadaAuditoria; numero: number }
 
 const nosAntesDaVersao = new Set(['extracao_parametros', 'validacao_dominio', 'confirmacao'])
 
@@ -29,6 +30,8 @@ function ordem(item: ItemConversa): number {
       return 3
     case 'codigo':
       return 5
+    case 'correcao_rodada':
+      return 0
   }
 }
 
@@ -46,24 +49,42 @@ function rodadaDaEntrada(entrada: EntradaAuditoria, rodadas: RodadaAuditoria[]):
 
 export function montarConversa(registro: RegistroAuditoria): ItemConversa[] {
   const numeroDaVersao = new Map(registro.versoes.map((v) => [v.id, v.versao]))
+  const ligadas = new Set<number>()
+  const ligacoes = registro.entradas.map((entrada) => {
+    const numero = rodadaDaEntrada(entrada, registro.rodadas)
+    if (numero) ligadas.add(numero)
+    return numero
+  })
   const itens: ItemConversa[] = [
-    ...registro.entradas.map((entrada): ItemConversa => ({
-      tipo: 'entrada',
-      instante: entrada.criado_em,
-      entrada,
-      rodada: rodadaDaEntrada(entrada, registro.rodadas),
-    })),
-    ...registro.rodadas.map((rodada, indice): ItemConversa => ({
-      tipo: 'conflitos',
-      instante: rodada.criada_em,
-      rodada,
-      numero: indice + 1,
-    })),
-    ...registro.chamadas_modelo.map((chamada): ItemConversa => ({
-      tipo: 'chamada',
-      instante: chamada.criado_em,
-      chamada,
-    })),
+  ...registro.entradas.map((entrada, i): ItemConversa => ({
+    tipo: 'entrada',
+    instante: entrada.criado_em,
+    entrada,
+    rodada: ligacoes[i],
+  })),
+  ...registro.rodadas.map((rodada, indice): ItemConversa => ({
+    tipo: 'conflitos',
+    instante: rodada.criada_em,
+    rodada,
+    numero: indice + 1,
+  })),
+  ...registro.rodadas.flatMap((rodada, indice): ItemConversa[] =>
+    rodada.correcao && !ligadas.has(indice + 1)
+      ? [
+          {
+            tipo: 'correcao_rodada',
+            instante: rodada.correcao.enviada_em,
+            rodada,
+            numero: indice + 1,
+          },
+        ]
+      : [],
+  ),
+  ...registro.chamadas_modelo.map((chamada): ItemConversa => ({
+    tipo: 'chamada',
+    instante: chamada.criado_em,
+    chamada,
+  })),
     ...registro.versoes.map((versao): ItemConversa => ({
       tipo: 'versao',
       instante: versao.criada_em,

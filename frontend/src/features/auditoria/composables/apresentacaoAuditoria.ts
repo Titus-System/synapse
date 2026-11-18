@@ -93,6 +93,31 @@ export function horaAuditoria(valor: string): string {
     new Date(valor),
   )
 }
+const nosAuditoria: Record<string, string> = {
+  extracao_parametros: 'Extração dos parâmetros',
+  validacao_dominio: 'Validação da regra',
+  confirmacao: 'Confirmação da correção',
+  geracao_codigo: 'Geração do código',
+  delegacao_worker: 'Envio para simulação',
+  interpretacao_resultado: 'Interpretação do resultado',
+  decisao: 'Decisão sobre o resultado',
+  sugestao_adaptacao: 'Sugestão de adaptação',
+  explicacao: 'Explicação do resultado',
+}
+export function nomeDoNo(no: string): string {
+  return nosAuditoria[no] ?? no
+}
+const estadosDaRodada: Record<string, string> = {
+  pendente: 'Aguardando correção',
+  em_transcricao: 'Transcrevendo o áudio',
+  em_reextracao: 'Interpretando a correção',
+  reextracao_falhou: 'Falha ao aplicar a correção',
+  corrigida: 'Corrigida',
+  abandonada: 'Abandonada',
+}
+export function estadoDaRodada(estado: string): string {
+  return estadosDaRodada[estado] ?? estado
+}
 /** Quem fez o evento: o dono do job quando foi ato dele, ou o sistema. */
 export function quemFezOEvento(evento: EventoAuditoria): string {
   return evento.autor === 'usuario' ? evento.usuario_login : 'Sistema'

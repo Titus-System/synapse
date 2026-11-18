@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { dataAuditoria } from '../composables/apresentacaoAuditoria'
+import { dataAuditoria, nomeDoNo } from '../composables/apresentacaoAuditoria'
 import type { ChamadaModeloAuditoria } from '../types'
 import BlocoTextoAuditoria from './BlocoTextoAuditoria.vue'
 defineProps<{ chamada: ChamadaModeloAuditoria }>()
@@ -9,7 +9,7 @@ defineProps<{ chamada: ChamadaModeloAuditoria }>()
     <summary
       class="cursor-pointer font-semibold text-[#a74700] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a74700]"
     >
-      <span>{{ chamada.no }}</span> · <span>{{ chamada.modelo.modelo }}</span> ·
+      <span :title="chamada.no">{{ nomeDoNo(chamada.no) }}</span> · <span>{{ chamada.modelo.modelo }}</span> ·
       <span>{{ dataAuditoria(chamada.criado_em) }}</span> ·
       <span data-tokens>
         <template v-if="chamada.resposta?.consumo_tokens">

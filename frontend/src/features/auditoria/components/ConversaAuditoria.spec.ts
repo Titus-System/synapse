@@ -46,4 +46,29 @@ describe('ConversaAuditoria', () => {
       'Nenhum registro na conversa',
     )
   })
+  it('mostra a situação da rodada junto dos conflitos', () => {
+    const texto = mount(ConversaAuditoria, { props: { registro: registroExemplo } })
+      .get('[data-item="conflitos"]')
+      .text()
+    expect(texto).toContain('Situação: Corrigida')
+  })
+
+  it('mostra a correção registrada só na rodada como mensagem do usuário', () => {
+    const registro = structuredClone(registroExemplo)
+    registro.entradas = registro.entradas.filter((e) => e.finalidade !== 'correcao')
+    const wrapper = mount(ConversaAuditoria, { props: { registro } })
+    const msg = wrapper.get('[data-item="correcao_rodada"]').text()
+    expect(msg).toContain('rh.exemplo')
+    expect(msg).toContain('O percentual de comissão é 2,5%.')
+  })
+
+  it('mostra o id curto dos marcos de versão e código e guarda o completo no title', () => {
+    const wrapper = mount(ConversaAuditoria, { props: { registro: registroExemplo } })
+    const codigo = registroExemplo.codigos[0]!.id
+    const versao = registroExemplo.versoes[0]!.id
+    expect(wrapper.get('[data-item="codigo"]').text()).toContain(codigo.slice(0, 8))
+    expect(wrapper.get('[data-item="codigo"]').text()).not.toContain(codigo)
+    expect(wrapper.find(`[data-item="codigo"] [title="${codigo}"]`).exists()).toBe(true)
+    expect(wrapper.find(`[data-item="versao"] [title="${versao}"]`).exists()).toBe(true)
+  })
 })

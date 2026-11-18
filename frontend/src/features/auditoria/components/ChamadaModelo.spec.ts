@@ -11,7 +11,7 @@ describe('ChamadaModelo', () => {
     const wrapper = mount(ChamadaModelo, { props: { chamada } })
     expect(wrapper.get('details').attributes('open')).toBeUndefined()
     const resumo = wrapper.get('summary').text()
-    expect(resumo).toContain('geracao_codigo')
+    expect(resumo).toContain('Geração do código')
     expect(resumo).toContain('gpt-4.1')
     expect(resumo).toContain('3120 tokens de entrada')
     expect(resumo).toContain('480 de saída')
@@ -23,6 +23,16 @@ describe('ChamadaModelo', () => {
     const wrapper = mount(ChamadaModelo, { props: { chamada: semConsumo } })
     expect(wrapper.get('[data-tokens]').text()).toBe('Consumo não informado')
   })
+
+    it('guarda o valor original da etapa no title e mostra a etapa desconhecida como veio', () => {
+      const wrapper = mount(ChamadaModelo, { props: { chamada } })
+      expect(wrapper.get('summary span[title="geracao_codigo"]').text()).toBe('Geração do código')
+
+      const nova = structuredClone(chamada)
+      nova.no = 'etapa_nova'
+      const outro = mount(ChamadaModelo, { props: { chamada: nova } })
+      expect(outro.get('summary span[title="etapa_nova"]').text()).toBe('etapa_nova')
+    })
 
   it('exibe prompt e resposta com marcação HTML como texto', () => {
     const perigosa = structuredClone(chamada)

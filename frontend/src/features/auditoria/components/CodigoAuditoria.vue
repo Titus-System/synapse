@@ -12,6 +12,7 @@ const props = defineProps<{ codigos: CodigoLigado[] }>()
 
 const selecionado = ref(0)
 const copia = ref<'ocioso' | 'copiado' | 'falhou'>('ocioso')
+const copiaId = ref<'ocioso' | 'copiado' | 'falhou'>('ocioso')
 const atual = computed(() => props.codigos[selecionado.value])
 // O fonte termina em \n: sem descartar a última linha vazia, a tela numeraria uma linha fantasma.
 const linhas = computed(() => {
@@ -26,9 +27,13 @@ watch(
   () => {
     selecionado.value = 0
     copia.value = 'ocioso'
+    copiaId.value = 'ocioso'
   },
 )
-watch(selecionado, () => (copia.value = 'ocioso'))
+watch(selecionado, () => {
+  copia.value = 'ocioso'
+  copiaId.value = 'ocioso'
+})
 
 async function copiar() {
   if (!atual.value) return
@@ -39,8 +44,18 @@ async function copiar() {
     copia.value = 'falhou'
   }
 }
-function rotulo(item: CodigoLigado) {
-  return `${item.codigo.id}${item.versao ? ` · v${item.versao.versao}` : ''}`
+async function copiarId() {
+  if (!atual.value) return
+  try {
+    await navigator.clipboard.writeText(atual.value.codigo.id)
+    copiaId.value = 'copiado'
+  } catch {
+    copiaId.value = 'falhou'
+  }
+}
+function rotulo(item: CodigoLigado, indice: number) {
+  const versao = item.versao ? ` · Versão ${item.versao.versao}` : ''
+  return `Código ${indice + 1}${versao} · ${dataAuditoria(item.codigo.criado_em)}`
 }
 </script>
 <template>
@@ -52,17 +67,34 @@ function rotulo(item: CodigoLigado) {
     <p v-if="!atual" class="mt-4">Nenhum código registrado.</p>
     <template v-else>
       <label v-if="codigos.length > 1" class="mt-4 flex flex-col gap-2 text-sm">
-        Código
         <select v-model="selecionado" class="rounded-lg border border-[#dec0b1] bg-white p-2">
           <option v-for="(item, indice) in codigos" :key="item.codigo.id" :value="indice">
-            {{ rotulo(item) }}
+            {{ rotulo(item, indice) }}
           </option>
         </select>
       </label>
       <dl class="mt-4 grid gap-2 text-sm sm:grid-cols-2">
-        <div class="break-all">
-          <dt class="text-[#806b5d]">Código</dt>
-          <dd class="font-semibold">{{ atual.codigo.id }}</dd>
+        <div>
+          <dt class="text-[#806b5d]">Identificação</dt>
+          <dd class="font-semibold" :title="atual.codigo.id">
+            Código {{ selecionado + 1 }}
+            <button
+              type="button"
+              class="ml-2 cursor-pointer text-xs font-normal text-[#a74700] underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a74700]"
+              @click="copiarId"
+            >
+              Copiar id
+            </button>
+            <span v-if="copiaId === 'copiado'" role="status" class="ml-2 text-xs font-normal"
+              >Id copiado.</span
+            >
+            <span
+              v-else-if="copiaId === 'falhou'"
+              role="alert"
+              class="ml-2 text-xs font-normal"
+              >Não foi possível copiar.</span
+            >
+          </dd>
         </div>
         <div>
           <dt class="text-[#806b5d]">Versão da regra</dt>
