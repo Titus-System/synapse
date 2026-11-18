@@ -11,6 +11,7 @@ import { useConsultaAuditoria } from '../composables/useConsultaAuditoria'
 import { dataAuditoria, codigosAuditoria } from '../composables/apresentacaoAuditoria'
 import { trilhaCronologica } from '../composables/trilhaDossie'
 import type { RegistroAuditoria, AbaDossie, EventoAuditoria } from '../types'
+import ConversaPython from '../components/ConversaPython.vue'
 const sessao = usarStoreSessao()
 const route = useRoute()
 const router = useRouter()
@@ -165,6 +166,7 @@ watch(
         </button>
       </nav>
       <RegraVersoes v-if="aba === 'regra'" :registro="dados" />
+      <ConversaPython v-else-if="aba === 'conversa'" :registro="dados" />
       <TrilhaDossie
         v-else-if="aba === 'simulacoes'"
         :eventos="trilha"
