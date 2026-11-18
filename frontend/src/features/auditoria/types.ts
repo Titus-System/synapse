@@ -1,5 +1,6 @@
 import type {
   AcaoJob,
+  Conflito,
   JobResumo,
   RegraVersionada,
   StatusJob,
@@ -41,6 +42,29 @@ export interface CodigoAuditoria {
   prompt_id: string
   criado_em: string
 }
+export interface RodadaAuditoria {
+  id: string
+  rodada_anterior_id: string | null
+  regra_analisada_id: string
+  conflitos: Conflito[]
+  correcao: { tipo?: 'texto' | 'voz'; texto: string | null; enviada_em: string } | null
+  regra_resultante_id: string | null
+  estado: string
+  criada_em: string
+}
+export interface ChamadaModeloAuditoria {
+  id: string
+  no: string
+  modelo: { provedor: string; modelo: string; versao: string; parametros?: Record<string, unknown> }
+  prompt: string
+  criado_em: string
+  resposta?: {
+    id: string
+    texto: string
+    criado_em: string
+    consumo_tokens?: { tokens_in: number; tokens_out: number; custo_usd?: number } | null
+  }
+}
 export interface RegistroAuditoria {
   job: JobAuditoria
   entradas: EntradaAuditoria[]
@@ -53,9 +77,11 @@ export interface RegistroAuditoria {
     conclusao: Record<string, unknown>
     regra_id?: string
     submissao_id?: string
+    prompt_id?: string
+    codigo_gerado_id?: string
   }[]
-  rodadas: { id: string; regra_resultante_id: string | null; [campo: string]: unknown }[]
-  chamadas_modelo: Record<string, unknown>[]
+  rodadas: RodadaAuditoria[]
+  chamadas_modelo: ChamadaModeloAuditoria[]
   resultados: Record<string, unknown>[]
   simulacoes: Record<string, unknown>[]
   transicoes: Record<string, unknown>[]

@@ -127,8 +127,9 @@ it('exibe HTML como texto, códigos e referências; abas não repetem consulta',
 it('abre aba indicada no endereço', async () => {
   await abrir('/auditoria/dossies/job-1?aba=conversa')
   await flushPromises()
-  expect(wrapper!.text()).toContain('Esta seção ainda não está disponível')
-  expect(wrapper!.find('blockquote').exists()).toBe(false)
+  expect(wrapper!.text()).toContain('Conversa completa')
+  expect(wrapper!.text()).not.toContain('Esta seção ainda não está disponível')
+  expect(wrapper!.find('img[onerror]').exists()).toBe(false)
 })
 it('mostra a trilha do job em ordem cronológica na aba de simulações', async () => {
   vi.mocked(auditoriaApi.listarEventos).mockResolvedValue(
