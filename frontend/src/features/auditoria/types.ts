@@ -28,6 +28,13 @@ export interface EntradaAuditoria {
   formato?: 'webm' | 'ogg' | 'wav' | 'mp4'
   transcrito_em?: string
 }
+export type EstadoAudioEntrada = 'carregando' | 'pronto' | 'erro' | 'indisponivel'
+export interface AudioEntrada {
+  estado: EstadoAudioEntrada
+  url?: string
+}
+/** Áudios pedidos no dossiê, pelo id da entrada; a entrada ausente ainda não foi pedida. */
+export type AudiosEntradas = Readonly<Record<string, AudioEntrada>>
 export interface VersaoAuditoria extends RegraVersionada {
   hash: string
   regra_origem_id?: string

@@ -13,6 +13,7 @@ vi.mock('../services/auditoria.api', () => ({
     listar: vi.fn<typeof auditoriaApi.listar>(),
     obter: vi.fn<typeof auditoriaApi.obter>(),
     listarEventos: vi.fn<typeof auditoriaApi.listarEventos>(),
+    obterAudio: vi.fn<typeof auditoriaApi.obterAudio>(),
   },
 }))
 let wrapper: VueWrapper | undefined
@@ -123,6 +124,36 @@ it('exibe HTML como texto, códigos e referências; abas não repetem consulta',
   await router.push('/auditoria/dossies/job-2?aba=regra')
   await flushPromises()
   expect(auditoriaApi.obter).toHaveBeenCalledTimes(2)
+})
+it('baixa o áudio só quando o auditor pede e não o mantém ao trocar de job', async () => {
+  URL.createObjectURL = vi.fn<(objeto: Blob) => string>(() => 'blob:audio-job-1')
+  URL.revokeObjectURL = vi.fn<(url: string) => void>()
+  const registro = registroExemplo()
+  Object.assign(registro.entradas[0]!, { tipo: 'voz', formato: 'ogg', texto: 'Transcrição' })
+  vi.mocked(auditoriaApi.obter).mockResolvedValue(registro)
+  vi.mocked(auditoriaApi.obterAudio).mockResolvedValue({
+    conteudo: new Blob(['audio']),
+    tipo: 'audio/ogg',
+  })
+  const router = await abrir('/auditoria/dossies/job-1?aba=regra')
+  await flushPromises()
+  expect(auditoriaApi.obterAudio).not.toHaveBeenCalled()
+
+  await wrapper!.get('[data-reprodutor-audio] button').trigger('click')
+  await flushPromises()
+  expect(auditoriaApi.obterAudio).toHaveBeenCalledExactlyOnceWith(
+    'job-1',
+    'entrada-1',
+    expect.any(AbortSignal),
+  )
+  expect(wrapper!.get('audio').attributes('src')).toBe('blob:audio-job-1')
+
+  await router.push('/auditoria/dossies/job-2?aba=regra')
+  await flushPromises()
+  expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:audio-job-1')
+  expect(wrapper!.find('audio').exists()).toBe(false)
+  expect(wrapper!.find('[data-reprodutor-audio] button').exists()).toBe(true)
+  expect(auditoriaApi.obterAudio).toHaveBeenCalledTimes(1)
 })
 it('abre aba indicada no endereço', async () => {
   await abrir('/auditoria/dossies/job-1?aba=conversa')

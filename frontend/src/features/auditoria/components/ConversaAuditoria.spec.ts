@@ -62,6 +62,36 @@ describe('ConversaAuditoria', () => {
     expect(msg).toContain('O percentual de comissão é 2,5%.')
   })
 
+  it('mostra o reprodutor só nas entradas por voz, inicial e de correção', async () => {
+    const registro = structuredClone(registroExemplo)
+    const [inicial, correcao] = registro.entradas
+    expect([inicial!.tipo, correcao!.tipo]).toEqual(['voz', 'texto'])
+    const wrapper = mount(ConversaAuditoria, { props: { registro } })
+    expect(wrapper.findAll('[data-item="entrada"] [data-reprodutor-audio]')).toHaveLength(1)
+
+    Object.assign(correcao!, { tipo: 'voz', formato: 'webm' })
+    await wrapper.setProps({ registro: structuredClone(registro) })
+    const reprodutores = wrapper.findAll('[data-item="entrada"] [data-reprodutor-audio]')
+    expect(reprodutores).toHaveLength(2)
+    await reprodutores[1]!.get('button').trigger('click')
+    expect(wrapper.emitted('ouvir-audio')).toEqual([[correcao!.id]])
+  })
+
+  it('repassa o estado do áudio baixado e a falha de reprodução da entrada', async () => {
+    const entrada = registroExemplo.entradas[0]!
+    const wrapper = mount(ConversaAuditoria, {
+      props: {
+        registro: registroExemplo,
+        audios: { [entrada.id]: { estado: 'pronto', url: 'blob:audio-1' } },
+      },
+    })
+
+    await wrapper.get('audio').trigger('error')
+
+    expect(wrapper.get('audio').attributes('src')).toBe('blob:audio-1')
+    expect(wrapper.emitted('falha-audio')).toEqual([[entrada.id]])
+  })
+
   it('mostra o id curto dos marcos de versão e código e guarda o completo no title', () => {
     const wrapper = mount(ConversaAuditoria, { props: { registro: registroExemplo } })
     const codigo = registroExemplo.codigos[0]!.id
