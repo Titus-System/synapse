@@ -38,3 +38,8 @@ it('consulta as opções dos filtros', async () => {
   await auditoriaApi.consultarFiltros()
   expect(http.get).toHaveBeenCalledWith('/auditoria/eventos/filtros', undefined)
 })
+it('consulta o resumo com o id codificado', async () => {
+  const signal = new AbortController().signal
+  await auditoriaApi.obterResumo('id/teste', signal)
+  expect(http.get).toHaveBeenCalledWith('/auditoria/jobs/id%2Fteste/resumo', signal)
+})

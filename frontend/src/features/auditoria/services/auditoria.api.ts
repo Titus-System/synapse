@@ -5,6 +5,7 @@ import type {
   PaginaEventosAuditoria,
   PaginaJobsAuditoria,
   RegistroAuditoria,
+  ResumoDossie
 } from '../types'
 export const auditoriaApi = {
   listar(pagina = 0, tamanho = 12, signal?: AbortSignal) {
@@ -16,6 +17,9 @@ export const auditoriaApi = {
   },
   obter(id: string, signal?: AbortSignal) {
     return http.get<RegistroAuditoria>('/auditoria/jobs/' + encodeURIComponent(id), signal)
+  },
+  obterResumo(id: string, signal?: AbortSignal) {
+    return http.get<ResumoDossie>('/auditoria/jobs/' + encodeURIComponent(id) + '/resumo', signal)
   },
   listarEventos(filtro: FiltroEventos, pagina: number, tamanho: number, signal?: AbortSignal) {
     const parametros = new URLSearchParams({ pagina: String(pagina), tamanho: String(tamanho) })
