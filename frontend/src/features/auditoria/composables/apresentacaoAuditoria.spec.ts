@@ -2,13 +2,19 @@ import { expect, it } from 'vitest'
 import { eventoExemplo } from '../auditoria.fixture'
 import {
   abaDoEvento,
+  acaoDeFinalizacao,
   diaAuditoria,
   horaAuditoria,
   mesAuditoria,
+  percentualAuditoria,
   quemFezOEvento,
   seloDoStatus,
+  sinalAuditoria,
   situacaoDoEvento,
+  situacaoDoResultado,
   tipoDoEvento,
+  valorDeAlteracao,
+  vereditoAuditoria,
 } from './apresentacaoAuditoria'
 import type { TipoEventoAuditoria } from '../types'
 it.each([
@@ -68,4 +74,26 @@ it('colore o selo pelo status que a API devolveu', () => {
   expect(seloDoStatus('liberado')).toContain('text-[#22683a]')
   expect(seloDoStatus('erro')).toContain('text-[#b42318]')
   expect(seloDoStatus('simulando')).toContain('text-[#644b3e]')
+})
+it('formata fração como percentual', () => {
+  expect(percentualAuditoria(0.0778)).toBe('7,78%')
+})
+it('põe sinal só na variação positiva', () => {
+  expect(sinalAuditoria('R$ 1,00', 1)).toBe('+R$ 1,00')
+  expect(sinalAuditoria('R$ 0,00', 0)).toBe('R$ 0,00')
+  expect(sinalAuditoria('-R$ 1,00', -1)).toBe('-R$ 1,00')
+})
+it('formata o valor de uma alteração sem inferir', () => {
+  expect(valorDeAlteracao(undefined)).toBe('—')
+  expect(valorDeAlteracao(650000)).toBe('650.000')
+  expect(valorDeAlteracao('abc')).toBe('abc')
+  expect(valorDeAlteracao(['2025-11'])).toBe('["2025-11"]')
+})
+it('rotula situação, veredito e ação, com o valor cru como reserva', () => {
+  expect(situacaoDoResultado('erro_codigo')).toBe('Erro no código')
+  expect(situacaoDoResultado()).toBe('Sem resultado')
+  expect(vereditoAuditoria('viavel')).toBe('Viável')
+  expect(vereditoAuditoria(null)).toBe('Sem veredito')
+  expect(acaoDeFinalizacao('salvar')).toBe('Salvar')
+  expect(acaoDeFinalizacao('nova')).toBe('nova')
 })

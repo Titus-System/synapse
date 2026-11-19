@@ -130,3 +130,49 @@ const SELOS_DE_STATUS: Partial<Record<StatusJob, string>> = {
 export function seloDoStatus(status: StatusJob): string {
   return SELOS_DE_STATUS[status] ?? 'bg-[#fff0e9] text-[#644b3e]'
 }
+/** Fração (0,0778) como percentual pt-BR (7,78%). */
+export function percentualAuditoria(fracao: number): string {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'percent',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(fracao)
+}
+/** Variação com sinal explícito; o valor já vem calculado do resumo. */
+export function sinalAuditoria(texto: string, valor: number): string {
+  return valor > 0 ? `+${texto}` : texto
+}
+/** Valor de `anterior`/`novo` de uma alteração: número como número, o resto como texto. */
+export function valorDeAlteracao(valor: unknown): string {
+  if (valor === undefined) return '—'
+  if (typeof valor === 'number') return valor.toLocaleString('pt-BR')
+  if (typeof valor === 'string') return valor
+  return JSON.stringify(valor)
+}
+const SITUACAO_RESULTADO: Record<string, string> = {
+  sucesso: 'Concluída',
+  assercao_violada: 'Asserção violada',
+  erro_codigo: 'Erro no código',
+  erro_infra: 'Erro de infraestrutura',
+}
+export function situacaoDoResultado(status?: string): string {
+  return status ? (SITUACAO_RESULTADO[status] ?? status) : 'Sem resultado'
+}
+const ACOES_FINALIZACAO: Record<string, string> = {
+  confirmar_liberar: 'Confirmar e liberar',
+  salvar: 'Salvar',
+  arquivar: 'Arquivar',
+  cancelar: 'Cancelar',
+  aceitar_meta: 'Aceitar meta',
+}
+export function acaoDeFinalizacao(acao: string): string {
+  return ACOES_FINALIZACAO[acao] ?? acao
+}
+const VEREDITOS: Record<string, string> = {
+  viavel: 'Viável',
+  inviavel: 'Inviável',
+  indeterminado: 'Indeterminado',
+}
+export function vereditoAuditoria(veredito?: string | null): string {
+  return veredito ? (VEREDITOS[veredito] ?? veredito) : 'Sem veredito'
+}
