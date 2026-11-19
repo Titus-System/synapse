@@ -25,4 +25,14 @@ export const auditoriaApi = {
   consultarFiltros(signal?: AbortSignal) {
     return http.get<FiltrosEventosAuditoria>('/auditoria/eventos/filtros', signal)
   },
+  obterAudio(jobId: string, entradaId: string, signal?: AbortSignal) {
+    return http.binario(
+      '/auditoria/jobs/' +
+        encodeURIComponent(jobId) +
+        '/entradas/' +
+        encodeURIComponent(entradaId) +
+        '/audio',
+      signal,
+    )
+  },
 }

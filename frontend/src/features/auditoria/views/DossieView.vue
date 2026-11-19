@@ -8,6 +8,7 @@ import TrilhaDossie from '../components/TrilhaDossie.vue'
 import { auditoriaApi } from '../services/auditoria.api'
 import { exportarDossie } from '../services/exportarDossie'
 import { useConsultaAuditoria } from '../composables/useConsultaAuditoria'
+import { useAudiosEntradas } from '../composables/useAudiosEntradas'
 import { dataAuditoria, codigosAuditoria } from '../composables/apresentacaoAuditoria'
 import { trilhaCronologica } from '../composables/trilhaDossie'
 import type { RegistroAuditoria, AbaDossie, EventoAuditoria } from '../types'
@@ -23,6 +24,10 @@ const {
   erro: erroTrilha,
   carregar: carregarTrilha,
 } = useConsultaAuditoria<EventoAuditoria[]>('listar_trilha_dossie')
+const { audios, ouvir, falhouReproducao } = useAudiosEntradas(
+  (entradaId, signal) => auditoriaApi.obterAudio(String(route.params.id), entradaId, signal),
+  () => String(route.params.id),
+)
 let trilhaDoJob: string | undefined
 const falhaExportacao = ref(false)
 const abas: { id: AbaDossie; nome: string }[] = [
@@ -165,8 +170,20 @@ watch(
           {{ item.nome }}
         </button>
       </nav>
-      <RegraVersoes v-if="aba === 'regra'" :registro="dados" />
-      <ConversaPython v-else-if="aba === 'conversa'" :registro="dados" />
+      <RegraVersoes
+        v-if="aba === 'regra'"
+        :registro="dados"
+        :audios="audios"
+        @ouvir-audio="ouvir"
+        @falha-audio="falhouReproducao"
+      />
+      <ConversaPython
+        v-else-if="aba === 'conversa'"
+        :registro="dados"
+        :audios="audios"
+        @ouvir-audio="ouvir"
+        @falha-audio="falhouReproducao"
+      />
       <TrilhaDossie
         v-else-if="aba === 'simulacoes'"
         :eventos="trilha"

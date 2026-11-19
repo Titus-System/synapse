@@ -1,7 +1,17 @@
 import { expect, it, vi } from 'vitest'
 import { http } from '@/services/http'
 import { auditoriaApi } from './auditoria.api'
-vi.mock('@/services/http', () => ({ http: { get: vi.fn<typeof http.get>() } }))
+vi.mock('@/services/http', () => ({
+  http: { get: vi.fn<typeof http.get>(), binario: vi.fn<typeof http.binario>() },
+}))
+it('pede o áudio da entrada com os ids codificados', async () => {
+  const signal = new AbortController().signal
+  await auditoriaApi.obterAudio('job/1', 'entrada 1', signal)
+  expect(http.binario).toHaveBeenCalledWith(
+    '/auditoria/jobs/job%2F1/entradas/entrada%201/audio',
+    signal,
+  )
+})
 it('pagina apenas a listagem global', async () => {
   const signal = new AbortController().signal
   await auditoriaApi.listar(2, 12, signal)

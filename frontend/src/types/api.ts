@@ -10,6 +10,7 @@ export type CodigoErro =
   | 'regra_incoerente'
   | 'audio_invalido'
   | 'audio_muito_grande'
+  | 'entrada_nao_encontrada'
 
 export interface ElementoErro {
   ref: string

@@ -1,9 +1,19 @@
 <script setup lang="ts">
 import { dataAuditoria, estadoDaRodada } from '../composables/apresentacaoAuditoria'
 import { useConversaAuditoria } from '../composables/useConversaAuditoria'
-import type { RegistroAuditoria } from '../types'
+import type { AudiosEntradas, RegistroAuditoria } from '../types'
 import ChamadaModelo from './ChamadaModelo.vue'
-const props = defineProps<{ registro: RegistroAuditoria }>()
+import ReprodutorAudioEntrada from './ReprodutorAudioEntrada.vue'
+const props = withDefaults(
+  defineProps<{ registro: RegistroAuditoria; audios?: AudiosEntradas }>(),
+  {
+    audios: () => ({}),
+  },
+)
+const emit = defineEmits<{
+  'ouvir-audio': [entradaId: string]
+  'falha-audio': [entradaId: string]
+}>()
 const { itens } = useConversaAuditoria(() => props.registro)
 </script>
 <template>
@@ -32,6 +42,14 @@ const { itens } = useConversaAuditoria(() => props.registro)
           <p v-else class="mt-2 whitespace-pre-wrap break-words">
             {{ item.entrada.texto ?? 'Transcrição ainda não disponível.' }}
           </p>
+          <ReprodutorAudioEntrada
+            v-if="item.entrada.tipo === 'voz'"
+            class="mt-3"
+            :audio="audios[item.entrada.id]"
+            :formato="item.entrada.formato"
+            @ouvir="emit('ouvir-audio', item.entrada.id)"
+            @falhou="emit('falha-audio', item.entrada.id)"
+          />
         </div>
         <div v-else-if="item.tipo === 'correcao_rodada'" class="rounded-xl bg-[#e7dfda] p-4 text-sm">
           <p class="flex flex-wrap justify-between gap-2 text-xs font-semibold">

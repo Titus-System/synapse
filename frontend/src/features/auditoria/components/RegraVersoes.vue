@@ -2,8 +2,18 @@
 import { computed } from 'vue'
 import { transformarRegra } from '@/composables/transformarRegra'
 import { dataAuditoria } from '../composables/apresentacaoAuditoria'
-import type { RegistroAuditoria } from '../types'
-const props = defineProps<{ registro: RegistroAuditoria }>()
+import type { AudiosEntradas, RegistroAuditoria } from '../types'
+import ReprodutorAudioEntrada from './ReprodutorAudioEntrada.vue'
+const props = withDefaults(
+  defineProps<{ registro: RegistroAuditoria; audios?: AudiosEntradas }>(),
+  {
+    audios: () => ({}),
+  },
+)
+const emit = defineEmits<{
+  'ouvir-audio': [entradaId: string]
+  'falha-audio': [entradaId: string]
+}>()
 const entrada = computed(() =>
   props.registro.entradas.find((item) => item.finalidade === 'entrada_inicial'),
 )
@@ -45,6 +55,14 @@ function entradasDaVersao(id: string) {
           >
             {{ entrada.texto ?? 'Transcrição ainda não disponível.' }}
           </blockquote>
+          <ReprodutorAudioEntrada
+            v-if="entrada.tipo === 'voz'"
+            class="mt-4"
+            :audio="audios[entrada.id]"
+            :formato="entrada.formato"
+            @ouvir="emit('ouvir-audio', entrada.id)"
+            @falhou="emit('falha-audio', entrada.id)"
+          />
           <p v-if="entrada.transcrito_em" class="mt-4 text-sm">
             Transcrição registrada em {{ dataAuditoria(entrada.transcrito_em) }}
           </p>

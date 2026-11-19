@@ -217,3 +217,86 @@ describe('transporte autenticado', () => {
       .rejects.toMatchObject({ status: 0 })
   })
 })
+
+describe('leitura binária', () => {
+  const caminho = '/auditoria/jobs/job-1/entradas/entrada-1/audio'
+
+  it('devolve o corpo binário e o tipo da resposta sem parâmetros', async () => {
+    adaptadorKeycloak.obterTokenDeAcesso.mockResolvedValue('token-de-teste')
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(new Uint8Array([1, 2, 3]), {
+        headers: { 'content-type': 'audio/ogg; codecs=opus', 'cache-control': 'no-store' },
+      }),
+    )
+    const controle = new AbortController()
+
+    const resposta = await http.binario(caminho, controle.signal)
+
+    expect(resposta.tipo).toBe('audio/ogg')
+    expect(new Uint8Array(await resposta.conteudo.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe(http.url(caminho))
+    expect(init?.method).toBe('GET')
+    expect(init?.cache).toBe('no-store')
+    expect(init?.signal).toBe(controle.signal)
+    const headers = new Headers(init?.headers)
+    expect(headers.get('Authorization')).toBe('Bearer token-de-teste')
+    expect(headers.get('Accept')).toBe('*/*')
+  })
+
+  it('devolve tipo vazio quando a resposta não informa o content-type', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Uint8Array([1])))
+
+    await expect(http.binario(caminho)).resolves.toMatchObject({ tipo: '' })
+  })
+
+  it('transforma o 404 em JSON em erro com o código da entrada', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          codigo: 'entrada_nao_encontrada',
+          mensagem: 'Entrada por voz não encontrada neste job.',
+        }),
+        { status: 404, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+
+    await expect(http.binario(caminho)).rejects.toMatchObject({
+      name: 'HttpError',
+      status: 404,
+      code: 'entrada_nao_encontrada',
+      message: 'Não foi possível encontrar a entrada solicitada.',
+    })
+  })
+
+  it('usa a mensagem genérica em falha do servidor', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('erro interno', { status: 500 }))
+
+    await expect(http.binario(caminho)).rejects.toMatchObject({
+      status: 500,
+      message: 'O serviço está temporariamente indisponível. Tente novamente em alguns instantes.',
+    })
+  })
+
+  it('descarta o token ao receber 401', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 401 }))
+
+    await expect(http.binario(caminho)).rejects.toMatchObject({ status: 401 })
+    expect(adaptadorKeycloak.limparTokenDoKeycloak).toHaveBeenCalledOnce()
+  })
+
+  it('não envia a requisição quando o download é cancelado durante a renovação', async () => {
+    let concluirRenovacao!: (valor: string | undefined) => void
+    const renovacao = new Promise<string | undefined>((resolve) => { concluirRenovacao = resolve })
+    adaptadorKeycloak.obterTokenDeAcesso.mockReturnValue(renovacao)
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const controle = new AbortController()
+    const download = http.binario(caminho, controle.signal)
+
+    controle.abort()
+    concluirRenovacao('token-renovado')
+
+    await expect(download).rejects.toMatchObject({ name: 'AbortError' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
