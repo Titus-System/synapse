@@ -176,3 +176,7 @@ const VEREDITOS: Record<string, string> = {
 export function vereditoAuditoria(veredito?: string | null): string {
   return veredito ? (VEREDITOS[veredito] ?? veredito) : 'Sem veredito'
 }
+/** Id longo (UUID e afins) vira um rótulo curto; o completo fica no title e na cópia. */
+export function idCurto(id: string): string {
+  return id.length > 12 ? `${id.slice(0, 8)}…` : id
+}
