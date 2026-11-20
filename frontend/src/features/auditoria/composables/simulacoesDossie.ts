@@ -2,6 +2,7 @@ import type {
   AcaoAuditoria,
   CodigoAuditoria,
   ComparacaoSimulacao,
+  ExplicacaoAuditoria,
   RegistroAuditoria,
   ResultadoAuditoria,
   SimulacaoAuditoria,
@@ -22,6 +23,7 @@ export interface SimulacaoLigada {
   versao?: VersaoAuditoria
   codigo?: CodigoAuditoria
   comparacao?: ComparacaoSimulacao
+  explicacao?: ExplicacaoAuditoria
   parametros: ParametrosSimulacao
 }
 
@@ -65,6 +67,9 @@ export function ligarSimulacoes(
         versao,
         codigo: registro.codigos.find((c) => c.id === simulacao.codigo_gerado_id),
         comparacao: comparacoes.find((c) => c.resultado_id === simulacao.resultado_id),
+        explicacao: resultado
+          ? registro.explicacoes.find((e) => e.resultado_id === resultado.id)
+          : undefined,
         parametros: parametrosDaSimulacao(registro, versao, resultado),
       }
     })
@@ -82,4 +87,23 @@ export function finalizacaoDoDossie(registro: RegistroAuditoria): Finalizacao | 
     .sort((a, b) => Date.parse(b.executado_em) - Date.parse(a.executado_em))[0]
   if (!acao) return undefined
   return { acao, aceite: registro.sugestoes_meta.find((s) => s.aceita_em) }
+}
+
+export interface EvidenciasVersao {
+  versao: VersaoAuditoria
+  codigos: CodigoAuditoria[]
+  simulacoes: number[]
+}
+
+/** A versão vigente, os códigos que as simulações dela usaram e o número dessas simulações. */
+export function evidenciasDaVersao(
+  registro: RegistroAuditoria,
+  simulacoes: SimulacaoLigada[],
+  versaoVigente?: number,
+): EvidenciasVersao | undefined {
+  const versao = registro.versoes.find((v) => v.versao === versaoVigente)
+  if (!versao) return undefined
+  const daVersao = simulacoes.filter((s) => s.versao?.id === versao.id)
+  const codigos = new Map(daVersao.flatMap((s) => (s.codigo ? [[s.codigo.id, s.codigo] as const] : [])))
+  return { versao, codigos: [...codigos.values()], simulacoes: daVersao.map((s) => s.numero) }
 }

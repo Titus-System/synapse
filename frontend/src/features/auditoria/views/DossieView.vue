@@ -213,21 +213,23 @@ watch(
         @ouvir-audio="ouvir"
         @falha-audio="falhouReproducao"
       />
-      <div v-else-if="aba === 'simulacoes'" class="space-y-7">
-        <SimulacoesFinalizacao
-          :registro="dados"
-          :resumo="resumo"
-          :carregando-resumo="carregandoResumo"
-          :erro-resumo="erroResumo"
-          @tentar-novamente="carregarResumo"
-        />
-        <TrilhaDossie
-          :eventos="trilha"
-          :carregando="carregandoTrilha"
-          :erro="erroTrilha"
-          @tentar-novamente="consultarTrilha"
-        />
-      </div>
+      <SimulacoesFinalizacao
+        v-else-if="aba === 'simulacoes'"
+        :registro="dados"
+        :resumo="resumo"
+        :carregando-resumo="carregandoResumo"
+        :erro-resumo="erroResumo"
+        @tentar-novamente="carregarResumo"
+      >
+        <template #trilha>
+          <TrilhaDossie
+            :eventos="trilha"
+            :carregando="carregandoTrilha"
+            :erro="erroTrilha"
+            @tentar-novamente="consultarTrilha"
+          />
+        </template>
+      </SimulacoesFinalizacao>
       <section v-else class="rounded-xl border border-[#dec0b1] bg-white p-9">
         <h2 class="mb-4 font-serif text-2xl font-bold">
           {{ abas.find((item) => item.id === aba)?.nome }}

@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { formatarReais } from '@/composables/apresentacaoDetalhamento'
-import { percentualAuditoria, sinalAuditoria } from '../composables/apresentacaoAuditoria'
+import {
+  dataAuditoria,
+  percentualAuditoria,
+  sinalAuditoria,
+} from '../composables/apresentacaoAuditoria'
 import type { SimulacaoLigada } from '../composables/simulacoesDossie'
 import type { ComparacaoIndicador } from '../types'
 const props = defineProps<{ item: SimulacaoLigada; anterior?: SimulacaoLigada }>()
@@ -46,8 +50,17 @@ const formatar = (valor: number, fracao: boolean) =>
         <thead class="bg-[#fff0e9]">
           <tr>
             <th class="p-3">Indicador</th>
-            <th class="p-3">Anterior</th>
-            <th class="p-3">Atual</th>
+            <th class="p-3" data-coluna="anterior">
+              <template v-if="anterior">
+                Simulação {{ anterior.numero }}
+                <span class="block text-xs font-normal">{{ dataAuditoria(anterior.simulacao.criado_em) }}</span>
+              </template>
+              <template v-else>Anterior</template>
+            </th>
+            <th class="p-3" data-coluna="atual">
+              Simulação {{ item.numero }}
+              <span class="block text-xs font-normal">{{ dataAuditoria(item.simulacao.criado_em) }}</span>
+            </th>
             <th class="p-3">Variação</th>
           </tr>
         </thead>

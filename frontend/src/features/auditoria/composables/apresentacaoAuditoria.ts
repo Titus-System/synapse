@@ -214,3 +214,22 @@ export function campoDaRegra(ref: string): string {
   if (condicao) return `Condição ${condicao[1]}`
   return CAMPOS_DA_REGRA[ref] ?? ref
 }
+/** Itens em lista pt-BR: "2 e 3", "1, 2 e 3". */
+export function listaAuditoria(itens: string[]): string {
+  if (itens.length < 2) return itens.join('')
+  return `${itens.slice(0, -1).join(', ')} e ${itens[itens.length - 1]}`
+}
+/** Vigência em competências (AAAA-MM), como se lê no Brasil. */
+export function vigenciaAuditoria(vigencia?: { inicio: string; fim: string } | null): string {
+  if (!vigencia) return 'Não informada'
+  const inicio = mesAuditoria(vigencia.inicio)
+  return vigencia.inicio === vigencia.fim ? inicio : `${inicio} a ${mesAuditoria(vigencia.fim)}`
+}
+// Só estilo do veredito que a API devolveu: viável em verde, inviável em vermelho.
+const DESTAQUES_DO_VEREDITO: Record<string, string> = {
+  viavel: 'bg-[#e4f2e7] text-[#22683a]',
+  inviavel: 'bg-[#fde4e0] text-[#b42318]',
+}
+export function destaqueDoVeredito(veredito?: string | null): string {
+  return (veredito && DESTAQUES_DO_VEREDITO[veredito]) || 'bg-[#fff0e9] text-[#2e1a10]'
+}

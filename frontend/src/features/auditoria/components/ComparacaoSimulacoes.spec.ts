@@ -71,6 +71,20 @@ describe('ComparacaoSimulacoes', () => {
     expect(w.find('[data-indicador="meta_venda"]').exists()).toBe(true)
   })
 
+  it('identifica as simulações comparadas, com o horário, no cabeçalho', () => {
+    const [a, b] = lista(comparacao)
+    const w = mount(ComparacaoSimulacoes, { props: { item: b!, anterior: a } })
+    expect(w.get('[data-coluna="anterior"]').text()).toContain('Simulação 1')
+    expect(w.get('[data-coluna="anterior"]').text()).toContain('28/11/2025')
+    expect(w.get('[data-coluna="atual"]').text()).toContain('Simulação 2')
+  })
+
+  it('sem a simulação anterior na lista, chama a coluna de anterior', () => {
+    const [, b] = lista(comparacao)
+    const w = mount(ComparacaoSimulacoes, { props: { item: b! } })
+    expect(w.get('[data-coluna="anterior"]').text()).toBe('Anterior')
+  })
+
   it('não mostra o bloco sem comparação', () => {
     const [a] = lista()
     const w = mount(ComparacaoSimulacoes, { props: { item: a! } })
