@@ -1,4 +1,4 @@
-import type { RegistroAuditoria } from './types'
+import type { EventoAuditoria, PaginaEventosAuditoria, RegistroAuditoria } from './types'
 export function registroExemplo(): RegistroAuditoria {
   return {
     job: {
@@ -60,5 +60,34 @@ export function registroExemplo(): RegistroAuditoria {
     acoes: [],
     sugestoes_meta: [],
     explicacoes: [],
+  }
+}
+export function eventoExemplo(parcial: Partial<EventoAuditoria> = {}): EventoAuditoria {
+  return {
+    instante: '2026-11-03T12:05:00Z',
+    tipo: 'resultado_simulacao',
+    autor: 'sistema',
+    usuario_login: 'rh.outro',
+    job: { id: 'job-1', nome: 'Comissão de novembro', status: 'liberado' },
+    origem_id: 'resultado-1',
+    loja: '13',
+    marca: '10',
+    cargo: '100',
+    status: 'sucesso',
+    veredito: 'viavel',
+    ...parcial,
+  }
+}
+export function paginaEventosExemplo(
+  itens: EventoAuditoria[] = [eventoExemplo()],
+  parcial: Partial<PaginaEventosAuditoria> = {},
+): PaginaEventosAuditoria {
+  return {
+    itens,
+    pagina: 0,
+    tamanho: 12,
+    total: itens.length,
+    contadores: { eventos: itens.length, usuarios: 1, regras: 1, simulacoes_com_falha: 0 },
+    ...parcial,
   }
 }

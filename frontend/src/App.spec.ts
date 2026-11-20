@@ -44,8 +44,9 @@ async function carregarPagina(papel: PapelDeNegocio) {
 it('carrega a área do auditor sem consultar as regras do RH', async () => {
   const { caminho, consultas } = await carregarPagina('auditor')
 
-  expect(caminho).toBe('/auditoria/dossies')
-  expect(consultas).toContainEqual(expect.stringMatching(/^\/auditoria\/jobs\?/))
+  expect(caminho).toBe('/auditoria')
+  expect(consultas).toContainEqual(expect.stringMatching(/^\/auditoria\/eventos\?/))
+  expect(consultas).toContainEqual('/auditoria/eventos/filtros')
   expect(consultas).not.toContainEqual(expect.stringMatching(/^\/jobs/))
 })
 

@@ -11,9 +11,12 @@ export const http = {
   get: <TResponse>(path, signal?) => ...,
   post: <TResponse, TBody>(path, body?, signal?) => ...,
   stream: (url, signal) => ...,
+  binario: (path, signal?) => ..., // { conteudo: Blob, tipo }
   url: (path) => ...,
 }
 ```
+
+`binario` reads a non-JSON body, such as an audio file, with the same token, 401 and error handling as the other requests. `tipo` is the response `content-type` without parameters; checking that it is the expected kind of file is up to the caller.
 
 A non-2xx response becomes an `HttpError`. Validation errors expose `fieldErrors` with a readable field name and message. Server and connection failures use user-facing messages and never expose a raw HTTP status as display text.
 

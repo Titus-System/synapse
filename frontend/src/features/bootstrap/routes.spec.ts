@@ -9,7 +9,7 @@ it('sem sessão, inicia o login com retorno à raiz', async () => {
   expect(entrar).toHaveBeenCalledWith('/')
 })
 it.each([
-  ['auditor', '/auditoria/dossies'],
+  ['auditor', '/auditoria'],
   ['profissional-rh', '/nova-regra'],
   [undefined, '/nova-regra'],
 ] as const)('direciona %s autenticado para %s', async (papel, destino) => {

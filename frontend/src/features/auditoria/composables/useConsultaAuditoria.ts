@@ -1,6 +1,14 @@
 import { onScopeDispose, ref, shallowRef } from 'vue'
 import { HttpError } from '@/services/http'
-export function useConsultaAuditoria<T>(operacao: 'listar_dossies' | 'consultar_dossie') {
+export function useConsultaAuditoria<T>(
+  operacao:
+    | 'listar_dossies'
+    | 'consultar_dossie'
+    | 'listar_eventos_auditoria'
+    | 'consultar_filtros_auditoria'
+    | 'listar_trilha_dossie'
+    | 'consultar_resumo_dossie',
+) {
   const dados = shallowRef<T>()
   const carregando = ref(false)
   const erro = ref('')
@@ -23,7 +31,9 @@ export function useConsultaAuditoria<T>(operacao: 'listar_dossies' | 'consultar_
       if (atual.signal.aborted) return
       const codigo =
         falha instanceof HttpError &&
-        ['sem_permissao', 'job_nao_encontrado', 'nao_autenticado'].includes(falha.code ?? '')
+        ['sem_permissao', 'job_nao_encontrado', 'nao_autenticado', 'requisicao_invalida'].includes(
+          falha.code ?? '',
+        )
           ? falha.code
           : 'indisponivel'
       erro.value =
@@ -31,7 +41,9 @@ export function useConsultaAuditoria<T>(operacao: 'listar_dossies' | 'consultar_
           ? 'Acesso negado. Esta área é exclusiva para auditores.'
           : codigo === 'job_nao_encontrado'
             ? 'Dossiê não encontrado.'
-            : 'Não foi possível carregar os registros. Tente novamente.'
+            : codigo === 'requisicao_invalida'
+              ? 'Não foi possível consultar com estes critérios. Revise-os e tente novamente.'
+              : 'Não foi possível carregar os registros. Tente novamente.'
       registrar('falha', codigo)
     } finally {
       if (controle === atual) carregando.value = false
