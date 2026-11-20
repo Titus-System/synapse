@@ -34,4 +34,17 @@ describe('IdCopiavel', () => {
     await wrapper.get('button').trigger('click')
     expect(wrapper.get('[role="alert"]').text()).toContain('Não foi possível copiar')
   })
+    it('no modo só botão não mostra o id, nem o curto', () => {
+    const wrapper = mount(IdCopiavel, { props: { id, somenteBotao: true } })
+    expect(wrapper.text()).not.toContain('0bbc1cae')
+    expect(wrapper.get('button').attributes('title')).toBe(id)
+  })
+
+  it('no modo só botão copia o id completo', async () => {
+    const escrever = vi.fn<(t: string) => Promise<void>>().mockResolvedValue()
+    vi.stubGlobal('navigator', { clipboard: { writeText: escrever } })
+    const wrapper = mount(IdCopiavel, { props: { id, somenteBotao: true } })
+    await wrapper.get('button').trigger('click')
+    expect(escrever).toHaveBeenCalledWith(id)
+  })
 })

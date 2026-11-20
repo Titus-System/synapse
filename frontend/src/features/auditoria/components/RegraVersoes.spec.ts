@@ -11,7 +11,20 @@ describe('RegraVersoes', () => {
 
     expect(wrapper.emitted('ouvir-audio')).toEqual([[registroExemplo.entradas[0]!.id]])
   })
-
+    it('mostra rótulos legíveis, sem UUIDs, e copia o id completo', async () => {
+      const registro = structuredClone(registroExemplo)
+      const wrapper = mount(RegraVersoes, { props: { registro } })
+      const texto = wrapper.text()
+      expect(texto).toContain('Versão 2')
+      expect(texto).toContain('Versão de origem 1')
+      expect(texto).toContain('Código 1')
+      expect(texto).toContain('Rodada 1')
+      expect(texto).toContain('Correção 1')
+      expect(texto).not.toContain(registro.versoes[0]!.id)
+      expect(texto).not.toContain(registro.codigos[0]!.id)
+      expect(texto).not.toContain(registro.codigos[0]!.id.slice(0, 8) + '…')
+      expect(wrapper.find(`button[title="${registro.codigos[0]!.id}"]`).exists()).toBe(true)
+    })
   it.each(['formulario', 'texto'] as const)('não mostra reprodutor na entrada por %s', (tipo) => {
     const registro = structuredClone(registroExemplo)
     Object.assign(registro.entradas[0]!, { tipo, formato: undefined, conteudo: {} })

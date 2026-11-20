@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { valorDeAlteracao } from '../composables/apresentacaoAuditoria'
+import { campoDaRegra, valorDeAlteracao } from '../composables/apresentacaoAuditoria'
 import type { VersaoAuditoria, VersaoResumo } from '../types'
 const props = defineProps<{ versoes: VersaoResumo[]; registradas: VersaoAuditoria[] }>()
 // Só versões com origem têm o que comparar; a raiz não tem alterações.
@@ -64,8 +64,8 @@ function tipo(a: { anterior?: unknown; novo?: unknown }) {
               :data-alteracao="a.elemento_ref"
               class="border-t border-[#f1ded3] align-top"
             >
-              <td class="break-all p-3 font-semibold">
-                {{ a.elemento_ref }}
+              <td class="break-words p-3 font-semibold" :title="a.elemento_ref">
+                {{ campoDaRegra(a.elemento_ref) }}
                 <span class="block text-xs font-normal text-[#806b5d]">{{ tipo(a) }}</span>
               </td>
               <td class="break-words p-3">{{ valorDeAlteracao(a.anterior) }}</td>

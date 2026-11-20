@@ -180,3 +180,20 @@ export function vereditoAuditoria(veredito?: string | null): string {
 export function idCurto(id: string): string {
   return id.length > 12 ? `${id.slice(0, 8)}…` : id
 }
+const CAMPOS_DA_REGRA: Record<string, string> = {
+  'nucleo.orcamento': 'Orçamento',
+  'nucleo.meta_venda': 'Meta de venda',
+  'nucleo.competencias': 'Competências',
+  'nucleo.percentual': 'Percentual de comissão',
+  'nucleo.taxas_por_cargo': 'Taxas de comissão por cargo',
+  'nucleo.vigencia': 'Vigência',
+  'nucleo.loja': 'Lojas (códigos)',
+  'nucleo.marca': 'Marcas (códigos)',
+  'nucleo.cargo': 'Cargos (códigos)',
+}
+/** Nome legível de uma parte da regra; valor desconhecido aparece como veio. */
+export function campoDaRegra(ref: string): string {
+  const condicao = /^elem\.(\d+)$/.exec(ref)
+  if (condicao) return `Condição ${condicao[1]}`
+  return CAMPOS_DA_REGRA[ref] ?? ref
+}

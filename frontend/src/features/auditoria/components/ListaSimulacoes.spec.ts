@@ -79,4 +79,10 @@ describe('ListaSimulacoes', () => {
     const wrapper = mount(ListaSimulacoes, { props: { simulacoes: [] } })
     expect(wrapper.text()).toContain('Nenhuma simulação registrada')
   })
+  it('não mostra o id da simulação nem o curto, só o botão de copiar com o id no title', () => {
+    const primeira = montar().get('[data-simulacao="1"]')
+    expect(primeira.text()).not.toContain('sim-1')
+    expect(primeira.text()).not.toContain('…')
+    expect(primeira.find('button[title="sim-1"]').exists()).toBe(true)
+  })
 })

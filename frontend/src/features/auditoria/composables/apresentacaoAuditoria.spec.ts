@@ -3,8 +3,10 @@ import { eventoExemplo } from '../auditoria.fixture'
 import {
   abaDoEvento,
   acaoDeFinalizacao,
+  campoDaRegra,
   diaAuditoria,
   horaAuditoria,
+  idCurto,
   mesAuditoria,
   percentualAuditoria,
   quemFezOEvento,
@@ -96,4 +98,14 @@ it('rotula situação, veredito e ação, com o valor cru como reserva', () => {
   expect(vereditoAuditoria(null)).toBe('Sem veredito')
   expect(acaoDeFinalizacao('salvar')).toBe('Salvar')
   expect(acaoDeFinalizacao('nova')).toBe('nova')
+})
+it('dá nome legível às partes da regra e mantém o desconhecido como veio', () => {
+  expect(campoDaRegra('nucleo.meta_venda')).toBe('Meta de venda')
+  expect(campoDaRegra('nucleo.orcamento')).toBe('Orçamento')
+  expect(campoDaRegra('elem.2')).toBe('Condição 2')
+  expect(campoDaRegra('nucleo.campo_novo')).toBe('nucleo.campo_novo')
+})
+it('abrevia só ids longos', () => {
+  expect(idCurto('0bbc1cae-da75-5fe0-ab91-52240a99454c')).toBe('0bbc1cae…')
+  expect(idCurto('sim-1')).toBe('sim-1')
 })

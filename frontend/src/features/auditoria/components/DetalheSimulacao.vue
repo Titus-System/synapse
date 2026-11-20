@@ -47,7 +47,15 @@ const quebras = computed(() => {
       </div>
       <div>
         <dt class="text-[#806b5d]">Código</dt>
-        <dd class="font-semibold"><IdCopiavel v-if="item.codigo" :id="item.codigo.id" /><span v-else>Não identificado</span></dd>
+        <dd class="font-semibold">
+          <IdCopiavel
+            v-if="item.codigo"
+            :id="item.codigo.id"
+            :rotulo="`do código da simulação ${item.numero}`"
+            somente-botao
+          />
+          <span v-else>Não identificado</span>
+        </dd>
       </div>
       <div>
         <dt class="text-[#806b5d]">Data e hora</dt>
@@ -103,16 +111,16 @@ const quebras = computed(() => {
     </div>
     <div v-if="quebras.length" class="mt-6" data-quebras>
       <h3 class="mb-3 font-serif text-lg font-bold">Quebra da diferença</h3>
-      <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div class="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <details v-for="q in quebras" :key="q.chave" :data-quebra="q.chave" class="rounded-lg border border-[#dec0b1] p-3">
           <summary class="cursor-pointer font-semibold">{{ q.titulo }}</summary>
           <p v-if="!q.itens.length" class="mt-2 text-sm">Sem valores.</p>
           <dl v-else class="mt-2 max-h-56 space-y-1 overflow-auto text-sm">
-            <div v-for="[codigo, valor] in q.itens" :key="codigo" class="flex justify-between gap-2">
-              <dt>{{ q.chave === 'competencia' ? codigo : `Código ${codigo}` }}</dt>
-              <dd class="font-semibold">{{ formatarReais(valor) }}</dd>
-            </div>
-          </dl>
+          <div v-for="[codigo, valor] in q.itens" :key="codigo" class="flex justify-between gap-2">
+            <dt>{{ q.chave === 'competencia' ? codigo : `Código ${codigo}` }}</dt>
+            <dd class="font-semibold">{{ formatarReais(valor) }}</dd>
+          </div>
+        </dl>
         </details>
       </div>
     </div>

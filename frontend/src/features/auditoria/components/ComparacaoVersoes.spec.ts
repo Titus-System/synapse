@@ -36,6 +36,15 @@ describe('ComparacaoVersoes', () => {
     expect(w.get('[data-alteracao="elem.2"]').text()).toContain('Removida')
   })
 
+  it('mostra o nome legível do campo e guarda o ref original no title', () => {
+    const w = montar()
+    const campo = w.get('[data-alteracao="nucleo.orcamento"] td')
+    expect(campo.text()).toContain('Orçamento')
+    expect(campo.text()).not.toContain('nucleo.orcamento')
+    expect(campo.attributes('title')).toBe('nucleo.orcamento')
+    expect(w.get('[data-alteracao="elem.1"] td').text()).toContain('Condição 1')
+  })
+
   it('não oferece a versão raiz para comparar', () => {
     const w = montar()
     expect(w.findAll('option')).toHaveLength(1)

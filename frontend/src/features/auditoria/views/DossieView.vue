@@ -5,6 +5,8 @@ import { usarStoreSessao } from '@/stores/session'
 import PortalAuditoria from '../components/PortalAuditoria.vue'
 import RegraVersoes from '../components/RegraVersoes.vue'
 import TrilhaDossie from '../components/TrilhaDossie.vue'
+import SimulacoesFinalizacao from '../components/SimulacoesFinalizacao.vue'
+import { useResumoDossie } from '../composables/useResumoDossie'
 import { auditoriaApi } from '../services/auditoria.api'
 import { exportarDossie } from '../services/exportarDossie'
 import { useConsultaAuditoria } from '../composables/useConsultaAuditoria'
@@ -28,6 +30,18 @@ const { audios, ouvir, falhouReproducao } = useAudiosEntradas(
   (entradaId, signal) => auditoriaApi.obterAudio(String(route.params.id), entradaId, signal),
   () => String(route.params.id),
 )
+const {
+  resumo,
+  carregando: carregandoResumo,
+  erro: erroResumo,
+  consultar: consultarResumo,
+} = useResumoDossie()
+let resumoDoJob: string | undefined
+function carregarResumo() {
+  const id = String(route.params.id)
+  resumoDoJob = id
+  return consultarResumo(id)
+}
 let trilhaDoJob: string | undefined
 const falhaExportacao = ref(false)
 const abas: { id: AbaDossie; nome: string }[] = [
@@ -75,6 +89,14 @@ function exportar() {
   }
 }
 watch(() => route.params.id, consultar, { immediate: true })
+// O resumo alimenta o cabeçalho e as duas abas, então carrega sempre que o job muda.
+watch(
+  () => route.params.id,
+  (id) => {
+    if (id !== undefined && String(id) !== resumoDoJob) void carregarResumo()
+  },
+  { immediate: true },
+)
 watch(
   [() => route.params.id, aba],
   ([id, atual]) => {
@@ -126,7 +148,10 @@ watch(
           dados.job.id
         }}</span
         ><span class="rounded-full bg-[#fff0e9] px-4 py-2"
-          >{{ dados.job.status }}<template v-if="ultima"> · v{{ ultima.versao }}</template></span
+          >{{ dados.job.status
+          }}<template v-if="resumo?.versao_vigente != null">
+            · v{{ resumo.versao_vigente }}</template
+          ><template v-else-if="ultima"> · v{{ ultima.versao }}</template></span
         >
       </div>
       <h1
@@ -174,6 +199,7 @@ watch(
         v-if="aba === 'regra'"
         :registro="dados"
         :audios="audios"
+        :resumo="resumo"
         @ouvir-audio="ouvir"
         @falha-audio="falhouReproducao"
       />
@@ -184,13 +210,21 @@ watch(
         @ouvir-audio="ouvir"
         @falha-audio="falhouReproducao"
       />
-      <TrilhaDossie
-        v-else-if="aba === 'simulacoes'"
-        :eventos="trilha"
-        :carregando="carregandoTrilha"
-        :erro="erroTrilha"
-        @tentar-novamente="consultarTrilha"
-      />
+      <div v-else-if="aba === 'simulacoes'" class="space-y-7">
+        <SimulacoesFinalizacao
+          :registro="dados"
+          :resumo="resumo"
+          :carregando-resumo="carregandoResumo"
+          :erro-resumo="erroResumo"
+          @tentar-novamente="carregarResumo"
+        />
+        <TrilhaDossie
+          :eventos="trilha"
+          :carregando="carregandoTrilha"
+          :erro="erroTrilha"
+          @tentar-novamente="consultarTrilha"
+        />
+      </div>
       <section v-else class="rounded-xl border border-[#dec0b1] bg-white p-9">
         <h2 class="mb-4 font-serif text-2xl font-bold">
           {{ abas.find((item) => item.id === aba)?.nome }}

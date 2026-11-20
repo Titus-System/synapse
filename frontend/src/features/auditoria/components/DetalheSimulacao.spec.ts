@@ -81,4 +81,15 @@ describe('DetalheSimulacao', () => {
     expect(w.get('[data-totais]').text()).toContain('não tem totais')
     expect(w.text()).not.toContain('R$ 1.500,00')
   })
+  it('não mostra o id do código, só o botão de copiar com o id no title', () => {
+    const w = montar('sucesso')
+    const id = registroExemplo.codigos[0]!.id
+    expect(w.text()).not.toContain(id.slice(0, 8))
+    expect(w.find(`button[title="${id}"]`).exists()).toBe(true)
+  })
+
+  it('alinha as seções de quebra ao topo, sem esticá-las', () => {
+    const w = montar('sucesso')
+    expect(w.get('[data-quebras] .grid').classes()).toContain('items-start')
+  })
 })

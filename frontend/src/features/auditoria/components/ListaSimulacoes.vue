@@ -19,15 +19,15 @@ defineEmits<{ selecionar: [id: string] }>()
       Histórico completo de simulações
     </h2>
     <p v-if="!simulacoes.length">Nenhuma simulação registrada.</p>
-    <div v-else class="overflow-x-auto">
+    <div v-else class="overflow-x-auto rounded-xl">
       <table class="w-full min-w-[56rem] text-left text-sm">
         <thead class="bg-[#fff0e9]">
           <tr>
-            <th class="p-3">Simulação / regra</th>
+            <th class="p-3 pl-5">Simulação / regra</th>
             <th class="p-3">Horário</th>
             <th class="p-3">Parâmetros de entrada</th>
             <th class="p-3">Saídas</th>
-            <th class="p-3">Situação</th>
+            <th class="p-3 pr-5">Situação</th>
           </tr>
         </thead>
         <tbody>
@@ -38,14 +38,19 @@ defineEmits<{ selecionar: [id: string] }>()
             :class="item.simulacao.id === selecionada ? 'bg-[#fff0e9]' : ''"
             class="border-t border-[#f1ded3] align-top"
           >
-            <td class="p-3">
+            <td class="p-3 pl-5">
               <p class="font-semibold">Simulação {{ item.numero }}</p>
-              <IdCopiavel :id="item.simulacao.id" />
+              <IdCopiavel
+                :id="item.simulacao.id"
+                :rotulo="`da simulação ${item.numero}`"
+                somente-botao
+              />
               <p class="mt-1 text-xs">
                 Versão {{ item.versao ? item.versao.versao : 'não identificada' }}
               </p>
               <p v-if="item.codigo" class="mt-1 text-xs">
-                Código <IdCopiavel :id="item.codigo.id" />
+                Código
+                <IdCopiavel :id="item.codigo.id" :rotulo="`do código da simulação ${item.numero}`" somente-botao />
               </p>
             </td>
             <td class="whitespace-nowrap p-3">{{ dataAuditoria(item.simulacao.criado_em) }}</td>
@@ -75,7 +80,7 @@ defineEmits<{ selecionar: [id: string] }>()
               </template>
               <p v-else>Sem totais</p>
             </td>
-            <td class="p-3">
+            <td class="p-3 pr-5">
               <p class="font-semibold" :title="item.resultado?.status">
                 {{ situacaoDoResultado(item.resultado?.status) }}
               </p>

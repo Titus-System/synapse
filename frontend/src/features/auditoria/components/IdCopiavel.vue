@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { idCurto } from '../composables/apresentacaoAuditoria'
-const props = defineProps<{ id: string; rotulo?: string }>()
+const props = defineProps<{ id: string; rotulo?: string; somenteBotao?: boolean }>()
 const copia = ref<'ocioso' | 'copiado' | 'falhou'>('ocioso')
 async function copiar() {
   try {
@@ -14,10 +14,13 @@ async function copiar() {
 </script>
 <template>
   <span class="inline-flex flex-wrap items-center gap-2">
-    <span class="font-mono text-xs" :title="id">{{ rotulo ? `${rotulo} ` : '' }}{{ idCurto(id) }}</span>
+    <span v-if="!somenteBotao" class="font-mono text-xs" :title="id">{{
+      rotulo ? `${rotulo} ` : ''
+    }}{{ idCurto(id) }}</span>
     <button
       type="button"
       class="cursor-pointer text-xs text-[#a74700] underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a74700]"
+      :title="somenteBotao ? id : undefined"
       :aria-label="`Copiar id ${rotulo ?? ''}`.trim()"
       @click="copiar"
     >
