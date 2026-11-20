@@ -5,9 +5,11 @@ import {
   acaoDeFinalizacao,
   campoDaRegra,
   dataCivilAuditoria,
+  destaqueDoVeredito,
   diaAuditoria,
   horaAuditoria,
   idCurto,
+  listaAuditoria,
   mesAuditoria,
   percentualAuditoria,
   quemFezOEvento,
@@ -18,6 +20,7 @@ import {
   tipoDoEvento,
   valorDeAlteracao,
   vereditoAuditoria,
+  vigenciaAuditoria,
 } from './apresentacaoAuditoria'
 import type { TipoEventoAuditoria } from '../types'
 it('formata data sem hora no mesmo dia, sem converter fuso', () => {
@@ -119,4 +122,20 @@ it('dá nome legível às partes da regra e mantém o desconhecido como veio', (
 it('abrevia só ids longos', () => {
   expect(idCurto('0bbc1cae-da75-5fe0-ab91-52240a99454c')).toBe('0bbc1cae…')
   expect(idCurto('sim-1')).toBe('sim-1')
+})
+it('junta itens como lista em português', () => {
+  expect(listaAuditoria(['2'])).toBe('2')
+  expect(listaAuditoria(['2', '3'])).toBe('2 e 3')
+  expect(listaAuditoria(['1', '2', '3'])).toBe('1, 2 e 3')
+})
+it('formata a vigência em competências', () => {
+  expect(vigenciaAuditoria({ inicio: '2025-11', fim: '2025-11' })).toBe('11/2025')
+  expect(vigenciaAuditoria({ inicio: '2025-10', fim: '2025-12' })).toBe('10/2025 a 12/2025')
+  expect(vigenciaAuditoria(null)).toBe('Não informada')
+})
+it('estiliza o destaque pelo veredito que a API devolveu', () => {
+  expect(destaqueDoVeredito('viavel')).toContain('bg-[#e4f2e7]')
+  expect(destaqueDoVeredito('inviavel')).toContain('bg-[#fde4e0]')
+  expect(destaqueDoVeredito('indeterminado')).toContain('bg-[#fff0e9]')
+  expect(destaqueDoVeredito(undefined)).toContain('bg-[#fff0e9]')
 })

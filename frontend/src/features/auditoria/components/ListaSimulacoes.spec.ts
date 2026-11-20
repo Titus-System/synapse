@@ -38,7 +38,7 @@ function tres(): RegistroAuditoria {
 }
 function montar(selecionada?: string) {
   return mount(ListaSimulacoes, {
-    props: { simulacoes: ligarSimulacoes(tres()), selecionada },
+    props: { simulacoes: ligarSimulacoes(tres()), responsavel: 'rh.exemplo', selecionada },
   })
 }
 
@@ -70,7 +70,9 @@ describe('ListaSimulacoes', () => {
   it('mostra o veredito das simulações com sucesso', () => {
     const r = tres()
     r.resultados[1]!.veredito = 'viavel'
-    const wrapper = mount(ListaSimulacoes, { props: { simulacoes: ligarSimulacoes(r) } })
+    const wrapper = mount(ListaSimulacoes, {
+      props: { simulacoes: ligarSimulacoes(r), responsavel: 'rh.exemplo' },
+    })
     expect(wrapper.get('[data-simulacao="2"] [data-veredito]').text()).toBe('Viável')
     expect(wrapper.get('[data-simulacao="3"] [data-veredito]').text()).toBe('Sem veredito')
     expect(wrapper.find('[data-simulacao="1"] [data-veredito]').exists()).toBe(false)
@@ -91,8 +93,16 @@ describe('ListaSimulacoes', () => {
     expect(wrapper.emitted('selecionar')![0]).toEqual(['sim-2'])
   })
 
+  it('mostra o responsável e o horário de cada simulação', () => {
+    const wrapper = montar()
+    expect(wrapper.get('thead').text()).toContain('Responsável / horário')
+    const celula = wrapper.get('[data-simulacao="2"] [data-responsavel]').text()
+    expect(celula).toContain('rh.exemplo')
+    expect(celula).toContain('28/11/2025')
+  })
+
   it('informa quando não há simulações', () => {
-    const wrapper = mount(ListaSimulacoes, { props: { simulacoes: [] } })
+    const wrapper = mount(ListaSimulacoes, { props: { simulacoes: [], responsavel: 'rh.exemplo' } })
     expect(wrapper.text()).toContain('Nenhuma simulação registrada')
   })
   it('não mostra o id da simulação nem o curto, só o botão de copiar com o id no title', () => {

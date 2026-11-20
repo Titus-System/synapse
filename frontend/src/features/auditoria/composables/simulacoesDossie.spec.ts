@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { finalizacaoDoDossie, ligarSimulacoes } from './simulacoesDossie'
+import { evidenciasDaVersao, finalizacaoDoDossie, ligarSimulacoes } from './simulacoesDossie'
 import { registroExemplo } from './registroAuditoria.fixture'
 import type { ComparacaoSimulacao, RegistroAuditoria } from '../types'
 
@@ -61,6 +61,16 @@ describe('ligarSimulacoes', () => {
     const r = registroComTres()
     delete r.simulacoes[0]!.resultado_id
     expect(ligarSimulacoes(r)[0]!.resultado).toBeUndefined()
+  })
+
+  it('liga a explicação ao resultado de cada simulação', () => {
+    const r = registroComTres()
+    r.explicacoes = [
+      { id: 'exp-2', resultado_id: 'res-2', texto: 'Dentro do orçamento.', aderencia_conferida: true, criado_em: '2025-11-28T14:12:00Z' },
+    ]
+    expect(ligarSimulacoes(r).map((s) => s.explicacao?.id)).toEqual([undefined, 'exp-2', undefined])
+    delete r.simulacoes[1]!.resultado_id
+    expect(ligarSimulacoes(r)[1]!.explicacao).toBeUndefined()
   })
 })
 
@@ -127,5 +137,21 @@ describe('finalizacaoDoDossie', () => {
     expect(finalizacaoDoDossie(r)?.aceite?.aceita_em).toBe('2025-11-28T14:17:00Z')
     r.acoes = []
     expect(finalizacaoDoDossie(r)).toBeUndefined()
+  })
+})
+describe('evidenciasDaVersao', () => {
+  it('reúne a versão vigente, os códigos sem repetir e as simulações dela', () => {
+    const r = registroComTres()
+    r.simulacoes[0]!.regra_id = r.versoes[0]!.id
+    const evidencias = evidenciasDaVersao(r, ligarSimulacoes(r), 2)
+    expect(evidencias?.versao.id).toBe(r.versoes[1]!.id)
+    expect(evidencias?.codigos.map((c) => c.id)).toEqual([r.codigos[0]!.id])
+    expect(evidencias?.simulacoes).toEqual([2, 3])
+  })
+
+  it('é indefinida sem versão vigente conhecida', () => {
+    const r = registroComTres()
+    expect(evidenciasDaVersao(r, ligarSimulacoes(r))).toBeUndefined()
+    expect(evidenciasDaVersao(r, ligarSimulacoes(r), 9)).toBeUndefined()
   })
 })

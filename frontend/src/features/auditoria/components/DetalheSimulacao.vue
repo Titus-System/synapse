@@ -4,18 +4,21 @@ import { formatarReais } from '@/composables/apresentacaoDetalhamento'
 import {
   codigosAuditoria,
   dataAuditoria,
+  destaqueDoVeredito,
   percentualAuditoria,
+  sinalAuditoria,
   situacaoDoResultado,
   vereditoAuditoria,
 } from '../composables/apresentacaoAuditoria'
 import type { SimulacaoLigada } from '../composables/simulacoesDossie'
 import FontesResultado from './FontesResultado.vue'
 import IdCopiavel from './IdCopiavel.vue'
-const props = defineProps<{ item: SimulacaoLigada }>()
+const props = defineProps<{ item: SimulacaoLigada; responsavel: string }>()
 const nucleo = computed(() => props.item.versao?.representacao.nucleo)
 const totais = computed(() =>
   props.item.resultado?.status === 'sucesso' ? props.item.resultado.totais : null,
 )
+const destaque = computed(() => destaqueDoVeredito(props.item.resultado?.veredito))
 const quebras = computed(() => {
   const d = props.item.resultado?.status === 'sucesso' ? props.item.resultado.decomposicao : null
   if (!d) return []
@@ -41,19 +44,22 @@ const quebras = computed(() => {
     <dl class="grid gap-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
       <div>
         <dt class="text-[#806b5d]">Versão utilizada</dt>
-        <dd class="font-semibold">{{ item.versao ? `v${item.versao.versao}` : 'Não identificada' }}</dd>
+        <dd class="font-semibold" data-versao-utilizada>
+          {{ item.versao ? `v${item.versao.versao}` : 'Versão não identificada' }} ·
+          <template v-if="item.codigo">
+            código
+            <IdCopiavel
+              :id="item.codigo.id"
+              :rotulo="`do código da simulação ${item.numero}`"
+              somente-botao
+            />
+          </template>
+          <template v-else>código não identificado</template>
+        </dd>
       </div>
       <div>
-        <dt class="text-[#806b5d]">Código</dt>
-        <dd class="font-semibold">
-          <IdCopiavel
-            v-if="item.codigo"
-            :id="item.codigo.id"
-            :rotulo="`do código da simulação ${item.numero}`"
-            somente-botao
-          />
-          <span v-else>Não identificado</span>
-        </dd>
+        <dt class="text-[#806b5d]">Responsável</dt>
+        <dd class="break-all font-semibold" data-responsavel>{{ responsavel }}</dd>
       </div>
       <div>
         <dt class="text-[#806b5d]">Data e hora</dt>
@@ -64,7 +70,7 @@ const quebras = computed(() => {
         <dd class="font-semibold">{{ situacaoDoResultado(item.resultado?.status) }}</dd>
       </div>
     </dl>
-    <div class="mt-6 grid gap-4 lg:grid-cols-2">
+    <div class="mt-6 grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
       <div class="rounded-xl bg-[#fff0e9] p-5">
         <h3 class="mb-3 font-serif text-lg font-bold">Parâmetros de entrada</h3>
         <dl class="space-y-2 text-sm">
@@ -93,33 +99,66 @@ const quebras = computed(() => {
           </div>
         </dl>
       </div>
-      <div class="rounded-xl bg-[#fff0e9] p-5" data-totais>
-        <h3 class="mb-3 font-serif text-lg font-bold">Totais</h3>
-        <dl v-if="totais" class="space-y-2 text-sm">
-          <div class="flex justify-between gap-3"><dt>Baseline</dt><dd class="font-semibold">{{ formatarReais(totais.baseline) }}</dd></div>
-          <div class="flex justify-between gap-3"><dt>Simulado</dt><dd class="font-semibold">{{ formatarReais(totais.simulado) }}</dd></div>
-          <div class="flex justify-between gap-3">
-            <dt>Diferença</dt>
-            <dd class="font-semibold">{{ formatarReais(totais.diferenca_abs) }} ({{ percentualAuditoria(totais.diferenca_pct) }})</dd>
+      <div class="space-y-4">
+        <div v-if="totais" class="grid gap-4 sm:grid-cols-2" data-totais>
+          <div :class="destaque" class="rounded-xl p-5" data-destaque="simulado">
+            <p class="text-sm text-[#644b3e]">Simulado</p>
+            <p class="mt-2 break-words font-serif text-2xl font-bold">{{ formatarReais(totais.simulado) }}</p>
+            <p class="mt-2 text-xs text-[#644b3e]">Baseline: {{ formatarReais(totais.baseline) }}</p>
           </div>
-          <div class="flex justify-between gap-3"><dt>Veredito</dt><dd class="font-semibold">{{ vereditoAuditoria(item.resultado?.veredito) }}</dd></div>
-        </dl>
-        <p v-else class="text-sm">Esta simulação não tem totais: {{ situacaoDoResultado(item.resultado?.status) }}.</p>
-      </div>
-    </div>
-    <div v-if="quebras.length" class="mt-6" data-quebras>
-      <h3 class="mb-3 font-serif text-lg font-bold">Quebra da diferença</h3>
-      <div class="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <details v-for="q in quebras" :key="q.chave" :data-quebra="q.chave" class="rounded-lg border border-[#dec0b1] p-3">
-          <summary class="cursor-pointer font-semibold">{{ q.titulo }}</summary>
-          <p v-if="!q.itens.length" class="mt-2 text-sm">Sem valores.</p>
-          <dl v-else class="mt-2 max-h-56 space-y-1 overflow-auto text-sm">
-          <div v-for="[codigo, valor] in q.itens" :key="codigo" class="flex justify-between gap-2">
-            <dt>{{ q.chave === 'competencia' ? codigo : `Código ${codigo}` }}</dt>
-            <dd class="font-semibold">{{ formatarReais(valor) }}</dd>
+          <div :class="destaque" class="rounded-xl p-5" data-destaque="diferenca">
+            <p class="text-sm text-[#644b3e]">Diferença</p>
+            <p class="mt-2 break-words font-serif text-2xl font-bold">
+              {{ sinalAuditoria(formatarReais(totais.diferenca_abs), totais.diferenca_abs) }}
+            </p>
+            <p class="mt-2 text-xs text-[#644b3e]">
+              {{ sinalAuditoria(percentualAuditoria(totais.diferenca_pct), totais.diferenca_pct) }} ·
+              {{ vereditoAuditoria(item.resultado?.veredito) }}
+            </p>
           </div>
-        </dl>
-        </details>
+        </div>
+        <p v-else class="rounded-xl bg-[#fff0e9] p-5 text-sm" data-totais>
+          Esta simulação não tem totais: {{ situacaoDoResultado(item.resultado?.status) }}.
+        </p>
+        <div v-if="item.explicacao" class="rounded-xl border border-[#dec0b1] p-5" data-explicacao>
+          <h3 class="mb-2 font-serif text-lg font-bold">Explicação do resultado</h3>
+          <p class="whitespace-pre-line text-sm">{{ item.explicacao.texto }}</p>
+          <p
+            v-if="!item.explicacao.aderencia_conferida"
+            role="note"
+            class="mt-3 text-xs font-semibold text-[#b42318]"
+            data-sem-aderencia
+          >
+            Algum número citado neste texto não corresponde ao apurado.
+          </p>
+        </div>
+        <div v-if="quebras.length" class="rounded-xl border border-[#dec0b1] p-5" data-quebras>
+          <h3 class="mb-3 font-serif text-lg font-bold">Quebra da diferença</h3>
+          <div class="grid items-start gap-3 sm:grid-cols-2">
+            <details
+              v-for="q in quebras"
+              :key="q.chave"
+              :data-quebra="q.chave"
+              class="rounded-lg border border-[#dec0b1] p-3"
+            >
+              <summary class="cursor-pointer font-semibold">{{ q.titulo }}</summary>
+              <p v-if="!q.itens.length" class="mt-2 text-sm">Sem valores.</p>
+              <dl v-else class="mt-2 max-h-56 space-y-1 overflow-auto text-sm">
+                <div v-for="[codigo, valor] in q.itens" :key="codigo" class="flex justify-between gap-2">
+                  <dt>{{ q.chave === 'competencia' ? codigo : `Código ${codigo}` }}</dt>
+                  <dd class="font-semibold">{{ formatarReais(valor) }}</dd>
+                </div>
+              </dl>
+            </details>
+          </div>
+        </div>
+        <p
+          v-if="item.resultado"
+          class="inline-block rounded-full bg-[#fff0e9] px-3 py-1 text-xs font-semibold text-[#644b3e]"
+          data-selo-registro
+        >
+          Resultado registrado · sem execução pelo auditor
+        </p>
       </div>
     </div>
     <FontesResultado v-if="item.resultado" :fontes="item.resultado.fontes" />

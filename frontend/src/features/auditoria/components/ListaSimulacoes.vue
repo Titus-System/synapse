@@ -8,7 +8,7 @@ import {
 } from '../composables/apresentacaoAuditoria'
 import type { SimulacaoLigada } from '../composables/simulacoesDossie'
 import IdCopiavel from './IdCopiavel.vue'
-defineProps<{ simulacoes: SimulacaoLigada[]; selecionada?: string }>()
+defineProps<{ simulacoes: SimulacaoLigada[]; responsavel: string; selecionada?: string }>()
 defineEmits<{ selecionar: [id: string] }>()
 </script>
 <template>
@@ -25,7 +25,7 @@ defineEmits<{ selecionar: [id: string] }>()
         <thead class="bg-[#fff0e9]">
           <tr>
             <th class="p-3 pl-5">Simulação / regra</th>
-            <th class="p-3">Horário</th>
+            <th class="p-3">Responsável / horário</th>
             <th class="p-3">Parâmetros de entrada</th>
             <th class="p-3">Saídas</th>
             <th class="p-3 pr-5">Situação</th>
@@ -54,7 +54,10 @@ defineEmits<{ selecionar: [id: string] }>()
                 <IdCopiavel :id="item.codigo.id" :rotulo="`do código da simulação ${item.numero}`" somente-botao />
               </p>
             </td>
-            <td class="whitespace-nowrap p-3">{{ dataAuditoria(item.simulacao.criado_em) }}</td>
+            <td class="p-3" data-responsavel>
+              <p class="break-all font-semibold">{{ responsavel }}</p>
+              <p class="whitespace-nowrap text-xs">{{ dataAuditoria(item.simulacao.criado_em) }}</p>
+            </td>
             <td class="p-3 text-xs">
               <p>
                 Competências:

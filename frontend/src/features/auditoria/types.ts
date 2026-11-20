@@ -107,7 +107,15 @@ export interface RegistroAuditoria {
   acoes: AcaoAuditoria[]
   sugestoes_meta: SugestaoMetaAuditoria[]
   transicoes: Record<string, unknown>[]
-  explicacoes: Record<string, unknown>[]
+  explicacoes: ExplicacaoAuditoria[]
+}
+/** Narrativa do resultado, uma por resultado; `aderencia_conferida` falso quando algum número do texto não corresponde ao apurado. */
+export interface ExplicacaoAuditoria {
+  id: string
+  resultado_id: string
+  texto: string
+  aderencia_conferida: boolean
+  criado_em: string
 }
 export interface TotaisAuditoria {
   baseline: number

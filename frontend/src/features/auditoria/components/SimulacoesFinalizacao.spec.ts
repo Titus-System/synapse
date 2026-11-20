@@ -66,6 +66,26 @@ describe('SimulacoesFinalizacao', () => {
     expect(w.find('[aria-label="Comparação com a simulação anterior"]').exists()).toBe(false)
   })
 
+  it('põe a trilha ao lado da finalização, com o aviso de só consulta', () => {
+    const w = mount(SimulacoesFinalizacao, {
+      props: { registro: tres(), resumo },
+      slots: { trilha: '<section data-trilha>Trilha</section>' },
+    })
+    const grade = w.get('[aria-label="Finalização da regra"]').element.parentElement!.parentElement!
+    expect(grade.querySelector('[data-trilha]')).not.toBeNull()
+    expect(grade.querySelector('[data-aviso-auditor]')?.textContent).toContain(
+      'não pode finalizar, alterar nem reexecutar esta regra',
+    )
+  })
+
+  it('liga a finalização às simulações da versão vigente', () => {
+    const r = tres()
+    r.acoes = [{ id: 'a1', acao: 'salvar', executado_em: '2025-11-28T14:18:00Z' }]
+    const w = mount(SimulacoesFinalizacao, { props: { registro: r, resumo } })
+    expect(w.get('[data-evidencias]').text()).toContain('simulações 1, 2 e 3')
+    expect(w.get('[data-finalizada-por]').text()).toBe('Finalizada por rh.exemplo')
+  })
+
   it('sem resumo mostra o erro e mantém a lista', () => {
     const w = mount(SimulacoesFinalizacao, {
       props: { registro: tres(), erroResumo: 'Falha ao carregar.' },
