@@ -9,6 +9,7 @@ import {
   vereditoAuditoria,
 } from '../composables/apresentacaoAuditoria'
 import type { SimulacaoLigada } from '../composables/simulacoesDossie'
+import FontesResultado from './FontesResultado.vue'
 import IdCopiavel from './IdCopiavel.vue'
 const props = defineProps<{ item: SimulacaoLigada }>()
 const nucleo = computed(() => props.item.versao?.representacao.nucleo)
@@ -121,5 +122,6 @@ const quebras = computed(() => {
         </details>
       </div>
     </div>
+    <FontesResultado v-if="item.resultado" :fontes="item.resultado.fontes" />
   </section>
 </template>

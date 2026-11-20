@@ -9,6 +9,11 @@ export function dataAuditoria(valor?: string): string {
     timeZone: 'America/Sao_Paulo',
   }).format(new Date(valor))
 }
+/** Data sem hora (AAAA-MM-DD) em pt-BR. Não passa por `Date`, que a leria como meia-noite UTC e a mostraria no dia anterior em Brasília. */
+export function dataCivilAuditoria(valor: string): string {
+  const partes = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valor)
+  return partes ? `${partes[3]}/${partes[2]}/${partes[1]}` : valor
+}
 export function codigosAuditoria(codigos?: string[]): string {
   return codigos?.length ? codigos.join(', ') : codigos ? 'Todos' : 'Não informado'
 }

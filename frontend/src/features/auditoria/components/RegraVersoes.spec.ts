@@ -50,4 +50,22 @@ describe('RegraVersoes', () => {
 
     expect(wrapper.find('[data-reprodutor-audio]').exists()).toBe(false)
   })
+
+  it('mostra o modelo que transcreveu a entrada original por voz', () => {
+    const registro = structuredClone(registroExemplo)
+    registro.entradas[0]!.transcricao_modelo = {
+      provedor: 'deepgram',
+      modelo: '2-general-nova',
+      versao: '2024-01-09.29447',
+    }
+    const wrapper = mount(RegraVersoes, { props: { registro } })
+    expect(wrapper.get('[data-modelo-transcricao]').text()).toContain(
+      'deepgram · modelo 2-general-nova · versão 2024-01-09.29447',
+    )
+  })
+
+  it('mostra o estado sem modelo na entrada por voz transcrita antes do registro do modelo', () => {
+    const wrapper = mount(RegraVersoes, { props: { registro: registroExemplo } })
+    expect(wrapper.get('[data-sem-modelo]').text()).toBe('Modelo da transcrição não registrado.')
+  })
 })

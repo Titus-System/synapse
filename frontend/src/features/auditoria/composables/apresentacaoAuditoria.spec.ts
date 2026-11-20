@@ -4,6 +4,7 @@ import {
   abaDoEvento,
   acaoDeFinalizacao,
   campoDaRegra,
+  dataCivilAuditoria,
   diaAuditoria,
   horaAuditoria,
   idCurto,
@@ -19,6 +20,10 @@ import {
   vereditoAuditoria,
 } from './apresentacaoAuditoria'
 import type { TipoEventoAuditoria } from '../types'
+it('formata data sem hora no mesmo dia, sem converter fuso', () => {
+  expect(dataCivilAuditoria('2026-11-01')).toBe('01/11/2026')
+  expect(dataCivilAuditoria('01/11/2026')).toBe('01/11/2026')
+})
 it.each([
   ['resultado_simulacao', 'simulacoes'],
   ['sugestao_meta_criada', 'simulacoes'],

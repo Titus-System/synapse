@@ -27,6 +27,13 @@ export interface EntradaAuditoria {
   conteudo?: Record<string, unknown>
   formato?: 'webm' | 'ogg' | 'wav' | 'mp4'
   transcrito_em?: string
+  transcricao_modelo?: ModeloTranscricaoAuditoria
+}
+/** `contracts/domain/modelo-transcricao.schema.json`. */
+export interface ModeloTranscricaoAuditoria {
+  provedor: string
+  modelo: string
+  versao?: string
 }
 export type EstadoAudioEntrada = 'carregando' | 'pronto' | 'erro' | 'indisponivel'
 export interface AudioEntrada {
@@ -127,7 +134,15 @@ export interface ResultadoAuditoria {
   meta_venda?: number
   totais?: TotaisAuditoria | null
   decomposicao?: DecomposicaoAuditoria | null
+  fontes?: FontesResultadoAuditoria
   criado_em: string
+}
+/** `contracts/domain/resultado-fontes.schema.json`: referências das bases, nunca o conteúdo. */
+export interface FontesResultadoAuditoria {
+  manifesto: { versao: number; congelamento: string }
+  competencias: string[]
+  arquivos: { nome: string; sha256: string }[]
+  baselines: { competencia: string; arquivo: string; sha256: string }[]
 }
 export interface SimulacaoAuditoria {
   id: string

@@ -5,6 +5,7 @@ import { dataAuditoria } from '../composables/apresentacaoAuditoria'
 import type { AudiosEntradas, RegistroAuditoria, ResumoDossie } from '../types'
 import ComparacaoVersoes from './ComparacaoVersoes.vue'
 import IdCopiavel from './IdCopiavel.vue'
+import ModeloTranscricao from './ModeloTranscricao.vue'
 import ReprodutorAudioEntrada from './ReprodutorAudioEntrada.vue'
 const props = withDefaults(
   defineProps<{
@@ -93,6 +94,7 @@ const numeroDoCodigo = (id: string) => props.registro.codigos.findIndex((c) => c
           <p v-if="entrada.transcrito_em" class="mt-4 text-sm">
             Transcrição registrada em {{ dataAuditoria(entrada.transcrito_em) }}
           </p>
+          <ModeloTranscricao class="mt-2 text-sm" :entrada="entrada" />
           <p class="mt-6 text-sm leading-6 text-[#806b5d]">
             Registro preservado como recebido no início do fluxo. Alterações posteriores aparecem
             nas versões abaixo.

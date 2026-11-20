@@ -101,4 +101,18 @@ describe('ConversaAuditoria', () => {
     expect(wrapper.find(`[data-item="codigo"] [title="${codigo}"]`).exists()).toBe(true)
     expect(wrapper.find(`[data-item="versao"] [title="${versao}"]`).exists()).toBe(true)
   })
+
+  it('mostra o modelo de cada entrada por voz e o estado sem modelo', () => {
+    const registro = structuredClone(registroExemplo)
+    const semModelo = mount(ConversaAuditoria, { props: { registro } }).findAll(
+      '[data-item="entrada"]',
+    )
+    expect(semModelo[0]!.find('[data-sem-modelo]').exists()).toBe(true)
+    expect(semModelo[1]!.find('[data-sem-modelo]').exists()).toBe(false)
+    registro.entradas[0]!.transcricao_modelo = { provedor: 'deepgram', modelo: 'nova-3' }
+    const comModelo = mount(ConversaAuditoria, { props: { registro } })
+    expect(comModelo.get('[data-item="entrada"] [data-modelo-transcricao]').text()).toContain(
+      'deepgram · modelo nova-3',
+    )
+  })
 })

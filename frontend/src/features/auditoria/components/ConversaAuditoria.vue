@@ -3,6 +3,7 @@ import { dataAuditoria, estadoDaRodada } from '../composables/apresentacaoAudito
 import { useConversaAuditoria } from '../composables/useConversaAuditoria'
 import type { AudiosEntradas, RegistroAuditoria } from '../types'
 import ChamadaModelo from './ChamadaModelo.vue'
+import ModeloTranscricao from './ModeloTranscricao.vue'
 import ReprodutorAudioEntrada from './ReprodutorAudioEntrada.vue'
 const props = withDefaults(
   defineProps<{ registro: RegistroAuditoria; audios?: AudiosEntradas }>(),
@@ -50,6 +51,7 @@ const { itens } = useConversaAuditoria(() => props.registro)
             @ouvir="emit('ouvir-audio', item.entrada.id)"
             @falhou="emit('falha-audio', item.entrada.id)"
           />
+          <ModeloTranscricao class="mt-2 text-xs" :entrada="item.entrada" />
         </div>
         <div v-else-if="item.tipo === 'correcao_rodada'" class="rounded-xl bg-[#e7dfda] p-4 text-sm">
           <p class="flex flex-wrap justify-between gap-2 text-xs font-semibold">

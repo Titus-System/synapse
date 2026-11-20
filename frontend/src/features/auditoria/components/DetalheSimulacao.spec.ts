@@ -92,4 +92,29 @@ describe('DetalheSimulacao', () => {
     const w = montar('sucesso')
     expect(w.get('[data-quebras] .grid').classes()).toContain('items-start')
   })
+
+  it('mostra as fontes do resultado, inclusive o de falha', () => {
+    const r = registro('erro_codigo')
+    r.resultados[0]!.fontes = {
+      manifesto: { versao: 2, congelamento: '2026-10-15' },
+      competencias: ['2025-11'],
+      arquivos: [{ nome: 'vendas.csv', sha256: 'e'.repeat(64) }],
+      baselines: [{ competencia: '2025-11', arquivo: 'baselines/2025-11.json', sha256: 'f'.repeat(64) }],
+    }
+    const w = mount(DetalheSimulacao, { props: { item: ligarSimulacoes(r)[0]! } })
+    expect(w.get('[data-versao-bases]').text()).toBe('v2')
+    expect(w.get('[data-arquivos]').text()).toContain('e'.repeat(64))
+    expect(w.get('[data-baseline="2025-11"]').text()).toContain('f'.repeat(64))
+  })
+
+  it('mostra o estado sem fontes no resultado gravado sem elas', () => {
+    expect(montar('sucesso').get('[data-sem-fontes]').text()).toContain('Sem fontes registradas')
+  })
+
+  it('não mostra fontes na simulação sem resultado', () => {
+    const r = registro('sucesso')
+    delete r.simulacoes[0]!.resultado_id
+    const w = mount(DetalheSimulacao, { props: { item: ligarSimulacoes(r)[0]! } })
+    expect(w.find('[data-fontes]').exists()).toBe(false)
+  })
 })
