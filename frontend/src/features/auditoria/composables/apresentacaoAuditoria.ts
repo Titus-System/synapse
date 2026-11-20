@@ -1,3 +1,4 @@
+import { formatarReais } from '@/composables/apresentacaoDetalhamento'
 import type { StatusJob } from '@/types/api'
 import type { AbaDossie, EventoAuditoria, TipoEventoAuditoria } from '../types'
 export function dataAuditoria(valor?: string): string {
@@ -142,10 +143,21 @@ export function percentualAuditoria(fracao: number): string {
 export function sinalAuditoria(texto: string, valor: number): string {
   return valor > 0 ? `+${texto}` : texto
 }
-/** Valor de `anterior`/`novo` de uma alteração: número como número, o resto como texto. */
-export function valorDeAlteracao(valor: unknown): string {
+// Sem `maximumFractionDigits`, o Intl arredonda em 3 casas: a taxa 0,0275 viraria 0,028.
+const PERCENTUAL_SEM_CORTE = new Intl.NumberFormat('pt-BR', {
+  style: 'percent',
+  maximumFractionDigits: 20,
+})
+const NUMERO_SEM_CORTE = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 20 })
+const PARTES_EM_REAIS = new Set(['nucleo.orcamento', 'nucleo.meta_venda'])
+/** Valor de `anterior`/`novo` de uma alteração, formatado pelo tipo da parte; o resto como texto. */
+export function valorDeAlteracao(ref: string, valor: unknown): string {
   if (valor === undefined) return '—'
-  if (typeof valor === 'number') return valor.toLocaleString('pt-BR')
+  if (typeof valor === 'number') {
+    if (ref === 'nucleo.percentual') return PERCENTUAL_SEM_CORTE.format(valor)
+    if (PARTES_EM_REAIS.has(ref)) return formatarReais(valor)
+    return NUMERO_SEM_CORTE.format(valor)
+  }
   if (typeof valor === 'string') return valor
   return JSON.stringify(valor)
 }

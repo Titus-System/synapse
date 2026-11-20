@@ -68,9 +68,9 @@ function tipo(a: { anterior?: unknown; novo?: unknown }) {
                 {{ campoDaRegra(a.elemento_ref) }}
                 <span class="block text-xs font-normal text-[#806b5d]">{{ tipo(a) }}</span>
               </td>
-              <td class="break-words p-3">{{ valorDeAlteracao(a.anterior) }}</td>
+              <td class="break-words p-3">{{ valorDeAlteracao(a.elemento_ref, a.anterior) }}</td>
               <td class="break-words p-3 font-semibold text-[#a74700]">
-                {{ valorDeAlteracao(a.novo) }}
+                {{ valorDeAlteracao(a.elemento_ref, a.novo) }}
               </td>
             </tr>
           </tbody>

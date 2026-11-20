@@ -35,11 +35,17 @@ export interface AudioEntrada {
 }
 /** Áudios pedidos no dossiê, pelo id da entrada; a entrada ausente ainda não foi pedida. */
 export type AudiosEntradas = Readonly<Record<string, AudioEntrada>>
+/** `contracts/domain/parametros-simulacao.schema.json`; campo ausente é parâmetro não dito. */
+export interface ParametrosVersaoAuditoria {
+  orcamento?: number
+  meta_venda?: number
+  competencias?: string[]
+}
 export interface VersaoAuditoria extends RegraVersionada {
   hash: string
   regra_origem_id?: string
   tentativa?: number
-  parametros?: Record<string, unknown>
+  parametros?: ParametrosVersaoAuditoria
 }
 export interface CodigoAuditoria {
   id: string

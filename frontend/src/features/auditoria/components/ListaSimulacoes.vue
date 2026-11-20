@@ -4,6 +4,7 @@ import {
   dataAuditoria,
   percentualAuditoria,
   situacaoDoResultado,
+  vereditoAuditoria,
 } from '../composables/apresentacaoAuditoria'
 import type { SimulacaoLigada } from '../composables/simulacoesDossie'
 import IdCopiavel from './IdCopiavel.vue'
@@ -57,15 +58,15 @@ defineEmits<{ selecionar: [id: string] }>()
             <td class="p-3 text-xs">
               <p>
                 Competências:
-                {{ ((item.versao?.parametros?.competencias as string[] | undefined) ?? []).join(', ') || 'Não informadas' }}
+                {{ item.parametros.competencias.join(', ') || 'Não informadas' }}
               </p>
               <p>
                 Orçamento:
-                {{ item.resultado?.totais?.orcamento != null ? formatarReais(item.resultado.totais.orcamento) : 'Não informado' }}
+                {{ item.parametros.orcamento != null ? formatarReais(item.parametros.orcamento) : 'Não informado' }}
               </p>
               <p>
                 Meta de venda:
-                {{ item.resultado?.meta_venda != null ? formatarReais(item.resultado.meta_venda) : 'Não informada' }}
+                {{ item.parametros.meta_venda != null ? formatarReais(item.parametros.meta_venda) : 'Não informada' }}
               </p>
             </td>
             <td class="p-3 text-xs">
@@ -83,6 +84,9 @@ defineEmits<{ selecionar: [id: string] }>()
             <td class="p-3 pr-5">
               <p class="font-semibold" :title="item.resultado?.status">
                 {{ situacaoDoResultado(item.resultado?.status) }}
+              </p>
+              <p v-if="item.resultado?.status === 'sucesso'" class="text-xs" data-veredito>
+                {{ vereditoAuditoria(item.resultado.veredito) }}
               </p>
               <button
                 type="button"

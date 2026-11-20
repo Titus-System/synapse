@@ -348,3 +348,35 @@ it('registra a falha do resumo sem derrubar o dossiê e permite tentar novamente
   await flushPromises()
   expect(wrapper!.find('[data-contadores]').exists()).toBe(true)
 })
+it('avisa a falha do resumo na aba da regra e mostra a comparação ao tentar de novo', async () => {
+  vi.mocked(auditoriaApi.obterResumo).mockRejectedValueOnce(new Error('rede'))
+  vi.mocked(auditoriaApi.obterResumo).mockResolvedValueOnce({
+    simulacoes: { registradas: 0, sucesso: 0, falha: 0 },
+    versoes: [
+      { id: 'v1', numero: 1, alteracoes: [] },
+      {
+        id: 'v2',
+        numero: 2,
+        regra_origem_id: 'v1',
+        alteracoes: [{ elemento_ref: 'nucleo.percentual', anterior: 0.03, novo: 0.0275 }],
+      },
+    ],
+    comparacoes: [],
+  })
+  await abrir('/auditoria/dossies/job-1')
+  await flushPromises()
+  const alerta = wrapper!.get('[role="alert"][aria-label="Comparação de versões"]')
+  expect(alerta.text()).toContain('Não foi possível carregar os registros')
+  const linha = JSON.parse(vi.mocked(console.error).mock.calls[0]![0] as string)
+  expect(linha).toMatchObject({
+    job_id: 'job-1',
+    extra: { operacao: 'consultar_resumo_dossie', codigo: 'indisponivel', resultado: 'falha' },
+  })
+  await alerta.get('button').trigger('click')
+  await flushPromises()
+  expect(auditoriaApi.obterResumo).toHaveBeenCalledTimes(2)
+  expect(wrapper!.find('[role="alert"][aria-label="Comparação de versões"]').exists()).toBe(false)
+  const comparacao = wrapper!.get('[data-alteracao="nucleo.percentual"]').text()
+  expect(comparacao).toContain('3%')
+  expect(comparacao).toContain('2,75%')
+})

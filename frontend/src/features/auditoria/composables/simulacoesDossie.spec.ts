@@ -64,6 +64,50 @@ describe('ligarSimulacoes', () => {
   })
 })
 
+describe('parâmetros da simulação', () => {
+  it('na simulação com falha, usa os parâmetros da versão e a meta do resultado', () => {
+    const r = registroComTres()
+    r.versoes[1]!.parametros = { orcamento: 650000, competencias: ['2025-10', '2025-11'] }
+    r.job.orcamento = 1
+    r.resultados[0]!.meta_venda = 30000000
+    expect(ligarSimulacoes(r)[0]!.parametros).toEqual({
+      competencias: ['2025-10', '2025-11'],
+      orcamento: 650000,
+      meta_venda: 30000000,
+    })
+  })
+
+  it('usa os do job quando a versão não grava parâmetros', () => {
+    const r = registroComTres()
+    delete r.versoes[1]!.parametros
+    r.job.competencias = ['2025-09', '2025-10']
+    r.job.orcamento = 500000
+    const primeira = ligarSimulacoes(r)[0]!.parametros
+    expect(primeira.competencias).toEqual(['2025-09', '2025-10'])
+    expect(primeira.orcamento).toBe(500000)
+  })
+
+  it('usa os do job quando o texto não disse o período', () => {
+    const r = registroComTres()
+    r.versoes[1]!.parametros = { orcamento: 600000 }
+    r.job.competencias = ['2025-08', '2025-09']
+    expect(ligarSimulacoes(r)[0]!.parametros.competencias).toEqual(['2025-08', '2025-09'])
+  })
+
+  it('com sucesso, o orçamento é o aplicado na execução', () => {
+    const r = registroComTres()
+    expect(ligarSimulacoes(r)[1]!.parametros.orcamento).toBeUndefined()
+    r.resultados[1]!.totais = { ...totais, orcamento: 640000 }
+    expect(ligarSimulacoes(r)[1]!.parametros.orcamento).toBe(640000)
+  })
+
+  it('sem resultado, a meta vem da versão', () => {
+    const r = registroComTres()
+    delete r.simulacoes[0]!.resultado_id
+    expect(ligarSimulacoes(r)[0]!.parametros.meta_venda).toBe(28000000)
+  })
+})
+
 describe('finalizacaoDoDossie', () => {
   it('usa a última ação de fechamento e ignora aceitar_meta', () => {
     const r = structuredClone(registroExemplo)

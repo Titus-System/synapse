@@ -86,10 +86,16 @@ it('põe sinal só na variação positiva', () => {
   expect(sinalAuditoria('-R$ 1,00', -1)).toBe('-R$ 1,00')
 })
 it('formata o valor de uma alteração sem inferir', () => {
-  expect(valorDeAlteracao(undefined)).toBe('—')
-  expect(valorDeAlteracao(650000)).toBe('650.000')
-  expect(valorDeAlteracao('abc')).toBe('abc')
-  expect(valorDeAlteracao(['2025-11'])).toBe('["2025-11"]')
+  expect(valorDeAlteracao('elem.1', undefined)).toBe('—')
+  expect(valorDeAlteracao('elem.1', 'abc')).toBe('abc')
+  expect(valorDeAlteracao('nucleo.loja', ['13'])).toBe('["13"]')
+})
+it('formata a alteração pelo tipo da parte, sem arredondar a taxa', () => {
+  expect(valorDeAlteracao('nucleo.percentual', 0.0275)).toBe('2,75%')
+  expect(valorDeAlteracao('nucleo.percentual', 0.123456789)).toBe('12,3456789%')
+  expect(valorDeAlteracao('nucleo.orcamento', 650000)).toBe('R$ 650.000,00')
+  expect(valorDeAlteracao('nucleo.meta_venda', 28000000)).toBe('R$ 28.000.000,00')
+  expect(valorDeAlteracao('nucleo.campo_novo', 0.0275)).toBe('0,0275')
 })
 it('rotula situação, veredito e ação, com o valor cru como reserva', () => {
   expect(situacaoDoResultado('erro_codigo')).toBe('Erro no código')

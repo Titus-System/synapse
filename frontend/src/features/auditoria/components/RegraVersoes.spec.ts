@@ -4,6 +4,23 @@ import RegraVersoes from './RegraVersoes.vue'
 import { registroExemplo } from '../composables/registroAuditoria.fixture'
 
 describe('RegraVersoes', () => {
+  it('avisa a falha do resumo no lugar da comparação e pede nova tentativa', async () => {
+    const wrapper = mount(RegraVersoes, {
+      props: { registro: registroExemplo, erroResumo: 'Não foi possível carregar os registros.' },
+    })
+    const alerta = wrapper.get('[role="alert"][aria-label="Comparação de versões"]')
+    expect(alerta.text()).toContain('Não foi possível carregar os registros.')
+    await alerta.get('button').trigger('click')
+    expect(wrapper.emitted('tentar-novamente-resumo')).toHaveLength(1)
+  })
+
+  it('mostra o carregamento do resumo no lugar da comparação', () => {
+    const wrapper = mount(RegraVersoes, {
+      props: { registro: registroExemplo, carregandoResumo: true },
+    })
+    expect(wrapper.text()).toContain('Carregando a comparação de versões')
+  })
+
   it('mostra o reprodutor na entrada original por voz e pede o áudio dela', async () => {
     const wrapper = mount(RegraVersoes, { props: { registro: registroExemplo } })
 

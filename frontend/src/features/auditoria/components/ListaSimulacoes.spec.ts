@@ -67,6 +67,22 @@ describe('ListaSimulacoes', () => {
     expect(segunda).toContain('Versão 2')
   })
 
+  it('mostra o veredito das simulações com sucesso', () => {
+    const r = tres()
+    r.resultados[1]!.veredito = 'viavel'
+    const wrapper = mount(ListaSimulacoes, { props: { simulacoes: ligarSimulacoes(r) } })
+    expect(wrapper.get('[data-simulacao="2"] [data-veredito]').text()).toBe('Viável')
+    expect(wrapper.get('[data-simulacao="3"] [data-veredito]').text()).toBe('Sem veredito')
+    expect(wrapper.find('[data-simulacao="1"] [data-veredito]').exists()).toBe(false)
+  })
+
+  it('mostra os parâmetros da simulação com falha, sem totais', () => {
+    const primeira = montar().get('[data-simulacao="1"]').text()
+    expect(primeira).toContain('Competências: 2025-11')
+    expect(primeira).toContain('Orçamento: R$ 600.000,00')
+    expect(primeira).toContain('Meta de venda: R$ 28.000.000,00')
+  })
+
   it('emite a seleção e destaca a escolhida', async () => {
     const wrapper = montar('sim-3')
     expect(wrapper.get('[data-simulacao="3"]').text()).toContain('Selecionada')

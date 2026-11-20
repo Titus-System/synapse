@@ -200,8 +200,11 @@ watch(
         :registro="dados"
         :audios="audios"
         :resumo="resumo"
+        :carregando-resumo="carregandoResumo"
+        :erro-resumo="erroResumo"
         @ouvir-audio="ouvir"
         @falha-audio="falhouReproducao"
+        @tentar-novamente-resumo="carregarResumo"
       />
       <ConversaPython
         v-else-if="aba === 'conversa'"

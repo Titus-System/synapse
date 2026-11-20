@@ -12,9 +12,6 @@ import type { SimulacaoLigada } from '../composables/simulacoesDossie'
 import IdCopiavel from './IdCopiavel.vue'
 const props = defineProps<{ item: SimulacaoLigada }>()
 const nucleo = computed(() => props.item.versao?.representacao.nucleo)
-const competencias = computed(
-  () => (props.item.versao?.parametros?.competencias as string[] | undefined) ?? [],
-)
 const totais = computed(() =>
   props.item.resultado?.status === 'sucesso' ? props.item.resultado.totais : null,
 )
@@ -79,18 +76,18 @@ const quebras = computed(() => {
           </div>
           <div>
             <dt class="text-[#806b5d]">Competências</dt>
-            <dd class="font-semibold">{{ competencias.join(', ') || 'Não informadas' }}</dd>
+            <dd class="font-semibold">{{ item.parametros.competencias.join(', ') || 'Não informadas' }}</dd>
           </div>
           <div>
             <dt class="text-[#806b5d]">Orçamento</dt>
             <dd class="font-semibold">
-              {{ totais?.orcamento != null ? formatarReais(totais.orcamento) : 'Não informado' }}
+              {{ item.parametros.orcamento != null ? formatarReais(item.parametros.orcamento) : 'Não informado' }}
             </dd>
           </div>
           <div>
             <dt class="text-[#806b5d]">Meta de venda</dt>
             <dd class="font-semibold">
-              {{ item.resultado?.meta_venda != null ? formatarReais(item.resultado.meta_venda) : 'Não informada' }}
+              {{ item.parametros.meta_venda != null ? formatarReais(item.parametros.meta_venda) : 'Não informada' }}
             </dd>
           </div>
         </dl>
