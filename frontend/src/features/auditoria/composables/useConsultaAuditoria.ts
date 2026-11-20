@@ -6,7 +6,8 @@ export function useConsultaAuditoria<T>(
     | 'consultar_dossie'
     | 'listar_eventos_auditoria'
     | 'consultar_filtros_auditoria'
-    | 'listar_trilha_dossie',
+    | 'listar_trilha_dossie'
+    | 'consultar_resumo_dossie',
 ) {
   const dados = shallowRef<T>()
   const carregando = ref(false)

@@ -12,6 +12,7 @@ vi.mock('../services/auditoria.api', () => ({
   auditoriaApi: {
     listar: vi.fn<typeof auditoriaApi.listar>(),
     obter: vi.fn<typeof auditoriaApi.obter>(),
+    obterResumo: vi.fn<typeof auditoriaApi.obterResumo>(),
     listarEventos: vi.fn<typeof auditoriaApi.listarEventos>(),
     obterAudio: vi.fn<typeof auditoriaApi.obterAudio>(),
   },
@@ -22,6 +23,11 @@ beforeEach(() => {
   vi.spyOn(console, 'info').mockImplementation(() => undefined)
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
   vi.mocked(auditoriaApi.obter).mockResolvedValue(registroExemplo())
+  vi.mocked(auditoriaApi.obterResumo).mockResolvedValue({
+    simulacoes: { registradas: 0, sucesso: 0, falha: 0 },
+    versoes: [],
+    comparacoes: [],
+  })
   vi.mocked(auditoriaApi.listarEventos).mockResolvedValue(paginaEventosExemplo())
   vi.mocked(auditoriaApi.listar).mockResolvedValue({
     itens: [registroExemplo().job],
@@ -111,8 +117,8 @@ it('exibe HTML como texto, códigos e referências; abas não repetem consulta',
   expect(wrapper!.text()).toContain('loja = 13')
   expect(wrapper!.text()).toContain('marca = 10')
   expect(wrapper!.text()).toContain('cargo = 100')
-  expect(wrapper!.text()).toContain('Código codigo-1')
-  expect(wrapper!.text()).toContain('Entrada entrada-1')
+  expect(wrapper!.text()).toContain('Código 1')
+  expect(wrapper!.text()).toContain('Entrada inicial')
   expect(wrapper!.text()).toContain('09:00:00')
   await wrapper!
     .findAll('button')
@@ -197,12 +203,20 @@ it('mostra a trilha do job em ordem cronológica na aba de simulações', async 
   )
   const itens = wrapper!.findAll('ol[aria-label="Trilha cronológica"] li').map((li) => li.text())
   expect(itens).toHaveLength(3)
-  expect(itens[0]).toBe(
-    '03/11/202609:00:00Entrada · Entrada inicial · Textorh.outro · Registro entrada-1',
-  )
+  expect(itens[0]).toContain('03/11/202609:00:00Entrada · Entrada inicial · Texto')
+  expect(itens[0]).toContain('rh.outro')
+  expect(itens[0]).toContain('Copiar id')
+  expect(itens[0]).not.toContain('Registro entrada-1')
   expect(itens[1]).toContain('Simulação · Sucesso · Viável')
-  expect(itens[1]).toContain('Sistema · Registro resultado-1')
-  expect(itens[2]).toContain('Ação do usuário · Salvarrh.outro · Registro acao-1')
+  expect(itens[1]).toContain('Sistema')
+  expect(itens[1]).toContain('Copiar id')
+  expect(itens[2]).toContain('Ação do usuário · Salvar')
+  expect(itens[2]).toContain('rh.outro')
+  expect(itens[2]).toContain('Copiar id')
+  expect(
+    wrapper!.find('ol[aria-label="Trilha cronológica"] button[title="entrada-1"]').exists(),
+  ).toBe(true)
+  expect(wrapper!.text()).not.toContain('Registro entrada-1')
   expect(wrapper!.text()).not.toContain('Esta seção ainda não está disponível')
 })
 it('só consulta a trilha ao abrir a aba de simulações, uma vez por job', async () => {
@@ -311,4 +325,58 @@ it('mostra carregamento enquanto a consulta está pendente', async () => {
   vi.mocked(auditoriaApi.listar).mockImplementation(() => new Promise(() => undefined))
   await abrir()
   expect(wrapper!.get('[role="status"]').text()).toContain('Carregando dossiês')
+})
+it('registra a falha do resumo sem derrubar o dossiê e permite tentar novamente', async () => {
+  vi.mocked(auditoriaApi.obterResumo).mockRejectedValueOnce(
+    new HttpError(403, 'segredo', { code: 'sem_permissao' }),
+  )
+  await abrir('/auditoria/dossies/job-1?aba=simulacoes')
+  await flushPromises()
+  expect(wrapper!.text()).toContain('Comissão de novembro')
+  expect(wrapper!.text()).toContain('Acesso negado')
+  const linha = JSON.parse(vi.mocked(console.error).mock.calls[0]![0] as string)
+  expect(linha).toMatchObject({
+    level: 'ERROR',
+    job_id: 'job-1',
+    extra: { operacao: 'consultar_resumo_dossie', codigo: 'sem_permissao', resultado: 'falha' },
+  })
+  expect(JSON.stringify(linha)).not.toContain('segredo')
+  await wrapper!
+    .findAll('button')
+    .find((b) => b.text() === 'Tentar novamente')!
+    .trigger('click')
+  await flushPromises()
+  expect(wrapper!.find('[data-contadores]').exists()).toBe(true)
+})
+it('avisa a falha do resumo na aba da regra e mostra a comparação ao tentar de novo', async () => {
+  vi.mocked(auditoriaApi.obterResumo).mockRejectedValueOnce(new Error('rede'))
+  vi.mocked(auditoriaApi.obterResumo).mockResolvedValueOnce({
+    simulacoes: { registradas: 0, sucesso: 0, falha: 0 },
+    versoes: [
+      { id: 'v1', numero: 1, alteracoes: [] },
+      {
+        id: 'v2',
+        numero: 2,
+        regra_origem_id: 'v1',
+        alteracoes: [{ elemento_ref: 'nucleo.percentual', anterior: 0.03, novo: 0.0275 }],
+      },
+    ],
+    comparacoes: [],
+  })
+  await abrir('/auditoria/dossies/job-1')
+  await flushPromises()
+  const alerta = wrapper!.get('[role="alert"][aria-label="Comparação de versões"]')
+  expect(alerta.text()).toContain('Não foi possível carregar os registros')
+  const linha = JSON.parse(vi.mocked(console.error).mock.calls[0]![0] as string)
+  expect(linha).toMatchObject({
+    job_id: 'job-1',
+    extra: { operacao: 'consultar_resumo_dossie', codigo: 'indisponivel', resultado: 'falha' },
+  })
+  await alerta.get('button').trigger('click')
+  await flushPromises()
+  expect(auditoriaApi.obterResumo).toHaveBeenCalledTimes(2)
+  expect(wrapper!.find('[role="alert"][aria-label="Comparação de versões"]').exists()).toBe(false)
+  const comparacao = wrapper!.get('[data-alteracao="nucleo.percentual"]').text()
+  expect(comparacao).toContain('3%')
+  expect(comparacao).toContain('2,75%')
 })

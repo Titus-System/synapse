@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IdCopiavel from './IdCopiavel.vue'
 import {
   diaAuditoria,
   horaAuditoria,
@@ -70,8 +71,13 @@ function titulo(evento: EventoAuditoria) {
           >
           <div class="min-w-0">
             <p class="font-semibold text-[#2e1a10]">{{ titulo(evento) }}</p>
-            <p class="mt-1 break-all text-xs text-[#806b5d]">
-              {{ quemFezOEvento(evento) }} · Registro {{ evento.origem_id }}
+            <p class="mt-1 text-xs text-[#806b5d]">
+              {{ quemFezOEvento(evento) }} ·
+              <IdCopiavel
+                :id="evento.origem_id"
+                :rotulo="`do registro de ${tipoDoEvento(evento.tipo).toLowerCase()}`"
+                somente-botao
+              />
             </p>
           </div>
         </li>

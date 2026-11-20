@@ -35,11 +35,17 @@ export interface AudioEntrada {
 }
 /** Áudios pedidos no dossiê, pelo id da entrada; a entrada ausente ainda não foi pedida. */
 export type AudiosEntradas = Readonly<Record<string, AudioEntrada>>
+/** `contracts/domain/parametros-simulacao.schema.json`; campo ausente é parâmetro não dito. */
+export interface ParametrosVersaoAuditoria {
+  orcamento?: number
+  meta_venda?: number
+  competencias?: string[]
+}
 export interface VersaoAuditoria extends RegraVersionada {
   hash: string
   regra_origem_id?: string
   tentativa?: number
-  parametros?: Record<string, unknown>
+  parametros?: ParametrosVersaoAuditoria
 }
 export interface CodigoAuditoria {
   id: string
@@ -89,12 +95,91 @@ export interface RegistroAuditoria {
   }[]
   rodadas: RodadaAuditoria[]
   chamadas_modelo: ChamadaModeloAuditoria[]
-  resultados: Record<string, unknown>[]
-  simulacoes: Record<string, unknown>[]
+  resultados: ResultadoAuditoria[]
+  simulacoes: SimulacaoAuditoria[]
+  acoes: AcaoAuditoria[]
+  sugestoes_meta: SugestaoMetaAuditoria[]
   transicoes: Record<string, unknown>[]
-  acoes: Record<string, unknown>[]
-  sugestoes_meta: Record<string, unknown>[]
   explicacoes: Record<string, unknown>[]
+}
+export interface TotaisAuditoria {
+  baseline: number
+  simulado: number
+  diferenca_abs: number
+  diferenca_pct: number
+  orcamento?: number
+  vendas_historicas?: number
+}
+export type QuebraAuditoria = Record<string, number>
+export interface DecomposicaoAuditoria {
+  elemento: QuebraAuditoria
+  loja: QuebraAuditoria
+  marca: QuebraAuditoria
+  cargo: QuebraAuditoria
+  competencia: QuebraAuditoria
+}
+export interface ResultadoAuditoria {
+  id: string
+  codigo_gerado_id: string
+  status: StatusResultado
+  proposito: 'simulacao' | 'busca_meta'
+  veredito?: Veredito | null
+  meta_venda?: number
+  totais?: TotaisAuditoria | null
+  decomposicao?: DecomposicaoAuditoria | null
+  criado_em: string
+}
+export interface SimulacaoAuditoria {
+  id: string
+  regra_id: string
+  codigo_gerado_id: string
+  resultado_id?: string
+  flag_baixa_rastreabilidade: boolean
+  criado_em: string
+}
+export interface AcaoAuditoria {
+  id: string
+  acao: AcaoJob
+  executado_em: string
+}
+export interface SugestaoMetaAuditoria {
+  regra_id: string
+  resultado_id?: string
+  motivo_sem_solucao?: string
+  criada_em: string
+  aceita_em?: string
+}
+export interface ComparacaoIndicador {
+  anterior: number
+  atual: number
+  variacao: number
+}
+export interface ComparacaoSimulacao {
+  resultado_id: string
+  resultado_anterior_id: string
+  baseline: ComparacaoIndicador
+  simulado: ComparacaoIndicador
+  diferenca_abs: ComparacaoIndicador
+  diferenca_pct: ComparacaoIndicador
+  orcamento?: ComparacaoIndicador
+  meta_venda?: ComparacaoIndicador
+}
+export interface AlteracaoVersao {
+  elemento_ref: string
+  anterior?: unknown
+  novo?: unknown
+}
+export interface VersaoResumo {
+  id: string
+  numero: number
+  regra_origem_id?: string
+  alteracoes: AlteracaoVersao[]
+}
+export interface ResumoDossie {
+  simulacoes: { registradas: number; sucesso: number; falha: number }
+  versao_vigente?: number
+  versoes: VersaoResumo[]
+  comparacoes: ComparacaoSimulacao[]
 }
 export type AbaDossie = 'regra' | 'conversa' | 'simulacoes'
 export type TipoEventoAuditoria =

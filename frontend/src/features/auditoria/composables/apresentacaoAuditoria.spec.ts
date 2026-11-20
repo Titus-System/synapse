@@ -2,13 +2,21 @@ import { expect, it } from 'vitest'
 import { eventoExemplo } from '../auditoria.fixture'
 import {
   abaDoEvento,
+  acaoDeFinalizacao,
+  campoDaRegra,
   diaAuditoria,
   horaAuditoria,
+  idCurto,
   mesAuditoria,
+  percentualAuditoria,
   quemFezOEvento,
   seloDoStatus,
+  sinalAuditoria,
   situacaoDoEvento,
+  situacaoDoResultado,
   tipoDoEvento,
+  valorDeAlteracao,
+  vereditoAuditoria,
 } from './apresentacaoAuditoria'
 import type { TipoEventoAuditoria } from '../types'
 it.each([
@@ -68,4 +76,42 @@ it('colore o selo pelo status que a API devolveu', () => {
   expect(seloDoStatus('liberado')).toContain('text-[#22683a]')
   expect(seloDoStatus('erro')).toContain('text-[#b42318]')
   expect(seloDoStatus('simulando')).toContain('text-[#644b3e]')
+})
+it('formata fração como percentual', () => {
+  expect(percentualAuditoria(0.0778)).toBe('7,78%')
+})
+it('põe sinal só na variação positiva', () => {
+  expect(sinalAuditoria('R$ 1,00', 1)).toBe('+R$ 1,00')
+  expect(sinalAuditoria('R$ 0,00', 0)).toBe('R$ 0,00')
+  expect(sinalAuditoria('-R$ 1,00', -1)).toBe('-R$ 1,00')
+})
+it('formata o valor de uma alteração sem inferir', () => {
+  expect(valorDeAlteracao('elem.1', undefined)).toBe('—')
+  expect(valorDeAlteracao('elem.1', 'abc')).toBe('abc')
+  expect(valorDeAlteracao('nucleo.loja', ['13'])).toBe('["13"]')
+})
+it('formata a alteração pelo tipo da parte, sem arredondar a taxa', () => {
+  expect(valorDeAlteracao('nucleo.percentual', 0.0275)).toBe('2,75%')
+  expect(valorDeAlteracao('nucleo.percentual', 0.123456789)).toBe('12,3456789%')
+  expect(valorDeAlteracao('nucleo.orcamento', 650000)).toBe('R$ 650.000,00')
+  expect(valorDeAlteracao('nucleo.meta_venda', 28000000)).toBe('R$ 28.000.000,00')
+  expect(valorDeAlteracao('nucleo.campo_novo', 0.0275)).toBe('0,0275')
+})
+it('rotula situação, veredito e ação, com o valor cru como reserva', () => {
+  expect(situacaoDoResultado('erro_codigo')).toBe('Erro no código')
+  expect(situacaoDoResultado()).toBe('Sem resultado')
+  expect(vereditoAuditoria('viavel')).toBe('Viável')
+  expect(vereditoAuditoria(null)).toBe('Sem veredito')
+  expect(acaoDeFinalizacao('salvar')).toBe('Salvar')
+  expect(acaoDeFinalizacao('nova')).toBe('nova')
+})
+it('dá nome legível às partes da regra e mantém o desconhecido como veio', () => {
+  expect(campoDaRegra('nucleo.meta_venda')).toBe('Meta de venda')
+  expect(campoDaRegra('nucleo.orcamento')).toBe('Orçamento')
+  expect(campoDaRegra('elem.2')).toBe('Condição 2')
+  expect(campoDaRegra('nucleo.campo_novo')).toBe('nucleo.campo_novo')
+})
+it('abrevia só ids longos', () => {
+  expect(idCurto('0bbc1cae-da75-5fe0-ab91-52240a99454c')).toBe('0bbc1cae…')
+  expect(idCurto('sim-1')).toBe('sim-1')
 })

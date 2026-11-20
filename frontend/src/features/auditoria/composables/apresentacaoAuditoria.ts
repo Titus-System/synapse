@@ -1,3 +1,4 @@
+import { formatarReais } from '@/composables/apresentacaoDetalhamento'
 import type { StatusJob } from '@/types/api'
 import type { AbaDossie, EventoAuditoria, TipoEventoAuditoria } from '../types'
 export function dataAuditoria(valor?: string): string {
@@ -129,4 +130,82 @@ const SELOS_DE_STATUS: Partial<Record<StatusJob, string>> = {
 }
 export function seloDoStatus(status: StatusJob): string {
   return SELOS_DE_STATUS[status] ?? 'bg-[#fff0e9] text-[#644b3e]'
+}
+/** Fração (0,0778) como percentual pt-BR (7,78%). */
+export function percentualAuditoria(fracao: number): string {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'percent',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(fracao)
+}
+/** Variação com sinal explícito; o valor já vem calculado do resumo. */
+export function sinalAuditoria(texto: string, valor: number): string {
+  return valor > 0 ? `+${texto}` : texto
+}
+// Sem `maximumFractionDigits`, o Intl arredonda em 3 casas: a taxa 0,0275 viraria 0,028.
+const PERCENTUAL_SEM_CORTE = new Intl.NumberFormat('pt-BR', {
+  style: 'percent',
+  maximumFractionDigits: 20,
+})
+const NUMERO_SEM_CORTE = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 20 })
+const PARTES_EM_REAIS = new Set(['nucleo.orcamento', 'nucleo.meta_venda'])
+/** Valor de `anterior`/`novo` de uma alteração, formatado pelo tipo da parte; o resto como texto. */
+export function valorDeAlteracao(ref: string, valor: unknown): string {
+  if (valor === undefined) return '—'
+  if (typeof valor === 'number') {
+    if (ref === 'nucleo.percentual') return PERCENTUAL_SEM_CORTE.format(valor)
+    if (PARTES_EM_REAIS.has(ref)) return formatarReais(valor)
+    return NUMERO_SEM_CORTE.format(valor)
+  }
+  if (typeof valor === 'string') return valor
+  return JSON.stringify(valor)
+}
+const SITUACAO_RESULTADO: Record<string, string> = {
+  sucesso: 'Concluída',
+  assercao_violada: 'Asserção violada',
+  erro_codigo: 'Erro no código',
+  erro_infra: 'Erro de infraestrutura',
+}
+export function situacaoDoResultado(status?: string): string {
+  return status ? (SITUACAO_RESULTADO[status] ?? status) : 'Sem resultado'
+}
+const ACOES_FINALIZACAO: Record<string, string> = {
+  confirmar_liberar: 'Confirmar e liberar',
+  salvar: 'Salvar',
+  arquivar: 'Arquivar',
+  cancelar: 'Cancelar',
+  aceitar_meta: 'Aceitar meta',
+}
+export function acaoDeFinalizacao(acao: string): string {
+  return ACOES_FINALIZACAO[acao] ?? acao
+}
+const VEREDITOS: Record<string, string> = {
+  viavel: 'Viável',
+  inviavel: 'Inviável',
+  indeterminado: 'Indeterminado',
+}
+export function vereditoAuditoria(veredito?: string | null): string {
+  return veredito ? (VEREDITOS[veredito] ?? veredito) : 'Sem veredito'
+}
+/** Id longo (UUID e afins) vira um rótulo curto; o completo fica no title e na cópia. */
+export function idCurto(id: string): string {
+  return id.length > 12 ? `${id.slice(0, 8)}…` : id
+}
+const CAMPOS_DA_REGRA: Record<string, string> = {
+  'nucleo.orcamento': 'Orçamento',
+  'nucleo.meta_venda': 'Meta de venda',
+  'nucleo.competencias': 'Competências',
+  'nucleo.percentual': 'Percentual de comissão',
+  'nucleo.taxas_por_cargo': 'Taxas de comissão por cargo',
+  'nucleo.vigencia': 'Vigência',
+  'nucleo.loja': 'Lojas (códigos)',
+  'nucleo.marca': 'Marcas (códigos)',
+  'nucleo.cargo': 'Cargos (códigos)',
+}
+/** Nome legível de uma parte da regra; valor desconhecido aparece como veio. */
+export function campoDaRegra(ref: string): string {
+  const condicao = /^elem\.(\d+)$/.exec(ref)
+  if (condicao) return `Condição ${condicao[1]}`
+  return CAMPOS_DA_REGRA[ref] ?? ref
 }
