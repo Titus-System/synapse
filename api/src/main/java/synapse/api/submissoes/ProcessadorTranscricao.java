@@ -219,12 +219,12 @@ class ProcessadorTranscricao {
 				return Desfecho.falha("permanente", "falhou_permanente");
 			}
 			var audio = gravados.getFirst();
-			String texto = this.cliente.transcrever(audio.bytes(), "audio/" + audio.formato(),
+			TranscricaoObtida obtida = this.cliente.transcrever(audio.bytes(), "audio/" + audio.formato(),
 					trabalho.respostaInvalida());
-			if (EntradaSubmissao.semConteudo(texto)) {
+			if (EntradaSubmissao.semConteudo(obtida.texto())) {
 				return Desfecho.falha("texto_vazio", "texto_vazio");
 			}
-			return Desfecho.sucesso(texto);
+			return Desfecho.sucesso(obtida);
 		}
 		catch (TranscricaoTransitoriaException ex) {
 			return new Desfecho(null, "transitoria", "falhou_transitoria", ex.prazoParaNovaTentativa(),
@@ -262,8 +262,8 @@ class ProcessadorTranscricao {
 		boolean correcao = trabalho.finalidade() == FinalidadeTrabalho.CORRECAO;
 		UUID jobId = trabalho.jobId();
 		UUID submissaoId = trabalho.submissaoId();
-		String texto = desfecho.texto;
-		if (texto == null) {
+		TranscricaoObtida obtida = desfecho.obtida;
+		if (obtida == null) {
 			if ("transitoria".equals(desfecho.classeDoMotivo)
 					&& trabalho.tentativas() < this.properties.maxAttempts()) {
 				boolean aguardando = correcao ? this.jobs.aguardandoTranscricaoDaCorrecao(jobId, submissaoId)
@@ -287,17 +287,17 @@ class ProcessadorTranscricao {
 			this.repository.encerrarTrabalho(trabalho.id(), "descartado", agora);
 			return Resultado.DESCARTADA;
 		}
-		this.repository.gravarTranscricao(submissaoId, texto, agora);
+		this.repository.gravarTranscricao(submissaoId, obtida, agora);
 		this.repository.encerrarTrabalho(trabalho.id(), "concluido", agora);
 		return Resultado.CONCLUIDA;
 	}
 
-	/** O que a chamada ao provedor produziu: o texto, ou a classe da falha. */
-	private record Desfecho(@Nullable String texto, String classeDoMotivo, String medidaDaChamada, Duration prazo,
-			boolean respostaInvalida, int tentativa) {
+	/** O que a chamada ao provedor produziu: a transcrição, ou a classe da falha. */
+	private record Desfecho(@Nullable TranscricaoObtida obtida, String classeDoMotivo, String medidaDaChamada,
+			Duration prazo, boolean respostaInvalida, int tentativa) {
 
-		private static Desfecho sucesso(String texto) {
-			return new Desfecho(texto, "nenhum", "concluida", Duration.ZERO, false, 0);
+		private static Desfecho sucesso(TranscricaoObtida obtida) {
+			return new Desfecho(obtida, "nenhum", "concluida", Duration.ZERO, false, 0);
 		}
 
 		private static Desfecho falha(String classeDoMotivo, String medidaDaChamada) {

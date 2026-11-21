@@ -16,6 +16,7 @@ const mensagensPorCodigo: Record<CodigoErro, string> = {
   regra_incoerente: 'Existem informações conflitantes na regra. Revise os campos indicados.',
   audio_invalido: 'Não foi possível usar a gravação. Grave o áudio novamente.',
   audio_muito_grande: 'A gravação ficou grande demais. Grave um áudio mais curto.',
+  entrada_nao_encontrada: 'Não foi possível encontrar a entrada solicitada.',
 }
 
 export function mensagemDoCodigo(codigo: CodigoErro | undefined): string | undefined {
@@ -32,6 +33,11 @@ const nomesDeCampo: Record<string, string> = {
   'nucleo.percentual': 'Percentual de comissionamento',
   competencias: 'Competências',
   orcamento: 'Orçamento',
+}
+
+export interface RespostaBinaria {
+  conteudo: Blob
+  tipo: string
 }
 
 export interface FieldError {
@@ -222,6 +228,17 @@ export const http = {
       throw new HttpError(0, 'Não foi possível acompanhar o processamento. Tente novamente.')
     }
     return response.body
+  },
+  async binario(path: string, signal?: AbortSignal): Promise<RespostaBinaria> {
+    // Um erro chega em JSON mesmo quando o corpo esperado é binário; restringir o Accept faria o servidor recusá-lo.
+    const response = await enviar(construirUrl(path), {
+      method: 'GET',
+      headers: { Accept: '*/*' },
+      cache: 'no-store',
+      signal,
+    })
+    const tipo = response.headers.get('content-type')?.split(';')[0]?.trim() ?? ''
+    return { conteudo: await response.blob(), tipo }
   },
   url(path: string) {
     return construirUrl(path)

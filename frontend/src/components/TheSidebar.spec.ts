@@ -137,7 +137,7 @@ describe('TheSidebar', () => {
     expect(conteiner.text()).toContain('Nova Regra')
     expect(conteiner.text()).toContain('Regra · 17/09/2026')
     expect(conteiner.text()).toContain('Salvas2')
-    expect(conteiner.text()).toContain('Arquivadas1')
+    expect(conteiner.find('a[href="/arquivadas"]').exists()).toBe(false)
     expect(conteiner.findAll('li')).toHaveLength(2)
     expect(conteiner.find('[role="status"]').exists()).toBe(false)
   })
@@ -219,7 +219,7 @@ describe('TheSidebar', () => {
     expect(linksDeRegras(conteiner)).toHaveLength(3)
   })
 
-  it('rola só a lista de regras e mantém Salvas e Arquivadas sempre à vista', async () => {
+  it('rola só a lista de regras e mantém Salvas sempre à vista', async () => {
     servir(criarJobs(30))
     const conteiner = await montar()
 
@@ -235,7 +235,20 @@ describe('TheSidebar', () => {
     const conteiner = await montar({ secaoAtiva: 'arquivadas' })
 
     expect(conteiner.get('a[href="/salvas"]').text()).toContain('Salvas')
-    expect(conteiner.get('a[href="/arquivadas"]').classes()).toContain('bg-[#4d3125]')
+    expect(conteiner.find('a[href="/arquivadas"]').exists()).toBe(false)
+  })
+
+  it('no repositório usa os totais recebidos e não busca os recentes', async () => {
+    const conteiner = await montar({
+      repositorio: true,
+      quantidadeSalvas: 14,
+      quantidadeArquivadas: 9,
+    })
+    expect(apiClient.listarJobs).not.toHaveBeenCalled()
+    expect(conteiner.text()).not.toContain('Recentes')
+    expect(conteiner.get('a[href="/salvas"]').text()).toContain('14')
+    expect(conteiner.text()).toContain('Total Catalogado14')
+    conteiner.unmount()
   })
 
   it('mantém o nome longo em uma linha, com reticências e o nome completo no title', async () => {

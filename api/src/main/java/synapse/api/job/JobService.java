@@ -117,9 +117,10 @@ class JobService {
 	 */
 	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 	PaginaJobsDto listar(ListarJobsRequisicao requisicao, AcessoDoUsuario acesso) {
-		long total = this.repository.contarJobs(acesso.usuarioId());
+		String status = requisicao.situacao() == null ? null : requisicao.situacao().status().paraColuna();
+		long total = this.repository.contarJobs(acesso.usuarioId(), status);
 		List<JobResumoDto> itens = this.repository.listarJobs(acesso.usuarioId(), requisicao.tamanho(),
-				requisicao.deslocamento());
+				requisicao.deslocamento(), status);
 		return new PaginaJobsDto(itens, requisicao.pagina(), requisicao.tamanho(), total);
 	}
 
@@ -448,8 +449,9 @@ class JobService {
 		}
 		this.maquina.registrarCriacao(jobId, status, "usuario");
 		RegraCriadaDto regra = this.repository.copiarRegra(jobId, regras.getFirst(), timestamp, agora);
-		this.outbox.registrar(jobId, EventoOutbox.REGRA_SUBMETIDA, new RegraSubmetidaDto(jobId, "reprocessamento",
-				competencias, orcamento, origem.metaVenda(), null, regra.id()));
+		// Nenhum evento é publicado aqui: o job espera em
+		// aguardando_confirmacao_parametros e o
+		// único ciclo de simulação é aberto por parametros-confirmados, na confirmação.
 		return new JobCriadoDto(jobId, status.paraColuna(), "reprocessamento", competencias, orcamento, agora, null,
 				origemId, regra);
 	}

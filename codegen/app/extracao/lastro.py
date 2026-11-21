@@ -1,11 +1,25 @@
 """Conferências determinísticas do trecho original, independentes da resposta do modelo."""
 
 import re
-import unicodedata
 from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from itertools import pairwise
+
+from app.numeros import (
+    FRACAO_ANTES,
+    FRACAO_DEPOIS,
+    MOEDA_ANTES,
+    MOEDA_DEPOIS,
+    NUMERO,
+    POR_EXTENSO,
+    aplicar_grandeza,
+    decimal_pt,
+    normalizar,
+    numeros_por_extenso,
+)
+
+__all__ = ["normalizar", "numeros_por_extenso"]
 
 _MESES = (
     "janeiro",
@@ -21,21 +35,6 @@ _MESES = (
     "novembro",
     "dezembro",
 )
-_NUMERO = re.compile(r"(?<![\w])[-+]?(?:\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[,.]\d+)?)(?![\w])")
-_FRACAO_ANTES = re.compile(r"\bfra[cç][aã]o(?:\s+decimal)?(?:\s+de)?\s*[:=]?\s*$", re.IGNORECASE)
-_FRACAO_DEPOIS = re.compile(
-    r"\s*(?:(?:em|como)\s+fra[cç][aã]o(?:\s+decimal)?\b|\(\s*fra[cç][aã]o(?:\s+decimal)?\s*\))",
-    re.IGNORECASE,
-)
-_MOEDA_ANTES = re.compile(r"r\$\s*\)?\s*$", re.IGNORECASE)
-_MOEDA_DEPOIS = re.compile(r"\s*\(?\s*(?:r\$|(?:real|reais|centavos?)\b)", re.IGNORECASE)
-_POR_EXTENSO = re.compile(
-    r"\b(zero|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|"
-    r"onze|doze|treze|catorze|quatorze|quinze|dezesseis|dezessete|dezoito|"
-    r"dezenove|vinte|trinta|quarenta|cinquenta|sessenta|setenta|oitenta|noventa|"
-    r"cem|cento|duzentos|trezentos|quatrocentos|quinhentos|seiscentos|"
-    r"setecentos|oitocentos|novecentos|mil|milhao|milhoes|meio|meia)\b"
-)
 _COMPETENCIA = re.compile(r"(?<!\d)(\d{4})-(0[1-9]|1[0-2])(?!\d)")
 _COMPETENCIA_BR = re.compile(r"(?<!\d)(0?[1-9]|1[0-2])/(19\d{2}|20\d{2})(?!\d)")
 _MES = re.compile(r"\b(" + "|".join(_MESES) + r")\b")
@@ -43,125 +42,6 @@ _ANO = re.compile(r"\b(?:19|20)\d{2}\b")
 _DATA_ISO = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
 _DATA_BR = re.compile(r"(?<!\d)(\d{1,2})/(\d{1,2})(?:/(\d{4}))?(?![\d/])")
 _DATA_EXTENSO = re.compile(r"(?<!\d)(\d{1,2}) de (" + "|".join(_MESES) + r")(?: de (\d{4}))?(?!\d)")
-
-
-def normalizar(texto: str) -> str:
-    sem_acentos = "".join(
-        caractere
-        for caractere in unicodedata.normalize("NFKD", texto)
-        if not unicodedata.combining(caractere)
-    )
-    return re.sub(r"\s+", " ", re.sub(r"[^\w]+", " ", sem_acentos.casefold())).strip()
-
-
-_UNIDADES = {
-    "zero": 0,
-    "um": 1,
-    "uma": 1,
-    "dois": 2,
-    "duas": 2,
-    "tres": 3,
-    "quatro": 4,
-    "cinco": 5,
-    "seis": 6,
-    "sete": 7,
-    "oito": 8,
-    "nove": 9,
-}
-_DEZ_A_DEZENOVE = {
-    "dez": 10,
-    "onze": 11,
-    "doze": 12,
-    "treze": 13,
-    "catorze": 14,
-    "quatorze": 14,
-    "quinze": 15,
-    "dezesseis": 16,
-    "dezessete": 17,
-    "dezoito": 18,
-    "dezenove": 19,
-}
-_DEZENAS = {
-    "vinte": 20,
-    "trinta": 30,
-    "quarenta": 40,
-    "cinquenta": 50,
-    "sessenta": 60,
-    "setenta": 70,
-    "oitenta": 80,
-    "noventa": 90,
-}
-_CENTENAS = {
-    "cento": 100,
-    "duzentos": 200,
-    "duzentas": 200,
-    "trezentos": 300,
-    "trezentas": 300,
-    "quatrocentos": 400,
-    "quatrocentas": 400,
-    "quinhentos": 500,
-    "quinhentas": 500,
-    "seiscentos": 600,
-    "seiscentas": 600,
-    "setecentos": 700,
-    "setecentas": 700,
-    "oitocentos": 800,
-    "oitocentas": 800,
-    "novecentos": 900,
-    "novecentas": 900,
-}
-_GRANDEZAS = frozenset({"mil", "milhao", "milhoes", "bilhao", "bilhoes"})
-
-
-def _ate_noventa_e_nove(palavras: Sequence[str], inicio: int) -> tuple[int, int] | None:
-    palavra = palavras[inicio]
-    if palavra in _DEZENAS:
-        fim = inicio + 1
-        if fim + 1 < len(palavras) and palavras[fim] == "e" and _UNIDADES.get(palavras[fim + 1]):
-            return _DEZENAS[palavra] + _UNIDADES[palavras[fim + 1]], fim + 2
-        return _DEZENAS[palavra], fim
-    if palavra in _DEZ_A_DEZENOVE:
-        return _DEZ_A_DEZENOVE[palavra], inicio + 1
-    if palavra in _UNIDADES:
-        return _UNIDADES[palavra], inicio + 1
-    return None
-
-
-def _numero_por_extenso(palavras: Sequence[str], inicio: int) -> tuple[int, int] | None:
-    palavra = palavras[inicio]
-    if palavra == "cem":
-        return 100, inicio + 1
-    if palavra in _CENTENAS:
-        fim = inicio + 1
-        if fim + 1 < len(palavras) and palavras[fim] == "e":
-            resto = _ate_noventa_e_nove(palavras, fim + 1)
-            if resto is not None and resto[0] > 0:
-                return _CENTENAS[palavra] + resto[0], resto[1]
-        return _CENTENAS[palavra], fim
-    return _ate_noventa_e_nove(palavras, inicio)
-
-
-def numeros_por_extenso(texto: str) -> set[int]:
-    """Os números de 0 a 999 escritos por extenso no texto.
-
-    A transcrição de voz escreve os números por extenso (ADR-007), e um código de loja, marca
-    ou cargo dito pelo usuário chega como "loja sessenta e oito". A leitura composta tem
-    prioridade, como no português falado: "sessenta e oito" é 68, e um "e" que não compõe
-    separa números, então "treze e cinquenta e oito" é 13 e 58. Um número seguido de "mil" ou
-    "milhão" é uma grandeza, e não um código.
-    """
-    palavras = normalizar(texto).split()
-    numeros: set[int] = set()
-    indice = 0
-    while indice < len(palavras):
-        lido = _numero_por_extenso(palavras, indice)
-        if lido is None:
-            indice += 1
-            continue
-        valor, indice = lido
-        if indice >= len(palavras) or palavras[indice] not in _GRANDEZAS:
-            numeros.add(valor)
-    return numeros
 
 
 def trecho_literal(texto: str, trecho: object) -> bool:
@@ -185,25 +65,17 @@ def restaurar_trechos_literais(valor: object, texto: str) -> None:
 
 
 def numeros_citados(texto: str) -> set[str]:
-    return {ocorrencia.group() for ocorrencia in _NUMERO.finditer(texto)}
-
-
-def _decimal(numero: str) -> Decimal:
-    if "," in numero:
-        numero = numero.replace(".", "").replace(",", ".")
-    elif re.fullmatch(r"[-+]?\d{1,3}(?:\.\d{3})+", numero):
-        numero = numero.replace(".", "")
-    return Decimal(numero)
+    return {ocorrencia.group() for ocorrencia in NUMERO.finditer(texto)}
 
 
 def _numero_monetario(texto: str, trecho: str, numero: re.Match[str]) -> bool:
     for evidencia in re.finditer(re.escape(trecho), texto):
         antes = texto[: evidencia.start() + numero.start()]
         depois = texto[evidencia.start() + numero.end() :]
-        indicacao_fracao = _FRACAO_DEPOIS.match(depois)
+        indicacao_fracao = FRACAO_DEPOIS.match(depois)
         if indicacao_fracao is not None:
             depois = depois[indicacao_fracao.end() :]
-        if _MOEDA_ANTES.search(antes) or _MOEDA_DEPOIS.match(depois):
+        if MOEDA_ANTES.search(antes) or MOEDA_DEPOIS.match(depois):
             return True
     return False
 
@@ -225,18 +97,18 @@ def conferir_numero(
     except (ValueError, InvalidOperation, TypeError):
         return False
     assert isinstance(trecho, str)
-    ocorrencias = list(_NUMERO.finditer(trecho))
+    ocorrencias = list(NUMERO.finditer(trecho))
     if not ocorrencias:
         if exigir_marcador_percentual:
             for marcador in re.finditer(r"%|\bpor\s+cento\b", trecho, flags=re.IGNORECASE):
                 palavras = normalizar(trecho[: marcador.start()]).split()
-                if palavras and _POR_EXTENSO.fullmatch(palavras[-1]):
+                if palavras and POR_EXTENSO.fullmatch(palavras[-1]):
                     return True
             return False
         # Número por extenso: somente a existência literal é verificável (T-210).
-        return bool(_POR_EXTENSO.search(normalizar(trecho)))
+        return bool(POR_EXTENSO.search(normalizar(trecho)))
     for ocorrencia in ocorrencias:
-        encontrado = _decimal(ocorrencia.group())
+        encontrado = decimal_pt(ocorrencia.group())
         if percentual:
             if exigir_marcador_percentual and _numero_monetario(texto, trecho, ocorrencia):
                 continue
@@ -248,18 +120,14 @@ def conferir_numero(
                 if (
                     antes.endswith("/")
                     or depois.startswith("/")
-                    or not (_FRACAO_ANTES.search(antes) or _FRACAO_DEPOIS.match(depois))
+                    or not (FRACAO_ANTES.search(antes) or FRACAO_DEPOIS.match(depois))
                 ):
                     continue
                 # A fração explícita pode usar ponto decimal, como 0.025, sem agrupar milhares.
                 if re.fullmatch(r"[-+]?\d+\.\d+", ocorrencia.group()):
                     encontrado = Decimal(ocorrencia.group())
         else:
-            resto = normalizar(trecho[ocorrencia.end() :])
-            if resto.startswith(("milhao", "milhoes")):
-                encontrado *= 1_000_000
-            elif resto.startswith("mil"):
-                encontrado *= 1_000
+            encontrado = aplicar_grandeza(encontrado, trecho[ocorrencia.end() :])
         if encontrado == esperado:
             return True
     return False

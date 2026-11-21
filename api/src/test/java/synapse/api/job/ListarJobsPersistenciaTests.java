@@ -21,6 +21,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.json.JsonMapper;
@@ -52,6 +54,7 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Sobe um Postgres real e executa {@link JobService} como {@code synapse_api}, o que
@@ -76,6 +79,8 @@ class ListarJobsPersistenciaTests {
 	private static JobService service;
 
 	private static MockMvc mvc;
+
+	private static UsuarioAtual usuarioAtual;
 
 	static boolean dockerIsAvailable() {
 		return DockerClientFactory.instance().isDockerAvailable();
@@ -112,14 +117,14 @@ class ListarJobsPersistenciaTests {
 		contexto.register(Config.class);
 		contexto.refresh();
 		service = contexto.getBean(JobService.class);
-		UsuarioAtual usuarioAtual = mock(UsuarioAtual.class);
+		usuarioAtual = mock(UsuarioAtual.class);
 		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
 		mvc = MockMvcBuilders
 			.standaloneSetup(new JobController(service, mock(EmissoresSse.class), new CorrelationContext(),
 					org.mockito.Mockito.mock(synapse.api.core.metrics.AppMetrics.class)))
 			.addInterceptors(new AutorizacaoJobsInterceptor(usuarioAtual,
 					new AutorizadorDeJob(contexto.getBean(JobRepository.class))))
-			.setControllerAdvice(contexto.getBean(JobAdvice.class))
+			.setControllerAdvice(contexto.getBean(JobAdvice.class), new AutorizacaoDeJobAdvice())
 			.build();
 	}
 
@@ -136,6 +141,7 @@ class ListarJobsPersistenciaTests {
 	@BeforeEach
 	void limpar() {
 		dono.execute("TRUNCATE jobs CASCADE");
+		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
 	}
 
 	@TestConfiguration(proxyBeanMethods = false)
@@ -325,7 +331,7 @@ class ListarJobsPersistenciaTests {
 					VALUES ('gerando_regra', ?, ARRAY['2025-11'], 485000, now())
 					""", USUARIO);
 			return total;
-		}).when(repository).contarJobs(USUARIO);
+		}).when(repository).contarJobs(USUARIO, null);
 		try {
 			PaginaJobsDto pagina = service.listar(new ListarJobsRequisicao(0, 20),
 					new AcessoDoUsuario(USUARIO, PapelDoUsuario.PROFISSIONAL_RH));
@@ -333,7 +339,7 @@ class ListarJobsPersistenciaTests {
 			assertThat(pagina.itens()).extracting(JobResumoDto::id).containsExactly(existente);
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM jobs WHERE usuario_id = ?", Integer.class, USUARIO))
 				.isEqualTo(2);
-			verify(repository).contarJobs(USUARIO);
+			verify(repository).contarJobs(USUARIO, null);
 		}
 		finally {
 			reset(repository);
@@ -346,6 +352,94 @@ class ListarJobsPersistenciaTests {
 			.itens();
 		assertThat(itens).hasSize(1);
 		return itens.getFirst();
+	}
+
+	@ParameterizedTest
+	@CsvSource({ "salvas, liberado, 2", "arquivadas, arquivado, 3" })
+	void filtraPaginaETotalPeloEstadoSemIncluirJobsAlheios(String situacao, String estado, int total) throws Exception {
+		List<UUID> todos = new java.util.ArrayList<>();
+		List<UUID> esperados = new java.util.ArrayList<>();
+		List<String> estados = List.of("liberado", "arquivado", "erro", "liberado", "simulacao_inviavel", "arquivado",
+				"arquivado");
+		for (int i = 0; i < estados.size(); i++) {
+			UUID id = criarJob("2026-01-0" + (i + 1) + "T10:00:00Z");
+			jdbc.update("UPDATE jobs SET status = ? WHERE id = ?", estados.get(i), id);
+			todos.addFirst(id);
+			if (estados.get(i).equals(estado)) {
+				esperados.addFirst(id);
+			}
+		}
+		UUID outro = UUID.randomUUID();
+		jdbc.update(
+				"INSERT INTO usuarios (id, login, nome, papel, criado_em) VALUES (?, ?, 'Outro', 'profissional_rh', now())",
+				outro, outro.toString());
+		UUID alheio = criarJob("2026-01-08T10:00:00Z");
+		jdbc.update("UPDATE jobs SET usuario_id = ?, status = ? WHERE id = ?", outro, estado, alheio);
+
+		List<UUID> vistos = new java.util.ArrayList<>();
+		for (int pagina = 0; pagina < 3; pagina++) {
+			String corpo = mvc
+				.perform(get("/jobs").param("situacao", situacao)
+					.param("pagina", Integer.toString(pagina))
+					.param("tamanho", "2"))
+				.andExpect(status().isOk())
+				.andReturn()
+				.getResponse()
+				.getContentAsString();
+			ContratoDeEvento.validarRespostaHttp("PaginaJobs", corpo);
+			var resposta = JSON.readTree(corpo);
+			assertThat(resposta.path("total").asInt()).isEqualTo(total);
+			assertThat(resposta.path("pagina").asInt()).isEqualTo(pagina);
+			assertThat(resposta.path("tamanho").asInt()).isEqualTo(2);
+			assertThat(resposta.path("itens").size()).isEqualTo(Math.max(0, Math.min(2, total - pagina * 2)));
+			for (var item : resposta.path("itens")) {
+				assertThat(item.path("status").asString()).isEqualTo(estado);
+				vistos.add(UUID.fromString(item.path("id").asString()));
+			}
+		}
+		assertThat(vistos).containsExactlyElementsOf(esperados);
+		String semFiltro = mvc.perform(get("/jobs"))
+			.andExpect(status().isOk())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		ContratoDeEvento.validarRespostaHttp("PaginaJobs", semFiltro);
+		assertThat(JSON.readTree(semFiltro).path("total").asInt()).isEqualTo(todos.size());
+		List<UUID> semFiltroIds = new java.util.ArrayList<>();
+		JSON.readTree(semFiltro)
+			.path("itens")
+			.forEach(item -> semFiltroIds.add(UUID.fromString(item.path("id").asString())));
+		assertThat(semFiltroIds).containsExactlyElementsOf(todos);
+	}
+
+	@ParameterizedTest
+	@org.junit.jupiter.params.provider.ValueSource(strings = { "salvas", "arquivadas" })
+	void filtroNaoConcedePermissaoDeListagemAoAuditor(String situacao) throws Exception {
+		when(usuarioAtual.obter()).thenReturn(new AcessoDoUsuario(USUARIO, PapelDoUsuario.AUDITOR));
+		JobRepository repository = contexto.getBean(JobRepository.class);
+		org.mockito.Mockito.clearInvocations(repository);
+		String corpo = mvc.perform(get("/jobs").param("situacao", situacao))
+			.andExpect(status().isForbidden())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		ContratoDeEvento.validarRespostaHttp("Erro", corpo);
+		assertThat(JSON.readTree(corpo).path("codigo").asString()).isEqualTo("sem_permissao");
+		org.mockito.Mockito.verifyNoInteractions(repository);
+	}
+
+	@ParameterizedTest
+	@org.junit.jupiter.params.provider.ValueSource(strings = { "salvas", "arquivadas" })
+	void filtroSemCorrespondenciaDevolvePaginaVaziaETotalZero(String situacao) throws Exception {
+		criarJob("2026-01-01T10:00:00Z");
+		String corpo = mvc.perform(get("/jobs").param("situacao", situacao))
+			.andExpect(status().isOk())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		ContratoDeEvento.validarRespostaHttp("PaginaJobs", corpo);
+		assertThat(JSON.readTree(corpo).path("total").asInt()).isZero();
+		assertThat(JSON.readTree(corpo).path("itens").size()).isZero();
 	}
 
 	private static UUID criarJob(String criadoEm) {

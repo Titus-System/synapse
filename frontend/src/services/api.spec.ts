@@ -8,7 +8,11 @@ afterEach(() => {
 })
 
 describe('apiClient', () => {
-  it('monta a paginação conforme o contrato', async () => {
+  it.each([
+    [{ pagina: 2, tamanho: 10 }, '/api/jobs?pagina=2&tamanho=10'],
+    [{ situacao: 'salvas' }, '/api/jobs?situacao=salvas'],
+    [{ pagina: 2, tamanho: 10, situacao: 'arquivadas' }, '/api/jobs?pagina=2&tamanho=10&situacao=arquivadas'],
+  ] as const)('monta a consulta de jobs para %j', async (parametros, urlEsperada) => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ itens: [], pagina: 2, tamanho: 10, total: 0 }), {
         status: 200,
@@ -16,9 +20,9 @@ describe('apiClient', () => {
       }),
     )
 
-    await apiClient.listarJobs({ pagina: 2, tamanho: 10 })
+    await apiClient.listarJobs(parametros)
 
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/jobs?pagina=2&tamanho=10')
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(urlEsperada)
   })
 
   it('expõe a URL do stream sem abrir conexão SSE', () => {

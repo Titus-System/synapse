@@ -126,6 +126,15 @@ logging:
     # Conversores MVC em DEBUG imprimem corpos; JDBC em TRACE imprime parâmetros.
     org.springframework.web.servlet.mvc.method.annotation: INFO
     org.springframework.jdbc.core.StatementCreatorUtils: INFO
+    # URLs e argumentos resolvidos contêm o texto livre dos filtros de auditoria.
+    org.springframework.web.servlet.DispatcherServlet: INFO
+    org.springframework.security.web.FilterChainProxy: INFO
+    org.springframework.security.web.savedrequest.HttpSessionRequestCache: INFO
+    org.springframework.web.method.HandlerMethod: INFO
+    org.springframework.security.web.access.intercept.RequestMatcherDelegatingAuthorizationManager: INFO
+    org.apache.coyote.http11.Http11InputBuffer: INFO
+    org.apache.tomcat.util.http.Parameters: INFO
+    org.postgresql.core.v3.QueryExecutorImpl: INFO
     # O transporte HTTP do JDK inclui Authorization nos logs de diagnóstico.
     sun.net.www.protocol.http.HttpURLConnection: 'OFF'
 

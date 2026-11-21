@@ -65,6 +65,8 @@ O núcleo também admite `taxas_por_cargo`, com pares de cargo e percentual. Vig
 
 As outras quatro colunas cobrem as submissões de texto e de voz. `binario` guarda os bytes do áudio. `formato` é o contêiner que o navegador gravou, declarado no `Content-Type` da parte `audio` de `POST /submissoes`: `webm`, `ogg`, `wav` ou `mp4`. `transcricao` guarda o texto, digitado ou transcrito, e `transcrito_em` marca a conclusão da transcrição do áudio.
 
+`transcricao_modelo` registra qual modelo transcreveu o áudio, conforme [`modelo-transcricao.schema.json`](../../contracts/domain/modelo-transcricao.schema.json). Existe porque o texto transcrito é a origem da regra extraída, e o modelo pode mudar sem deixar rastro nas transcrições antigas. A API a grava no mesmo `UPDATE` de `transcricao` e `transcrito_em`. Quando a resposta da Deepgram informa o modelo em `metadata.model_info`, a coluna guarda o nome e a versão informados. Sem essa informação, guarda `deepgram` e o modelo pedido na chamada, sem versão, e a transcrição conclui normalmente. É opcional e sem backfill: fica nula em formulário e texto, na voz ainda não transcrita e nas transcrições anteriores à coluna. A consulta `GET /auditoria/jobs/{id}` a devolve nas entradas e omite o campo quando nulo. Só a API escreve e lê a coluna; o codegen lê apenas `transcricao`.
+
 `conteudo` de um lado e `binario` mais `formato` do outro são mutuamente exclusivos, e `tipo` diz qual par está preenchido; na submissão de texto, os dois ficam nulos.
 
 Guardar o binário na mesma linha não pesa as leituras que não pedem a coluna. O PostgreSQL move valores grandes para armazenamento externo por TOAST e só os busca quando a coluna é selecionada, de modo que consultar `tipo` ou `criado_em` não arrasta o áudio junto.
@@ -108,7 +110,7 @@ O envio grava submissão, job em `aguardando_transcricao`, transição inicial e
 
 A correção por voz grava a submissão `voz`, leva a rodada `pendente` a `em_transcricao` com `submissao_correcao_id` e insere o trabalho com finalidade `correcao`, também na mesma transação e sem evento. O job continua em `aguardando_confirmacao_parametros` e a submissão inicial não muda.
 
-O processamento tem três passos, e a separação existe porque a chamada ao provedor dura até a soma dos tempos limite do cliente: uma transação dessa duração prenderia uma conexão do pool e as travas das linhas lidas. Primeiro, uma instrução única marca o trabalho `em_andamento`, incrementa `tentativas` e grava `reservado_ate`. Ela escolhe o trabalho mais antigo, de qualquer finalidade, que está `pendente` ou cuja reserva venceu, com `FOR UPDATE SKIP LOCKED`: um processador concorrente pula a linha travada em vez de esperar, e a reserva vencida volta a ser elegível, de modo que uma instância que caiu no meio da chamada não deixa o job preso. Segundo, o áudio é lido e enviado ao provedor sem transação aberta. Terceiro, uma transação nova grava `submissoes.transcricao` e `transcrito_em`, encerra o trabalho e chama a operação pública do domínio `job` que avança o estado e registra `regra-submetida`, tudo junto. Na correção, a operação pública leva a rodada de `em_transcricao` a `em_reextracao` e registra `correcao-submetida`, sem mudar o job.
+O processamento tem três passos, e a separação existe porque a chamada ao provedor dura até a soma dos tempos limite do cliente: uma transação dessa duração prenderia uma conexão do pool e as travas das linhas lidas. Primeiro, uma instrução única marca o trabalho `em_andamento`, incrementa `tentativas` e grava `reservado_ate`. Ela escolhe o trabalho mais antigo, de qualquer finalidade, que está `pendente` ou cuja reserva venceu, com `FOR UPDATE SKIP LOCKED`: um processador concorrente pula a linha travada em vez de esperar, e a reserva vencida volta a ser elegível, de modo que uma instância que caiu no meio da chamada não deixa o job preso. Segundo, o áudio é lido e enviado ao provedor sem transação aberta. Terceiro, uma transação nova grava `submissoes.transcricao`, `transcrito_em` e `transcricao_modelo`, encerra o trabalho e chama a operação pública do domínio `job` que avança o estado e registra `regra-submetida`, tudo junto. Na correção, a operação pública leva a rodada de `em_transcricao` a `em_reextracao` e registra `correcao-submetida`, sem mudar o job.
 
 A transação final só grava se a reserva ainda é daquele processamento, conferido por `id`, `estado` e `tentativas` sob trava. A contagem é a cerca: se outra instância retomou a reserva vencida enquanto o provedor respondia, o número mudou e o resultado é descartado sem gravar nada, para que o mesmo trabalho não produza dois textos nem dois eventos. A trava do trabalho é tomada antes da do job; as demais escritas do job travam só o job ou inserem linhas novas, então a ordem não fecha ciclo.
 
@@ -239,7 +241,7 @@ A coluna `codigo_gerado_id` existe porque uma mesma versão da regra pode ser tr
 
 ### `trilhas_auditoria`
 
-Uma linha por nó do grafo concluído, montada pela API a partir do evento que o codegen publica ao terminar cada nó. As colunas de referência apontam o prompt, o código e a explicação produzidos naquele nó.
+Uma linha por etapa concluída, montada pela API a partir do evento que o codegen publica ao terminar cada nó. As colunas de referência apontam o prompt, o código e a explicação produzidos naquele nó, e `resultado_id` aponta o resultado sobre o qual a etapa agiu.
 
 A coluna `conclusao` guarda o que o nó concluiu, e a forma muda de nó para nó.
 
@@ -260,9 +262,15 @@ A coluna `conclusao` guarda o que o nó concluiu, e a forma muda de nó para nó
   "concentracao": ["13", "elem.1"] }
 ```
 
-Só `resumo` é comum aos três. Achatar essa variação em colunas produziria dezenas delas quase sempre nulas. O objeto não repete o que a linha já alcança: o nome do nó está na coluna `no`, o veredito em `resultados_simulacao` e a razão de uma parada em `job_transicoes.motivo`.
+```json
+{ "resumo": "busca encerrada com uma meta maior encontrada",
+  "desfecho_busca": "encontrada",
+  "candidatas_simuladas": 3 }
+```
 
-A coluna `evento_id` é a chave de idempotência, com índice único. O codegen usa UUIDv5 derivado do job, nó e referência do artefato em `id_do_evento_de_trilha`. Reentregas e republicações do mesmo evento lógico conservam a identidade; a API grava o identificador recebido e evita duplicação da trilha.
+O último é a conclusão da linha `decisao` que encerra a busca da meta maior; nela, `resultado_id` aponta a candidata vencedora. Só `resumo` é comum aos quatro. Achatar essa variação em colunas produziria dezenas delas quase sempre nulas. O objeto não repete o que a linha já alcança: o nome do nó está na coluna `no`, o veredito em `resultados_simulacao` e a razão de uma parada em `job_transicoes.motivo`.
+
+A coluna `evento_id` é a chave de idempotência, com índice único. O codegen usa UUIDv5 derivado do job, nó e referência do artefato em `id_do_evento_de_trilha`. Reentregas e republicações do mesmo evento lógico conservam a identidade; a API grava o identificador recebido e evita duplicação da trilha. Há duas exceções: a API gera a chave das linhas `confirmacao`, que ela mesma grava na confirmação, e a linha `decisao` que encerra a busca da meta maior usa chave própria, derivada do job e da versão da regra.
 
 ### `prompts`
 
@@ -310,6 +318,10 @@ A narrativa em linguagem de negócio sobre o que a simulação mostrou, uma por 
 ### `resultados_simulacao`
 
 O artefato produzido pela execução e pela verificação do worker, persistido com `INSERT` e sem alteração posterior. No sucesso, contém totais, asserções e decomposição. Falha de execução ou asserção violada não produz valores financeiros válidos. Em `erro_codigo`, a coluna `diagnostico` registra por que a execução falhou.
+
+A coluna `fontes` identifica o manifesto, as competências, os arquivos e os baselines que o worker conferiu antes da execução, com seus hashes, conforme [`resultado-fontes.schema.json`](../../contracts/domain/resultado-fontes.schema.json). Guarda referências e identificação, sem conteúdo das bases. É `jsonb` porque é escrita de uma vez e lida inteira, sem filtros por valor. O worker a grava no mesmo `INSERT` do resultado, vinculando as fontes ao código, à versão da regra, à simulação e ao horário pela mesma linha imutável, sem repetir essas referências na trilha.
+
+`fontes` é opcional, sem valor padrão nem backfill: fica nula nos resultados anteriores ao campo e nos de `erro_infra`. A consulta `GET /auditoria/jobs/{id}` a devolve como objeto e omite o campo quando nulo. A migration `033-adiciona-fontes-em-resultados-simulacao` (T-310) deve ser implantada antes do worker que preenche a coluna (T-311). Os privilégios existentes sobre a tabela já permitem `INSERT` e `SELECT` ao worker e `SELECT` à API e ao codegen, sem novos `GRANT`s.
 
 A coluna `totais` traz os agregados do período inteiro, somando todas as competências do job, e é nula quando `status` não é `sucesso`.
 

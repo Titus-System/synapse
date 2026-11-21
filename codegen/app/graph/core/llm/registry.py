@@ -56,6 +56,16 @@ _MODELS: dict[str, Callable[[], BaseChatModel]] = {
         timeout=60,
         max_retries=2,
     ),
+    # A narrativa curta do resultado corre entre a decisão e a sugestão ou a busca da meta, e
+    # nenhuma delas espera por ela: o timeout é metade do dos demais para atrasá-las pouco, e a
+    # etapa não espera o provedor voltar (ver `app/graph/nodes/explain_result.py`).
+    "explanation": lambda: _google(
+        "gemini-3.1-flash-lite",
+        temperature=0,
+        max_output_tokens=2048,
+        timeout=30,
+        max_retries=2,
+    ),
 }
 
 # Metadata recorded alongside each call, matching `modelo-llm.schema.json`. Kept here, next to
@@ -73,6 +83,12 @@ _METADATA: dict[str, dict[str, Any]] = {
         "modelo": "gemini-3.1-flash-lite",
         "versao": "stable",
         "parametros": {"temperature": 0, "max_output_tokens": 8192},
+    },
+    "explanation": {
+        "provedor": "google",
+        "modelo": "gemini-3.1-flash-lite",
+        "versao": "stable",
+        "parametros": {"temperature": 0, "max_output_tokens": 2048},
     },
 }
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Popula um banco synapse_db local com dados de demonstração:
-#   - as contas develop@synapse.pro e staging@synapse.pro no Keycloak e em usuarios;
+#   - develop@synapse.pro (profissional-rh), staging@synapse.pro (auditor) e
+#     auditor@synapse.pro (auditor) no Keycloak e em usuarios;
 #   - quatro jobs de ponta a ponta (submissao -> regra -> código gerado ->
 #     resultado -> simulação), um para cada desfecho de resultados_simulacao:
 #     viável, inviável, inviável com sugestão de adaptação e assercao_violada;
@@ -51,6 +52,16 @@ RESPOSTA_OFFSET = 7
 CODIGO_OFFSET = 8
 SIMULACAO_OFFSET = 11
 
+# Resumos que os nós do codegen gravam na trilha, repetidos aqui para que as
+# linhas de demonstração tenham o mesmo texto das que o pipeline produz
+# (decision.py e suggest_adaptation.py).
+RESUMO_DECISAO_FIM = "Fluxo encerrado no codegen: não há adaptação a propor para este desfecho."
+RESUMO_DECISAO_SUGESTAO = "Fluxo encaminhado para a sugestão de adaptação da regra."
+RESUMO_SUGESTAO_PROPOSTA = (
+    "Alternativa proposta com as taxas da regra reduzidas na mesma proporção para o orçamento "
+    "do período; a versão nova é gravada pela api e simulada antes de ser exibida."
+)
+
 UPSERT_USUARIO_SQL = """
     INSERT INTO usuarios (login, senha_hash, keycloak_sub, nome, papel, ativo, criado_em)
     VALUES (%(login)s, NULL, %(keycloak_sub)s, %(nome)s, %(papel)s, true, now())
@@ -75,6 +86,12 @@ USUARIOS = (
     {
         "login": "staging@synapse.pro",
         "nome": "Staging",
+        "papel": "auditor",
+        "papel_keycloak": "auditor",
+    },
+    {
+        "login": "auditor@synapse.pro",
+        "nome": "Auditoria",
         "papel": "auditor",
         "papel_keycloak": "auditor",
     },
@@ -200,7 +217,7 @@ class KeycloakAdmin:
                 f"/admin/realms/{self.realm}/users/{usuario_id}/role-mappings/realm",
                 json_body=[representacao],
             )
-        # Estas duas identidades são fixtures locais, não cadastros de pessoas.
+        # As identidades do seed são fixtures locais, não cadastros de pessoas.
         self.requisitar(
             "PUT", f"/admin/realms/{self.realm}/users/{usuario_id}",
             json_body={"emailVerified": True},
@@ -337,8 +354,9 @@ def cenarios() -> list[Cenario]:
                 "confirmacao",
                 REGRA_OFFSET,
                 {
-                    "resumo": "parâmetros do formulário confirmados sem alterações",
-                    "fontes": ["submissao-formulario"],
+                    "resumo": "usuário confirmou os parâmetros",
+                    "editado_pelo_usuario": False,
+                    "campos_corrigidos": [],
                 },
             ),
             Trilha(
@@ -346,8 +364,7 @@ def cenarios() -> list[Cenario]:
                 CODIGO_OFFSET + 1,
                 {
                     "resumo": "código gerado implementando o núcleo",
-                    "elementos_implementados": ["nucleo.percentual"],
-                    "fontes": ["base_vendas", "base_rh"],
+                    "modo_geracao": "gerado",
                 },
             ),
             Trilha(
@@ -356,18 +373,9 @@ def cenarios() -> list[Cenario]:
                 {"resumo": "execução delegada ao worker"},
             ),
             Trilha(
-                "interpretacao_resultado",
-                22,
-                {
-                    "resumo": "diferença concentrada na loja 13",
-                    "diagnostico": "o percentual da loja 13 respondeu por toda a variação",
-                    "concentracao": ["13", "nucleo.percentual"],
-                },
-            ),
-            Trilha(
                 "decisao",
                 23,
-                {"resumo": "resultado viável dentro do orçamento; segue para explicação"},
+                {"resumo": RESUMO_DECISAO_FIM, "encaminhamento": "fim"},
             ),
             Trilha(
                 "explicacao",
@@ -431,8 +439,9 @@ def cenarios() -> list[Cenario]:
                 "confirmacao",
                 REGRA_OFFSET,
                 {
-                    "resumo": "parâmetros do formulário confirmados sem alterações",
-                    "fontes": ["submissao-formulario"],
+                    "resumo": "usuário confirmou os parâmetros",
+                    "editado_pelo_usuario": False,
+                    "campos_corrigidos": [],
                 },
             ),
             Trilha(
@@ -440,8 +449,7 @@ def cenarios() -> list[Cenario]:
                 CODIGO_OFFSET + 1,
                 {
                     "resumo": "código gerado implementando o núcleo",
-                    "elementos_implementados": ["nucleo.percentual"],
-                    "fontes": ["base_vendas", "base_rh"],
+                    "modo_geracao": "gerado",
                 },
             ),
             Trilha(
@@ -450,21 +458,9 @@ def cenarios() -> list[Cenario]:
                 {"resumo": "execução delegada ao worker"},
             ),
             Trilha(
-                "interpretacao_resultado",
-                22,
-                {
-                    "resumo": "diferença concentrada na loja 13",
-                    "diagnostico": "o percentual da loja 13 respondeu por toda a variação",
-                    "concentracao": ["13", "nucleo.percentual"],
-                },
-            ),
-            Trilha(
                 "decisao",
                 23,
-                {
-                    "resumo": "resultado inviável: custo simulado excede o orçamento",
-                    "diagnostico": "faltariam R$ 7.100,00 para caber no orçamento informado",
-                },
+                {"resumo": RESUMO_DECISAO_SUGESTAO, "encaminhamento": "sugestao_adaptacao"},
             ),
         ],
         acao=Acao("arquivar", 40),
@@ -522,8 +518,9 @@ def cenarios() -> list[Cenario]:
                 "confirmacao",
                 REGRA_OFFSET,
                 {
-                    "resumo": "parâmetros do formulário confirmados sem alterações",
-                    "fontes": ["submissao-formulario"],
+                    "resumo": "usuário confirmou os parâmetros",
+                    "editado_pelo_usuario": False,
+                    "campos_corrigidos": [],
                 },
             ),
             Trilha(
@@ -531,8 +528,7 @@ def cenarios() -> list[Cenario]:
                 CODIGO_OFFSET + 1,
                 {
                     "resumo": "código gerado implementando o núcleo",
-                    "elementos_implementados": ["nucleo.percentual"],
-                    "fontes": ["base_vendas", "base_rh"],
+                    "modo_geracao": "gerado",
                 },
             ),
             Trilha(
@@ -561,6 +557,14 @@ def cenarios() -> list[Cenario]:
                 "evento",
                 21,
                 motivo="orçamento excedido; alternativa de adaptação disponível",
+            ),
+        ],
+        trilhas=[
+            *inviavel.trilhas,
+            Trilha(
+                "sugestao_adaptacao",
+                24,
+                {"resumo": RESUMO_SUGESTAO_PROPOSTA, "motivo_sugestao": "proposta"},
             ),
         ],
         acao=None,
@@ -672,11 +676,11 @@ def resposta_modelo_conteudo(fonte: str) -> str:
 
 TRILHA_REFERENCIAS = {
     "confirmacao": ("regra_id",),
-    "geracao_codigo": ("regra_id", "prompt_id", "codigo_gerado_id"),
-    "delegacao_worker": ("regra_id", "simulacao_id"),
-    "interpretacao_resultado": ("regra_id", "simulacao_id"),
-    "decisao": ("regra_id", "simulacao_id"),
-    "explicacao": ("regra_id", "simulacao_id", "explicacao_id"),
+    "geracao_codigo": ("regra_id", "prompt_id", "codigo_gerado_id", "simulacao_id"),
+    "delegacao_worker": ("regra_id",),
+    "decisao": ("regra_id", "resultado_id"),
+    "sugestao_adaptacao": ("regra_id", "resultado_id"),
+    "explicacao": ("regra_id", "resultado_id", "explicacao_id"),
 }
 
 
@@ -1017,7 +1021,8 @@ def main() -> None:
         connection.close()
 
     print(
-        "seed: contas Keycloak e locais (develop@synapse.pro, staging@synapse.pro) e pipeline de "
+        "seed: contas Keycloak e locais (develop@synapse.pro, staging@synapse.pro, "
+        "auditor@synapse.pro) e pipeline de "
         "demonstração prontos (7 jobs: viável, inviável, inviável com sugestão, "
         "assercao_violada e 3 aguardando_decisao_usuario para staging@synapse.pro)"
     )

@@ -290,3 +290,20 @@ for _desfecho, _motivo in (
     ("cancelada", "job_encerrado"),
 ):
     buscas_meta.labels(desfecho=_desfecho, motivo=_motivo)
+
+
+# Uma contagem por narrativa processada pela etapa `explain_result`, no desfecho dela. Conta
+# processamento: a reexecução que acha a linha de `explicacoes` e só republica a conclusão não
+# passa por aqui, então a reentrega não vira outra conclusão. A duração da etapa, em sucesso e em
+# falha, vai para `job_duration_seconds{job_name="explain_result"}`.
+DESFECHOS_DA_EXPLICACAO = ("conferida", "reprovada", "sem_resposta", "provedor_indisponivel")
+explicacoes = prometheus.register_counter(
+    "codegen_explicacoes_total",
+    "Explicações do resultado processadas por desfecho da conferência dos números",
+    ["desfecho"],
+)
+for _desfecho in DESFECHOS_DA_EXPLICACAO:
+    explicacoes.labels(desfecho=_desfecho)
+job_runs.labels(job_name="explain_result")
+job_failures.labels(job_name="explain_result")
+job_duration.labels(job_name="explain_result")

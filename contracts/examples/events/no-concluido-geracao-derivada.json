@@ -1,0 +1,15 @@
+{
+  "evento_id": "845cb1ef-a8b7-4b52-99ac-7259b70ecf10",
+  "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+  "no": "geracao_codigo",
+  "concluido_em": "2025-11-28T14:35:10Z",
+  "conclusao": {
+    "resumo": "código da alternativa derivado da versão de origem já simulada",
+    "modo_geracao": "derivado"
+  },
+  "regra_id": "c25a1e63-09b8-4a72-bf43-9c8e2d6a5107",
+  "simulacao_id": "e7b4c891-2fa0-46d3-a58c-9b1e6d2f7045",
+  "resultado_id": "b81e0f4c-52a9-4f0b-8a3d-7c2e5d10ab93",
+  "prompt_id": "1a2b3c4d-5e6f-4071-8293-a4b5c6d7e8f9",
+  "codigo_gerado_id": "ea0b9f24-8d6c-41a7-b3e5-2f9076c8d142"
+}

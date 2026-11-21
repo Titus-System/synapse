@@ -15,6 +15,9 @@ da regra.
 Se o comando já tem resultado gravado (voltou depois de a publicação falhar, ou de uma queda antes
 do `ack`), o container não sobe de novo: o evento da linha existente é republicado. O mesmo
 comando é o mesmo código, na mesma meta e com o mesmo propósito.
+
+A linha leva as fontes da execução (T-311): o manifesto, os arquivos de base e os baselines que o
+worker conferiu na subida, por referência e sha256.
 """
 
 import asyncio
@@ -43,8 +46,12 @@ from app.core.metrics.global_metrics import (
     resultados_conferidos,
 )
 from app.db.engine import get_sessionmaker
-from app.execucao.baseline import LinhasDoBaseline, carregar_baselines
-from app.execucao.bases import ReapuracaoNaMetaError, carregar_bases
+from app.execucao.baseline import (
+    CompetenciaSemBaselineError,
+    LinhasDoBaseline,
+    carregar_baselines,
+)
+from app.execucao.bases import FontesDaExecucao, ReapuracaoNaMetaError, carregar_bases
 from app.execucao.coleta import classificar
 from app.execucao.container import SaidaBruta, SandboxInfraError, executar_no_sandbox
 from app.execucao.preparo import ExecucaoPreparada, PayloadContainer, preparar_execucao
@@ -212,11 +219,28 @@ async def _baseline_na_meta(execucao: ExecucaoPreparada) -> LinhasDoBaseline | N
     return linhas
 
 
+def _fontes_da_execucao(status: str, competencias: list[str]) -> FontesDaExecucao | None:
+    """As fontes de um desfecho que executou sobre as bases: `sucesso`, `assercao_violada` e
+    `erro_codigo`. Um `erro_infra` não executou e fica sem fontes.
+
+    Um período fora das bases, ou com competência repetida, também fica sem: o harness o recusa
+    antes de carregar as bases, e o worker não conferiu baseline para ele."""
+    if status == "erro_infra":
+        return None
+    try:
+        return carregar_bases().fontes(competencias)
+    except CompetenciaSemBaselineError:
+        return None
+
+
 async def _gravar(comando: ExecutarCodigo, julgamento: Julgamento) -> ResultadoGravado:
     """Insere a linha numa transação que **confirma antes** de esta função devolver: só depois o
     evento pode ser publicado. O diagnóstico de um `erro_codigo` vai na mesma linha, então um
-    evento nunca referencia um diagnóstico que não foi confirmado."""
+    evento nunca referencia um diagnóstico que não foi confirmado.
+
+    O log cita das fontes só a versão do manifesto; os nomes e os sha256 ficam na linha."""
     linha = linha_do_julgamento(julgamento)
+    fontes = _fontes_da_execucao(linha.status, comando.competencias)
     with _falhas_de_banco():
         async with get_sessionmaker()() as sessao, sessao.begin():
             gravado = await gravar_resultado(
@@ -232,6 +256,7 @@ async def _gravar(comando: ExecutarCodigo, julgamento: Julgamento) -> ResultadoG
                 linhas=linha.linhas,
                 meta_venda=comando.meta_venda,
                 proposito=comando.proposito,
+                fontes=fontes,
             )
     logger.info(
         "resultado gravado",
@@ -243,6 +268,8 @@ async def _gravar(comando: ExecutarCodigo, julgamento: Julgamento) -> ResultadoG
             "linhas_detalhadas": sum(len(mes) for mes in (linha.linhas or {}).values()),
             "com_meta_venda": gravado.meta_venda is not None,
             "proposito": gravado.proposito,
+            # Nulo quando a linha não tem fontes.
+            "versao_manifesto": None if fontes is None else fontes["manifesto"]["versao"],
         },
     )
     return gravado

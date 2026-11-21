@@ -133,7 +133,7 @@ describe('FormularioRegraView', () => {
     await vi.waitFor(() => {
       expect(conteiner.text()).toContain('Regra · 17/09/2026')
       expect(conteiner.text()).toContain('Salvas1')
-      expect(conteiner.text()).toContain('Arquivadas1')
+      expect(conteiner.find('a[href="/arquivadas"]').exists()).toBe(false)
     })
   })
 

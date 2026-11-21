@@ -1,0 +1,13 @@
+{
+  "evento_id": "01f35e9f-f672-56d3-bcc5-4c67f5d0a470",
+  "job_id": "3f2b1c40-0d18-4a51-9f2e-6c1d9a77b021",
+  "no": "explicacao",
+  "concluido_em": "2025-11-24T15:30:03Z",
+  "conclusao": {
+    "resumo": "modelo não devolveu texto para explicar o resultado",
+    "desfecho_explicacao": "sem_resposta"
+  },
+  "regra_id": "9c7d3e21-4a6b-4c8d-9e0f-1a2b3c4d5e6f",
+  "resultado_id": "d18f2a47-7db3-4edc-a6b3-4d8900d59a21",
+  "prompt_id": "1a2b3c4d-5e6f-4071-8293-a4b5c6d7e8f9"
+}

@@ -15,7 +15,9 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from app.db.engine import get_sessionmaker
+from app.execucao.bases import carregar_bases
 from app.repositorio.resultados import ResultadoGravado, buscar_resultado, gravar_resultado
+from tests.app.esquemas import erros_do_dominio
 from tests.app.execucao.envelopes import linhas_para
 
 pytestmark = pytest.mark.postgres
@@ -44,6 +46,7 @@ DIAGNOSTICO = {
         "traceback": '  File "regra.py", line 3, in aplicar_regra\n    linha["cód_loja"]\n',
     },
 }
+FONTES = carregar_bases().fontes(["2025-08", "2025-11"])
 
 
 async def gravar(seed: dict[str, object], **mudancas: Any) -> UUID:
@@ -59,6 +62,7 @@ async def gravar(seed: dict[str, object], **mudancas: Any) -> UUID:
         "linhas": linhas_para(["2025-08", "2025-11"]),
         "meta_venda": None,
         "proposito": "simulacao",
+        "fontes": FONTES,
     }
     async with get_sessionmaker()() as sessao, sessao.begin():
         gravado = await gravar_resultado(sessao, **(campos | mudancas))
@@ -103,7 +107,28 @@ async def test_grava_a_linha_com_todas_as_colunas(
     assert linha["diagnostico"] is None
     assert json.loads(linha["linhas"]) == linhas_para(["2025-08", "2025-11"])
     assert (linha["meta_venda"], linha["proposito"]) == (None, "simulacao")
+    assert json.loads(linha["fontes"]) == FONTES
+    assert erros_do_dominio("resultado-fontes", json.loads(linha["fontes"])) == []
     assert linha["criado_em"] is not None
+
+
+@pytest.mark.parametrize("status", ["assercao_violada", "erro_codigo"])
+async def test_desfecho_que_executou_sobre_as_bases_grava_as_fontes(
+    codigo_gerado_seed: dict[str, object], conexao_dono: Any, status: str
+) -> None:
+    """As fontes ficam na linha, na ordem em que vieram, em todo desfecho que executou (T-311)."""
+    resultado_id = await gravar(
+        codigo_gerado_seed,
+        status=status,
+        veredito=None,
+        totais=None,
+        assercoes=[],
+        decomposicao=None,
+    )
+
+    linha = await ler_como_dono(conexao_dono, resultado_id)
+
+    assert json.loads(linha["fontes"]) == FONTES
 
 
 async def test_grava_a_meta_e_o_proposito_da_execucao(
@@ -182,6 +207,7 @@ async def test_a_linha_nao_existe_para_outros_ate_a_transacao_confirmar(
             linhas=linhas_para(["2025-08", "2025-11"]),
             meta_venda=None,
             proposito="simulacao",
+            fontes=FONTES,
         )
         assert await ler_como_dono(conexao_dono, gravado.id) is None
         await sessao_tx.rollback()
@@ -340,6 +366,23 @@ async def test_sem_sucesso_grava_linhas_sql_null_mesmo_se_receber_detalhamento(
 
     linha = await ler_como_dono(conexao_dono, resultado_id)
     assert linha["linhas"] is None
+
+
+async def test_erro_infra_grava_fontes_sql_null_mesmo_se_receber_o_registro(
+    codigo_gerado_seed: dict[str, object], conexao_dono: Any
+) -> None:
+    """Um `erro_infra` não executou sobre as bases: não há o que registrar delas."""
+    resultado_id = await gravar(
+        codigo_gerado_seed,
+        status="erro_infra",
+        veredito=None,
+        totais=None,
+        assercoes=[],
+        decomposicao=None,
+    )
+
+    linha = await ler_como_dono(conexao_dono, resultado_id)
+    assert linha["fontes"] is None
 
 
 async def test_grava_detalhamento_de_todo_periodo_no_mesmo_insert(

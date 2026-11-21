@@ -130,8 +130,13 @@ async def suggest_adaptation(state: AgentState, config: RunnableConfig) -> Agent
             job_id=job_id,
             no=ETAPA,
             concluido_em=datetime.now(UTC),
-            conclusao=ConclusaoDaTrilha(resumo=RESUMOS[alternativa.motivo]),
+            # `motivo` é texto do conjunto fechado de `app.sugestao_adaptacao`; o modelo da
+            # mensagem o confere contra o vocabulário do contrato.
+            conclusao=ConclusaoDaTrilha.model_validate(
+                {"resumo": RESUMOS[alternativa.motivo], "motivo_sugestao": alternativa.motivo}
+            ),
             regra_id=regra_id,
+            resultado_id=resultado_id,
         )
     )
     # A proposta tem o desfecho na simulação, que a decisão conta, e o limite não é uma

@@ -111,6 +111,11 @@ class ProcessadorTranscricaoTests {
 
 	private static final AtomicBoolean RESPOSTA_INVALIDA = new AtomicBoolean();
 
+	/**
+	 * O valor de {@code metadata} na resposta; sem ele, a resposta não informa o modelo.
+	 */
+	private static final AtomicReference<@Nullable String> METADADOS = new AtomicReference<>();
+
 	private static JdbcTemplate dono;
 
 	private static String base;
@@ -172,8 +177,9 @@ class ProcessadorTranscricaoTests {
 		if (durante != null) {
 			durante.run();
 		}
-		byte[] corpo = ("{\"results\":{\"channels\":[{\"alternatives\":[{\"transcript\":\"" + TRANSCRITO.get()
-				+ "\"}]}]}}")
+		String metadados = METADADOS.get();
+		byte[] corpo = ("{" + (metadados == null ? "" : "\"metadata\":" + metadados + ",")
+				+ "\"results\":{\"channels\":[{\"alternatives\":[{\"transcript\":\"" + TRANSCRITO.get() + "\"}]}]}}")
 			.getBytes(StandardCharsets.UTF_8);
 		if (RESPOSTA_INVALIDA.get()) {
 			corpo = "{}".getBytes(StandardCharsets.UTF_8);
@@ -214,6 +220,7 @@ class ProcessadorTranscricaoTests {
 		processador = novoProcessador();
 		RETRY_AFTER.set(null);
 		RESPOSTA_INVALIDA.set(false);
+		METADADOS.set(null);
 		STATUS.set(200);
 		TRANSCRITO.set(TEXTO);
 		CHAMADAS.set(0);
@@ -261,6 +268,8 @@ class ProcessadorTranscricaoTests {
 			assertThat(dono.queryForMap("SELECT transcricao, transcrito_em FROM submissoes WHERE id = ?", criada.id()))
 				.containsEntry("transcricao", TEXTO)
 				.hasEntrySatisfying("transcrito_em", instante -> assertThat(instante).isNotNull());
+			assertThat(modeloGravado(criada.id())).as("a resposta não informa o modelo: vale o pedido")
+				.isEqualTo(JSON.readTree("{\"provedor\":\"deepgram\",\"modelo\":\"nova-3\"}"));
 			assertThat(trabalho(job)).containsEntry("estado", "concluido")
 				.containsEntry("tentativas", 1)
 				.containsEntry("reservado_ate", null);
@@ -306,9 +315,11 @@ class ProcessadorTranscricaoTests {
 
 			assertThat(status(job)).isEqualTo("erro");
 			assertThat(trabalho(job)).containsEntry("estado", "falhou").containsEntry("reservado_ate", null);
-			assertThat(dono.queryForMap("SELECT transcricao, transcrito_em FROM submissoes WHERE id = ?", criada.id()))
+			assertThat(dono.queryForMap(
+					"SELECT transcricao, transcrito_em, transcricao_modelo FROM submissoes WHERE id = ?", criada.id()))
 				.containsEntry("transcricao", null)
-				.containsEntry("transcrito_em", null);
+				.containsEntry("transcrito_em", null)
+				.containsEntry("transcricao_modelo", null);
 			assertThat(contar("outbox_events WHERE tipo = 'regra-submetida'")).isZero();
 			assertThat(dono.queryForObject(
 					"SELECT motivo FROM job_transicoes WHERE job_id = ? ORDER BY ocorrido_em DESC LIMIT 1",
@@ -335,10 +346,34 @@ class ProcessadorTranscricaoTests {
 
 		assertThat(status(job)).isEqualTo("cancelado");
 		assertThat(trabalho(job)).containsEntry("estado", "descartado").containsEntry("tentativas", 1);
-		assertThat(dono.queryForMap("SELECT transcricao, transcrito_em FROM submissoes WHERE id = ?", criada.id()))
+		assertThat(dono.queryForMap(
+				"SELECT transcricao, transcrito_em, transcricao_modelo FROM submissoes WHERE id = ?", criada.id()))
 			.containsEntry("transcricao", null)
-			.containsEntry("transcrito_em", null);
+			.containsEntry("transcrito_em", null)
+			.containsEntry("transcricao_modelo", null);
 		assertThat(contar("outbox_events WHERE tipo = 'regra-submetida'")).isZero();
+	}
+
+	@Test
+	void modeloInformadoNaRespostaEhGravadoComATranscricao() throws Exception {
+		METADADOS.set("{\"models\":[\"id-do-modelo\"],\"model_info\":{\"id-do-modelo\":"
+				+ "{\"name\":\"2-general-nova\",\"version\":\"2024-01-09.29447\",\"arch\":\"nova-2\"}}}");
+		var criada = criarVoz(wav(1), "audio/wav");
+
+		processador.processarPendentes();
+
+		assertThat(status(criada.job())).isEqualTo("gerando_regra");
+		assertThat(dono.queryForObject("SELECT transcricao FROM submissoes WHERE id = ?", String.class, criada.id()))
+			.isEqualTo(TEXTO);
+		JsonNode modelo = modeloGravado(criada.id());
+		assertThat(modelo).isEqualTo(JSON
+			.readTree("{\"provedor\":\"deepgram\",\"modelo\":\"2-general-nova\",\"versao\":\"2024-01-09.29447\"}"));
+		ContratoDeEvento.validarDominio("modelo-transcricao.schema.json", modelo.toString());
+	}
+
+	private static JsonNode modeloGravado(UUID submissao) {
+		return JSON.readTree(Objects.requireNonNull(dono
+			.queryForObject("SELECT transcricao_modelo::text FROM submissoes WHERE id = ?", String.class, submissao)));
 	}
 
 	@Test

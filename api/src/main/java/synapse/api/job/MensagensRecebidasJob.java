@@ -36,7 +36,7 @@ record EtapaAlteradaDto(@Nullable UUID job_id, @Nullable String etapa, @Nullable
 record NoConcluidoDto(@Nullable UUID evento_id, @Nullable UUID job_id, @Nullable String no,
 		@Nullable Instant concluido_em, @Nullable JsonNode conclusao, @Nullable UUID regra_id,
 		@Nullable UUID simulacao_id, @Nullable UUID prompt_id, @Nullable UUID codigo_gerado_id,
-		@Nullable UUID explicacao_id) {
+		@Nullable UUID explicacao_id, @Nullable UUID resultado_id) {
 }
 
 /**

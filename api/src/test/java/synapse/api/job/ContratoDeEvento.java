@@ -36,11 +36,11 @@ public final class ContratoDeEvento {
 
 	/**
 	 * Nome na linha {@code event:} para o schema que descreve a linha {@code data:}. Quem
-	 * discrimina as três formas é o nome do evento, não o payload - nenhuma delas fecha o
+	 * discrimina as formas é o nome do evento, não o payload - nenhuma delas fecha o
 	 * objeto, então elas não se distinguem sozinhas (ver {@code EventoProgresso}).
 	 */
 	private static final Map<String, String> SCHEMA_POR_EVENTO = Map.of("etapa", "EventoEtapa", "estado",
-			"EventoEstado", "resultado", "EventoResultado");
+			"EventoEstado", "resultado", "EventoResultado", "explicacao", "EventoExplicacao");
 
 	/**
 	 * O {@code $id} dos schemas é absoluto ({@code https://synapse.local/contracts/...})

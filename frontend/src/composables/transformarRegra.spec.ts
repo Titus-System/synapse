@@ -260,3 +260,22 @@ describe('transformarResultado', () => {
     expect(transformarResultado(resultado)).toEqual([])
   })
 })
+
+it('preserva códigos no auditor sem alterar os rótulos do RH', () => {
+  const regra: RepresentacaoRegra = {
+    nucleo: { loja: ['13'], marca: ['10'], cargo: ['100'] },
+    especificacoes: [{ ref: 'elem.1', construto: 'exclusao', dimensao: 'cargo', valores: ['100'] }],
+  }
+  expect(transformarRegra(regra, { manterCodigos: true }).se).toEqual([
+    'loja = 13',
+    'marca = 10',
+    'cargo = 100',
+    'excluir cargo = 100',
+  ])
+  expect(transformarRegra(regra).se).toEqual([
+    'loja = LOJA-13',
+    'marca = PRETO',
+    'cargo = VENDEDOR LOJA',
+    'excluir cargo = VENDEDOR LOJA',
+  ])
+})

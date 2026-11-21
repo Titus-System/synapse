@@ -1,5 +1,7 @@
 package synapse.api.core.persistence;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -49,7 +51,15 @@ class MigrationTests {
 			"simulacoes", "trilhas_auditoria", "outbox_events", "jobs_grafo_encerrados", "extracoes_regras",
 			"rodadas_correcao", "trabalhos_transcricao", "sugestoes_meta_venda");
 
-	private static final int CHANGESETS = 33;
+	private static final int CHANGESETS = 36;
+
+	private static final int CHANGESETS_ANTES_DO_MODELO_DA_TRANSCRICAO = 35;
+
+	private static final int CHANGESETS_ANTES_DAS_FONTES = 34;
+
+	private static final int CHANGESETS_ANTES_DO_RESULTADO_NA_TRILHA = 33;
+
+	private static final int CHANGESETS_ANTES_DO_RESULTADO_ANTERIOR = 32;
 
 	private static final int CHANGESETS_ANTES_DA_TENTATIVA = 26;
 
@@ -101,6 +111,17 @@ class MigrationTests {
 			     '{"loja": {"13": -10.0}}'::jsonb, now())
 			RETURNING id::text
 			""".formatted(JOB_ID, CODIGO_ID);
+
+	/** Uma linha de trilha como a api a grava sem conhecer a coluna de resultado. */
+	private static final String INSERE_TRILHA_SEM_RESULTADO = """
+			INSERT INTO trilhas_auditoria (evento_id, job_id, no, concluido_em, regra_id, conclusao)
+			VALUES ('%s', '%s', 'decisao', now(), '%s', '{"resumo": "x"}'::jsonb)
+			""";
+
+	private static final String INSERE_TRILHA_COM_RESULTADO = """
+			INSERT INTO trilhas_auditoria (evento_id, job_id, no, concluido_em, regra_id, conclusao, resultado_id)
+			VALUES ('%s', '%s', 'decisao', now(), '%s', '{"resumo": "x"}'::jsonb, '%s')
+			""";
 
 	private static PostgreSQLContainer postgres;
 
@@ -189,6 +210,94 @@ class MigrationTests {
 		reverter(CHANGESETS);
 
 		assertThat(tabelasExistentes()).isEmpty();
+	}
+
+	@Test
+	void adicionaOModeloDaTranscricaoSemBackfillEReverteSomenteAColuna() throws Exception {
+		atualizar(CHANGESETS_ANTES_DO_MODELO_DA_TRANSCRICAO);
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearUsuario(statement);
+			statement.execute(
+					"""
+							INSERT INTO submissoes (id, usuario_id, tipo, binario, formato, transcricao, transcrito_em, criado_em)
+							VALUES ('%s', '22222222-2222-4222-8222-222222222222', 'voz', '\\x00'::bytea, 'webm',
+							    'transcrição antiga', now(), now())
+							"""
+						.formatted(SUBMISSAO_ID));
+		}
+		List<String> colunasAnteriores = colunasDe("submissoes");
+		List<String> submissoesAnteriores = submissoesSemModelo();
+
+		atualizar();
+
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS);
+		assertThat(coluna("submissoes", "transcricao_modelo")).containsExactly("jsonb", "YES", null);
+		assertThat(submissoesSemModelo()).containsExactlyElementsOf(submissoesAnteriores);
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			try (ResultSet rs = statement.executeQuery("SELECT transcricao_modelo FROM submissoes")) {
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getString(1)).as("a transcrição antiga fica sem modelo").isNull();
+			}
+			try (PreparedStatement update = connection
+				.prepareStatement("UPDATE submissoes SET transcricao_modelo = ?::jsonb WHERE id = ?")) {
+				update.setString(1, Files.readString(Path.of("../contracts/examples/domain/modelo-transcricao.json")));
+				update.setObject(2, SUBMISSAO_ID);
+				assertThat(update.executeUpdate()).isEqualTo(1);
+			}
+		}
+
+		reverter(CHANGESETS - CHANGESETS_ANTES_DO_MODELO_DA_TRANSCRICAO);
+
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DO_MODELO_DA_TRANSCRICAO);
+		assertThat(colunasDe("submissoes")).containsExactlyInAnyOrderElementsOf(colunasAnteriores);
+		assertThat(submissoesSemModelo()).containsExactlyElementsOf(submissoesAnteriores);
+	}
+
+	@Test
+	void adicionaFontesSemBackfillEReverteSomenteAColuna() throws Exception {
+		atualizar(CHANGESETS_ANTES_DAS_FONTES);
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			semearCodigoGerado(statement);
+			inserirComoOWorker(statement);
+		}
+		List<String> colunasAnteriores = colunasDeResultados();
+		List<String> resultadosAnteriores = resultadosSemFontes();
+
+		atualizar();
+
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS);
+		assertThat(coluna("resultados_simulacao", "fontes")).containsExactly("jsonb", "YES", null);
+		assertThat(resultadosSemFontes()).containsExactlyElementsOf(resultadosAnteriores);
+		try (Connection connection = abrir(); Statement statement = connection.createStatement()) {
+			// O INSERT antigo continua válido, mesmo depois de implantar a migration.
+			inserirComoOWorker(statement);
+			try (ResultSet rs = statement.executeQuery("SELECT fontes FROM resultados_simulacao")) {
+				int legados = 0;
+				while (rs.next()) {
+					assertThat(rs.getString("fontes")).isNull();
+					legados++;
+				}
+				assertThat(legados).isEqualTo(2);
+			}
+			try (PreparedStatement insert = connection.prepareStatement("""
+					INSERT INTO resultados_simulacao
+					    (job_id, codigo_gerado_id, status, assercoes, fontes, criado_em)
+					VALUES (?::uuid, ?::uuid, 'sucesso', '[]'::jsonb, ?::jsonb, now())
+					""")) {
+				insert.setString(1, JOB_ID);
+				insert.setString(2, CODIGO_ID);
+				insert.setString(3, Files.readString(Path.of("../contracts/examples/domain/resultado-fontes.json")));
+				assertThat(insert.executeUpdate()).isEqualTo(1);
+			}
+		}
+		List<String> resultadosAntesDoRollback = resultadosSemFontes();
+		assertThat(resultadosAntesDoRollback).hasSize(3);
+
+		reverter(CHANGESETS - CHANGESETS_ANTES_DAS_FONTES);
+
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DAS_FONTES);
+		assertThat(colunasDeResultados()).containsExactlyInAnyOrderElementsOf(colunasAnteriores);
+		assertThat(resultadosSemFontes()).containsExactlyElementsOf(resultadosAntesDoRollback);
 	}
 
 	@Test
@@ -569,7 +678,7 @@ class MigrationTests {
 	@ParameterizedTest
 	@ValueSource(ints = { 0, 1, 2 })
 	void recuperaOriginalDoAceiteLegadoSomenteSemAmbiguidadeEPreservaNoRollback(int originais) throws Exception {
-		atualizar(CHANGESETS - 1);
+		atualizar(CHANGESETS_ANTES_DO_RESULTADO_ANTERIOR);
 		String original = "";
 		try (Connection connection = abrir(); Statement sql = connection.createStatement()) {
 			semearCodigoGerado(sql);
@@ -595,7 +704,7 @@ class MigrationTests {
 			assertThat(rs.getString(1)).isEqualTo(originais == 1 ? original : null);
 		}
 		assertThat(coluna("sugestoes_meta_venda", "resultado_anterior_id")).containsExactly("uuid", "YES", null);
-		reverter(1);
+		reverter(CHANGESETS - CHANGESETS_ANTES_DO_RESULTADO_ANTERIOR);
 		assertThat(nulidadeDasColunas("sugestoes_meta_venda")).doesNotContainKey("resultado_anterior_id");
 		try (Connection connection = abrir();
 				Statement sql = connection.createStatement();
@@ -606,6 +715,95 @@ class MigrationTests {
 		atualizar();
 		atualizar();
 		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS);
+	}
+
+	/**
+	 * A linha gravada antes da coluna fica como estava, sem resultado; o INSERT que não
+	 * conhece a coluna continua valendo; a chave estrangeira recusa um resultado
+	 * inexistente; e o rollback remove só a coluna, junto com a chave e o índice.
+	 */
+	@Test
+	void trilhaGravadaAntesDoResultadoFicaSemEleEORollbackRemoveSoAColuna() throws Exception {
+		atualizar(CHANGESETS_ANTES_DO_RESULTADO_NA_TRILHA);
+		UUID anterior = UUID.randomUUID();
+		String linhaAntes;
+		try (Connection connection = abrir(); Statement sql = connection.createStatement()) {
+			semearCodigoGerado(sql);
+			sql.execute(INSERE_TRILHA_SEM_RESULTADO.formatted(anterior, JOB_ID, REGRA_ID));
+			linhaAntes = linhaDaTrilhaSemResultado(sql, anterior);
+		}
+
+		atualizar();
+
+		assertThat(coluna("trilhas_auditoria", "resultado_id")).containsExactly("uuid", "YES", null);
+		assertThat(definicaoDoIndice("idx_trilhas_auditoria_resultado_id")).contains("(resultado_id)");
+		UUID posterior = UUID.randomUUID();
+		try (Connection connection = abrir(); Statement sql = connection.createStatement()) {
+			assertThat(linhaDaTrilhaSemResultado(sql, anterior)).isEqualTo(linhaAntes);
+			assertThat(resultadoDaTrilha(sql, anterior)).isNull();
+			sql.execute(INSERE_TRILHA_SEM_RESULTADO.formatted(UUID.randomUUID(), JOB_ID, REGRA_ID));
+			String resultado = inserirComoOWorker(sql);
+			sql.execute(INSERE_TRILHA_COM_RESULTADO.formatted(posterior, JOB_ID, REGRA_ID, resultado));
+			assertThat(resultadoDaTrilha(sql, posterior)).isEqualTo(resultado);
+			assertThatExceptionOfType(SQLException.class)
+				.isThrownBy(() -> sql.execute(
+						INSERE_TRILHA_COM_RESULTADO.formatted(UUID.randomUUID(), JOB_ID, REGRA_ID, UUID.randomUUID())))
+				.withMessageContaining("fk_trilhas_auditoria_resultado_id")
+				.satisfies((e) -> assertThat(e.getSQLState()).isEqualTo("23503"));
+			try (ResultSet rs = sql.executeQuery("""
+					SELECT has_column_privilege('synapse_api', 'trilhas_auditoria', 'resultado_id', 'INSERT') AS api,
+					    has_table_privilege('synapse_codegen', 'trilhas_auditoria', 'SELECT') AS codegen,
+					    has_table_privilege('synapse_worker', 'trilhas_auditoria', 'SELECT') AS worker
+					""")) {
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getBoolean("api")).isTrue();
+				assertThat(rs.getBoolean("codegen")).isFalse();
+				assertThat(rs.getBoolean("worker")).isFalse();
+			}
+		}
+
+		reverter(CHANGESETS - CHANGESETS_ANTES_DO_RESULTADO_NA_TRILHA);
+
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS_ANTES_DO_RESULTADO_NA_TRILHA);
+		assertThat(nulidadeDasColunas("trilhas_auditoria")).doesNotContainKey("resultado_id")
+			.containsKey("explicacao_id");
+		assertThat(contar("SELECT count(*) FROM trilhas_auditoria")).isEqualTo(3);
+		assertThat(contar("SELECT count(*) FROM pg_indexes WHERE indexname = 'idx_trilhas_auditoria_resultado_id'"))
+			.isZero();
+		assertThat(contar("SELECT count(*) FROM pg_constraint WHERE conname = 'fk_trilhas_auditoria_resultado_id'"))
+			.isZero();
+		try (Connection connection = abrir(); Statement sql = connection.createStatement()) {
+			assertThat(linhaDaTrilhaSemResultado(sql, anterior)).isEqualTo(linhaAntes);
+		}
+		atualizar();
+		assertThat(changesetsAplicados()).isEqualTo(CHANGESETS);
+	}
+
+	/** A linha da trilha sem a coluna de resultado, para comparar antes e depois dela. */
+	private static String linhaDaTrilhaSemResultado(Statement statement, UUID eventoId) throws Exception {
+		try (ResultSet rs = statement
+			.executeQuery("SELECT (to_jsonb(t) - 'resultado_id')::text FROM trilhas_auditoria t WHERE evento_id = '%s'"
+				.formatted(eventoId))) {
+			assertThat(rs.next()).as("trilha %s não existe", eventoId).isTrue();
+			return rs.getString(1);
+		}
+	}
+
+	private static @Nullable String resultadoDaTrilha(Statement statement, UUID eventoId) throws Exception {
+		try (ResultSet rs = statement.executeQuery(
+				"SELECT resultado_id::text FROM trilhas_auditoria WHERE evento_id = '%s'".formatted(eventoId))) {
+			assertThat(rs.next()).as("trilha %s não existe", eventoId).isTrue();
+			return rs.getString(1);
+		}
+	}
+
+	private static int contar(String consulta) throws Exception {
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery(consulta)) {
+			assertThat(rs.next()).isTrue();
+			return rs.getInt(1);
+		}
 	}
 
 	@Test
@@ -1055,7 +1253,7 @@ class MigrationTests {
 			for (String tabela : TABELAS) {
 				if (!tabela.equals("sugestoes_meta_venda") && !tabela.equals("trabalhos_transcricao")) {
 					try (ResultSet rs = statement.executeQuery(
-							"SELECT COALESCE(jsonb_agg(to_jsonb(t) - 'tentativa' - 'representacao' - 'proposta_nao_aplicada' ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM "
+							"SELECT COALESCE(jsonb_agg(to_jsonb(t) - 'tentativa' - 'representacao' - 'proposta_nao_aplicada' - 'transcricao_modelo' ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM "
 									+ tabela + " t")) {
 						assertThat(rs.next()).isTrue();
 						dados.put(tabela, rs.getString(1));
@@ -1101,7 +1299,7 @@ class MigrationTests {
 				if (!tabela.equals("sugestoes_meta_venda") && !tabela.equals("rodadas_correcao")
 						&& !tabela.equals("trabalhos_transcricao")) {
 					try (ResultSet rs = statement.executeQuery(
-							"SELECT COALESCE(jsonb_agg(to_jsonb(t) - 'meta_venda' - 'parametros' - 'tentativa' - 'representacao' "
+							"SELECT COALESCE(jsonb_agg(to_jsonb(t) - 'meta_venda' - 'parametros' - 'tentativa' - 'representacao' - 'transcricao_modelo' "
 									+ "ORDER BY to_jsonb(t)::text), '[]'::jsonb)::text FROM " + tabela + " t")) {
 						assertThat(rs.next()).isTrue();
 						dados.put(tabela, rs.getString(1));
@@ -1314,6 +1512,49 @@ class MigrationTests {
 			}
 		}
 		return payloads;
+	}
+
+	private static List<String> resultadosSemFontes() throws Exception {
+		List<String> resultados = new ArrayList<>();
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("""
+						SELECT (to_jsonb(r) - 'fontes')::text FROM resultados_simulacao r ORDER BY id
+						""")) {
+			while (rs.next()) {
+				resultados.add(rs.getString(1));
+			}
+		}
+		return resultados;
+	}
+
+	private static List<String> submissoesSemModelo() throws Exception {
+		List<String> submissoes = new ArrayList<>();
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("""
+						SELECT (to_jsonb(s) - 'transcricao_modelo')::text FROM submissoes s ORDER BY id
+						""")) {
+			while (rs.next()) {
+				submissoes.add(rs.getString(1));
+			}
+		}
+		return submissoes;
+	}
+
+	private static List<String> colunasDe(String tabela) throws Exception {
+		List<String> colunas = new ArrayList<>();
+		try (Connection connection = abrir();
+				Statement statement = connection.createStatement();
+				ResultSet rs = statement.executeQuery("""
+						SELECT column_name FROM information_schema.columns
+						WHERE table_schema = 'public' AND table_name = '%s'
+						""".formatted(tabela))) {
+			while (rs.next()) {
+				colunas.add(rs.getString("column_name"));
+			}
+		}
+		return colunas;
 	}
 
 	private static List<String> colunasDeResultados() throws Exception {

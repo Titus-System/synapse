@@ -112,9 +112,17 @@ class SubmissoesRepository {
 			.isEmpty();
 	}
 
-	void gravarTranscricao(UUID submissaoId, String texto, Instant agora) {
-		this.jdbc.update("UPDATE submissoes SET transcricao = ?, transcrito_em = ? WHERE id = ?", texto,
-				Timestamp.from(agora), submissaoId);
+	/** A versão ausente fica fora do objeto, em vez de gravada como null. */
+	void gravarTranscricao(UUID submissaoId, TranscricaoObtida obtida, Instant agora) {
+		ModeloTranscricao modelo = obtida.modelo();
+		this.jdbc.update("""
+				UPDATE submissoes
+				SET transcricao = ?, transcrito_em = ?,
+				    transcricao_modelo = jsonb_strip_nulls(
+				        jsonb_build_object('provedor', ?::text, 'modelo', ?::text, 'versao', ?::text))
+				WHERE id = ?
+				""", obtida.texto(), Timestamp.from(agora), modelo.provedor(), modelo.modelo(), modelo.versao(),
+				submissaoId);
 	}
 
 	void encerrarTrabalho(UUID trabalhoId, String estado, Instant agora) {
