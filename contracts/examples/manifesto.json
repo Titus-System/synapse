@@ -4,6 +4,7 @@
     "domain/conflitos-rodada.json": "domain/conflitos-rodada.schema.json",
     "domain/consumo-tokens.json": "domain/consumo-tokens.schema.json",
     "domain/modelo-llm.json": "domain/modelo-llm.schema.json",
+    "domain/modelo-transcricao.json": "domain/modelo-transcricao.schema.json",
     "domain/regra-especificacoes.json": "domain/regra-especificacoes.schema.json",
     "domain/regra-nucleo.json": "domain/regra-nucleo.schema.json",
     "domain/representacao-regra-elementos.json": "domain/representacao-regra.schema.json",
@@ -23,6 +24,7 @@
     "domain/resultado-totais.json": "domain/resultado-totais.schema.json",
     "domain/submissao-conteudo.json": "domain/submissao-conteudo.schema.json",
     "domain/trilha-conclusao.json": "domain/trilha-conclusao.schema.json",
+    "domain/trilha-conclusao-sugestao.json": "domain/trilha-conclusao.schema.json",
     "events/correcao-proposta.json": "events/correcao-proposta.schema.json",
     "events/correcao-submetida.json": "events/correcao-submetida.schema.json",
     "events/etapa-alterada-aguardando-provedor.json": "events/etapa-alterada.schema.json",
@@ -36,6 +38,8 @@
     "events/job-encerrado-erro.json": "events/job-encerrado.schema.json",
     "events/job-encerrado.json": "events/job-encerrado.schema.json",
     "events/no-concluido.json": "events/no-concluido.schema.json",
+    "events/no-concluido-geracao-derivada.json": "events/no-concluido.schema.json",
+    "events/no-concluido-encerramento-busca.json": "events/no-concluido.schema.json",
     "events/parametros-confirmados.json": "events/parametros-confirmados.schema.json",
     "events/regra-extraida.json": "events/regra-extraida.schema.json",
     "domain/rebaixamentos-extracao.json": "domain/rebaixamentos-extracao.schema.json",
@@ -65,6 +69,15 @@
     "events/meta-venda-sugerida.json": "events/meta-venda-sugerida.schema.json",
     "events/meta-venda-sugerida-sem-solucao.json": "events/meta-venda-sugerida.schema.json",
     "events/sugestao-adaptacao-proposta-tentativa.json": "events/sugestao-adaptacao-proposta.schema.json",
-    "events/etapa-alterada-sem-alternativa.json": "events/etapa-alterada.schema.json"
+    "events/etapa-alterada-sem-alternativa.json": "events/etapa-alterada.schema.json",
+    "domain/resultado-fontes.json": "domain/resultado-fontes.schema.json",
+    "domain/trilha-conclusao-explicacao-conferida.json": "domain/trilha-conclusao.schema.json",
+    "events/no-concluido-explicacao-conferida.json": "events/no-concluido.schema.json",
+    "domain/trilha-conclusao-explicacao-reprovada.json": "domain/trilha-conclusao.schema.json",
+    "events/no-concluido-explicacao-reprovada.json": "events/no-concluido.schema.json",
+    "domain/trilha-conclusao-explicacao-sem-resposta.json": "domain/trilha-conclusao.schema.json",
+    "events/no-concluido-explicacao-sem-resposta.json": "events/no-concluido.schema.json",
+    "domain/trilha-conclusao-explicacao-provedor-indisponivel.json": "domain/trilha-conclusao.schema.json",
+    "events/no-concluido-explicacao-provedor-indisponivel.json": "events/no-concluido.schema.json"
   }
 }

@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.condition.EnabledIf;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.rabbitmq.RabbitMQContainer;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.amqp.core.AmqpAdmin;
@@ -34,11 +36,13 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import synapse.api.ApiApplication;
 import synapse.api.core.messaging.RabbitTopologyConfig;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.awaitility.Awaitility.await;
 
 /**
@@ -73,7 +77,7 @@ class NoConcluidoConsumidorTests {
 	static void subirAplicacao() throws Exception {
 		postgres = new PostgreSQLContainer("postgres:18-alpine");
 		postgres.start();
-		rabbitmq = new RabbitMQContainer("rabbitmq:3.13-management-alpine");
+		rabbitmq = new RabbitMQContainer("rabbitmq:3.13-management-alpine").withStartupTimeout(Duration.ofMinutes(2));
 		rabbitmq.start();
 
 		contexto = new SpringApplicationBuilder(ApiApplication.class).web(WebApplicationType.SERVLET)
@@ -120,6 +124,97 @@ class NoConcluidoConsumidorTests {
 	}
 
 	// --- Cenários -----------------------------------------------------------------
+
+	@Test
+	void falhaDaTrilhaNaoInterrompeSimulacaoEReentregaGravaUmaUnicaVez() throws Exception {
+		UUID jobId = criarJob();
+		UUID regraId = criarRegra(jobId);
+		UUID codigoId = criarCodigoGerado(jobId, regraId);
+		UUID resultadoId = criarResultado(jobId, codigoId);
+		UUID eventoId = UUID.randomUUID();
+		double falhas = consumos("falha");
+		double gravados = consumos("gravado");
+		double duplicados = consumos("duplicado");
+		try (CapturaDeLog captura = new CapturaDeLog(NoConcluidoConsumidor.class)) {
+			try (Connection connection = comoDono(); Statement statement = connection.createStatement()) {
+				statement.execute("REVOKE INSERT ON trilhas_auditoria FROM synapse_api");
+			}
+			try {
+				publicar(eventoId, jobId, "geracao_codigo", regraId, codigoId, null, null);
+				await().atMost(Duration.ofSeconds(15))
+					.untilAsserted(() -> assertThat(consumos("falha")).isGreaterThan(falhas));
+				String corpo = """
+						{"job_id":"%s","resultado_id":"%s","status":"sucesso","veredito":"viavel"}
+						""".formatted(jobId, resultadoId);
+				ContratoDeEvento.validar("simulacao-concluida", corpo);
+				rabbitTemplate.send("", RabbitTopologyConfig.SIMULACAO_CONCLUIDA_API,
+						MessageBuilder.withBody(corpo.getBytes(StandardCharsets.UTF_8))
+							.setContentType(MessageProperties.CONTENT_TYPE_JSON)
+							.setDeliveryMode(MessageDeliveryMode.PERSISTENT)
+							.build());
+				await().atMost(Duration.ofSeconds(15))
+					.untilAsserted(() -> assertThat(contexto.getBean(JobService.class).buscar(jobId).status())
+						.isEqualTo("aguardando_decisao_usuario"));
+				assertThat(contarTrilhas(jobId)).isZero();
+				assertThat(consumos("gravado")).isEqualTo(gravados);
+			}
+			finally {
+				try (Connection connection = comoDono(); Statement statement = connection.createStatement()) {
+					statement.execute("GRANT INSERT ON trilhas_auditoria TO synapse_api");
+				}
+			}
+			await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
+				assertThat(contarTrilhas(jobId)).isEqualTo(1);
+				assertThat(consumos("gravado")).isEqualTo(gravados + 1);
+				assertThat(resultadoDaSimulacao(codigoId)).isEqualTo(resultadoId);
+			});
+			publicar(eventoId, jobId, "geracao_codigo", regraId, codigoId, null, null);
+			await().atMost(Duration.ofSeconds(10))
+				.untilAsserted(() -> assertThat(consumos("duplicado")).isEqualTo(duplicados + 1));
+			assertThat(contarTrilhas(jobId)).isEqualTo(1);
+			assertThat(consumos("gravado")).isEqualTo(gravados + 1);
+			var falha = captura.eventos()
+				.stream()
+				.filter(e -> e.getMessage().equals("falha na gravação da trilha; mensagem será reentregue"))
+				.findFirst()
+				.orElseThrow();
+			String linha = CapturaDeLog.emJson(falha);
+			ContratoDeEvento.validarLog(linha);
+			var json = new JsonMapper().readTree(linha);
+			assertThat(json.path("job_id").asString()).isEqualTo(jobId.toString());
+			assertThat(json.path("extra").path("no").asString()).isEqualTo("geracao_codigo");
+			assertThat(json.path("extra").path("classe_falha").asString()).isEqualTo("BadSqlGrammarException");
+			assertThat(linha).doesNotContain("conclusao", "exception", "INSERT", "senha-de-teste");
+		}
+		int porta = Objects
+			.requireNonNull(
+					((org.springframework.boot.web.server.context.WebServerApplicationContext) contexto).getWebServer())
+			.getPort();
+		var resposta = java.net.http.HttpClient.newHttpClient()
+			.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create("http://localhost:" + porta + "/metrics"))
+				.GET()
+				.build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+		assertThat(resposta.statusCode()).isEqualTo(200);
+		for (String resultado : List.of("gravado", "duplicado", "falha")) {
+			var amostras = resposta.body()
+				.lines()
+				.filter(l -> l.startsWith("no_concluido_consumo_total{")
+						&& l.contains("resultado=\"" + resultado + "\""))
+				.toList();
+			assertThat(amostras).hasSize(1);
+			assertThat(Double.parseDouble(amostras.getFirst().substring(amostras.getFirst().lastIndexOf(' ') + 1)))
+				.isEqualTo(consumos(resultado))
+				.isPositive();
+		}
+	}
+
+	private static double consumos(String resultado) {
+		var contador = contexto.getBean(io.micrometer.core.instrument.MeterRegistry.class)
+			.find("no.concluido.consumo")
+			.tag("resultado", resultado)
+			.counter();
+		return contador == null ? 0 : contador.count();
+	}
 
 	@Test
 	void noDeGeracaoDeCodigoGravaATrilhaEASimulacao() throws Exception {
@@ -296,11 +391,11 @@ class NoConcluidoConsumidorTests {
 		assertThat(registrarDecisao(servico, abertura, jobId, regraId, "busca_meta"))
 			.isEqualTo(JobEventosService.BuscaMetaAnunciada.INICIADA);
 		assertThat(registrarDecisao(servico, abertura, jobId, regraId, "busca_meta"))
-			.isEqualTo(JobEventosService.BuscaMetaAnunciada.NENHUMA);
+			.isEqualTo(JobEventosService.BuscaMetaAnunciada.DUPLICADA);
 		assertThat(registrarDecisao(servico, fecho, jobId, regraId, null))
 			.isEqualTo(JobEventosService.BuscaMetaAnunciada.ENCERRADA);
 		assertThat(registrarDecisao(servico, fecho, jobId, regraId, null))
-			.isEqualTo(JobEventosService.BuscaMetaAnunciada.NENHUMA);
+			.isEqualTo(JobEventosService.BuscaMetaAnunciada.DUPLICADA);
 	}
 
 	@Test
@@ -358,7 +453,144 @@ class NoConcluidoConsumidorTests {
 		assertThat(buscaEmCurso(jobId)).isNull();
 	}
 
-	private record Trilha(String no, @Nullable UUID simulacaoId) {
+	// --- Resultado sobre o qual a etapa agiu (T-301) -----------------------------------
+
+	@Test
+	void umaEtapaComResultadoGravaAReferenciaNaTrilha() throws Exception {
+		UUID jobId = criarJob();
+		UUID regraId = criarRegra(jobId);
+		UUID resultadoId = criarResultado(jobId, criarCodigoGerado(jobId, regraId));
+
+		publicarConformeOContrato(corpoDaDecisao(UUID.randomUUID(), jobId, regraId, "2025-11-28T14:32:10Z",
+				"{\"resumo\":\"x\"}", resultadoId));
+
+		await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(contarTrilhas(jobId)).isEqualTo(1));
+		assertThat(trilhaUnica(jobId).resultadoId()).isEqualTo(resultadoId);
+	}
+
+	@Test
+	void umaEtapaSemResultadoGravaAColunaNula() throws Exception {
+		UUID jobId = criarJob();
+		UUID regraId = criarRegra(jobId);
+
+		publicarConformeOContrato(
+				corpoDaDecisao(UUID.randomUUID(), jobId, regraId, "2025-11-28T14:32:10Z", "{\"resumo\":\"x\"}", null));
+
+		await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(contarTrilhas(jobId)).isEqualTo(1));
+		assertThat(trilhaUnica(jobId).resultadoId()).isNull();
+	}
+
+	@Test
+	void aReentregaDeUmaEtapaComResultadoGravaUmaUnicaLinha() throws Exception {
+		UUID jobId = criarJob();
+		UUID regraId = criarRegra(jobId);
+		UUID resultadoId = criarResultado(jobId, criarCodigoGerado(jobId, regraId));
+		String corpo = corpoDaDecisao(UUID.randomUUID(), jobId, regraId, "2025-11-28T14:32:10Z", "{\"resumo\":\"x\"}",
+				resultadoId);
+
+		publicarConformeOContrato(corpo);
+		await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(contarTrilhas(jobId)).isEqualTo(1));
+		publicarConformeOContrato(corpo);
+
+		await().atMost(Duration.ofSeconds(10))
+			.untilAsserted(() -> assertThat(infoDaFila(RabbitTopologyConfig.NO_CONCLUIDO).getMessageCount()).isZero());
+		assertThat(trilhaUnica(jobId).resultadoId()).isEqualTo(resultadoId);
+	}
+
+	/**
+	 * A decisão que abre a busca aponta o resultado decidido, e a que a encerra aponta a
+	 * candidata vencedora, que não tem linha em {@code simulacoes}. A busca abre e fecha
+	 * como sem o campo, e o anúncio no log não leva nada da conclusão.
+	 */
+	@Test
+	void aBuscaComResultadoNasDuasLinhasAbreEEncerraComoSemEle() throws Exception {
+		UUID jobId = criarJob();
+		UUID regraId = criarRegra(jobId);
+		mudarStatus(jobId, "aguardando_decisao_usuario");
+		UUID codigoGeradoId = criarCodigoGerado(jobId, regraId);
+		UUID decidido = criarResultado(jobId, codigoGeradoId);
+		UUID candidata = criarCandidataDaBusca(jobId, codigoGeradoId);
+		String resumoDaAbertura = "Fluxo encaminhado para a busca de uma meta maior.";
+		String resumoDoFecho = "busca encerrada com uma meta maior encontrada";
+
+		try (CapturaDeLog captura = new CapturaDeLog(NoConcluidoConsumidor.class)) {
+			publicarConformeOContrato(corpoDaDecisao(UUID.randomUUID(), jobId, regraId, "2025-11-28T14:32:10Z",
+					"{\"resumo\":\"%s\",\"encaminhamento\":\"busca_meta\"}".formatted(resumoDaAbertura), decidido));
+			await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(buscaEmCurso(jobId)).isTrue());
+			publicarConformeOContrato(corpoDaDecisao(UUID.randomUUID(), jobId, regraId, "2025-11-28T14:40:10Z",
+					"{\"resumo\":\"%s\",\"desfecho_busca\":\"encontrada\",\"candidatas_simuladas\":3}"
+						.formatted(resumoDoFecho),
+					candidata));
+			await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(buscaEmCurso(jobId)).isNull());
+
+			await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(anuncios(captura)).hasSize(2));
+			List<String> status = new ArrayList<>();
+			for (ILoggingEvent anuncio : anuncios(captura)) {
+				String linha = CapturaDeLog.emJson(anuncio);
+				ContratoDeEvento.validarLog(linha);
+				assertThat(linha).doesNotContain(resumoDaAbertura, resumoDoFecho);
+				JsonNode log = new JsonMapper().readTree(linha);
+				assertThat(log.path("job_id").asString()).isEqualTo(jobId.toString());
+				status.add(log.path("extra").path("status").asString());
+			}
+			assertThat(status).containsExactly("buscando_meta", "busca_meta_encerrada");
+		}
+		assertThat(trilhas(jobId)).extracting(Trilha::resultadoId).containsExactly(decidido, candidata);
+	}
+
+	/**
+	 * Pela fila, a violação da chave estrangeira volta para a fila como as das demais
+	 * referências (skill consumidores); o serviço é chamado direto para não deixar a
+	 * mensagem em loop.
+	 */
+	@Test
+	void umResultadoInexistentePropagaAFalhaSemGravarATrilha() throws Exception {
+		UUID jobId = criarJob();
+		UUID regraId = criarRegra(jobId);
+		UUID eventoId = UUID.randomUUID();
+		JobEventosService servico = contexto.getBean(JobEventosService.class);
+		NoConcluidoDto evento = new NoConcluidoDto(eventoId, jobId, "decisao", Instant.parse("2025-11-28T14:32:10Z"),
+				new JsonMapper().readTree("{\"resumo\":\"x\"}"), regraId, null, null, null, null, UUID.randomUUID());
+
+		assertThatExceptionOfType(DataIntegrityViolationException.class)
+			.isThrownBy(() -> servico.registrarNoConcluido(jobId, eventoId, EtapaDoGrafo.DECISAO, evento));
+		assertThat(contarTrilhas(jobId)).isZero();
+	}
+
+	private static String corpoDaDecisao(UUID eventoId, UUID jobId, UUID regraId, String concluidoEm, String conclusao,
+			@Nullable UUID resultadoId) {
+		String resultado = (resultadoId != null) ? ",\"resultado_id\":\"%s\"".formatted(resultadoId) : "";
+		return """
+				{"evento_id":"%s","job_id":"%s","no":"decisao","concluido_em":"%s","conclusao":%s,"regra_id":"%s"%s}
+				""".formatted(eventoId, jobId, concluidoEm, conclusao, regraId, resultado).strip();
+	}
+
+	private static void publicarConformeOContrato(String corpo) throws Exception {
+		ContratoDeEvento.validar("no-concluido", corpo);
+		enviarCorpo(corpo);
+	}
+
+	private static List<ILoggingEvent> anuncios(CapturaDeLog captura) {
+		return captura.eventos()
+			.stream()
+			.filter((linha) -> "busca da meta maior anunciada".equals(linha.getMessage()))
+			.toList();
+	}
+
+	private static UUID criarCandidataDaBusca(UUID jobId, UUID codigoGeradoId) throws SQLException {
+		UUID resultadoId = UUID.randomUUID();
+		try (Connection connection = comoDono(); Statement statement = connection.createStatement()) {
+			statement.execute(
+					"""
+							INSERT INTO resultados_simulacao (id, job_id, codigo_gerado_id, status, veredito, assercoes, proposito, meta_venda, criado_em)
+							VALUES ('%s', '%s', '%s', 'sucesso', 'viavel', '[]'::jsonb, 'busca_meta', 1200, now())
+							"""
+						.formatted(resultadoId, jobId, codigoGeradoId));
+		}
+		return resultadoId;
+	}
+
+	private record Trilha(String no, @Nullable UUID simulacaoId, @Nullable UUID resultadoId) {
 	}
 
 	private static @Nullable Boolean buscaEmCurso(UUID jobId) {
@@ -387,7 +619,7 @@ class NoConcluidoConsumidorTests {
 		Instant concluidoEm = encaminhamento == null ? Instant.parse("2025-11-28T14:40:00Z")
 				: Instant.parse("2025-11-28T14:32:10Z");
 		NoConcluidoDto evento = new NoConcluidoDto(eventoId, jobId, "decisao", concluidoEm,
-				new JsonMapper().readTree(conclusao), regraId, null, null, null, null);
+				new JsonMapper().readTree(conclusao), regraId, null, null, null, null, null);
 		return servico.registrarNoConcluido(jobId, eventoId, EtapaDoGrafo.DECISAO, evento);
 	}
 
@@ -528,11 +760,11 @@ class NoConcluidoConsumidorTests {
 		try (Connection connection = comoDono();
 				Statement statement = connection.createStatement();
 				ResultSet rs = statement.executeQuery(
-						"SELECT no, simulacao_id FROM trilhas_auditoria WHERE job_id = '%s' ORDER BY concluido_em"
+						"SELECT no, simulacao_id, resultado_id FROM trilhas_auditoria WHERE job_id = '%s' ORDER BY concluido_em"
 							.formatted(jobId))) {
 			while (rs.next()) {
 				trilhas.add(new Trilha(Objects.requireNonNull(rs.getString("no")),
-						rs.getObject("simulacao_id", UUID.class)));
+						rs.getObject("simulacao_id", UUID.class), rs.getObject("resultado_id", UUID.class)));
 			}
 		}
 		return trilhas;

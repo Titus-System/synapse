@@ -39,3 +39,23 @@ async def cliente(aplicacao: FastAPI) -> AsyncGenerator[AsyncClient, None]:
         transport=ASGITransport(app=aplicacao), base_url="http://test"
     ) as cliente_http:
         yield cliente_http
+
+
+@pytest.fixture(autouse=True)
+def explicacao_fora_do_grafo(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O grafo dos testes de outros fluxos passa pela explicação sem executá-la.
+
+    O nó lê o resultado do banco e chama o modelo, e os bancos falsos desses testes não têm
+    nenhum dos dois. A explicação tem testes próprios, em `test_explicacao_no_grafo.py` e
+    `test_explain_result.py`, e os que passam pelo grafo pedem o nó real com
+    `@pytest.mark.com_explicacao`.
+    """
+    if request.node.get_closest_marker("com_explicacao") is not None:
+        return
+
+    async def explicacao_vazia(*_: object) -> dict[str, object]:
+        return {}
+
+    monkeypatch.setattr("app.graph.core.engine.explain_result", explicacao_vazia)

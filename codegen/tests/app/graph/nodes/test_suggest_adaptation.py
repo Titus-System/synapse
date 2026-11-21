@@ -1,6 +1,6 @@
 import logging
 from decimal import Decimal
-from typing import Any
+from typing import Any, get_args
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
@@ -9,10 +9,11 @@ import simplejson
 from prometheus_client import REGISTRY
 
 from app import sugestao_adaptacao
-from app.contratos.mensagens import EtapaAlterada
+from app.contratos.mensagens import EtapaAlterada, MotivoSugestao
 from app.contratos.serializacao import serializar
 from app.graph.core.state import AgentState
 from app.graph.nodes import suggest_adaptation as modulo
+from app.repositorio.artefatos import id_do_evento_de_trilha
 from app.repositorio.resultados import ResultadoIndisponivelError, TotaisDaSimulacao
 from app.sugestao_adaptacao import TaxaSimulada
 from tests.app.test_mensageria import oficial
@@ -149,6 +150,27 @@ async def test_propoe_a_alternativa_calculada_sobre_os_totais_apurados(
     assert contrato["nucleo"]["loja"] == ["13"]
 
 
+async def test_a_trilha_da_proposta_aponta_o_resultado_analisado_e_diz_o_motivo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A linha diz sobre qual resultado inviável a sugestão agiu; o `evento_id` não muda."""
+    _totais(monkeypatch, "492100", "485000")
+    producers = _producers()
+
+    await modulo.suggest_adaptation(_estado(), _config(producers))
+
+    [conclusao] = producers.no_concluido.await_args.args
+    assert conclusao.resultado_id == UUID(RESULTADO_ID)
+    assert conclusao.conclusao.motivo_sugestao == "proposta"
+    assert conclusao.evento_id == id_do_evento_de_trilha(
+        UUID(JOB_ID), "sugestao_adaptacao", UUID(RESULTADO_ID)
+    )
+    payload = simplejson.loads(serializar(conclusao), use_decimal=True)
+    assert payload["resultado_id"] == RESULTADO_ID
+    assert payload["conclusao"]["motivo_sugestao"] == "proposta"
+    oficial("no-concluido").validate(payload)
+
+
 async def test_com_comissao_atual_no_escopo_a_primeira_taxa_e_a_que_cabe_no_orcamento(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -253,6 +275,8 @@ async def test_a_terceira_alternativa_que_nao_coube_encerra_sem_quarta_proposta(
     )
     [conclusao] = producers.no_concluido.await_args.args
     assert conclusao.conclusao.resumo == modulo.RESUMOS["limite"]
+    assert conclusao.conclusao.motivo_sugestao == "limite"
+    assert conclusao.resultado_id == UUID(RESULTADO_ID)
     # A terceira já foi contada como inviável pela decisão; o limite não é outra tentativa.
     assert variacao_das_tentativas(antes) == {}
 
@@ -311,6 +335,8 @@ async def test_sem_taxa_a_propor_encerra_a_iteracao_sem_alternativa(
     assert sem_alternativa.status == "sem_alternativa"
     _, motivo = desfecho
     assert conclusao.conclusao.resumo == modulo.RESUMOS[motivo]
+    assert conclusao.conclusao.motivo_sugestao == motivo
+    assert conclusao.resultado_id == UUID(RESULTADO_ID)
     assert variacao_das_tentativas(antes) == {desfecho: 1.0}
 
 
@@ -322,6 +348,15 @@ def test_a_trilha_tem_um_resumo_proprio_para_cada_motivo() -> None:
 
     assert set(modulo.RESUMOS) == motivos
     assert len(set(modulo.RESUMOS.values())) == len(motivos)
+
+
+def test_todo_motivo_da_sugestao_esta_no_vocabulario_do_contrato() -> None:
+    """Um motivo fora do `motivo_sugestao` do contrato falharia só ao publicar a trilha."""
+    motivos = {
+        valor for nome, valor in vars(sugestao_adaptacao).items() if nome.startswith("MOTIVO_")
+    }
+
+    assert motivos == set(get_args(MotivoSugestao))
 
 
 async def test_publica_a_proposta_entre_a_etapa_e_a_trilha(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -550,4 +585,5 @@ async def test_regra_sem_taxa_positiva_encerra_sem_publicar_alternativa(
     [conclusao] = producers.no_concluido.await_args.args
     assert conclusao.regra_id == UUID(REGRA_ID)
     assert conclusao.conclusao.resumo == modulo.RESUMOS["nao_suportada"]
+    assert conclusao.conclusao.motivo_sugestao == "nao_suportada"
     assert variacao_das_tentativas(antes) == {("1", "nao_suportada"): 1.0}

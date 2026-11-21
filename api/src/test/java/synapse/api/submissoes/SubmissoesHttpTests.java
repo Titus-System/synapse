@@ -226,6 +226,51 @@ class SubmissoesHttpTests {
 		consultarSemRegra(job, "gerando_regra");
 	}
 
+	@Test
+	void listagemFiltradaMantemContratoLogsSanitizadosEMetricasHttp() throws Exception {
+		var registry = contexto.getBean(MeterRegistry.class);
+		long antes = registry.find("http.server.requests")
+			.tags("uri", "/jobs", "method", "GET")
+			.timers()
+			.stream()
+			.mapToLong(io.micrometer.core.instrument.Timer::count)
+			.sum();
+		dono.update(
+				"INSERT INTO jobs (usuario_id, status, competencias, criado_em) VALUES (?, 'liberado', ARRAY['2025-11'], now())",
+				USUARIO);
+		try (var logs = new CapturaDeLog("synapse.api.job.JobController")) {
+			var salvas = get("/jobs?situacao=salvas", rh);
+			assertThat(salvas.statusCode()).isEqualTo(200);
+			ContratoDeEvento.validarRespostaHttp("PaginaJobs", salvas.body());
+			assertThat(JSON.readTree(salvas.body()).path("total").asInt()).isEqualTo(1);
+			var arquivadas = get("/jobs?situacao=arquivadas", rh);
+			assertThat(arquivadas.statusCode()).isEqualTo(200);
+			ContratoDeEvento.validarRespostaHttp("PaginaJobs", arquivadas.body());
+			assertThat(JSON.readTree(arquivadas.body()).path("total").asInt()).isZero();
+			var invalida = get("/jobs?situacao=filtro-privado-t324", rh);
+			assertThat(invalida.statusCode()).isEqualTo(400);
+			ContratoDeEvento.validarRespostaHttp("Erro", invalida.body());
+			assertThat(logs.eventos()).hasSize(3);
+			for (var evento : logs.eventos()) {
+				String linha = CapturaDeLog.emJson(evento);
+				ContratoDeEvento.validarLog(linha);
+				assertThat(linha).doesNotContain("filtro-privado-t324", "subject-a", USUARIO.toString(), rh);
+				assertThat(JSON.readTree(linha).path("extra").path("resultado").asString()).isIn("sucesso",
+						"requisicao_invalida");
+			}
+		}
+		await().untilAsserted(() -> assertThat(registry.find("http.server.requests")
+			.tags("uri", "/jobs", "method", "GET")
+			.timers()
+			.stream()
+			.mapToLong(io.micrometer.core.instrument.Timer::count)
+			.sum()).isEqualTo(antes + 3));
+		String scrape = get("/metrics", "").body();
+		assertThat(scrape)
+			.contains("http_server_requests_seconds_count", "uri=\"/jobs\"", "status=\"200\"", "status=\"400\"")
+			.doesNotContain("filtro-privado-t324", "subject-a", USUARIO.toString());
+	}
+
 	@ParameterizedTest
 	@ValueSource(strings = { "texto", "voz" })
 	void ignoraCamposObsoletosMesmoInvalidos(String tipo) throws Exception {

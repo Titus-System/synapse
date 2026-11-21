@@ -24,6 +24,7 @@ import synapse.api.core.sse.EmissoresSse;
 import synapse.api.core.sse.EventoSse;
 import synapse.api.job.JobEventosService.DesfechoAplicado;
 import synapse.api.job.JobEventosService.DesfechoDaExtracao;
+import synapse.api.job.JobEventosService.ExplicacaoRegistrada;
 import synapse.api.job.JobEventosService.ExtracaoAplicada;
 import synapse.api.job.JobEventosService.FimDaIteracao;
 import synapse.api.job.JobEventosService.SugestaoAplicada;
@@ -255,16 +256,21 @@ class NoConcluidoConsumidor {
 
 	private final CorrelationContext correlacao;
 
-	NoConcluidoConsumidor(JobEventosService servico, EmissoresSse emissores, CorrelationContext correlacao) {
+	private final AppMetrics metricas;
+
+	NoConcluidoConsumidor(JobEventosService servico, EmissoresSse emissores, CorrelationContext correlacao,
+			AppMetrics metricas) {
 		this.servico = servico;
 		this.emissores = emissores;
 		this.correlacao = correlacao;
+		this.metricas = metricas;
 	}
 
 	@RabbitListener(queues = RabbitTopologyConfig.NO_CONCLUIDO)
 	void receber(NoConcluidoDto evento) {
 		UUID jobId = evento.job_id();
 		if (jobId == null) {
+			this.metricas.noConcluidoConsumido("descartado").increment();
 			log.atWarn().log("no-concluido sem job_id; evento descartado");
 			return;
 		}
@@ -274,14 +280,21 @@ class NoConcluidoConsumidor {
 			EtapaDoGrafo no = EtapaDoGrafo.deEvento(evento.no());
 			if (eventoId == null || no == null || evento.concluido_em() == null || evento.conclusao() == null
 					|| !temResumo(evento.conclusao())) {
+				this.metricas.noConcluidoConsumido("descartado").increment();
 				log.atWarn().addKeyValue("no", evento.no()).log("no-concluido inválido; evento descartado");
 				return;
 			}
 
 			if (no == EtapaDoGrafo.CONFIRMACAO) {
+				this.metricas.noConcluidoConsumido("descartado").increment();
 				// JobService já grava essa linha na mesma transação da
 				// confirmação; gravar de novo aqui duplicaria a trilha.
 				log.atInfo().log("no-concluido do nó confirmacao descartado; trilha já gravada pela confirmação");
+				return;
+			}
+
+			if (no == EtapaDoGrafo.EXPLICACAO) {
+				receberExplicacao(jobId, eventoId, evento);
 				return;
 			}
 
@@ -290,10 +303,20 @@ class NoConcluidoConsumidor {
 				busca = this.servico.registrarNoConcluido(jobId, eventoId, no, evento);
 			}
 			catch (EmptyResultDataAccessException ex) {
-				log.atWarn().setCause(ex).log("no-concluido de job desconhecido; evento descartado");
+				this.metricas.noConcluidoConsumido("descartado").increment();
+				log.atWarn().log("no-concluido de job desconhecido; evento descartado");
 				return;
 			}
-			log.atDebug().addKeyValue("no", no.paraEvento()).log("no-concluido gravado na trilha");
+			catch (org.springframework.dao.DataAccessException
+					| org.springframework.transaction.TransactionException ex) {
+				throw falhaDePersistencia(no, ex);
+			}
+			String resultado = busca == JobEventosService.BuscaMetaAnunciada.DUPLICADA ? "duplicado" : "gravado";
+			this.metricas.noConcluidoConsumido(resultado).increment();
+			log.atDebug()
+				.addKeyValue("no", no.paraEvento())
+				.addKeyValue("resultado", resultado)
+				.log("no-concluido processado na trilha");
 			String status = busca.status();
 			if (status != null) {
 				// Depois do commit: quem buscar o job agora encontra o campo, ou não o
@@ -303,6 +326,67 @@ class NoConcluidoConsumidor {
 				log.atInfo().addKeyValue("status", status).log("busca da meta maior anunciada");
 			}
 		}
+	}
+
+	/**
+	 * A trilha da explicação e a flag de baixa rastreabilidade saem na mesma transação. O
+	 * evento do stream e o desfecho contado só saem depois do commit, e só na primeira
+	 * gravação do evento: a reentrega não anuncia nem conta de novo.
+	 */
+	private void receberExplicacao(UUID jobId, UUID eventoId, NoConcluidoDto evento) {
+		UUID resultadoId = evento.resultado_id();
+		if (resultadoId == null) {
+			this.metricas.noConcluidoConsumido("descartado").increment();
+			log.atWarn().log("no-concluido da explicação sem resultado_id; evento descartado");
+			return;
+		}
+		ExplicacaoRegistrada registrada;
+		try {
+			registrada = this.servico.registrarExplicacao(jobId, eventoId, evento);
+		}
+		catch (EmptyResultDataAccessException ex) {
+			this.metricas.noConcluidoConsumido("descartado").increment();
+			log.atWarn().log("no-concluido de job desconhecido; evento descartado");
+			return;
+		}
+		catch (SimulacaoDaExplicacaoInexistenteException ex) {
+			this.metricas.noConcluidoConsumido("falha").increment();
+			log.atWarn()
+				.addKeyValue("no", EtapaDoGrafo.EXPLICACAO.paraEvento())
+				.addKeyValue("resultado_id", resultadoId)
+				.addKeyValue("resultado", "falha")
+				.log("simulação do resultado explicado não encontrada; mensagem será reentregue");
+			throw new FalhaPersistenciaTrilhaException();
+		}
+		catch (org.springframework.dao.DataAccessException | org.springframework.transaction.TransactionException ex) {
+			throw falhaDePersistencia(EtapaDoGrafo.EXPLICACAO, ex);
+		}
+		if (registrada == null) {
+			this.metricas.noConcluidoConsumido("duplicado").increment();
+			log.atDebug()
+				.addKeyValue("no", EtapaDoGrafo.EXPLICACAO.paraEvento())
+				.addKeyValue("resultado", "duplicado")
+				.log("no-concluido processado na trilha");
+			return;
+		}
+		this.metricas.noConcluidoConsumido("gravado").increment();
+		this.metricas.explicacaoRegistrada(registrada.desfecho().rotulo()).increment();
+		this.emissores.emitir(jobId, EventoSse.de("explicacao",
+				new EventoExplicacaoDto(jobId, registrada.simulacaoId(), registrada.desfecho().disponivel())));
+		log.atInfo()
+			.addKeyValue("desfecho", registrada.desfecho().rotulo())
+			.addKeyValue("simulacao_id", registrada.simulacaoId())
+			.log("explicação registrada na trilha");
+	}
+
+	private FalhaPersistenciaTrilhaException falhaDePersistencia(EtapaDoGrafo no, RuntimeException ex) {
+		this.metricas.noConcluidoConsumido("falha").increment();
+		log.atWarn()
+			.addKeyValue("no", no.paraEvento())
+			.addKeyValue("resultado", "falha")
+			.addKeyValue("classe_falha", ex.getClass().getSimpleName())
+			.log("falha na gravação da trilha; mensagem será reentregue");
+		return new FalhaPersistenciaTrilhaException();
 	}
 
 	private static boolean temResumo(JsonNode conclusao) {

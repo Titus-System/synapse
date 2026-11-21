@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/contracts/domain/modelo-transcricao.schema.json",
+  "title": "Modelo da transcrição",
+  "description": "Coluna submissoes.transcricao_modelo. Registra qual modelo transcreveu o áudio de uma entrada por voz, porque o texto transcrito é a origem da regra extraída e o provedor pode trocar o modelo sem deixar rastro nos registros antigos.",
+  "type": "object",
+  "required": ["provedor", "modelo"],
+  "properties": {
+    "provedor": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Quem transcreveu o áudio. Vocabulário aberto.",
+      "examples": ["deepgram"]
+    },
+    "modelo": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Nome do modelo como a resposta do provedor o informou. Quando a resposta não informa, é o modelo pedido na chamada.",
+      "examples": ["2-general-nova", "nova-3"]
+    },
+    "versao": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Versão do modelo como a resposta do provedor a informou. Ausente quando a resposta não a informa.",
+      "examples": ["2024-01-09.29447"]
+    }
+  },
+  "examples": [
+    {
+      "provedor": "deepgram",
+      "modelo": "2-general-nova",
+      "versao": "2024-01-09.29447"
+    },
+    {
+      "provedor": "deepgram",
+      "modelo": "nova-3"
+    }
+  ]
+}

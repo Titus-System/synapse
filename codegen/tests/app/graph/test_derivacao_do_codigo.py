@@ -53,13 +53,21 @@ def _contagem(desfecho: str) -> float:
     return REGISTRY.get_sample_value(METRICA, {"desfecho": desfecho}) or 0.0
 
 
-async def _ate_a_alternativa(
+async def _ate_a_proposta(
     monkeypatch: pytest.MonkeyPatch, fonte_da_origem: str
-) -> tuple[Job, UUID, CodigoSimulado]:
-    """A original simulada sem caber, a proposta publicada e o ciclo da alternativa aberto."""
+) -> tuple[Job, dict[str, Any], CodigoSimulado]:
+    """A original simulada sem caber e a proposta publicada, antes do ciclo da alternativa."""
     job = Job(monkeypatch)
     original = job.original()
-    codigo_da_origem = CodigoSimulado(id=uuid4(), prompt_id=uuid4(), fonte=fonte_da_origem)
+    await job.abrir_ciclo(original)
+    simulada = await job.simular(original, Decimal("2200"))
+    # O código da origem com o resultado de sucesso da simulação dele, como a consulta devolve.
+    codigo_da_origem = CodigoSimulado(
+        id=uuid4(),
+        prompt_id=uuid4(),
+        fonte=fonte_da_origem,
+        resultado_id=UUID(simulada["resultado_id"]),
+    )
 
     async def buscar_codigo_simulado(sessoes: Any, job_id: UUID, regra_id: UUID) -> Any:
         return codigo_da_origem if regra_id == original else None
@@ -68,9 +76,15 @@ async def _ate_a_alternativa(
         "app.graph.nodes.derive_code.buscar_codigo_simulado",
         AsyncMock(side_effect=buscar_codigo_simulado),
     )
-    await job.abrir_ciclo(original)
-    await job.simular(original, Decimal("2200"))
     (proposta,) = job.propostas()
+    return job, proposta, codigo_da_origem
+
+
+async def _ate_a_alternativa(
+    monkeypatch: pytest.MonkeyPatch, fonte_da_origem: str
+) -> tuple[Job, UUID, CodigoSimulado]:
+    """A original simulada sem caber, a proposta publicada e o ciclo da alternativa aberto."""
+    job, proposta, codigo_da_origem = await _ate_a_proposta(monkeypatch, fonte_da_origem)
     alternativa = await job.alternativa(proposta)
     return job, alternativa, codigo_da_origem
 
@@ -99,6 +113,8 @@ async def test_alternativa_recebe_o_codigo_da_origem_com_a_taxa_nova_sem_chamar_
         if n.get("codigo_gerado_id") == str(derivado["id"]) and n["no"] == "geracao_codigo"
     ]
     assert trilha["conclusao"]["resumo"] == RESUMO_DA_TRILHA
+    assert trilha["conclusao"]["modo_geracao"] == "derivado"
+    assert trilha["resultado_id"] == str(origem.resultado_id)
     assert trilha["prompt_id"] == str(origem.prompt_id)
     assert _contagem("derivado") == antes + 1
     (log,) = [e for e in logs if e["message"] == "alternative code derived from the origin code"]
@@ -106,6 +122,31 @@ async def test_alternativa_recebe_o_codigo_da_origem_com_a_taxa_nova_sem_chamar_
     assert log["no"] == "geracao_codigo"
     assert log["extra"]["taxas_trocadas"] == 1
     assert "aplicar_regra" not in simplejson.dumps(logs)
+
+
+async def test_a_reentrega_republica_a_trilha_do_codigo_derivado_com_o_mesmo_evento_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A trilha do código derivado falhou no broker; a reentrega do `regra-submetida` da
+    alternativa reexecuta a derivação, e a linha republicada é a mesma."""
+    job, proposta, origem = await _ate_a_proposta(monkeypatch, FONTE_COM_A_TAXA)
+    recusadas = job.recusar_uma_trilha(lambda p: p["conclusao"].get("modo_geracao") == "derivado")
+    alternativa = job.historico.gravar_proposta(proposta)
+    interrompida = await job.submeter(alternativa)
+    interrompida.nack.assert_awaited_once_with(requeue=True)
+
+    repetida = await job.submeter(alternativa)
+
+    repetida.ack.assert_awaited_once_with()
+    [recusada] = recusadas
+    [republicada] = [
+        n
+        for n in job.publicadas("no-concluido")
+        if n["no"] == "geracao_codigo" and n["regra_id"] == str(alternativa)
+    ]
+    assert republicada["evento_id"] == recusada["evento_id"]
+    assert republicada["resultado_id"] == recusada["resultado_id"] == str(origem.resultado_id)
+    assert republicada["codigo_gerado_id"] == recusada["codigo_gerado_id"]
 
 
 async def test_alternativa_cujo_codigo_nao_escreve_a_taxa_e_gerada_pelo_modelo(
@@ -120,6 +161,14 @@ async def test_alternativa_cujo_codigo_nao_escreve_a_taxa_e_gerada_pelo_modelo(
         alternativa
     ) == 1
     assert _contagem("taxas_nao_localizadas") == antes + 1
+    # A alternativa que o modelo gera não é derivada: a linha diz `gerado` e não aponta resultado.
+    [gerada] = [
+        n
+        for n in job.publicadas("no-concluido")
+        if n["no"] == "geracao_codigo" and n["regra_id"] == str(alternativa)
+    ]
+    assert gerada["conclusao"]["modo_geracao"] == "gerado"
+    assert "resultado_id" not in gerada
     (log,) = [
         e for e in logs if e["message"] == "alternative code not derived; generating with the model"
     ]

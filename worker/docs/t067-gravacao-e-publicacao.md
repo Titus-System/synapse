@@ -49,13 +49,14 @@ schema prevê (claim-check, ARCHITECTURE.md §6.1). O contrato **não foi altera
 | `linhas` | o detalhamento do container, como veio (T-259) | nulo |
 | `diagnostico` | nulo | em `erro_codigo`, a causa e o que houver de falha e problemas (T-204); nulo nos demais |
 | `meta_venda`, `proposito` | os do comando (T-270) | os do comando (T-270) |
+| `fontes` | a versão e o congelamento do manifesto, os arquivos de base e o baseline de cada competência, com os sha256 (T-311) | o mesmo em `assercao_violada` e `erro_codigo`; nulo em `erro_infra` e num período fora das bases |
 | evento: `veredito`, `total_*`, `diferenca_*` | presentes | **ausentes** |
 | evento: `meta_venda`, `proposito` | a meta, quando houve; o propósito, só `busca_meta` | o mesmo |
 
 O detalhamento entra no **mesmo `INSERT`**, e o evento continua sem ele: a consulta do job não
 pode carregar o período inteiro de todas as simulações, e quem o quer o busca pela rota própria
 (T-260). O log `resultado gravado` registra quantas competências e quantas combinações de
-competência e matrícula foram gravadas, nunca o conteúdo.
+competência e matrícula foram gravadas, nunca o conteúdo, e das fontes só `versao_manifesto`.
 
 O `indeterminado` é o veredito interno da T-066 e **nunca** é gravado nem publicado: o schema e a
 tabela o declaram nulo/ausente fora de `sucesso`, e a `api` lê `sucesso` + `indeterminado` como

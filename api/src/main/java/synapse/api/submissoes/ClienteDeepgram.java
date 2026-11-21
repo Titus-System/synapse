@@ -7,10 +7,12 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +30,12 @@ class ClienteDeepgram {
 	private static final Logger log = LoggerFactory.getLogger(ClienteDeepgram.class);
 
 	private static final Set<String> FORMATOS = Set.of("audio/webm", "audio/ogg", "audio/wav", "audio/mp4");
+
+	private static final String PROVEDOR = "deepgram";
+
+	private static final String MODELO_PEDIDO = "nova-3";
+
+	private static final Pattern IDENTIFICADOR = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,99}");
 
 	private final AppProperties.Transcription properties;
 
@@ -52,12 +60,12 @@ class ClienteDeepgram {
 		return !this.properties.apiKey().isBlank();
 	}
 
-	String transcrever(byte[] audio, String formato) {
+	TranscricaoObtida transcrever(byte[] audio, String formato) {
 		return transcrever(audio, formato, false);
 	}
 
 	/** A T-237 preserva este sinal na tentativa do mesmo áudio, sem estado global. */
-	String transcrever(byte[] audio, String formato, boolean respostaInvalidaAnterior) {
+	TranscricaoObtida transcrever(byte[] audio, String formato, boolean respostaInvalidaAnterior) {
 		log.info("transcription started");
 		try {
 			if (!configurado()) {
@@ -70,8 +78,8 @@ class ClienteDeepgram {
 			if (audio.length == 0) {
 				throw permanente(0, "audio_vazio");
 			}
-			String texto = this.http.post()
-				.uri("/v1/listen?model=nova-3&language=pt-BR&smart_format=false&mip_opt_out=true")
+			TranscricaoObtida obtida = this.http.post()
+				.uri("/v1/listen?model=" + MODELO_PEDIDO + "&language=pt-BR&smart_format=false&mip_opt_out=true")
 				.header("Authorization", "Token " + this.properties.apiKey())
 				.contentType(mime)
 				.body(audio)
@@ -88,9 +96,10 @@ class ClienteDeepgram {
 						throw permanente(codigo, "recusado");
 					}
 					byte[] corpo = response.getBody().readAllBytes();
+					JsonNode raiz;
 					String transcricao;
 					try {
-						var raiz = this.json.readTree(corpo);
+						raiz = this.json.readTree(corpo);
 						var campo = raiz.path("results")
 							.path("channels")
 							.path(0)
@@ -108,14 +117,41 @@ class ClienteDeepgram {
 						}
 						throw transitoria(codigo, "resposta_invalida", Duration.ZERO, true);
 					}
-					return transcricao;
+					return new TranscricaoObtida(transcricao, modeloInformado(raiz));
 				});
-			log.info("transcription finished");
-			return texto;
+			log.atInfo().addKeyValue("model", obtida.modelo().modelo()).log("transcription finished");
+			return obtida;
 		}
 		catch (ResourceAccessException ex) {
 			throw transitoria(0, "transporte", Duration.ZERO, false);
 		}
+	}
+
+	/**
+	 * O modelo de {@code metadata.model_info}, pelo primeiro id de
+	 * {@code metadata.models}. Sem um nome legível, vale o modelo pedido, sem versão: os
+	 * metadados nunca decidem se a transcrição vale.
+	 */
+	private static ModeloTranscricao modeloInformado(JsonNode raiz) {
+		var metadados = raiz.path("metadata");
+		var id = metadados.path("models").path(0);
+		if (id.isString()) {
+			var informado = metadados.path("model_info").path(id.asString());
+			String nome = identificador(informado.path("name"));
+			if (nome != null) {
+				return new ModeloTranscricao(PROVEDOR, nome, identificador(informado.path("version")));
+			}
+		}
+		return new ModeloTranscricao(PROVEDOR, MODELO_PEDIDO, null);
+	}
+
+	/** O valor vai para o log; um texto fora do formato é descartado. */
+	private static @Nullable String identificador(JsonNode campo) {
+		if (!campo.isString()) {
+			return null;
+		}
+		String valor = campo.asString();
+		return IDENTIFICADOR.matcher(valor).matches() ? valor : null;
 	}
 
 	private MediaType formatoAceito(String formato) {

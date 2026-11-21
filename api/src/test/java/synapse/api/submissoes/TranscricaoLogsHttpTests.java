@@ -47,7 +47,8 @@ class TranscricaoLogsHttpTests {
 					"http://127.0.0.1:" + servidor.getAddress().getPort(), 1000, 1000,
 					new AppProperties.Transcription.Processor(false, Duration.ofSeconds(1), Duration.ofHours(1))));
 			if (status == 200) {
-				assertThat(cliente.transcrever(audio.getBytes(StandardCharsets.UTF_8), "audio/wav")).isEqualTo(texto);
+				assertThat(cliente.transcrever(audio.getBytes(StandardCharsets.UTF_8), "audio/wav").texto())
+					.isEqualTo(texto);
 			}
 			else {
 				assertThatThrownBy(() -> cliente.transcrever(audio.getBytes(StandardCharsets.UTF_8), "audio/wav"))

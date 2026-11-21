@@ -26,6 +26,7 @@ from aio_pika import Message
 from aio_pika.abc import AbstractIncomingMessage, AbstractQueue
 
 from app.config import get_settings
+from app.execucao.bases import carregar_bases
 from app.execucao.container import ROTULO_JOB, SaidaBruta, executar_no_sandbox
 from app.execucao.preparo import PayloadContainer
 from app.mensageria import consumidor
@@ -76,12 +77,16 @@ async def _linhas_do_job(conexao_dono: Any, job_id: UUID) -> list[Any]:
     )
 
 
-def _comando(codigo_gerado_seed: dict[str, Any], orcamento: float | None = 485000.0) -> Message:
+def _comando(
+    codigo_gerado_seed: dict[str, Any],
+    orcamento: float | None = 485000.0,
+    competencias: tuple[str, ...] = ("2025-11",),
+) -> Message:
     """`orcamento` None é o comando de um job sem orçamento, que chega sem o campo."""
     corpo: dict[str, Any] = {
         "job_id": str(codigo_gerado_seed["job_id"]),
         "codigo_gerado_id": str(codigo_gerado_seed["id"]),
-        "competencias": ["2025-11"],
+        "competencias": list(competencias),
     }
     if orcamento is not None:
         corpo["orcamento"] = orcamento
@@ -232,6 +237,7 @@ async def test_comando_no_rabbitmq_vira_linha_no_banco_e_evento_nas_duas_filas(
     assert json.loads(linha["decomposicao"]) is not None
     assert [a["resultado"] for a in json.loads(linha["assercoes"])] == ["ok"]
     assert linha["diagnostico"] is None
+    assert json.loads(linha["fontes"]) == carregar_bases().fontes(["2025-11"])
 
     # O evento: o mesmo nas duas filas, referenciando a linha, e a linha já existia ao recebê-lo.
     assert len(recebidos) == 1
@@ -286,6 +292,39 @@ async def test_comando_sem_orcamento_vira_sucesso_sem_veredito_na_linha_e_nas_du
     assert corpo["total_simulado"] == SIMULADO_DO_EXEMPLO
     assert erros_do_evento("simulacao-concluida", corpo) == []
     assert await _retirar(broker_real, f"{broker_real.fila.name}.dlq") is None
+
+
+async def test_execucao_de_duas_competencias_grava_as_fontes_na_linha(
+    monkeypatch: pytest.MonkeyPatch,
+    broker_real: ConexaoBroker,
+    filas: tuple[AbstractQueue, AbstractQueue],
+    conexao_dono: Any,
+    codigo_gerado_seed: dict[str, Any],
+    imagem: str,
+) -> None:
+    """T-311: a linha leva o manifesto, os cinco arquivos de base e o baseline de cada
+    competência, na ordem do comando e válidos no schema. O evento não leva as fontes."""
+    fila_api, _ = filas
+    execucoes = _espia_do_container(monkeypatch, imagem)
+    concluido = _observar_processamento(monkeypatch, total=1)
+    await broker_real.canal.default_exchange.publish(
+        _comando(codigo_gerado_seed, competencias=("2025-11", "2025-08")),
+        routing_key=broker_real.fila.name,
+    )
+
+    await _consumir_ate(broker_real, concluido)
+
+    assert len(execucoes) == 1
+    (linha,) = await _linhas_do_job(conexao_dono, codigo_gerado_seed["job_id"])
+    assert linha["status"] == "sucesso"
+    fontes = json.loads(linha["fontes"])
+    assert erros_do_dominio("resultado-fontes", fontes) == []
+    assert fontes == carregar_bases().fontes(["2025-11", "2025-08"])
+    assert fontes["competencias"] == ["2025-11", "2025-08"]
+    assert len(fontes["arquivos"]) == 5
+    assert [b["competencia"] for b in fontes["baselines"]] == ["2025-11", "2025-08"]
+    da_api = await retirar(fila_api)
+    assert da_api is not None and "fontes" not in json.loads(da_api.body)
 
 
 async def test_evento_perdido_nao_perde_a_linha_e_a_reentrega_nao_a_duplica(
@@ -374,6 +413,8 @@ async def test_a_excecao_da_regra_e_gravada_como_diagnostico_e_a_reentrega_o_pre
         "MENSAGEM-DA-REGRA",
     )
     assert 'File "regra.py", line 3, in aplicar_regra' in diagnostico["falha"]["traceback"]
+    # A regra executou sobre as bases antes de levantar: a linha registra quais.
+    assert json.loads(linha["fontes"]) == carregar_bases().fontes(["2025-11"])
 
     for fila in (fila_api, fila_codegen):
         eventos = [await retirar(fila), await retirar(fila)]
@@ -431,6 +472,7 @@ async def test_falha_de_infraestrutura_no_container_esgota_o_retry_grava_o_erro_
     assert linha["status"] == "erro_infra"
     assert (linha["veredito"], linha["totais"], linha["decomposicao"]) == (None, None, None)
     assert linha["diagnostico"] is None
+    assert linha["fontes"] is None
     assert json.loads(linha["assercoes"]) == []
     for fila in (fila_api, fila_codegen):
         evento = await retirar(fila)

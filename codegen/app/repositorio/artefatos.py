@@ -76,6 +76,11 @@ def id_do_codigo_derivado(codigo_origem_id: UUID, regra_id: UUID) -> UUID:
     return uuid5(_NAMESPACE, f"codigo-derivado:{codigo_origem_id}:{regra_id}")
 
 
+def id_da_explicacao(resultado_id: UUID) -> UUID:
+    """Uma explicação por resultado: o id vem dele, e a reexecução do nó acha a mesma linha."""
+    return uuid5(_NAMESPACE, f"explicacao:{resultado_id}")
+
+
 def id_do_evento_de_trilha(job_id: UUID, no: str, referencia: UUID) -> UUID:
     """Chave de idempotência do `no-concluido` deste nó.
 
@@ -191,14 +196,17 @@ class CodigoSimulado:
     id: UUID
     prompt_id: UUID
     fonte: str
+    #: O resultado de sucesso da simulação deste código: o mais recente, como a api o liga à
+    #: simulação.
+    resultado_id: UUID
 
 
 _BUSCAR_CODIGO_SIMULADO = text(
-    "SELECT c.id, c.prompt_id, c.fonte FROM codigos_gerados c"
+    "SELECT c.id, c.prompt_id, c.fonte, rs.id AS resultado_id FROM codigos_gerados c"
     " JOIN resultados_simulacao rs ON rs.codigo_gerado_id = c.id AND rs.job_id = c.job_id"
     " WHERE c.job_id = :job_id AND c.regra_id = :regra_id"
     " AND rs.status = 'sucesso' AND rs.proposito = 'simulacao'"
-    " ORDER BY c.criado_em DESC, c.id DESC LIMIT 1"
+    " ORDER BY c.criado_em DESC, c.id DESC, rs.criado_em DESC, rs.id DESC LIMIT 1"
 )
 
 
@@ -214,7 +222,10 @@ async def buscar_codigo_simulado(
     if linha is None:
         return None
     return CodigoSimulado(
-        id=UUID(str(linha["id"])), prompt_id=UUID(str(linha["prompt_id"])), fonte=linha["fonte"]
+        id=UUID(str(linha["id"])),
+        prompt_id=UUID(str(linha["prompt_id"])),
+        fonte=linha["fonte"],
+        resultado_id=UUID(str(linha["resultado_id"])),
     )
 
 

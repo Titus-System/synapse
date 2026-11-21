@@ -62,8 +62,27 @@ class JobController {
 	@GetMapping(path = "/jobs", produces = "application/json")
 	PaginaJobsDto listar(@RequestParam(name = "pagina", defaultValue = "0") int pagina,
 			@RequestParam(name = "tamanho", defaultValue = "20") int tamanho,
+			@RequestParam(name = "situacao", required = false) @Nullable String situacao,
 			@RequestAttribute(AutorizacaoJobsInterceptor.ACESSO) AcessoDoUsuario acesso) {
-		return this.service.listar(new ListarJobsRequisicao(pagina, tamanho), acesso);
+		long inicio = System.nanoTime();
+		String resultado = "falha";
+		try {
+			PaginaJobsDto paginaJobs = this.service.listar(ListarJobsRequisicao.deParametros(pagina, tamanho, situacao),
+					acesso);
+			resultado = "sucesso";
+			return paginaJobs;
+		}
+		catch (ListarJobsException ex) {
+			resultado = "requisicao_invalida";
+			throw ex;
+		}
+		finally {
+			log.atLevel("sucesso".equals(resultado) ? Level.INFO : Level.WARN)
+				.addKeyValue("operacao", "listar_jobs")
+				.addKeyValue("resultado", resultado)
+				.addKeyValue("duracao_ms", TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - inicio))
+				.log("listagem de jobs encerrada");
+		}
 	}
 
 	@AutorizarJob(OperacaoJob.CONSULTAR)

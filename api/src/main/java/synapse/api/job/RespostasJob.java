@@ -33,10 +33,26 @@ record SimulacaoAnteriorDto(UUID resultado_id, Instant criado_em, String status,
 		@Nullable BigDecimal meta_venda, ResultadoSimulacaoDto resultado) {
 }
 
+/**
+ * Forma de {@code Simulacao.explicacao} no contrato HTTP: a narrativa conferida do
+ * resultado vigente. Nunca carrega texto reprovado.
+ */
+record ExplicacaoDto(String texto, Instant criada_em) {
+}
+
 @JsonInclude(JsonInclude.Include.NON_NULL)
 record SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, String status, @Nullable String veredito,
 		boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado, @Nullable BigDecimal meta_venda,
-		@Nullable Instant meta_sugerida_aceita_em, @Nullable SimulacaoAnteriorDto anterior_a_meta_sugerida) {
+		@Nullable Instant meta_sugerida_aceita_em, @Nullable SimulacaoAnteriorDto anterior_a_meta_sugerida,
+		@Nullable ExplicacaoDto explicacao) {
+	SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, String status, @Nullable String veredito,
+			boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado,
+			@Nullable BigDecimal meta_venda, @Nullable Instant meta_sugerida_aceita_em,
+			@Nullable SimulacaoAnteriorDto anterior_a_meta_sugerida) {
+		this(id, regra_id, criado_em, status, veredito, flag_baixa_rastreabilidade, resultado, meta_venda,
+				meta_sugerida_aceita_em, anterior_a_meta_sugerida, null);
+	}
+
 	SimulacaoDto(UUID id, UUID regra_id, Instant criado_em, String status, @Nullable String veredito,
 			boolean flag_baixa_rastreabilidade, @Nullable ResultadoSimulacaoDto resultado,
 			@Nullable BigDecimal meta_venda, @Nullable Instant meta_sugerida_aceita_em) {

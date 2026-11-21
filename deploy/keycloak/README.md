@@ -39,14 +39,33 @@ primeira chamada à API.
 
 ## Dados de demonstração
 
-O script `deploy/scripts/seed.py` cria `develop@synapse.pro` com o papel
-`profissional-rh` e `staging@synapse.pro` com o papel `auditor` no Keycloak.
+O script `deploy/scripts/seed.py` cria as seguintes contas no Keycloak:
+
+| Conta | Nome | Papel de negócio |
+| --- | --- | --- |
+| `develop@synapse.pro` | Desenvolvimento | `profissional-rh` |
+| `staging@synapse.pro` | Staging | `auditor` |
+| `auditor@synapse.pro` | Auditoria | `auditor` |
+
+A definição das duas contas anteriores foi preservada, inclusive o papel de
+`staging@synapse.pro`.
+
 Também grava essas contas em `usuarios`, com `keycloak_sub` igual ao identificador
 retornado pelo Keycloak e `senha_hash` nulo. São sete jobs de demonstração:
 quatro vinculados a `develop@synapse.pro` e três vinculados a `staging@synapse.pro`
 no status `aguardando_decisao_usuario`. Em uma nova execução, o script reutiliza as contas,
-redefine a senha de ambas e corrige a posse dos jobs criados por versões antigas
+redefine a senha das três e corrige a posse dos jobs criados por versões antigas
 do seed.
+
+Não execute o seed completo para acrescentar somente a conta de auditor em um
+ambiente existente: ele redefine senhas e atualiza registros locais. No staging,
+preserve todas as contas existentes e siga o procedimento manual abaixo.
+Se `staging@synapse.pro` tiver `profissional-rh` nesse ambiente, o seed recusa o
+conflito com a definição local de `auditor`; esta tarefa não troca esse papel,
+não migra contas e não exige recriar volumes. Em um ambiente local criado pelo
+seed anterior, `staging@synapse.pro` continua como auditor e a nova conta pode
+ser acrescentada sem mudar esse papel. Esses auditores recebem `403` nas rotas
+operacionais de jobs, inclusive nos jobs de demonstração vinculados a staging.
 
 Com o Keycloak e o banco já iniciados e as migrations da API aplicadas, instale
 a dependência do script e execute-o a partir da raiz:
@@ -63,8 +82,32 @@ valor e não usa a porta interna do container. Se seu `deploy/.env` usar outros
 valores, exporte também `POSTGRES_HOST`, `POSTGRES_DB`, `POSTGRES_USER`,
 `KEYCLOAK_PUBLIC_URL` e `KEYCLOAK_ADMIN_USERNAME` conforme esse ambiente. O
 script lê variáveis de ambiente, não o arquivo `deploy/.env` diretamente. A
-senha em `SEED_USERS_PASSWORD` permite autenticar qualquer uma das duas contas
+senha em `SEED_USERS_PASSWORD` permite autenticar qualquer uma das três contas
 de demonstração no Keycloak.
+
+### Acrescentar somente o auditor em um ambiente existente
+
+No console administrativo do Keycloak do ambiente (no staging,
+`https://auth.synnapse.pro/admin/`):
+
+1. Selecione o realm **synapse → Users** e busque exatamente
+   `auditor@synapse.pro`. Se já existir, confira sua configuração sem alterá-la.
+2. Se não existir, use **Add user** com username e e-mail
+   `auditor@synapse.pro`, nome **Auditoria**, conta habilitada e
+   **Email verified** habilitado. Complete os campos de perfil obrigatórios
+   somente nessa nova conta.
+3. Somente na conta recém-criada, em **Groups**, remova
+   `/synapse-autocadastro` antes de atribuir qualquer papel de auditor.
+4. Em **Role mapping**, atribua **auditor**. Confira os papéis efetivos:
+   `auditor` deve ser o único papel de negócio, sem `profissional-rh`.
+   Papéis técnicos padrão do Keycloak podem permanecer.
+5. Em **Credentials**, defina uma senha forte sem obrigar troca no primeiro
+   acesso. Entregue-a ao time por canal privado, fora do repositório.
+6. Faça login com a nova conta e confirme `email_verified=true`, somente
+   `auditor` entre os papéis de negócio e resposta `403` em `GET /jobs`.
+
+Não edite `develop@synapse.pro`, `staging@synapse.pro` ou qualquer outra conta
+existente, nem altere o grupo padrão ou a configuração do realm.
 
 O arquivo de importação inclui as origens conhecidas do projeto. Aplique o
 procedimento E11 abaixo para restringir o cliente à origem do ambiente, também

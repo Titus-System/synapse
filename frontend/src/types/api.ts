@@ -10,6 +10,7 @@ export type CodigoErro =
   | 'regra_incoerente'
   | 'audio_invalido'
   | 'audio_muito_grande'
+  | 'entrada_nao_encontrada'
 
 export interface ElementoErro {
   ref: string
@@ -242,9 +243,12 @@ export interface PaginaJobs {
   total: number
 }
 
+export type SituacaoListagem = 'salvas' | 'arquivadas'
+
 export interface ListarJobsParametros {
   pagina?: number
   tamanho?: number
+  situacao?: SituacaoListagem
 }
 
 export interface Conflito {

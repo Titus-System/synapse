@@ -67,6 +67,28 @@ class Worker:
             return self.regras_das_falhas[resultado_id]
         return await self.job.historico.buscar_regra_do_resultado(sessoes, job_id, resultado_id)
 
+    def gravar_falha(
+        self,
+        regra_id: UUID,
+        status: str = "erro_codigo",
+        *,
+        diagnostico: dict[str, Any] | None = None,
+        assercoes: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """A falha gravada, e o `simulacao-concluida` que o worker publica sobre ela."""
+        resultado_id = UUID(int=len(self.falhas) + 1)
+        self.regras_das_falhas[resultado_id] = regra_id
+        self.falhas[resultado_id] = FalhaDaExecucao(
+            status,
+            diagnostico if diagnostico is not None else EXCECAO,
+            [a for a in assercoes or [] if a["resultado"] == "violada"],
+        )
+        return {
+            "job_id": str(self.job.historico.job_id),
+            "resultado_id": str(resultado_id),
+            "status": status,
+        }
+
     async def falhar(
         self,
         regra_id: UUID,
@@ -75,19 +97,8 @@ class Worker:
         diagnostico: dict[str, Any] | None = None,
         assercoes: list[dict[str, Any]] | None = None,
     ) -> None:
-        resultado_id = UUID(int=len(self.falhas) + 1)
-        self.regras_das_falhas[resultado_id] = regra_id
-        self.falhas[resultado_id] = FalhaDaExecucao(
-            status,
-            diagnostico if diagnostico is not None else EXCECAO,
-            [a for a in assercoes or [] if a["resultado"] == "violada"],
-        )
         recebida = await self.job.entregar(
-            {
-                "job_id": str(self.job.historico.job_id),
-                "resultado_id": str(resultado_id),
-                "status": status,
-            }
+            self.gravar_falha(regra_id, status, diagnostico=diagnostico, assercoes=assercoes)
         )
         recebida.ack.assert_awaited_once_with()
 
@@ -142,6 +153,10 @@ def _encaminhamentos(job: Job) -> list[str]:
     ]
 
 
+def _geracoes(job: Job) -> list[dict[str, Any]]:
+    return [p for p in job.publicadas("no-concluido") if p["no"] == "geracao_codigo"]
+
+
 async def test_codigo_que_falha_volta_ao_modelo_e_o_corrigido_segue_para_a_decisao(
     monkeypatch: pytest.MonkeyPatch, logs: list[dict[str, Any]]
 ) -> None:
@@ -155,6 +170,14 @@ async def test_codigo_que_falha_volta_ao_modelo_e_o_corrigido_segue_para_a_decis
 
     [primeiro, corrigido] = [c for _, c in worker.codigos()]
     assert primeiro != corrigido
+    # A linha do código corrigido aponta o resultado `erro_codigo` de que ele partiu.
+    [falhou] = worker.falhas
+    primeira, segunda = _geracoes(job)
+    assert primeira["conclusao"]["modo_geracao"] == "gerado"
+    assert "resultado_id" not in primeira
+    assert segunda["conclusao"]["modo_geracao"] == "correcao"
+    assert segunda["resultado_id"] == str(falhou)
+    assert segunda["codigo_gerado_id"] == corrigido
     comandos = job.publicadas("executar-codigo")
     assert [c["codigo_gerado_id"] for c in comandos] == [primeiro, corrigido]
     [_, prompt_da_correcao] = job.ambiente.modelo.seen_messages
@@ -181,6 +204,30 @@ async def test_codigo_que_falha_volta_ao_modelo_e_o_corrigido_segue_para_a_decis
     assert pedido["extra"]["posicao_do_codigo"] == 1
 
 
+async def test_a_reentrega_republica_a_trilha_do_codigo_corrigido_com_o_mesmo_evento_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A trilha do código corrigido falhou no broker; a reentrega do resultado que falhou
+    reexecuta a extração, e a linha republicada é a mesma."""
+    job = Job(monkeypatch)
+    worker = Worker(job, monkeypatch)
+    regra = job.original()
+    await job.abrir_ciclo(regra)
+    recusadas = job.recusar_uma_trilha(lambda p: p["conclusao"].get("modo_geracao") == "correcao")
+    falha = worker.gravar_falha(regra)
+    interrompida = await job.entregar(falha)
+    interrompida.nack.assert_awaited_once_with(requeue=True)
+
+    repetida = await job.entregar(falha)
+
+    repetida.ack.assert_awaited_once_with()
+    [recusada] = recusadas
+    [republicada] = [g for g in _geracoes(job) if g["conclusao"]["modo_geracao"] == "correcao"]
+    assert republicada["evento_id"] == recusada["evento_id"]
+    assert republicada["resultado_id"] == recusada["resultado_id"] == falha["resultado_id"]
+    assert republicada["codigo_gerado_id"] == recusada["codigo_gerado_id"]
+
+
 async def test_terceiro_codigo_que_falha_encerra_sem_nova_geracao(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -196,6 +243,13 @@ async def test_terceiro_codigo_que_falha_encerra_sem_nova_geracao(
 
     assert len(job.publicadas("executar-codigo")) == 3
     assert len(job.ambiente.modelo.seen_messages) == 3
+    # Cada correção parte do resultado que falhou logo antes dela.
+    primeiro_falhou, segundo_falhou, _ = worker.falhas
+    assert [(g["conclusao"]["modo_geracao"], g.get("resultado_id")) for g in _geracoes(job)] == [
+        ("gerado", None),
+        ("correcao", str(primeiro_falhou)),
+        ("correcao", str(segundo_falhou)),
+    ]
     assert _encaminhamentos(job) == ["correcao_codigo", "correcao_codigo", "fim"]
     assert _variacao(*PEDIDOS, pedidos) == {
         ("2", "excecao"): 1.0,
@@ -220,6 +274,12 @@ async def test_alternativa_da_taxa_nova_que_falha_e_corrigida_e_a_iteracao_conti
     await job.simular(alternativa, Decimal("1800"))
 
     assert [p["tentativa"] for p in job.propostas()] == [1, 2]
+    [falhou] = worker.falhas
+    assert [(g["conclusao"]["modo_geracao"], g.get("resultado_id")) for g in _geracoes(job)] == [
+        ("gerado", None),
+        ("gerado", None),
+        ("correcao", str(falhou)),
+    ]
     assert [r for r, _ in worker.codigos()] == [
         str(original),
         str(alternativa),

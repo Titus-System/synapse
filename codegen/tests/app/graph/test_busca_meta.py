@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from decimal import Decimal
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import pytest
 import simplejson
@@ -33,6 +33,8 @@ logs = observabilidade.logs
 class Gravador(Producers):
     def __init__(self) -> None:
         self.publicacoes: list[tuple[str, dict[str, Any]]] = []
+        # O que o broker recusou, para comparar com o que a reentrega republica.
+        self.recusadas: list[tuple[str, dict[str, Any]]] = []
         self.falhar: str | None = None
 
     async def _publicar(self, dto: Saida, nome: str) -> None:
@@ -40,6 +42,7 @@ class Gravador(Producers):
         oficial(nome).validate(payload)
         if nome == self.falhar:
             self.falhar = None
+            self.recusadas.append((nome, payload))
             raise RuntimeError("broker indisponível")
         self.publicacoes.append((nome, payload))
 
@@ -210,6 +213,34 @@ async def test_busca_publica_sem_solucao_com_motivo(ambiente: Ambiente, motivo: 
     )
 
 
+@pytest.mark.parametrize(
+    "modo", ["sucesso", "nao_monotonica", "intervalo_esgotado", "falha_execucao"]
+)
+async def test_a_linha_que_encerra_a_busca_publica_a_vencedora_o_desfecho_e_a_contagem(
+    ambiente: Ambiente, modo: str
+) -> None:
+    await ambiente.iniciar()
+    sugerida = await ambiente.completar(modo)
+
+    decisoes = [p for p in ambiente.producers.de("no-concluido") if p["no"] == "decisao"]
+    abertura, encerramento = decisoes
+    # A decisão que abriu a busca age sobre a simulação original e não traz desfecho de busca.
+    assert abertura["resultado_id"] == str(ambiente.original)
+    assert "desfecho_busca" not in abertura["conclusao"]
+    assert "candidatas_simuladas" not in abertura["conclusao"]
+    # A linha que encerra a busca mantém a chave própria, derivada do job e da versão da regra.
+    assert encerramento["evento_id"] == str(
+        uuid5(NAMESPACE_URL, f"synapse:{ambiente.job}:{ambiente.regra}:busca_meta")
+    )
+    conclusao = encerramento["conclusao"]
+    assert conclusao["desfecho_busca"] == ("encontrada" if modo == "sucesso" else modo)
+    assert conclusao["candidatas_simuladas"] == len(ambiente.producers.de("executar-codigo"))
+    if modo == "sucesso":
+        assert encerramento["resultado_id"] == sugerida["resultado_id"]
+    else:
+        assert "resultado_id" not in encerramento
+
+
 async def test_resultados_antigos_nao_avancam_a_candidata_pendente(ambiente: Ambiente) -> None:
     await ambiente.iniciar()
     primeiro = ambiente.gravar(Decimal("100"))
@@ -289,6 +320,21 @@ async def test_logs_e_metricas_do_fluxo(
     assert amostra(depois, "codegen_busca_meta_processamento_seconds_count", {}) > amostra(
         antes, "codegen_busca_meta_processamento_seconds_count", {}
     )
+    # A mesma contagem vai à métrica e à trilha, e a busca é observada uma vez.
+    [encerramento] = [
+        p for p in ambiente.producers.de("no-concluido") if "desfecho_busca" in p["conclusao"]
+    ]
+    candidatas = encerramento["conclusao"]["candidatas_simuladas"]
+    assert (
+        amostra(depois, "codegen_busca_meta_candidatos_sum", {})
+        - amostra(antes, "codegen_busca_meta_candidatos_sum", {})
+        == candidatas
+    )
+    assert (
+        amostra(depois, "codegen_busca_meta_candidatos_count", {})
+        - amostra(antes, "codegen_busca_meta_candidatos_count", {})
+        == 1
+    )
     schema = simplejson.loads((CONTRATOS / "observability/log.schema.json").read_bytes())
     validador = Draft202012Validator(schema, format_checker=FormatChecker())
     busca = [linha for linha in logs if linha["message"].startswith("sales target")]
@@ -353,6 +399,32 @@ async def test_republicacao_do_desfecho_preserva_meta_resultado_e_identidade(
     propostas = ambiente.producers.de("meta-venda-sugerida")
     assert len(propostas) == 2 and propostas[0] == propostas[1]
     assert len(ambiente.producers.de("executar-codigo")) == 1
+
+
+@pytest.mark.parametrize("modo", ["sucesso", "nao_monotonica"])
+async def test_a_republicacao_do_encerramento_repete_a_linha_da_trilha(
+    ambiente: Ambiente, modo: str
+) -> None:
+    """A linha que encerra a busca falhou no broker; a retomada a republica igual, com a mesma
+    chave, a mesma vencedora e a mesma contagem."""
+    await ambiente.iniciar()
+    ambiente.producers.falhar = "no-concluido"
+    with pytest.raises(RuntimeError, match="broker"):
+        await ambiente.completar(modo)
+    snapshot = await build_graph(ambiente.saver).aget_state(ambiente.config)
+
+    await ambiente.retomar(UUID(snapshot.values["resultado_id"]))
+
+    [(_, recusada)] = ambiente.producers.recusadas
+    republicada = ambiente.producers.de("no-concluido")[-1]
+    assert republicada["evento_id"] == recusada["evento_id"]
+    assert republicada.get("resultado_id") == recusada.get("resultado_id")
+    assert republicada["conclusao"] == recusada["conclusao"]
+    if modo == "sucesso":
+        assert (
+            republicada["resultado_id"]
+            == ambiente.producers.de("meta-venda-sugerida")[-1]["resultado_id"]
+        )
 
 
 async def test_regra_com_especificacoes_tambem_busca_meta(ambiente: Ambiente) -> None:

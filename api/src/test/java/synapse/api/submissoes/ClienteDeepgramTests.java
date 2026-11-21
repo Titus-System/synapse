@@ -13,6 +13,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import com.sun.net.httpserver.HttpServer;
 import com.networknt.schema.JsonSchemaFactory;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import synapse.api.core.config.AppProperties;
@@ -133,7 +135,7 @@ class ClienteDeepgramTests {
 			"audio/webm;codecs=opus,audio/webm", "audio/ogg; codecs=opus,audio/ogg" })
 	void enviaAudioBinarioComConfiguracaoFixaEPreservaTexto(String formato, String mime) {
 		byte[] audio = new byte[] { 0, 1, -1, 42 };
-		assertThat(cliente().transcrever(audio, formato)).isEqualTo(TEXTO);
+		assertThat(cliente().transcrever(audio, formato).texto()).isEqualTo(TEXTO);
 		assertThat(this.recebido).containsExactly(audio);
 		assertThat(this.contentType).isEqualTo(mime);
 		assertThat(this.autorizacao).isEqualTo("Token " + CHAVE);
@@ -252,7 +254,7 @@ class ClienteDeepgramTests {
 		assertThatThrownBy(() -> cliente.transcrever(new byte[] { 1 }, "audio/wav", erro.respostaInvalida()))
 			.isInstanceOf(TranscricaoPermanenteException.class);
 		this.resposta = SUCESSO;
-		assertThat(cliente.transcrever(new byte[] { 1 }, "audio/wav", true)).isEqualTo(TEXTO);
+		assertThat(cliente.transcrever(new byte[] { 1 }, "audio/wav", true).texto()).isEqualTo(TEXTO);
 		this.resposta = respostaInvalida;
 		assertThatThrownBy(() -> cliente.transcrever(new byte[] { 2 }, "audio/wav"))
 			.isInstanceOf(TranscricaoTransitoriaException.class);
@@ -261,7 +263,55 @@ class ClienteDeepgramTests {
 	@Test
 	void textoVazioValidoFicaParaOProcessamentoDecidir() {
 		this.resposta = SUCESSO.replace(TEXTO, "");
-		assertThat(cliente().transcrever(new byte[] { 1 }, "audio/wav")).isEmpty();
+		assertThat(cliente().transcrever(new byte[] { 1 }, "audio/wav").texto()).isEmpty();
+	}
+
+	@Test
+	void respostaComMetadadosRegistraONomeEAVersaoInformados() {
+		this.resposta = comMetadados("{\"models\":[\"id-do-modelo\"],\"model_info\":{\"id-do-modelo\":"
+				+ "{\"name\":\"2-general-nova\",\"version\":\"2024-01-09.29447\",\"arch\":\"nova-2\"}}}");
+		var obtida = cliente().transcrever(new byte[] { 1 }, "audio/wav");
+		assertThat(obtida.texto()).isEqualTo(TEXTO);
+		assertThat(obtida.modelo()).isEqualTo(new ModeloTranscricao("deepgram", "2-general-nova", "2024-01-09.29447"));
+	}
+
+	@Test
+	void respostaSemMetadadosRegistraOModeloPedidoSemVersao() {
+		var obtida = cliente().transcrever(new byte[] { 1 }, "audio/wav");
+		assertThat(obtida.texto()).isEqualTo(TEXTO);
+		assertThat(obtida.modelo()).isEqualTo(new ModeloTranscricao("deepgram", "nova-3", null));
+	}
+
+	@ParameterizedTest
+	@MethodSource("metadadosIlegiveis")
+	void metadadosIlegiveisRegistramOModeloPedidoEATranscricaoConclui(String metadados) {
+		this.resposta = comMetadados(metadados);
+		var obtida = cliente().transcrever(new byte[] { 1 }, "audio/wav");
+		assertThat(obtida.texto()).isEqualTo(TEXTO);
+		assertThat(obtida.modelo()).isEqualTo(new ModeloTranscricao("deepgram", "nova-3", null));
+	}
+
+	static Stream<String> metadadosIlegiveis() {
+		return Stream.of("null", "\"texto\"", "[]", "{\"models\":\"id\"}", "{\"models\":[1]}", "{\"models\":[\"id\"]}",
+				"{\"models\":[\"id\"],\"model_info\":[]}",
+				"{\"models\":[\"id\"],\"model_info\":{\"outro\":{\"name\":\"general-nova-3\"}}}",
+				"{\"models\":[\"id\"],\"model_info\":{\"id\":{\"name\":null,\"version\":\"2025-01-01.1\"}}}",
+				"{\"models\":[\"id\"],\"model_info\":{\"id\":{\"name\":\"\"}}}",
+				"{\"models\":[\"id\"],\"model_info\":{\"id\":{\"name\":\"nome com espaço\"}}}",
+				"{\"models\":[\"id\"],\"model_info\":{\"id\":{\"name\":\"nome\\nquebrado\"}}}",
+				"{\"models\":[\"id\"],\"model_info\":{\"id\":{\"name\":\"" + "a".repeat(101) + "\"}}}");
+	}
+
+	@Test
+	void versaoIlegivelFicaForaEONomeInformadoVale() {
+		this.resposta = comMetadados(
+				"{\"models\":[\"id\"],\"model_info\":{\"id\":{\"name\":\"general-nova-3\",\"version\":42}}}");
+		assertThat(cliente().transcrever(new byte[] { 1 }, "audio/wav").modelo())
+			.isEqualTo(new ModeloTranscricao("deepgram", "general-nova-3", null));
+	}
+
+	private static String comMetadados(String metadados) {
+		return "{\"metadata\":" + metadados + "," + SUCESSO.substring(1);
 	}
 
 	@Test
@@ -324,6 +374,13 @@ class ClienteDeepgramTests {
 			}
 			assertThat(logs.eventos().getLast().getFormattedMessage())
 				.isEqualTo(codigo == 200 ? "transcription finished" : "transcription failed");
+			if (codigo == 200) {
+				assertThat(new com.fasterxml.jackson.databind.ObjectMapper()
+					.readTree(CapturaDeLog.emJson(logs.eventos().getLast()))
+					.path("extra")
+					.path("model")
+					.asText()).isEqualTo("nova-3");
+			}
 		}
 	}
 

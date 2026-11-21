@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.UUID;
 
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -36,15 +37,18 @@ class BuscaMetaAnunciadaTests {
 
 	private static final JsonMapper JSON = new JsonMapper();
 
-	private static NoConcluidoDto decisao(UUID jobId) throws Exception {
+	private static NoConcluidoDto decisao(UUID jobId, @Nullable UUID resultadoId) throws Exception {
+		String resultado = (resultadoId != null) ? ",\"resultado_id\":\"%s\"".formatted(resultadoId) : "";
 		String corpo = """
 				{"evento_id":"%s","job_id":"%s","no":"decisao","concluido_em":"2026-10-18T21:36:27Z",
 				 "conclusao":{"resumo":"Fluxo encaminhado para a busca de uma meta maior.",
 				              "encaminhamento":"busca_meta"},
-				 "regra_id":"%s"}
-				""".formatted(UUID.randomUUID(), jobId, UUID.randomUUID());
+				 "regra_id":"%s"%s}
+				""".formatted(UUID.randomUUID(), jobId, UUID.randomUUID(), resultado);
 		ContratoDeEvento.validar("no-concluido", corpo);
-		return JSON.readValue(corpo, NoConcluidoDto.class);
+		NoConcluidoDto evento = JSON.readValue(corpo, NoConcluidoDto.class);
+		assertThat(evento.resultado_id()).isEqualTo(resultadoId);
+		return evento;
 	}
 
 	@ParameterizedTest
@@ -52,9 +56,11 @@ class BuscaMetaAnunciadaTests {
 	void oComecoEOFimDaBuscaSaoAnunciadosDepoisDeGravados(BuscaMetaAnunciada busca) throws Exception {
 		var servico = mock(JobEventosService.class);
 		var emissores = mock(EmissoresSse.class);
-		var consumidor = new NoConcluidoConsumidor(servico, emissores, new CorrelationContext());
+		var consumidor = new NoConcluidoConsumidor(servico, emissores, new CorrelationContext(),
+				new synapse.api.core.metrics.AppMetrics(
+						new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
 		UUID jobId = UUID.randomUUID();
-		NoConcluidoDto evento = decisao(jobId);
+		NoConcluidoDto evento = decisao(jobId, UUID.randomUUID());
 		when(servico.registrarNoConcluido(eq(jobId), any(), eq(EtapaDoGrafo.DECISAO), eq(evento))).thenReturn(busca);
 
 		try (CapturaDeLog captura = new CapturaDeLog(NoConcluidoConsumidor.class)) {
@@ -105,9 +111,11 @@ class BuscaMetaAnunciadaTests {
 	void semBuscaAbertaNadaVaiAoSse() throws Exception {
 		var servico = mock(JobEventosService.class);
 		var emissores = mock(EmissoresSse.class);
-		var consumidor = new NoConcluidoConsumidor(servico, emissores, new CorrelationContext());
+		var consumidor = new NoConcluidoConsumidor(servico, emissores, new CorrelationContext(),
+				new synapse.api.core.metrics.AppMetrics(
+						new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
 		UUID jobId = UUID.randomUUID();
-		NoConcluidoDto evento = decisao(jobId);
+		NoConcluidoDto evento = decisao(jobId, null);
 		when(servico.registrarNoConcluido(eq(jobId), any(), eq(EtapaDoGrafo.DECISAO), eq(evento)))
 			.thenReturn(BuscaMetaAnunciada.NENHUMA);
 

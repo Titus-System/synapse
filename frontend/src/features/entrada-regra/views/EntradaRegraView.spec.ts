@@ -71,7 +71,7 @@ describe('entrada da regra', () => {
     })
     const wrapper = await abrir()
     expect(wrapper.get('a[href="/jobs/regra-exemplo"]').text()).toContain('09/10/2026')
-    expect(wrapper.get('a[href="/arquivadas"]').text()).toContain('1')
+    expect(wrapper.find('a[href="/arquivadas"]').exists()).toBe(false)
     expect(wrapper.get('a[href="/nova-regra"]').attributes('href')).toBe('/nova-regra')
     wrapper.unmount()
   })

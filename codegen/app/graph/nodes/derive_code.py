@@ -76,8 +76,10 @@ async def derive_code(state: AgentState, config: RunnableConfig) -> AgentState:
                 job_id=job_id,
                 no=NO_GERACAO_CODIGO,
                 concluido_em=datetime.now(UTC),
-                conclusao=ConclusaoDaTrilha(resumo=RESUMO_DA_TRILHA),
+                conclusao=ConclusaoDaTrilha(resumo=RESUMO_DA_TRILHA, modo_geracao="derivado"),
                 regra_id=regra_id,
+                # O resultado de sucesso da versão de origem, de onde o código derivou.
+                resultado_id=origem.resultado_id,
                 prompt_id=origem.prompt_id,
                 codigo_gerado_id=codigo_gerado_id,
             )
