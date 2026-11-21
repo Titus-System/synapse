@@ -37,12 +37,12 @@ O **Synapse** é uma aplicação web inteligente criada para solucionar esse pro
 | Ranking | Prioridade | User Story (US) | Estimativa | Sprint |
 | :---: | :---: | :--- | :---: | :---: |
 | **01** | Alta | Como profissional de recursos humanos, quero a simulação dos futuros resultados da regra de negócio* processada, para verificar sua viabilidade. | 13 | 01 |
-| **02** | Alta | Como profissional de recursos humanos, quero a captura de voz e transcrição do conteúdo recebido, para que o início do fluxo no sistema seja prático. | 8 | 02 |
-| **03** | Alta | Como profissional de recursos humanos, quero a sugestão automática de possível adaptação da regra de negócio*, para evitar inviabilidade por incompatibilidade dos parâmetros. | 8 | 02 |
-| **04** | Média | Como auditor, quero o registro dos dados processados durante o fluxo principal de simulação, para averiguar as fontes dos dados obtidos ao final do processo. | 5 | 03 |
-| **05** | Média | Como auditor, quero que o sistema seja capaz de explicar todas as decisões tomadas durante o processo de simulação, para transparência dos resultados. | 8 | 03 |
-| **06** | Média | Como profissional de recursos humanos, quero a validação dos dados obtidos por voz, a fim de confirmar se os parâmetros da regra de negócio* foram recebidos e serão simulados de maneira correta. | 5 | 02 |
-| **07** | Baixa | Como profissional de recursos humanos, quero um relatório após a finalização de cada processo, identificando a regra de negócio finalizada e sua simulação, para gravar meu histórico e facilitar o acesso posterior. | 3 | 01 |
+| **02** | Baixa | Como profissional de recursos humanos, quero um relatório após a finalização de cada processo, identificando a regra de negócio finalizada e sua simulação, para gravar meu histórico e facilitar o acesso posterior. | 3 | 01 |
+| **03** | Alta | Como profissional de recursos humanos, quero a captura de voz e transcrição do conteúdo recebido, para que o início do fluxo no sistema seja prático. | 8 | 02 |
+| **04** | Alta | Como profissional de recursos humanos, quero a sugestão automática de possível adaptação da regra de negócio*, para evitar inviabilidade por incompatibilidade dos parâmetros. | 8 | 02 |
+| **05** | Média | Como auditor, quero o registro dos dados processados durante o fluxo principal de simulação, para averiguar as fontes dos dados obtidos ao final do processo. | 5 | 03 |
+| **06** | Média | Como auditor, quero que o sistema seja capaz de explicar todas as decisões tomadas durante o processo de simulação, para transparência dos resultados. | 8 | 03 |
+| **07** | Baixa | Como profissional de recursos humanos, quero a validação dos dados obtidos por voz, a fim de confirmar se os parâmetros da regra de negócio* foram recebidos e serão simulados de maneira correta. | 5 | 03 |
 
 > **Nota:** *Regra de negócio: Conjunto de parâmetros que definem as regras para o comissionamento após uma meta de vendas alcançada.
 
@@ -50,7 +50,7 @@ O **Synapse** é uma aplicação web inteligente criada para solucionar esse pro
 
 | Empresa | Ponto Focal |
 | :---: | :---: |
-| [Dom Rock](https://www.domrock.net/)) | Luiz Otavio / Andre Almeida |
+| [Dom Rock](https://www.domrock.net/) | Luiz Otavio / Andre Almeida |
 
 <div align="right">
   <sub>by Titus Systems - A força por trás do seu sucesso! 🗡️🌿</sub>
