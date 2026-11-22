@@ -82,33 +82,33 @@ O MVP da terceira sprint foca em auditoria, transparência das decisões da inte
   * **E** deve registrar essa correção para auditoria futura.
  
 ## 🎯 DoR - Definition of Ready
-- [ ] Título claro, descrição definida e objetivo compreendido;
-- [ ] Critérios de aceitação escritos;
-- [ ] Regras de negócio claras;
-- [ ] Foi estimada pela equipe;
-- [ ] Sem dependências bloqueadoras;
-- [ ] Compreensão validada com o time;
-- [ ] Mockup disponível;
-- [ ] Os dados de treinamento estão disponíveis;
+- [x] Título claro, descrição definida e objetivo compreendido;
+- [x] Critérios de aceitação escritos;
+- [x] Regras de negócio claras;
+- [x] Foi estimada pela equipe;
+- [x] Sem dependências bloqueadoras;
+- [x] Compreensão validada com o time;
+- [x] Mockup disponível;
+- [x] Os dados de treinamento estão disponíveis;
 
 ## 📄 Documentação
 
 Manual de **instalação** - [https://github.com/Titus-System/synapse/blob/main/docs/instalacao.md](https://github.com/Titus-System/synapse/blob/main/docs/instalacao.md)
 <br>
-Manual do **usuário** - [https://github.com/Titus-System/synapse/blob/main/docs/manual-usuario-synapse](https://github.com/Titus-System/synapse/blob/main/docs/manual-usuario-synapse)
+Manual do **usuário** - [https://github.com/Titus-System/synapse/blob/main/docs/manual-usuario-synapse.pdf](https://github.com/Titus-System/synapse/blob/main/docs/manual-usuario-synapse.pdf)
 
 ## 🎥 Demonstração Sprint 3
 
 [Vídeo será inserido aqui]
 
 ## 🏁 DoD - Definition of Done
-- [ ] Atende aos critérios de aceitação;
-- [ ] Atende aos requisitos funcionais;
-- [ ] Code review feita e validada;
-- [ ] Código fonte disponível e executável;
-- [ ] Teste de código realizado;
-- [ ] Teste realizado na visão do cliente pela P.O.;
-- [ ] Vídeo dos incrementos da Sprint no repositório do github.
+- [x] Atende aos critérios de aceitação;
+- [x] Atende aos requisitos funcionais;
+- [x] Code review feita e validada;
+- [x] Código fonte disponível e executável;
+- [x] Teste de código realizado;
+- [x] Teste realizado na visão do cliente pela P.O.;
+- [x] Vídeo dos incrementos da Sprint no repositório do github.
 
 <div align="right">
   <sub>by Titus Systems - A força por trás do seu sucesso! 🗡️🌿</sub>
