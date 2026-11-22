@@ -28,14 +28,15 @@ const resumo = (n: number, status: JobResumo['status'] = 'liberado'): JobResumo 
   competencias: ['2025-11'],
   criado_em: '2026-10-28T16:40:00Z',
 })
-function resposta(itens: JobResumo[], total = itens.length, pagina = 0): PaginaJobs {
-  return { itens, pagina, tamanho: 5, total }
+function resposta(itens: JobResumo[], total = itens.length, pagina = 0, tamanho = 100): PaginaJobs {
+  return { itens, pagina, tamanho, total }
 }
 function servir(itens: JobResumo[], total = itens.length) {
-  vi.mocked(apiClient.listarJobs).mockImplementation(async (parametros = {}) =>
-    parametros.situacao === (rota.atual.name === 'regras-arquivadas' ? 'arquivadas' : 'salvas')
-      ? resposta(itens, total, parametros.pagina)
-      : resposta([], 23),
+  vi.mocked(apiClient.listarJobs).mockImplementation(
+    async ({ situacao, pagina = 0, tamanho = 100 } = {}) =>
+      situacao === (rota.atual.name === 'regras-arquivadas' ? 'arquivadas' : 'salvas')
+        ? resposta(itens.slice(pagina * tamanho, (pagina + 1) * tamanho), total, pagina, tamanho)
+        : resposta([], 23),
   )
 }
 function montar() {
@@ -71,10 +72,9 @@ describe('repositório paginado', () => {
       const tela = montar()
       await flushPromises()
       expect(apiClient.listarJobs).toHaveBeenCalledWith(
-        { situacao, pagina: 0, tamanho: 5 },
+        { situacao, pagina: 0, tamanho: 100 },
         expect.any(AbortSignal),
       )
-      expect(apiClient.listarJobs).toHaveBeenCalledTimes(2)
       expect(apiClient.consultarJob).toHaveBeenCalledTimes(1)
       expect(tela.get('main').text()).toContain('Total: 14 regras registradas')
       expect(tela.get('aside').text()).toContain('Total Catalogado14')
@@ -144,11 +144,7 @@ describe('repositório paginado', () => {
     vi.mocked(apiClient.listarJobs).mockImplementation(async (p = {}) =>
       p.situacao === 'arquivadas'
         ? resposta([], 80)
-        : resposta(
-            p.pagina === 1 ? [resumo(6), resumo(7)] : [1, 2, 3, 4, 5].map((n) => resumo(n)),
-            7,
-            p.pagina,
-          ),
+        : resposta([1, 2, 3, 4, 5, 6, 7].map((n) => resumo(n))),
     )
     const tela = montar()
     await flushPromises()
@@ -188,7 +184,7 @@ describe('repositório paginado', () => {
   it('falha na contagem da outra lista não impede os cartões', async () => {
     vi.mocked(apiClient.listarJobs).mockImplementation(async (p = {}) => {
       if (p.situacao === 'arquivadas') throw new Error('falha')
-      return resposta([resumo(1)], 12)
+      return resposta(p.pagina ? [] : [resumo(1)], 12, p.pagina)
     })
     const tela = montar()
     await flushPromises()
@@ -257,5 +253,160 @@ describe('repositório paginado', () => {
     expect(tela.get('h1').text()).toContain('Arquivadas')
     expect(tela.findAll('article')).toHaveLength(0)
     expect(apiClient.consultarJob).not.toHaveBeenCalled()
+  })
+})
+
+describe('busca, ordenação e filtros', () => {
+  const titulos = (tela: VueWrapper) => tela.findAll('article h2').map((titulo) => titulo.text())
+
+  it('pesquisa pelo nome sem diferenciar acento nem caixa', async () => {
+    servir([resumo(1), { ...resumo(2), nome: 'Bônus trimestral' }, resumo(3)])
+    vi.mocked(apiClient.consultarJob).mockImplementation(async (id) =>
+      jobFixture({ id, nome: id === idDe(2) ? 'Bônus trimestral' : `Comissão ${id.slice(-1)}` }),
+    )
+    const tela = montar()
+    await flushPromises()
+    await tela.get('input[type="search"]').setValue('BONUS')
+    await flushPromises()
+    expect(titulos(tela)).toEqual(['Regra 1B7E02 · Bônus trimestral'])
+    expect(tela.get('main').text()).toContain('Mostrando 1–1 de 1 regras encontradas')
+    expect(tela.get('main').text()).toContain('Total: 3 regras registradas')
+  })
+
+  it('pesquisa na lógica consultando também as regras fora da página', async () => {
+    servir([1, 2, 3, 4, 5, 6, 7].map((n) => resumo(n)))
+    vi.mocked(apiClient.consultarJob).mockImplementation(async (id) => {
+      const regra = regraFixture(1)
+      regra.representacao.nucleo.loja = [id === idDe(7) ? 'joinville' : 'outra']
+      return jobFixture({ id, regras: [regra], nome: `Comissão ${id.slice(-1)}` })
+    })
+    const tela = montar()
+    await flushPromises()
+    expect(apiClient.consultarJob).toHaveBeenCalledTimes(5)
+    await tela.get('input[type="search"]').setValue('Joinville')
+    expect(tela.text()).toContain('Buscando também na lógica das regras')
+    await flushPromises()
+    expect(apiClient.consultarJob).toHaveBeenCalledTimes(7)
+    expect(titulos(tela)).toEqual(['Regra 1B7E07 · Comissão 7'])
+    expect(tela.text()).not.toContain('Buscando também na lógica das regras')
+  })
+
+  it('mostra vazio filtrado e limpa a pesquisa', async () => {
+    servir([resumo(1), resumo(2)])
+    const tela = montar()
+    await flushPromises()
+    await tela.get('input[type="search"]').setValue('inexistente')
+    await flushPromises()
+    expect(tela.text()).toContain('Nenhuma regra encontrada')
+    expect(tela.text()).not.toContain('Nenhuma regra salva ainda')
+    await tela.get('main [role="status"] button').trigger('click')
+    await flushPromises()
+    expect(tela.findAll('article')).toHaveLength(2)
+    expect((tela.get('input[type="search"]').element as HTMLInputElement).value).toBe('')
+  })
+
+  it('ordena por data e por nome', async () => {
+    servir([
+      { ...resumo(1), nome: 'Bravo', criado_em: '2026-10-02T10:00:00Z' },
+      { ...resumo(2), nome: 'alfa', criado_em: '2026-10-03T10:00:00Z' },
+      { ...resumo(3), nome: null, criado_em: '2026-10-01T10:00:00Z' },
+    ])
+    vi.mocked(apiClient.consultarJob).mockImplementation(async (id) =>
+      jobFixture({ id, nome: { [idDe(1)]: 'Bravo', [idDe(2)]: 'alfa' }[id] ?? null }),
+    )
+    const tela = montar()
+    await flushPromises()
+    expect(titulos(tela)).toEqual(['Regra 1B7E02 · alfa', 'Regra 1B7E01 · Bravo', 'Regra 1B7E03'])
+    await tela.get('select[aria-label="Ordenação"]').setValue('antigas')
+    expect(titulos(tela)).toEqual(['Regra 1B7E03', 'Regra 1B7E01 · Bravo', 'Regra 1B7E02 · alfa'])
+    await tela.get('select[aria-label="Ordenação"]').setValue('nome-asc')
+    expect(titulos(tela)).toEqual(['Regra 1B7E02 · alfa', 'Regra 1B7E01 · Bravo', 'Regra 1B7E03'])
+    await tela.get('select[aria-label="Ordenação"]').setValue('nome-desc')
+    expect(titulos(tela)).toEqual(['Regra 1B7E01 · Bravo', 'Regra 1B7E02 · alfa', 'Regra 1B7E03'])
+  })
+
+  it('filtra pelo período a partir da data atual', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-22T12:00:00Z'))
+    try {
+      servir([
+        { ...resumo(1), criado_em: '2026-11-20T10:00:00Z' },
+        { ...resumo(2), criado_em: '2026-10-10T10:00:00Z' },
+        { ...resumo(3), criado_em: '2025-06-10T10:00:00Z' },
+      ])
+      const tela = montar()
+      await flushPromises()
+      await tela.get('select[aria-label="Período"]').setValue('7d')
+      expect(tela.findAll('article')).toHaveLength(1)
+      await tela.get('select[aria-label="Período"]').setValue('90d')
+      expect(tela.findAll('article')).toHaveLength(2)
+      await tela.get('select[aria-label="Período"]').setValue('12m')
+      expect(tela.findAll('article')).toHaveLength(2)
+      await tela.get('select[aria-label="Período"]').setValue('todos')
+      expect(tela.findAll('article')).toHaveLength(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('aplica meses simulados e datas dos filtros avançados', async () => {
+    servir([
+      { ...resumo(1), competencias: ['2025-08'], criado_em: '2026-10-20T10:00:00Z' },
+      { ...resumo(2), competencias: ['2025-11'], criado_em: '2026-10-05T10:00:00Z' },
+      { ...resumo(3), competencias: ['2025-08', '2025-09'], criado_em: '2026-09-01T10:00:00Z' },
+    ])
+    const tela = montar()
+    await flushPromises()
+    const botao = tela.get('button[aria-controls="filtros-avancados"]')
+    expect(botao.attributes('aria-expanded')).toBe('false')
+    await botao.trigger('click')
+    expect(botao.attributes('aria-expanded')).toBe('true')
+    const painel = tela.get('#filtros-avancados')
+    expect(painel.findAll('label').map((rotulo) => rotulo.text())).toEqual(
+      expect.arrayContaining(['11/2025', '09/2025', '08/2025']),
+    )
+    const agosto = painel
+      .findAll('label')
+      .find((rotulo) => rotulo.text() === '08/2025')!
+      .get('input')
+    await agosto.setValue(true)
+    expect(titulos(tela).map((titulo) => titulo.slice(0, 12))).toEqual([
+      'Regra 1B7E01',
+      'Regra 1B7E03',
+    ])
+    expect(botao.text()).toContain('1')
+    await painel.findAll('input[type="date"]')[1]!.setValue('2026-10-19')
+    expect(titulos(tela).map((titulo) => titulo.slice(0, 12))).toEqual(['Regra 1B7E03'])
+    await painel.findAll('input[type="date"]')[0]!.setValue('2026-09-02')
+    expect(tela.text()).toContain('Nenhuma regra encontrada')
+    await painel
+      .findAll('button')
+      .find((b) => b.text() === 'Limpar filtros')!
+      .trigger('click')
+    expect(tela.findAll('article')).toHaveLength(3)
+    expect(botao.text()).not.toMatch(/\d/)
+  })
+
+  it('volta à primeira página quando um filtro muda', async () => {
+    servir([1, 2, 3, 4, 5, 6, 7].map((n) => resumo(n)))
+    const tela = montar()
+    await flushPromises()
+    await tela.get('button[aria-label="Próxima página"]').trigger('click')
+    await flushPromises()
+    expect(tela.get('main').text()).toContain('Mostrando 6–7 de 7')
+    await tela.get('select[aria-label="Ordenação"]').setValue('antigas')
+    expect(tela.get('main').text()).toContain('Mostrando 1–5 de 7')
+  })
+
+  it('volta aos filtros iniciais ao trocar de lista', async () => {
+    servir([resumo(1)])
+    const tela = montar()
+    await flushPromises()
+    await tela.get('input[type="search"]').setValue('inexistente')
+    rota.atual.name = 'regras-arquivadas'
+    servir([resumo(2, 'arquivado')])
+    await flushPromises()
+    expect((tela.get('input[type="search"]').element as HTMLInputElement).value).toBe('')
+    expect(tela.findAll('article')).toHaveLength(1)
   })
 })

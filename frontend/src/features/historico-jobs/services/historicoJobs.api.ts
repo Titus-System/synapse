@@ -10,6 +10,24 @@ export function listarPaginaDoHistorico(
   return apiClient.listarJobs({ situacao, pagina, tamanho }, signal)
 }
 
+// A busca, a ordenação e os filtros da tela rodam no navegador e precisam da lista inteira.
+export async function listarHistoricoCompleto(
+  situacao: SituacaoListagem,
+  signal?: AbortSignal,
+): Promise<{ itens: JobResumo[]; total: number }> {
+  const itens: JobResumo[] = []
+  let numero = 0
+  let total = 0
+  let pagina: PaginaJobs
+  do {
+    pagina = await apiClient.listarJobs({ situacao, pagina: numero, tamanho: 100 }, signal)
+    total = pagina.total
+    itens.push(...pagina.itens)
+    numero += 1
+  } while (itens.length < total && pagina.itens.length > 0)
+  return { itens, total }
+}
+
 export function consultarRegraDoHistorico(id: string, signal?: AbortSignal): Promise<Job> {
   return apiClient.consultarJob(id, signal)
 }
