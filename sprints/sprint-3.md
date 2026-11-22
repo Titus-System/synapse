@@ -91,6 +91,12 @@ O MVP da terceira sprint foca em auditoria, transparência das decisões da inte
 - [ ] Mockup disponível;
 - [ ] Os dados de treinamento estão disponíveis;
 
+## 📄 Documentação
+
+Manual de **instalação** - [https://github.com/Titus-System/synapse/blob/main/docs/instalacao.md](https://github.com/Titus-System/synapse/blob/main/docs/instalacao.md)
+<br>
+Manual do **usuário** - [https://github.com/Titus-System/synapse/blob/main/docs/manual-usuario-synapse](https://github.com/Titus-System/synapse/blob/main/docs/manual-usuario-synapse)
+
 ## 🎥 Demonstração Sprint 3
 
 [Vídeo será inserido aqui]
