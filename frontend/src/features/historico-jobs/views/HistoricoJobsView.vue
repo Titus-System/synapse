@@ -17,6 +17,7 @@ const {
   pagina,
   carregando,
   erro,
+  filtros,
   cartoes,
   totais,
   total,
@@ -24,8 +25,13 @@ const {
   numeros,
   primeira,
   ultima,
+  possuiRegras,
+  filtrosAtivos,
+  competencias,
+  buscandoNaLogica,
   carregar,
   irParaPagina,
+  limparFiltros,
 } = useHistoricoPaginado(tipo)
 function detalhes(id: string) {
   void roteador.push({ name: 'finalizar', params: { id } })
@@ -87,7 +93,12 @@ function reprocessar(id: string) {
           </h1>
         </div>
 
-        <ControlesRepositorio :total="totais[tipo]" />
+        <ControlesRepositorio
+          v-model:filtros="filtros"
+          :total="totais[tipo]"
+          :competencias="competencias"
+          :buscando="buscandoNaLogica"
+        />
 
         <div class="overflow-hidden rounded-2xl bg-white shadow-sm" :aria-busy="carregando">
           <div
@@ -108,6 +119,23 @@ function reprocessar(id: string) {
               @click="carregar()"
             >
               Tentar novamente
+            </button>
+          </div>
+          <div
+            v-else-if="cartoes.length === 0 && possuiRegras"
+            class="px-6 py-16 text-center"
+            role="status"
+          >
+            <h2 class="font-serif text-2xl font-semibold">Nenhuma regra encontrada</h2>
+            <p class="mt-3 text-sm text-[#806b5d]">
+              Nenhuma regra corresponde à pesquisa e aos filtros escolhidos.
+            </p>
+            <button
+              type="button"
+              class="mt-5 cursor-pointer rounded-lg bg-[#f87519] px-5 py-3 font-medium text-white hover:bg-[#dd620c]"
+              @click="limparFiltros()"
+            >
+              Limpar filtros
             </button>
           </div>
           <div v-else-if="cartoes.length === 0" class="px-6 py-16 text-center" role="status">
@@ -131,7 +159,7 @@ function reprocessar(id: string) {
               <p class="text-sm text-[#644b3e]">
                 Mostrando
                 <strong class="font-medium text-[#2e1a10]">{{ primeira }}–{{ ultima }}</strong> de
-                {{ total }} regras catalogadas
+                {{ total }} regras {{ filtrosAtivos ? 'encontradas' : 'catalogadas' }}
               </p>
               <nav class="flex items-center gap-1" aria-label="Paginação do histórico">
                 <button
