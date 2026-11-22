@@ -1,5 +1,21 @@
 <script setup lang="ts">
-defineProps<{ total?: number }>()
+import { computed, ref } from 'vue'
+import FiltrosAvancadosRepositorio from './FiltrosAvancadosRepositorio.vue'
+import {
+  OPCOES_DE_ORDENACAO,
+  OPCOES_DE_PERIODO,
+  quantidadeDeFiltrosAvancados,
+  type FiltrosDoHistorico,
+} from '../composables/filtrosDoHistorico'
+
+defineProps<{ total?: number; competencias: string[]; buscando: boolean }>()
+const filtros = defineModel<FiltrosDoHistorico>('filtros', { required: true })
+const avancadosAbertos = ref(false)
+const avancadosAtivos = computed(() => quantidadeDeFiltrosAvancados(filtros.value))
+
+function atualizar<C extends keyof FiltrosDoHistorico>(campo: C, valor: FiltrosDoHistorico[C]) {
+  filtros.value = { ...filtros.value, [campo]: valor }
+}
 </script>
 
 <template>
@@ -19,12 +35,19 @@ defineProps<{ total?: number }>()
     >
       Ordenar:
       <select
-        disabled
         aria-label="Ordenação"
-        title="Outras ordenações ainda não estão disponíveis."
-        class="min-w-0 cursor-not-allowed bg-transparent text-[#2e1a10]"
+        class="min-w-0 cursor-pointer bg-transparent text-[#2e1a10]"
+        :value="filtros.ordenacao"
+        @change="
+          atualizar(
+            'ordenacao',
+            ($event.target as HTMLSelectElement).value as FiltrosDoHistorico['ordenacao'],
+          )
+        "
       >
-        <option>Mais recentes primeiro</option>
+        <option v-for="opcao in OPCOES_DE_ORDENACAO" :key="opcao.valor" :value="opcao.valor">
+          {{ opcao.rotulo }}
+        </option>
       </select>
     </label>
     <label
@@ -32,16 +55,23 @@ defineProps<{ total?: number }>()
     >
       Período:
       <select
-        disabled
         aria-label="Período"
-        title="O filtro por período ainda não está disponível."
-        class="cursor-not-allowed bg-transparent text-[#2e1a10]"
+        class="cursor-pointer bg-transparent text-[#2e1a10]"
+        :value="filtros.periodo"
+        @change="
+          atualizar(
+            'periodo',
+            ($event.target as HTMLSelectElement).value as FiltrosDoHistorico['periodo'],
+          )
+        "
       >
-        <option>Todos os períodos</option>
+        <option v-for="opcao in OPCOES_DE_PERIODO" :key="opcao.valor" :value="opcao.valor">
+          {{ opcao.rotulo }}
+        </option>
       </select>
     </label>
   </div>
-  <div class="mb-7 flex flex-col gap-4 sm:flex-row" aria-label="Busca e filtros indisponíveis">
+  <div class="mb-4 flex flex-col gap-4 sm:flex-row" aria-label="Busca e filtros">
     <label class="relative min-w-0 flex-1">
       <span class="sr-only">Pesquisar regras</span>
       <svg
@@ -57,17 +87,19 @@ defineProps<{ total?: number }>()
       </svg>
       <input
         type="search"
-        disabled
         placeholder="Pesquisar por nome da regra, lógica SE/ENTÃO, variáveis ou operador…"
-        title="A pesquisa ainda não está disponível."
-        class="h-16 w-full cursor-not-allowed rounded-2xl bg-white pr-5 pl-14 text-sm shadow-sm placeholder:text-[#ac998e]"
+        class="h-16 w-full rounded-2xl bg-white pr-5 pl-14 text-sm shadow-sm placeholder:text-[#ac998e] focus-visible:outline-2 focus-visible:outline-[#f87519]"
+        :value="filtros.busca"
+        @input="atualizar('busca', ($event.target as HTMLInputElement).value)"
       />
     </label>
     <button
       type="button"
-      disabled
-      title="Os filtros avançados ainda não estão disponíveis."
-      class="flex h-16 cursor-not-allowed items-center justify-center gap-3 rounded-2xl bg-white px-6 font-medium shadow-sm"
+      class="flex h-16 cursor-pointer items-center justify-center gap-3 rounded-2xl px-6 font-medium shadow-sm"
+      :class="avancadosAbertos ? 'bg-[#fff0e9]' : 'bg-white hover:bg-[#fff8f5]'"
+      aria-controls="filtros-avancados"
+      :aria-expanded="avancadosAbertos"
+      @click="avancadosAbertos = !avancadosAbertos"
     >
       <svg
         class="size-5 text-[#a74700]"
@@ -80,6 +112,22 @@ defineProps<{ total?: number }>()
         <path d="M3 6h18M3 12h18M3 18h18M8 3v6M16 9v6M8 15v6" />
       </svg>
       Filtros Avançados
+      <span
+        v-if="avancadosAtivos"
+        class="grid size-6 place-items-center rounded-full bg-[#f87519] text-xs font-semibold text-white"
+        :aria-label="`${avancadosAtivos} ativos`"
+        >{{ avancadosAtivos }}</span
+      >
     </button>
   </div>
+  <p v-if="buscando" role="status" class="mb-4 px-2 text-sm text-[#806b5d]">
+    Buscando também na lógica das regras…
+  </p>
+  <FiltrosAvancadosRepositorio
+    v-if="avancadosAbertos"
+    id="filtros-avancados"
+    v-model:filtros="filtros"
+    :competencias="competencias"
+  />
+  <div v-else class="mb-3"></div>
 </template>
