@@ -99,7 +99,7 @@ Manual do **usuário** - [https://github.com/Titus-System/synapse/blob/main/docs
 
 ## 🎥 Demonstração Sprint 3
 
-[Vídeo será inserido aqui]
+https://github.com/user-attachments/assets/fd4ad7ca-c67c-4bec-a486-3993aa2124b2
 
 ## 🏁 DoD - Definition of Done
 - [x] Atende aos critérios de aceitação;
